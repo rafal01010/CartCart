@@ -82,7 +82,24 @@ Liveness check. It should be cheap and not depend on external providers.
 
 `GET /readyz`
 
-Readiness check. It should cover database availability and configured provider readiness or warnings.
+Readiness check. It currently reports configuration readiness. It should cover database availability and configured provider readiness or warnings once those milestones exist.
+
+## Error Responses
+
+API errors use a consistent JSON envelope:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Request validation failed.",
+    "request_id": "request-id",
+    "details": []
+  }
+}
+```
+
+The backend returns an `X-Request-ID` response header. If the client sends `X-Request-ID`, that value is echoed; otherwise the backend generates one. Validation errors and project application errors use this envelope.
 
 ## Core Schema Families
 
@@ -138,4 +155,3 @@ Errors should use a typed `ErrorEnvelope` with stable machine-readable codes and
 - Result not ready.
 
 Recoverable errors should include enough context for the frontend to offer retry, correction, or partial-result paths.
-

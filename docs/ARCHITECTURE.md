@@ -46,17 +46,27 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Application code and dependency manifests will be added in later implementation milestones.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, and configurable FastAPI OpenTelemetry instrumentation have been added. Product API behavior will be added in later implementation milestones.
 
 Current skeleton:
 
 ```text
 apps/
   backend/
+    app/
+      api/
+      core/
+      main.py
+    pyproject.toml
+    uv.lock
+    tests/
   frontend/
 docs/
 scripts/
   local/
+    init-backend.sh
+    start-backend.sh
+    sync-backend.sh
 AGENTS.md
 .gitignore
 README.md

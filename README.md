@@ -10,7 +10,7 @@ CartCart is not intended to be only a product recommendation app, a price compar
 
 ## Current Status
 
-The repository is in early setup. The monorepo skeleton exists, but the backend, frontend, dependencies, runtime scripts, and local app workflow have not been scaffolded yet.
+The repository is in early setup. The backend can start locally and exposes health/readiness endpoints, but product API behavior, persistence, live agents, and frontend scaffolding have not been implemented yet.
 
 ## What CartCart Should Do
 
@@ -61,9 +61,19 @@ README.md
 
 `data/` is not created yet. It is reserved for local persistence and artifacts once the backend reaches that milestone.
 
+Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required yet.
+
 ## Local Workflow
 
-There are no setup, install, start, test, or verification scripts yet. When those workflows are added, use committed scripts under `scripts/local/` rather than ad hoc commands.
+Use committed scripts under `scripts/local/` for repeatable local setup and operations rather than ad hoc commands.
+
+Current scripts:
+
+- `scripts/local/init-backend.sh` initializes the backend Python project in `apps/backend` if needed, then syncs dependencies. Run it after a fresh checkout before backend work.
+- `scripts/local/sync-backend.sh` syncs the backend environment from `apps/backend/pyproject.toml` and `apps/backend/uv.lock`. Run it after backend dependency metadata changes, when `apps/backend/.venv` is missing or stale, and before backend verification commands if dependencies may have changed.
+- `scripts/local/start-backend.sh` starts the local FastAPI backend. Run it when you want to manually exercise the backend API, such as checking `GET /healthz` or `GET /readyz`.
+
+Dedicated lint, type-check, test, stop, full-app startup, and frontend setup scripts will be added when those workflows exist.
 
 Script conventions:
 

@@ -105,6 +105,9 @@ The backend returns an `X-Request-ID` response header. If the client sends `X-Re
 
 Use Pydantic schemas for API contracts and agent structured outputs. Important schema families include:
 
+- Base primitives in `app.schemas`: UUID-based entity IDs, timezone-aware UTC timestamps, non-negative money amounts with ISO-style currency codes, country regions, confidence scores, source references, and schema version fields.
+- Intake and session schemas in `app.schemas`: `CreateSessionRequest`, `ShoppingSession`, `ShoppingBrief`, `BudgetConstraint`, `RegionPreference`, and `PreferenceConstraint`.
+- Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `SourceEvidence`, `EvidenceConflict`, provider metadata, source quality, video source primitives, transcript availability, and timestamp references.
 - `ShoppingSession`
 - `ShoppingBrief`
 - `BudgetConstraint`
@@ -133,6 +136,15 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 ## Schema Rules
 
 - Version important agent output schemas.
+- Use timezone-aware timestamps and normalize backend schema timestamps to UTC.
+- Use explicit money objects with amount and currency rather than bare numbers.
+- Use source reference objects when a later schema points at evidence or extracted source material.
+- Preserve field provenance for intake values, including `user_provided`, `inferred`, and `defaulted`.
+- Represent hard budgets as `hard_cap` and soft budgets as `preferred`.
+- Allow missing region at the schema layer; later intake/defaulting logic must mark any defaulted region as `defaulted`, not user-confirmed.
+- Require source URLs and provider metadata on search results and source snapshots.
+- Keep `SourceQuality` separate from analysis `Confidence`.
+- Preserve video source IDs, transcript availability, and timestamp references when evidence is video-derived.
 - Require source IDs for factual claims about products, prices, sellers, and reviews.
 - Separate known, unknown, and inferred fields.
 - Preserve confidence separately from evidence quality.

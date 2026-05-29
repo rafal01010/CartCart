@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 
 ## Purpose
 
@@ -178,7 +178,7 @@ The YouTube agent should produce structured evidence, not final recommendations.
 - `SearchPlan` and source strategy are owned by query planning.
 - `ProductListing`, `SourceSnapshot`, and `SourceEvidence` are produced by deterministic extraction first, with extraction review only when needed.
 - `DeduplicationDecision` records duplicate reasoning and must preserve uncertain cases.
-- `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status and source references.
+- `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status, source references, timestamped transcript evidence where available, explicit transcript gaps where unavailable, and sponsorship/affiliate-bias signals.
 - `ListingTrustAssessment` is the seller/listing trust boundary and must remain separate from product desirability.
 - `CategoryAnalysis` is the product/category analysis boundary.
 - `RecommendationBundle` is the comparison and decision boundary.

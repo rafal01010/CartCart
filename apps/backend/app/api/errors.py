@@ -4,24 +4,13 @@ from uuid import uuid4
 from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from app.core.errors import ApplicationError
+from app.schemas.errors import ErrorBody, ErrorEnvelope
 
 
 REQUEST_ID_HEADER = "X-Request-ID"
-
-
-class ErrorBody(BaseModel):
-    code: str
-    message: str
-    request_id: str
-    details: Any | None = None
-
-
-class ErrorEnvelope(BaseModel):
-    error: ErrorBody
 
 
 def get_request_id(request: Request) -> str:

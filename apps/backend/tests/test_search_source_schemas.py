@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas import (
+    ChannelSignal,
     Confidence,
     ConfidenceLevel,
     ConflictSeverity,
@@ -16,13 +17,18 @@ from app.schemas import (
     SearchQuery,
     SearchResult,
     SourceEvidence,
+    SourceId,
     SourceQuality,
     SourceQualityLevel,
+    SourceReference,
     SourceSnapshot,
     SourceType,
     TimestampReference,
     TranscriptAvailability,
+    VideoReviewEvidence,
+    VideoReviewEvidenceBundle,
     VideoSource,
+    VideoTranscriptSegment,
     new_id,
 )
 
@@ -56,14 +62,25 @@ def make_quality(level: SourceQualityLevel = SourceQualityLevel.ADEQUATE) -> Sou
     )
 
 
-def make_video() -> VideoSource:
+def make_video(
+    transcript_availability: TranscriptAvailability = TranscriptAvailability.UNAVAILABLE,
+) -> VideoSource:
     return VideoSource(
         video_id="video-123",
         url="https://www.youtube.com/watch?v=video-123",
         title="Long-term laptop review",
         channel_name="Review Channel",
         published_at="2026-05-29T00:00:00Z",
-        transcript_availability=TranscriptAvailability.UNAVAILABLE,
+        transcript_availability=transcript_availability,
+    )
+
+
+def make_source_reference(source_id: SourceId) -> SourceReference:
+    return SourceReference(
+        source_id=source_id,
+        url="https://www.youtube.com/watch?v=video-123",
+        title="Long-term laptop review",
+        accessed_at="2026-05-29T00:30:00Z",
     )
 
 
@@ -196,6 +213,164 @@ def test_video_evidence_requires_video_context_and_supports_timestamp_references
 def test_timestamp_reference_rejects_end_before_start() -> None:
     with pytest.raises(ValidationError):
         TimestampReference(start_seconds=30.0, end_seconds=29.9)
+
+
+def test_video_review_bundle_supports_transcripts_and_timestamped_evidence() -> None:
+    source_id = new_id()
+    video = make_video(TranscriptAvailability.AVAILABLE)
+    segment = VideoTranscriptSegment(
+        video_id=video.video_id,
+        start_seconds=92.5,
+        end_seconds=104.0,
+        text="After six months the battery life dropped by about an hour.",
+    )
+    evidence = VideoReviewEvidence(
+        source_id=source_id,
+        video_id=video.video_id,
+        claim="The reviewer says battery life dropped after six months.",
+        confidence=make_confidence(),
+        source_quality=make_quality(),
+        timestamp_references=(
+            TimestampReference(start_seconds=92.5, end_seconds=104.0, label="Battery"),
+        ),
+        transcript_segment_ids=(segment.segment_id,),
+        sponsorship_disclosed=False,
+        affiliate_links_disclosed=True,
+        affiliate_bias_risk=Confidence(
+            score=0.28,
+            level=ConfidenceLevel.LOW,
+            rationale="Affiliate links are disclosed but the claim is transcript-backed.",
+        ),
+    )
+    bundle = VideoReviewEvidenceBundle(
+        videos=(video,),
+        source_references=(make_source_reference(source_id),),
+        transcript_segments=(segment,),
+        evidence=(evidence,),
+    )
+
+    assert bundle.videos[0].transcript_availability == TranscriptAvailability.AVAILABLE
+    assert bundle.transcript_segments[0].text is not None
+    assert bundle.evidence[0].timestamp_references[0].start_seconds == 92.5
+    assert bundle.evidence[0].affiliate_links_disclosed is True
+
+
+def test_video_review_bundle_supports_videos_without_transcripts_as_metadata_only() -> None:
+    source_id = new_id()
+    video = VideoSource(
+        video_id="video-456",
+        url="https://www.youtube.com/watch?v=video-456",
+        title="Sponsored launch overview",
+        channel_name="Brand Review Channel",
+        transcript_availability=TranscriptAvailability.UNAVAILABLE,
+        channel_signals=(
+            ChannelSignal.REVIEW_FOCUSED,
+            ChannelSignal.SPONSORSHIP_DISCLOSED,
+            ChannelSignal.AFFILIATE_LINKS_DISCLOSED,
+        ),
+        sponsorship_disclosed=True,
+        affiliate_links_disclosed=True,
+        affiliate_bias_risk=Confidence(
+            score=0.7,
+            level=ConfidenceLevel.HIGH,
+            rationale="The video discloses sponsorship and affiliate links.",
+        ),
+        bias_notes="Treat as metadata-only due to unavailable transcript.",
+    )
+    evidence = VideoReviewEvidence(
+        source_id=source_id,
+        video_id=video.video_id,
+        claim=(
+            "The video exists as a sponsored overview, but no "
+            "transcript-backed claim was extracted."
+        ),
+        confidence=Confidence(
+            score=0.42,
+            level=ConfidenceLevel.LOW,
+            rationale="Only title, channel, and disclosure metadata are available.",
+        ),
+        source_quality=make_quality(SourceQualityLevel.WEAK),
+        metadata_only=True,
+        sponsorship_disclosed=True,
+        affiliate_links_disclosed=True,
+        affiliate_bias_risk=video.affiliate_bias_risk,
+    )
+    bundle = VideoReviewEvidenceBundle(
+        videos=(video,),
+        source_references=(
+            SourceReference(
+                source_id=source_id,
+                url=video.url,
+                title=video.title,
+            ),
+        ),
+        evidence=(evidence,),
+    )
+
+    assert bundle.transcript_segments == ()
+    assert bundle.evidence[0].metadata_only is True
+    assert bundle.videos[0].channel_signals[0] == ChannelSignal.REVIEW_FOCUSED
+
+    with pytest.raises(ValidationError):
+        VideoReviewEvidence(
+            source_id=source_id,
+            video_id=video.video_id,
+            claim="Metadata-only evidence cannot cite a timestamp.",
+            confidence=make_confidence(),
+            source_quality=make_quality(),
+            metadata_only=True,
+            timestamp_references=(TimestampReference(start_seconds=15.0),),
+        )
+
+
+def test_video_review_bundle_preserves_explicit_transcript_gaps() -> None:
+    source_id = new_id()
+    video = make_video(TranscriptAvailability.PARTIAL)
+    gap = VideoTranscriptSegment(
+        video_id=video.video_id,
+        start_seconds=210.0,
+        end_seconds=245.0,
+        availability=TranscriptAvailability.RESTRICTED,
+        gap_reason="Captions are unavailable for the long-term durability discussion.",
+    )
+    evidence = VideoReviewEvidence(
+        source_id=source_id,
+        video_id=video.video_id,
+        claim=(
+            "The video appears to discuss durability, but the transcript is "
+            "missing for that section."
+        ),
+        confidence=Confidence(
+            score=0.25,
+            level=ConfidenceLevel.LOW,
+            rationale="Timestamp is known, but the transcript text is unavailable.",
+        ),
+        source_quality=make_quality(SourceQualityLevel.MIXED),
+        timestamp_references=(
+            TimestampReference(start_seconds=210.0, end_seconds=245.0),
+        ),
+        transcript_segment_ids=(gap.segment_id,),
+        transcript_gap="Missing transcript text prevents extracting a durability claim.",
+    )
+    bundle = VideoReviewEvidenceBundle(
+        videos=(video,),
+        source_references=(make_source_reference(source_id),),
+        transcript_segments=(gap,),
+        evidence=(evidence,),
+        transcript_gap_notes=("Durability segment transcript is restricted.",),
+    )
+
+    assert bundle.videos[0].transcript_availability == TranscriptAvailability.PARTIAL
+    assert bundle.transcript_segments[0].text is None
+    assert bundle.transcript_segments[0].gap_reason is not None
+    assert bundle.evidence[0].transcript_gap is not None
+
+    with pytest.raises(ValidationError):
+        VideoTranscriptSegment(
+            video_id=video.video_id,
+            start_seconds=210.0,
+            availability=TranscriptAvailability.RESTRICTED,
+        )
 
 
 def test_material_conflict_requires_multiple_evidence_records() -> None:

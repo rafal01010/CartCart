@@ -5,7 +5,7 @@ Last updated: 2026-05-29
 
 ## Purpose
 
-This file records accepted and pending product/architecture decisions that affect implementation. Pending decisions may have a current recommendation, but should be confirmed before the checklist task that depends on them.
+This file records accepted and pending product/architecture decisions that affect implementation. Pending decisions may have a current recommendation, but should be confirmed before dependent implementation work begins.
 
 Status meanings:
 

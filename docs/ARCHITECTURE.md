@@ -44,9 +44,26 @@ Local tooling direction:
 - `pnpm` for frontend dependency management.
 - Docker Compose later for deployment-like local runs.
 
-## Intended Repository Shape
+## Repository Shape
 
-The application has not been scaffolded yet. The intended shape is:
+The initial monorepo skeleton exists. Application code and dependency manifests will be added in later implementation milestones.
+
+Current skeleton:
+
+```text
+apps/
+  backend/
+  frontend/
+docs/
+scripts/
+  local/
+AGENTS.md
+.gitignore
+README.md
+supported_agents.md
+```
+
+Intended application shape after backend, frontend, and local scripts are scaffolded:
 
 ```text
 apps/
@@ -74,6 +91,17 @@ docs/
   API.md
   EVALUATION.md
   OPERATIONS.md
+scripts/
+  local/
+    init-backend.sh
+    sync-backend.sh
+    init-frontend.sh
+    sync-frontend.sh
+    start-backend.sh
+    start-frontend.sh
+    start-app.sh
+    stop-app.sh
+    restart-app.sh
 AGENTS.md
 supported_agents.md
 ```

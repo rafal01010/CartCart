@@ -206,7 +206,7 @@ When introducing or changing an agent:
 2. Record the decision and rationale in `docs/DECISIONS.md`.
 3. Identify ownership, routing scope, fallback, input/output schema, permitted tools/providers, guardrails, compliance constraints, trace expectations, and necessary eval cases.
 4. Implement or update the executable registry only in the dedicated implementation task.
-5. Implement the agent only in its dedicated checklist task.
+5. Implement the agent only in its dedicated implementation milestone.
 6. Add routing tests, schema tests, trace expectations, provider fixtures where relevant, and eval cases.
 7. Update status to `implemented` only after code, tests, and eval coverage pass.
 

@@ -14,7 +14,7 @@ The MVP is local-first:
 - No cross-session user preference profiling.
 - External search, extraction, model, and source-intelligence providers are configured explicitly by environment variables when implementation reaches those milestones.
 
-The application has not been scaffolded yet. Commands in this document describe intended operational direction, not current runnable app commands.
+The initial monorepo skeleton exists under `apps/backend`, `apps/frontend`, `docs`, and `scripts/local`. No backend, frontend, dependency, or runtime scripts have been scaffolded yet, so commands in this document describe intended operational direction rather than current runnable app commands.
 
 ## Expected Services
 
@@ -134,4 +134,3 @@ MVP should avoid storing cross-session preference profiles. Persist local eviden
 Logs and traces should avoid secrets and should not include full sensitive source content by default. Environment variables and provider keys must not be committed.
 
 Seller/listing legitimacy is operationally important. Suspicious deterministic flags should not be silently overridden by agent output, and user-visible warnings should be preserved where they materially affect buying safety.
-

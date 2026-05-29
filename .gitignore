@@ -149,6 +149,9 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.*.example
 .envrc
 .venv
 env/
@@ -216,6 +219,48 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CartCart local runtime artifacts
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+local.db*
+local.sqlite*
+
+# Frontend build and test output
+apps/frontend/.svelte-kit/
+apps/frontend/build/
+apps/frontend/dist/
+apps/frontend/.vercel/
+apps/frontend/test-results/
+apps/frontend/playwright-report/
+apps/frontend/blob-report/
+
+# Playwright artifacts from root or future package workspaces
+test-results/
+playwright-report/
+blob-report/
+
+# Local traces and eval output
+traces/
+local-traces/
+.local-traces/
+otel-traces/
+eval-results/
+eval-output/
+apps/backend/eval-results/
+apps/backend/eval-output/
+apps/backend/app/evals/output/
 
 # Local planning docs not uploaded to GitHub
 cartcart_codex_initial_prompt*

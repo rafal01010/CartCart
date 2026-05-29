@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local planning docs not uploaded to GitHub
+cartcart_codex_initial_prompt*
+IMPLEMENTATION_PLAN.md

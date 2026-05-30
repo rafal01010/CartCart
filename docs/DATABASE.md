@@ -36,6 +36,7 @@ product evidence gathered during runs, and versioned recommendation results.
 shopping_sessions
   -> shopping_runs
      -> run_events
+     -> refinement_requests
      -> search_plans -> search_results -> source_snapshots -> source_evidence
      -> video_sources / video_transcript_segments / video_review_evidence_bundles
      -> canonical_products -> product_listings
@@ -93,6 +94,20 @@ Stores ordered progress events for a run, suitable for status history and SSE.
 | `error` | `JSON` | Yes | Optional structured error details. |
 
 Constraint: unique `(run_id, sequence)`.
+
+### `refinement_requests`
+
+Stores user refinement requests and links each request to the new stub run that
+will eventually execute the refinement.
+
+| Column | Type | Null | Purpose |
+| --- | --- | --- | --- |
+| `refinement_id` | `String(36)` | No | Primary key. |
+| `session_id` | `String(36)` | No | FK to `shopping_sessions.session_id`. |
+| `run_id` | `String(36)` | No | FK to the new `shopping_runs.run_id`. |
+| `instruction` | `String(1000)` | No | User-supplied refinement instruction. |
+| `created_at` | `String(35)` | No | Creation timestamp. |
+| `refinement` | `JSON` | No | Full `RefinementRequest` payload. |
 
 ### `search_plans`
 
@@ -375,6 +390,7 @@ lookup.
 | --- | --- |
 | `shopping_runs` | `ix_shopping_runs_session_id(session_id)` |
 | `run_events` | `ix_run_events_run_id(run_id)`, `ix_run_events_run_id_sequence(run_id, sequence)` |
+| `refinement_requests` | `ix_refinement_requests_session_id(session_id)`, `ix_refinement_requests_run_id(run_id)` |
 | `search_plans` | `ix_search_plans_run_id(run_id)` |
 | `search_results` | `ix_search_results_run_id(run_id)`, `ix_search_results_plan_id(plan_id)`, `ix_search_results_url(url)`, `ix_search_results_provider_name(provider_name)`, `ix_search_results_provider_result_id(provider_name, provider_result_id)`, `ix_search_results_provider_query_id(provider_name, provider_query_id)` |
 | `source_snapshots` | `ix_source_snapshots_run_id(run_id)`, `ix_source_snapshots_search_result_id(search_result_id)`, `ix_source_snapshots_url(url)`, `ix_source_snapshots_provider_name(provider_name)`, `ix_source_snapshots_provider_result_id(provider_name, provider_result_id)`, `ix_source_snapshots_provider_query_id(provider_name, provider_query_id)` |
@@ -425,9 +441,9 @@ provider/extraction tasks need them.
 
 ## Known Future Schema Areas
 
-Future checklist sections may add or alter schema for refinement requests,
-provider fixture recording/replay, extraction normalization, deduplication
-decisions, richer trust signals, live agent cost/token tracking, eval run
-summaries, telemetry privacy controls, backup/restore metadata, or a future
-Postgres migration path. New shipped schema changes should be represented as
-incremental Alembic migrations after the current `0001` baseline.
+Future checklist sections may add or alter schema for provider fixture
+recording/replay, extraction normalization, deduplication decisions, richer
+trust signals, live agent cost/token tracking, eval run summaries, telemetry
+privacy controls, backup/restore metadata, or a future Postgres migration path.
+New shipped schema changes should be represented as incremental Alembic
+migrations after the current `0001` baseline.

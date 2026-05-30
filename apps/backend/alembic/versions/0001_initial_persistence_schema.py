@@ -98,6 +98,19 @@ def upgrade() -> None:
     )
     op.create_index('ix_run_events_run_id', 'run_events', ['run_id'], unique=False)
     op.create_index('ix_run_events_run_id_sequence', 'run_events', ['run_id', 'sequence'], unique=False)
+    op.create_table('refinement_requests',
+    sa.Column('refinement_id', sa.String(length=36), nullable=False),
+    sa.Column('session_id', sa.String(length=36), nullable=False),
+    sa.Column('run_id', sa.String(length=36), nullable=False),
+    sa.Column('instruction', sa.String(length=1000), nullable=False),
+    sa.Column('created_at', sa.String(length=35), nullable=False),
+    sa.Column('refinement', sa.JSON(), nullable=False),
+    sa.ForeignKeyConstraint(['run_id'], ['shopping_runs.run_id'], name=op.f('fk_refinement_requests_run_id_shopping_runs')),
+    sa.ForeignKeyConstraint(['session_id'], ['shopping_sessions.session_id'], name=op.f('fk_refinement_requests_session_id_shopping_sessions')),
+    sa.PrimaryKeyConstraint('refinement_id', name=op.f('pk_refinement_requests'))
+    )
+    op.create_index('ix_refinement_requests_run_id', 'refinement_requests', ['run_id'], unique=False)
+    op.create_index('ix_refinement_requests_session_id', 'refinement_requests', ['session_id'], unique=False)
     op.create_table('search_plans',
     sa.Column('plan_id', sa.String(length=36), nullable=False),
     sa.Column('run_id', sa.String(length=36), nullable=False),
@@ -417,6 +430,9 @@ def downgrade() -> None:
     op.drop_index('ix_run_events_run_id_sequence', table_name='run_events')
     op.drop_index('ix_run_events_run_id', table_name='run_events')
     op.drop_table('run_events')
+    op.drop_index('ix_refinement_requests_session_id', table_name='refinement_requests')
+    op.drop_index('ix_refinement_requests_run_id', table_name='refinement_requests')
+    op.drop_table('refinement_requests')
     op.drop_index('ix_comparison_matrices_run_id', table_name='comparison_matrices')
     op.drop_table('comparison_matrices')
     op.drop_index('ix_canonical_products_run_id', table_name='canonical_products')

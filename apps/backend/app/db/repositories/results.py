@@ -12,13 +12,14 @@ from app.db.models.results import (
     RecommendationBundleRecord,
     ResultVersionRecord,
 )
+from app.db.models.runs import ShoppingRunRecordModel
 from app.schemas.analysis import (
     CategoryAnalysis,
     ComparisonMatrix,
     ListingTrustAssessment,
     RecommendationBundle,
 )
-from app.schemas.ids import CandidateId, RunId, new_id
+from app.schemas.ids import CandidateId, RunId, SessionId, new_id
 from app.schemas.runs import AgentRunRecord
 from app.schemas.timestamps import utc_now
 
@@ -235,6 +236,45 @@ class ResultRepository:
         if version_record is None:
             return None
 
+        return await self._load_result_bundle_from_version(version_record)
+
+    async def load_latest_result_bundle_for_session(
+        self,
+        session_id: SessionId,
+    ) -> SavedResultBundle | None:
+        version_statement: Select[tuple[ResultVersionRecord]] = (
+            select(ResultVersionRecord)
+            .join(
+                ShoppingRunRecordModel,
+                ResultVersionRecord.run_id == ShoppingRunRecordModel.run_id,
+            )
+            .where(ShoppingRunRecordModel.session_id == str(session_id))
+            .order_by(
+                ResultVersionRecord.created_at.desc(),
+                ResultVersionRecord.version.desc(),
+            )
+            .limit(1)
+        )
+        version_record = await self._session.scalar(version_statement)
+        if version_record is None:
+            return None
+
+        return await self._load_result_bundle_from_version(version_record)
+
+    async def _next_result_version(self, run_id: RunId) -> int:
+        statement = select(func.max(ResultVersionRecord.version)).where(
+            ResultVersionRecord.run_id == str(run_id)
+        )
+        current_version = await self._session.scalar(statement)
+        if current_version is None:
+            return 1
+        return current_version + 1
+
+    async def _load_result_bundle_from_version(
+        self,
+        version_record: ResultVersionRecord,
+    ) -> SavedResultBundle | None:
+        run_id = UUID(version_record.run_id)
         comparison_matrix = await self.get_comparison_matrix(
             UUID(version_record.comparison_matrix_id)
         )
@@ -252,15 +292,6 @@ class ResultRepository:
             comparison_matrix=comparison_matrix,
             recommendation_bundle=recommendation_bundle,
         )
-
-    async def _next_result_version(self, run_id: RunId) -> int:
-        statement = select(func.max(ResultVersionRecord.version)).where(
-            ResultVersionRecord.run_id == str(run_id)
-        )
-        current_version = await self._session.scalar(statement)
-        if current_version is None:
-            return 1
-        return current_version + 1
 
 
 def _to_result_version(record: ResultVersionRecord) -> ResultVersion:

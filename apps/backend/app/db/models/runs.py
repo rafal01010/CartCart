@@ -7,7 +7,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.schemas.errors import ErrorEnvelope
-from app.schemas.runs import RunEvent, RunStage, RunStatus, ShoppingRunRecord
+from app.schemas.runs import (
+    RefinementRequest,
+    RunEvent,
+    RunStage,
+    RunStatus,
+    ShoppingRunRecord,
+)
+
+
+def _dump_json(value: RefinementRequest) -> dict[str, Any]:
+    return value.model_dump(mode="json")
 
 
 def _dump_error(error: ErrorEnvelope | None) -> dict[str, Any] | None:
@@ -137,3 +147,42 @@ class RunEventRecord(Base):
             occurred_at=datetime.fromisoformat(self.occurred_at),
             error=_load_error(self.error),
         )
+
+
+class RefinementRequestRecord(Base):
+    __tablename__ = "refinement_requests"
+    __table_args__ = (
+        Index("ix_refinement_requests_session_id", "session_id"),
+        Index("ix_refinement_requests_run_id", "run_id"),
+    )
+
+    refinement_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("shopping_sessions.session_id"),
+        nullable=False,
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("shopping_runs.run_id"),
+        nullable=False,
+    )
+    instruction: Mapped[str] = mapped_column(String(1000), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(35), nullable=False)
+    refinement: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    @classmethod
+    def from_schema(cls, refinement: RefinementRequest) -> "RefinementRequestRecord":
+        if refinement.run_id is None:
+            raise ValueError("persisted refinement requests require run_id.")
+        return cls(
+            refinement_id=str(refinement.refinement_id),
+            session_id=str(refinement.session_id),
+            run_id=str(refinement.run_id),
+            instruction=refinement.instruction,
+            created_at=refinement.created_at.isoformat(),
+            refinement=_dump_json(refinement),
+        )
+
+    def to_schema(self) -> RefinementRequest:
+        return RefinementRequest.model_validate(self.refinement)

@@ -12,7 +12,11 @@ from app.db.models.results import (
     RecommendationBundleRecord,
     ResultVersionRecord,
 )
-from app.db.models.runs import RunEventRecord, ShoppingRunRecordModel
+from app.db.models.runs import (
+    RefinementRequestRecord,
+    RunEventRecord,
+    ShoppingRunRecordModel,
+)
 from app.db.models.search_sources import (
     SearchPlanRecord,
     SearchResultRecord,
@@ -36,6 +40,7 @@ __all__ = [
     "ComparisonMatrixRecord",
     "ListingTrustAssessmentRecord",
     "ProductListingRecord",
+    "RefinementRequestRecord",
     "RecommendationBundleRecord",
     "ResultVersionRecord",
     "SearchPlanRecord",

@@ -1,6 +1,6 @@
 # CartCart API
 
-Status: Initial public API shape for planning
+Status: Initial public API shape with session, run, result, and product endpoints implemented
 Last updated: 2026-05-30
 
 ## Contract Direction
@@ -40,37 +40,79 @@ GET    /metrics
 
 Creates a local shopping session from a natural-language query, region, optional budget, and optional preferences. The response should include the session ID, original input, current inferred or user-provided brief fields when available, and timestamps.
 
+Current implementation accepts `CreateSessionRequest` and returns `ShoppingSession`.
+The initial `current_brief` preserves the original query plus any user-provided
+region, budget, constraints, and preferences. Category inference is not performed
+by this endpoint yet.
+
 `GET /api/sessions/{session_id}`
 
 Loads persisted session state, including current brief, known products, latest run summary, and latest result metadata if available.
+
+Current implementation returns the persisted session fields plus
+`user_added_products`. Run and result summary fields will be added by their later
+endpoint milestones.
 
 `PATCH /api/sessions/{session_id}/brief`
 
 Updates user-correctable brief fields such as inferred category, region, budget, constraints, and preferences. This should not silently overwrite historical run outputs.
 
+Current implementation accepts a partial brief correction body with these fields:
+`category`, `category_source`, `region`, `budget`, `constraints`, and
+`preferences`. Omitted fields keep their existing values. Updating `category`
+requires an explicit `category_source`; sending `null` for nullable fields clears
+them. The response returns the updated `ShoppingSession`.
+
 `POST /api/sessions/{session_id}/runs`
 
 Starts a discovery/analysis run from the current session state. Runs should persist status, stage summaries, trace IDs, and result versions.
+
+Current implementation creates a persisted stub `ShoppingRunRecord` for an
+existing session with `status: "pending"` and no current stage. It does not run
+analysis, call providers, or emit progress events yet.
 
 `GET /api/sessions/{session_id}/runs/{run_id}`
 
 Returns run status and human-useful stage summaries. It should not expose raw internal prompts or private provider payloads by default.
 
+Current implementation returns the persisted `ShoppingRunRecord` when the run
+belongs to the requested session.
+
 `GET /api/sessions/{session_id}/runs/{run_id}/events`
 
 Streams ordered progress events using Server-Sent Events. Events should include stable event IDs, stage names, status, timestamps, and user-safe messages.
+
+Current implementation streams persisted `RunEvent` records for the requested run
+in sequence order as `text/event-stream` events named `run_event`, then closes the
+response. Live event production and long-running orchestration are later
+milestones.
 
 `GET /api/sessions/{session_id}/results`
 
 Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, runner-ups, alternate modes, comparison data, trust notes, warnings, source references, and result version.
 
+Current implementation returns the latest persisted fixture result bundle for the
+session across its runs. The response includes result-version metadata, trust
+assessments, category analyses, agent records, comparison matrix, and
+recommendation bundle. If the session exists but no result has been saved yet,
+the API returns `404` with `result_not_ready`.
+
 `POST /api/sessions/{session_id}/products`
 
 Adds a user-known product, URL, or manual candidate to the session. User-added products should participate in later analysis alongside app-generated candidates.
 
+Current implementation accepts URL placeholders and lightweight manual product
+details, persists them as session-local `UserAddedProduct` records, and returns
+the updated session state. It does not fetch URLs or extract listing details yet.
+
 `POST /api/sessions/{session_id}/refinements`
 
 Submits a refinement such as changed budget, corrected category, new constraint, or added preference. The backend should start targeted recompute where cached artifacts make that possible.
+
+Current implementation stores a `RefinementRequest`, creates a new pending stub
+`ShoppingRunRecord`, links the refinement to that run, and returns both records.
+It does not perform targeted recompute yet. Existing result versions remain
+attached to their original runs.
 
 `GET /api/sessions/{session_id}/sources/{source_id}`
 

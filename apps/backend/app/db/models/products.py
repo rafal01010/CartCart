@@ -201,10 +201,14 @@ class UserAddedProductRecord(Base):
             session_id=str(session_id),
             run_id=str(run_id) if run_id is not None else None,
             product_id=(
-                str(user_added.product.product_id) if user_added.product else None
+                str(user_added.product.product_id)
+                if user_added.product and run_id is not None
+                else None
             ),
             listing_id=(
-                str(user_added.listing.listing_id) if user_added.listing else None
+                str(user_added.listing.listing_id)
+                if user_added.listing and run_id is not None
+                else None
             ),
             input_text=user_added.input_text,
             url=str(user_added.url) if user_added.url is not None else None,

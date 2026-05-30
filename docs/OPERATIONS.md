@@ -182,9 +182,9 @@ Retention defaults for local artifacts:
 
 Set a retention value to `0` to delete that artifact class on the next cleanup. Retention settings do not delete SQLite records.
 
-Current persistence implementation stores shopping sessions in SQLite with the original session request, original query, current shopping brief, and create/update timestamps. It also stores shopping runs and ordered run events so the latest run status can be loaded from the run record while the event history remains inspectable. Search plans, search results, source snapshots, and source evidence are stored with run links and provider metadata.
+Current persistence implementation stores shopping sessions in SQLite with the original session request, original query, current shopping brief, and create/update timestamps. It also stores shopping runs, ordered run events, and refinement requests linked to their stub runs so the latest run status can be loaded from the run record while the event history and refinement history remain inspectable. Search plans, search results, source snapshots, and source evidence are stored with run links and provider metadata.
 
-Lookup indexes currently cover session/run relationships, ordered run events, source and product URLs, provider names and provider result/query IDs, video/source/product/listing target IDs, product brand/model/category identifiers, agent record names/stages/trace IDs, and result version lookup by run/version.
+Lookup indexes currently cover session/run/refinement relationships, ordered run events, source and product URLs, provider names and provider result/query IDs, video/source/product/listing target IDs, product brand/model/category identifiers, agent record names/stages/trace IDs, and result version lookup by run/version.
 
 Video review evidence persistence stores video sources, transcript availability, permitted transcript segments or explicit transcript gaps, channel metadata, source-backed video evidence bundles, and link metadata for run IDs, source snapshot IDs, target product/listing/candidate IDs, and future recommendation claim IDs.
 

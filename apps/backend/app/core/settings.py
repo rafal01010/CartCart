@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
     database_path: Path | None = None
     artifact_dir: Path | None = None
+    raw_source_snapshot_retention_days: int = Field(default=30, ge=0)
+    extracted_content_retention_days: int = Field(default=30, ge=0)
+    screenshot_retention_days: int = Field(default=7, ge=0)
+    agent_output_retention_days: int = Field(default=30, ge=0)
+    trace_retention_days: int = Field(default=14, ge=0)
+    eval_artifact_retention_days: int = Field(default=30, ge=0)
+    screenshots_enabled: bool = False
+    cross_session_preference_profiling_enabled: Literal[False] = False
 
     @property
     def resolved_data_dir(self) -> Path:
@@ -59,6 +67,30 @@ class Settings(BaseSettings):
         if self.artifact_dir is not None:
             return self.artifact_dir.expanduser().resolve()
         return self.resolved_data_dir / "artifacts"
+
+    @property
+    def resolved_raw_source_snapshot_dir(self) -> Path:
+        return self.resolved_artifact_dir / "raw-sources"
+
+    @property
+    def resolved_extracted_content_dir(self) -> Path:
+        return self.resolved_artifact_dir / "extracted-content"
+
+    @property
+    def resolved_screenshot_dir(self) -> Path:
+        return self.resolved_artifact_dir / "screenshots"
+
+    @property
+    def resolved_agent_output_dir(self) -> Path:
+        return self.resolved_artifact_dir / "agent-outputs"
+
+    @property
+    def resolved_trace_dir(self) -> Path:
+        return self.resolved_artifact_dir / "traces"
+
+    @property
+    def resolved_eval_artifact_dir(self) -> Path:
+        return self.resolved_artifact_dir / "evals"
 
 
 @lru_cache

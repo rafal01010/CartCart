@@ -107,7 +107,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 
 - Base primitives in `app.schemas`: UUID-based entity IDs, timezone-aware UTC timestamps, non-negative money amounts with ISO-style currency codes, country regions, confidence scores, source references, and schema version fields.
 - Intake and session schemas in `app.schemas`: `CreateSessionRequest`, `ShoppingSession`, `ShoppingBrief`, `BudgetConstraint`, `RegionPreference`, and `PreferenceConstraint`.
-- Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `SourceEvidence`, `EvidenceConflict`, provider metadata, source quality, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, and sponsorship/affiliate-bias signals.
+- Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, and sponsorship/affiliate-bias signals.
 - Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `SellerProfile`, `UserAddedProduct`, price money fields, region availability, and extracted seller trust signals that remain separate from later listing trust assessments.
 - Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
 - Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
@@ -149,6 +149,8 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Keep `SourceQuality` separate from analysis `Confidence`.
 - Preserve video source IDs, transcript availability, and timestamp references when evidence is video-derived.
 - Require source IDs for factual claims about products, prices, sellers, and reviews.
+- Require evidence targets for source-backed claims so product, listing, seller, candidate, and source-metadata evidence remain distinguishable.
+- Require evidence ID citations on downstream analysis and recommendation claims while retaining source IDs for source-level inspection.
 - Separate known, unknown, and inferred fields.
 - Preserve confidence separately from evidence quality.
 - Keep product-level and listing-level entities separate.

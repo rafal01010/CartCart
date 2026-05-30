@@ -45,6 +45,7 @@ class DeduplicationDecision(VersionedSchema):
     canonical_product_id: ProductId | None = None
     confidence: Confidence
     rationale: str = Field(min_length=1, max_length=1000)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
@@ -64,6 +65,7 @@ class ListingTrustAssessment(VersionedSchema):
     summary: str = Field(min_length=1, max_length=1000)
     red_flags: tuple[str, ...] = Field(default_factory=tuple)
     positive_signals: tuple[str, ...] = Field(default_factory=tuple)
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     assessed_at: Timestamp = Field(default_factory=utc_now)
 
@@ -77,6 +79,7 @@ class CategoryAnalysis(VersionedSchema):
     weaknesses: tuple[str, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
     confidence: Confidence
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
 
@@ -90,6 +93,7 @@ class ComparisonRow(CartCartBaseModel):
     product_id: ProductId
     listing_id: ListingId | None = None
     scores: dict[str, ConfidenceScore] = Field(default_factory=dict)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     summary: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
@@ -116,6 +120,7 @@ class RecommendationModeResult(CartCartBaseModel):
     title: str = Field(min_length=1, max_length=200)
     rationale: str = Field(min_length=1, max_length=1500)
     confidence: Confidence
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
 
@@ -124,6 +129,7 @@ class RejectedItem(CartCartBaseModel):
     listing_id: ListingId | None = None
     reason: str = Field(min_length=1, max_length=1000)
     severity: RejectionSeverity = RejectionSeverity.MEDIUM
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
@@ -147,6 +153,7 @@ class RecommendationBundle(VersionedSchema):
     comparison_matrix: ComparisonMatrix
     rejected_items: tuple[RejectedItem, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")

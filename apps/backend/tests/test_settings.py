@@ -23,8 +23,32 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir() -> None:
     assert settings.telemetry_otlp_endpoint == "http://127.0.0.1:4318/v1/traces"
     assert "http://localhost:5173" in settings.frontend_origins
     assert settings.resolved_data_dir.name == "data"
-    assert settings.resolved_database_path == settings.resolved_data_dir / "cartcart.sqlite3"
+    assert settings.resolved_database_path == (
+        settings.resolved_data_dir / "cartcart.sqlite3"
+    )
     assert settings.resolved_artifact_dir == settings.resolved_data_dir / "artifacts"
+    assert settings.raw_source_snapshot_retention_days == 30
+    assert settings.extracted_content_retention_days == 30
+    assert settings.screenshot_retention_days == 7
+    assert settings.agent_output_retention_days == 30
+    assert settings.trace_retention_days == 14
+    assert settings.eval_artifact_retention_days == 30
+    assert settings.screenshots_enabled is False
+    assert settings.cross_session_preference_profiling_enabled is False
+    assert settings.resolved_raw_source_snapshot_dir == (
+        settings.resolved_artifact_dir / "raw-sources"
+    )
+    assert settings.resolved_extracted_content_dir == (
+        settings.resolved_artifact_dir / "extracted-content"
+    )
+    assert settings.resolved_screenshot_dir == (
+        settings.resolved_artifact_dir / "screenshots"
+    )
+    assert settings.resolved_agent_output_dir == (
+        settings.resolved_artifact_dir / "agent-outputs"
+    )
+    assert settings.resolved_trace_dir == settings.resolved_artifact_dir / "traces"
+    assert settings.resolved_eval_artifact_dir == settings.resolved_artifact_dir / "evals"
 
 
 def test_settings_read_prefixed_environment_overrides(
@@ -48,6 +72,13 @@ def test_settings_read_prefixed_environment_overrides(
     monkeypatch.setenv("CARTCART_DATA_DIR", str(data_dir))
     monkeypatch.setenv("CARTCART_DATABASE_PATH", str(database_path))
     monkeypatch.setenv("CARTCART_ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.setenv("CARTCART_RAW_SOURCE_SNAPSHOT_RETENTION_DAYS", "10")
+    monkeypatch.setenv("CARTCART_EXTRACTED_CONTENT_RETENTION_DAYS", "11")
+    monkeypatch.setenv("CARTCART_SCREENSHOT_RETENTION_DAYS", "12")
+    monkeypatch.setenv("CARTCART_AGENT_OUTPUT_RETENTION_DAYS", "13")
+    monkeypatch.setenv("CARTCART_TRACE_RETENTION_DAYS", "14")
+    monkeypatch.setenv("CARTCART_EVAL_ARTIFACT_RETENTION_DAYS", "15")
+    monkeypatch.setenv("CARTCART_SCREENSHOTS_ENABLED", "true")
 
     settings = make_settings()
 
@@ -63,10 +94,29 @@ def test_settings_read_prefixed_environment_overrides(
     assert settings.resolved_data_dir == data_dir.resolve()
     assert settings.resolved_database_path == database_path.resolve()
     assert settings.resolved_artifact_dir == artifact_dir.resolve()
+    assert settings.raw_source_snapshot_retention_days == 10
+    assert settings.extracted_content_retention_days == 11
+    assert settings.screenshot_retention_days == 12
+    assert settings.agent_output_retention_days == 13
+    assert settings.trace_retention_days == 14
+    assert settings.eval_artifact_retention_days == 15
+    assert settings.screenshots_enabled is True
+    assert settings.resolved_raw_source_snapshot_dir == (
+        artifact_dir.resolve() / "raw-sources"
+    )
 
 
 def test_settings_reject_unknown_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CARTCART_ENVIRONMENT", "unknown")
+
+    with pytest.raises(ValidationError):
+        make_settings()
+
+
+def test_settings_reject_cross_session_preference_profiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CARTCART_CROSS_SESSION_PREFERENCE_PROFILING_ENABLED", "true")
 
     with pytest.raises(ValidationError):
         make_settings()

@@ -8,6 +8,8 @@ from app.schemas import (
     Confidence,
     ConfidenceLevel,
     ConflictSeverity,
+    EvidenceTarget,
+    EvidenceTargetType,
     EvidenceConflict,
     EvidenceType,
     ExtractionStatus,
@@ -84,6 +86,21 @@ def make_source_reference(source_id: SourceId) -> SourceReference:
     )
 
 
+def make_product_target() -> EvidenceTarget:
+    return EvidenceTarget(target_type=EvidenceTargetType.PRODUCT, product_id=new_id())
+
+
+def make_listing_target() -> EvidenceTarget:
+    return EvidenceTarget(target_type=EvidenceTargetType.LISTING, listing_id=new_id())
+
+
+def make_source_metadata_target(source_id: SourceId) -> EvidenceTarget:
+    return EvidenceTarget(
+        target_type=EvidenceTargetType.SOURCE_METADATA,
+        source_id=source_id,
+    )
+
+
 def test_search_plan_requires_at_least_one_query() -> None:
     plan = SearchPlan(queries=(make_search_query(),), rationale="Find review evidence.")
 
@@ -151,6 +168,7 @@ def test_source_evidence_preserves_evidence_type_confidence_and_source_quality()
     source_id = new_id()
     evidence = SourceEvidence(
         source_id=source_id,
+        target=make_listing_target(),
         evidence_type=EvidenceType.PRICE,
         claim="The listed price is 999 USD.",
         confidence=make_confidence(),
@@ -158,6 +176,7 @@ def test_source_evidence_preserves_evidence_type_confidence_and_source_quality()
     )
 
     assert evidence.source_id == source_id
+    assert evidence.target.target_type == EvidenceTargetType.LISTING
     assert evidence.evidence_type == EvidenceType.PRICE
     assert evidence.confidence.score == 0.74
     assert evidence.source_quality.level == SourceQualityLevel.STRONG
@@ -165,6 +184,7 @@ def test_source_evidence_preserves_evidence_type_confidence_and_source_quality()
     with pytest.raises(ValidationError):
         SourceEvidence(
             source_id=source_id,
+            target=make_listing_target(),
             evidence_type="unsupported",
             claim="The listed price is 999 USD.",
             confidence=make_confidence(),
@@ -176,6 +196,7 @@ def test_video_evidence_requires_video_context_and_supports_timestamp_references
     video = make_video()
     evidence = SourceEvidence(
         source_id=new_id(),
+        target=make_product_target(),
         evidence_type=EvidenceType.VIDEO_CLAIM,
         claim="The reviewer says battery life dropped after six months.",
         confidence=make_confidence(),
@@ -187,12 +208,14 @@ def test_video_evidence_requires_video_context_and_supports_timestamp_references
     )
 
     assert evidence.video is not None
+    assert evidence.target.target_type == EvidenceTargetType.PRODUCT
     assert evidence.video.transcript_availability == TranscriptAvailability.UNAVAILABLE
     assert evidence.timestamp_references[0].start_seconds == 92.5
 
     with pytest.raises(ValidationError):
         SourceEvidence(
             source_id=new_id(),
+            target=make_product_target(),
             evidence_type=EvidenceType.VIDEO_CLAIM,
             claim="A video claim without video context.",
             confidence=make_confidence(),
@@ -202,6 +225,7 @@ def test_video_evidence_requires_video_context_and_supports_timestamp_references
     with pytest.raises(ValidationError):
         SourceEvidence(
             source_id=new_id(),
+            target=make_product_target(),
             evidence_type=EvidenceType.REVIEW_CLAIM,
             claim="A timestamped claim without video context.",
             confidence=make_confidence(),
@@ -226,6 +250,7 @@ def test_video_review_bundle_supports_transcripts_and_timestamped_evidence() -> 
     )
     evidence = VideoReviewEvidence(
         source_id=source_id,
+        target=make_product_target(),
         video_id=video.video_id,
         claim="The reviewer says battery life dropped after six months.",
         confidence=make_confidence(),
@@ -279,6 +304,7 @@ def test_video_review_bundle_supports_videos_without_transcripts_as_metadata_onl
     )
     evidence = VideoReviewEvidence(
         source_id=source_id,
+        target=make_source_metadata_target(source_id),
         video_id=video.video_id,
         claim=(
             "The video exists as a sponsored overview, but no "
@@ -314,6 +340,7 @@ def test_video_review_bundle_supports_videos_without_transcripts_as_metadata_onl
     with pytest.raises(ValidationError):
         VideoReviewEvidence(
             source_id=source_id,
+            target=make_source_metadata_target(source_id),
             video_id=video.video_id,
             claim="Metadata-only evidence cannot cite a timestamp.",
             confidence=make_confidence(),
@@ -335,6 +362,7 @@ def test_video_review_bundle_preserves_explicit_transcript_gaps() -> None:
     )
     evidence = VideoReviewEvidence(
         source_id=source_id,
+        target=make_product_target(),
         video_id=video.video_id,
         claim=(
             "The video appears to discuss durability, but the transcript is "
@@ -370,6 +398,92 @@ def test_video_review_bundle_preserves_explicit_transcript_gaps() -> None:
             video_id=video.video_id,
             start_seconds=210.0,
             availability=TranscriptAvailability.RESTRICTED,
+        )
+
+
+def test_evidence_targets_distinguish_product_listing_seller_and_source_metadata() -> None:
+    product_id = new_id()
+    listing_id = new_id()
+    candidate_id = new_id()
+    source_id = new_id()
+
+    product_target = EvidenceTarget(
+        target_type=EvidenceTargetType.PRODUCT,
+        product_id=product_id,
+    )
+    listing_target = EvidenceTarget(
+        target_type=EvidenceTargetType.LISTING,
+        listing_id=listing_id,
+    )
+    seller_target = EvidenceTarget(
+        target_type=EvidenceTargetType.SELLER,
+        listing_id=listing_id,
+    )
+    candidate_target = EvidenceTarget(
+        target_type=EvidenceTargetType.CANDIDATE,
+        candidate_id=candidate_id,
+    )
+    metadata_target = EvidenceTarget(
+        target_type=EvidenceTargetType.SOURCE_METADATA,
+        source_id=source_id,
+    )
+
+    assert product_target.product_id == product_id
+    assert listing_target.listing_id == listing_id
+    assert seller_target.listing_id == listing_id
+    assert candidate_target.candidate_id == candidate_id
+    assert metadata_target.source_id == source_id
+
+    with pytest.raises(ValidationError):
+        EvidenceTarget(target_type=EvidenceTargetType.PRODUCT)
+
+    with pytest.raises(ValidationError):
+        EvidenceTarget(
+            target_type=EvidenceTargetType.SOURCE_METADATA,
+            source_id=source_id,
+            product_id=product_id,
+        )
+
+
+def test_metadata_only_video_evidence_must_target_source_metadata() -> None:
+    source_id = new_id()
+    video = make_video(TranscriptAvailability.UNAVAILABLE)
+
+    metadata_evidence = VideoReviewEvidence(
+        source_id=source_id,
+        target=make_source_metadata_target(source_id),
+        video_id=video.video_id,
+        claim=(
+            "The source metadata discloses sponsorship, but no product claim "
+            "was extracted."
+        ),
+        confidence=make_confidence(),
+        source_quality=make_quality(SourceQualityLevel.WEAK),
+        metadata_only=True,
+    )
+
+    assert metadata_evidence.target.target_type == EvidenceTargetType.SOURCE_METADATA
+
+    with pytest.raises(ValidationError):
+        VideoReviewEvidence(
+            source_id=source_id,
+            target=make_product_target(),
+            video_id=video.video_id,
+            claim="Metadata-only evidence cannot target a product claim.",
+            confidence=make_confidence(),
+            source_quality=make_quality(SourceQualityLevel.WEAK),
+            metadata_only=True,
+        )
+
+    with pytest.raises(ValidationError):
+        VideoReviewEvidence(
+            source_id=source_id,
+            target=make_source_metadata_target(new_id()),
+            video_id=video.video_id,
+            claim="Metadata-only evidence must target the same source.",
+            confidence=make_confidence(),
+            source_quality=make_quality(SourceQualityLevel.WEAK),
+            metadata_only=True,
         )
 
 

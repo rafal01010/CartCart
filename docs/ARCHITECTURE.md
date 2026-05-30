@@ -46,16 +46,20 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, and configurable FastAPI OpenTelemetry instrumentation have been added. Product API behavior will be added in later implementation milestones.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, product/listing records, and result bundle records have been added. Product API behavior will be added in later implementation milestones.
 
 Current skeleton:
 
 ```text
 apps/
   backend/
+    alembic/
     app/
       api/
       core/
+      db/
+        models/
+        repositories/
       main.py
     pyproject.toml
     uv.lock
@@ -266,7 +270,7 @@ SQLite is the canonical MVP persistence layer. Store structured entities and lin
 
 Use file storage under `data/` for large raw artifacts if needed, such as HTML snapshots, extracted Markdown, screenshots, trace exports, or eval exports. SQLite should hold references to those artifacts.
 
-Do not build cross-session user preference profiling for MVP. OpenAI Agents SDK session memory may be used for conversational context only if it improves refinement; it must not be the only application state store.
+Do not build cross-session user preference profiling for MVP. OpenAI Agents SDK session memory may be used for conversational context only if it improves refinement; it must not be the only application state store. Large local artifacts should follow the retention policy in `docs/OPERATIONS.md`; structured IDs, links, and evidence references remain in SQLite.
 
 Vector search is deferred. Use SQLite indexes and possibly FTS5 first. Consider LanceDB later only if semantic retrieval over saved source snapshots becomes materially useful.
 

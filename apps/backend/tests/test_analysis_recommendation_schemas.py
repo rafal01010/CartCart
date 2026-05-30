@@ -31,8 +31,9 @@ def make_confidence(score: float = 0.8) -> Confidence:
     )
 
 
-def make_comparison_matrix(product_id=None) -> ComparisonMatrix:
+def make_comparison_matrix(product_id=None, evidence_id=None) -> ComparisonMatrix:
     product_id = product_id or new_id()
+    evidence_id = evidence_id or new_id()
     return ComparisonMatrix(
         criteria=(
             ComparisonCriterion(name="fit", weight=0.5),
@@ -42,6 +43,7 @@ def make_comparison_matrix(product_id=None) -> ComparisonMatrix:
             ComparisonRow(
                 product_id=product_id,
                 scores={"fit": 0.9, "value": 0.72},
+                evidence_ids=(evidence_id,),
                 summary="Strong fit and fair value.",
             ),
         ),
@@ -51,6 +53,7 @@ def make_comparison_matrix(product_id=None) -> ComparisonMatrix:
 def test_recommendation_bundle_accepts_one_final_best_pick() -> None:
     product_id = new_id()
     listing_id = new_id()
+    evidence_id = new_id()
     bundle = RecommendationBundle(
         final_product_id=product_id,
         final_listing_id=listing_id,
@@ -64,32 +67,39 @@ def test_recommendation_bundle_accepts_one_final_best_pick() -> None:
                 title="Best overall",
                 rationale="It best matches the stated priorities.",
                 confidence=make_confidence(),
+                evidence_ids=(evidence_id,),
                 source_ids=(new_id(),),
             ),
         ),
-        comparison_matrix=make_comparison_matrix(product_id),
+        comparison_matrix=make_comparison_matrix(product_id, evidence_id),
         rejected_items=(
             RejectedItem(
                 product_id=new_id(),
                 reason="Suspicious marketplace listing with weak seller signals.",
                 severity=RejectionSeverity.BLOCKING,
+                evidence_ids=(evidence_id,),
                 source_ids=(new_id(),),
             ),
         ),
+        evidence_ids=(evidence_id,),
         source_ids=(new_id(),),
     )
 
     assert bundle.final_product_id == product_id
     assert bundle.no_strong_buy is False
+    assert bundle.mode_results[0].evidence_ids == (evidence_id,)
+    assert bundle.comparison_matrix.rows[0].evidence_ids == (evidence_id,)
     assert bundle.rejected_items[0].severity == RejectionSeverity.BLOCKING
 
 
 def test_recommendation_bundle_accepts_explicit_no_strong_buy() -> None:
+    evidence_id = new_id()
     bundle = RecommendationBundle(
         no_strong_buy=True,
         no_strong_buy_reason="All available listings have weak evidence or trust issues.",
-        comparison_matrix=make_comparison_matrix(),
+        comparison_matrix=make_comparison_matrix(evidence_id=evidence_id),
         warnings=("No candidate clears the evidence and seller-trust bar.",),
+        evidence_ids=(evidence_id,),
     )
 
     assert bundle.no_strong_buy is True
@@ -160,12 +170,15 @@ def test_deduplication_decision_requires_canonical_product_for_duplicates() -> N
 def test_listing_trust_and_category_analysis_preserve_separate_dimensions() -> None:
     product_id = new_id()
     listing_id = new_id()
+    trust_evidence_id = new_id()
+    product_evidence_id = new_id()
     trust = ListingTrustAssessment(
         listing_id=listing_id,
         level=ListingTrustLevel.SUSPICIOUS,
         confidence=make_confidence(0.68),
         summary="Seller identity and fulfillment details are unclear.",
         red_flags=("Unusually low price.",),
+        evidence_ids=(trust_evidence_id,),
         source_ids=(new_id(),),
         assessed_at="2026-05-30T00:00:00Z",
     )
@@ -177,11 +190,14 @@ def test_listing_trust_and_category_analysis_preserve_separate_dimensions() -> N
         strengths=("Portable form factor.",),
         warnings=("Do not treat the suspicious listing as a safe buy.",),
         confidence=make_confidence(),
+        evidence_ids=(product_evidence_id,),
         source_ids=(new_id(),),
     )
 
     assert trust.level == ListingTrustLevel.SUSPICIOUS
+    assert trust.evidence_ids == (trust_evidence_id,)
     assert analysis.product_id == product_id
+    assert analysis.evidence_ids == (product_evidence_id,)
     assert analysis.listing_ids == (listing_id,)
     assert trust.assessed_at == datetime(2026, 5, 30, 0, 0, tzinfo=UTC)
 
@@ -199,4 +215,25 @@ def test_rejected_item_requires_product_or_listing_target() -> None:
         RejectedItem(
             reason="A rejected item must identify what was rejected.",
             severity=RejectionSeverity.MEDIUM,
+            evidence_ids=(new_id(),),
+        )
+
+
+def test_source_backed_recommendation_claims_require_evidence_ids() -> None:
+    product_id = new_id()
+
+    with pytest.raises(ValidationError):
+        RecommendationModeResult(
+            mode=RecommendationMode.BEST_OVERALL,
+            product_id=product_id,
+            title="Best overall",
+            rationale="A recommendation claim without evidence IDs.",
+            confidence=make_confidence(),
+        )
+
+    with pytest.raises(ValidationError):
+        RecommendationBundle(
+            final_product_id=product_id,
+            final_rationale="A final recommendation without evidence IDs.",
+            comparison_matrix=make_comparison_matrix(product_id),
         )

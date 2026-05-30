@@ -10,7 +10,7 @@ CartCart is not intended to be only a product recommendation app, a price compar
 
 ## Current Status
 
-The repository is in early setup. The backend can start locally and exposes health/readiness endpoints, but product API behavior, persistence, live agents, and frontend scaffolding have not been implemented yet.
+The repository is in early setup. The backend can start locally, exposes health/readiness endpoints, and has local SQLite persistence/migrations for the current backend data model. Product API behavior, live agents, and frontend scaffolding have not been implemented yet.
 
 ## What CartCart Should Do
 
@@ -53,13 +53,13 @@ apps/
 docs/            Public architecture, API, evaluation, operations, UX, and decision docs.
 scripts/
   local/         Local developer workflow scripts will live here.
-data/            Future local SQLite database and bulky runtime artifacts; do not commit.
+data/            Local SQLite database and bulky runtime artifacts; do not commit.
 AGENTS.md        Contributor and agent working rules.
 supported_agents.md
 README.md
 ```
 
-`data/` is not created yet. It is reserved for local persistence and artifacts once the backend reaches that milestone.
+`data/` is created by local persistence workflows when needed. By default, the SQLite database lives at `data/cartcart.sqlite3`.
 
 Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required yet.
 
@@ -72,6 +72,8 @@ Current scripts:
 - `scripts/local/init-backend.sh` initializes the backend Python project in `apps/backend` if needed, then syncs dependencies. Run it after a fresh checkout before backend work.
 - `scripts/local/sync-backend.sh` syncs the backend environment from `apps/backend/pyproject.toml` and `apps/backend/uv.lock`. Run it after backend dependency metadata changes, when `apps/backend/.venv` is missing or stale, and before backend verification commands if dependencies may have changed.
 - `scripts/local/start-backend.sh` starts the local FastAPI backend. Run it when you want to manually exercise the backend API, such as checking `GET /healthz` or `GET /readyz`.
+- `scripts/local/reset-db.sh --yes` deletes the configured local SQLite database and sidecar files. Run it when you need a clean local database before rerunning Alembic migrations.
+- `scripts/local/cleanup-artifacts.sh --yes` deletes local artifact files according to configured retention windows. Run it when raw snapshots, extracted content, screenshots, traces, or eval outputs should be cleaned.
 
 Dedicated lint, type-check, test, stop, full-app startup, and frontend setup scripts will be added when those workflows exist.
 
@@ -87,6 +89,7 @@ Script conventions:
 
 - `docs/ARCHITECTURE.md` - architecture and behavior rules.
 - `docs/API.md` - intended API shape.
+- `docs/DATABASE.md` - current SQLite schema, tables, indexes, and artifact boundary.
 - `docs/EVALUATION.md` - evaluation and testing strategy.
 - `docs/OPERATIONS.md` - local operations assumptions.
 - `docs/UX.md` - desktop-first product surface guidance.

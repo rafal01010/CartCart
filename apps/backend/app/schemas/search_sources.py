@@ -5,7 +5,7 @@ from pydantic import AnyHttpUrl, Field, model_validator
 
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence, ConfidenceScore
-from app.schemas.ids import SourceId, new_id
+from app.schemas.ids import CandidateId, ListingId, ProductId, SourceId, new_id
 from app.schemas.regions import RegionCode
 from app.schemas.source_references import SourceReference
 from app.schemas.timestamps import Timestamp, utc_now
@@ -49,6 +49,14 @@ class EvidenceType(StrEnum):
     WARRANTY = "warranty"
     WARNING = "warning"
     OTHER = "other"
+
+
+class EvidenceTargetType(StrEnum):
+    PRODUCT = "product"
+    LISTING = "listing"
+    SELLER = "seller"
+    CANDIDATE = "candidate"
+    SOURCE_METADATA = "source_metadata"
 
 
 class SourceQualityLevel(StrEnum):
@@ -97,6 +105,55 @@ class SourceQuality(CartCartBaseModel):
     level: SourceQualityLevel
     score: ConfidenceScore | None = None
     rationale: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class EvidenceTarget(CartCartBaseModel):
+    target_type: EvidenceTargetType
+    product_id: ProductId | None = None
+    listing_id: ListingId | None = None
+    candidate_id: CandidateId | None = None
+    seller_name: str | None = Field(default=None, min_length=1, max_length=200)
+    source_id: SourceId | None = None
+
+    @model_validator(mode="after")
+    def _target_must_identify_declared_entity(self) -> "EvidenceTarget":
+        if (
+            self.target_type == EvidenceTargetType.PRODUCT
+            and self.product_id is None
+        ):
+            raise ValueError("product evidence targets require product_id.")
+        if (
+            self.target_type == EvidenceTargetType.LISTING
+            and self.listing_id is None
+        ):
+            raise ValueError("listing evidence targets require listing_id.")
+        if self.target_type == EvidenceTargetType.SELLER and not (
+            self.listing_id or self.seller_name
+        ):
+            raise ValueError(
+                "seller evidence targets require listing_id or seller_name."
+            )
+        if (
+            self.target_type == EvidenceTargetType.CANDIDATE
+            and self.candidate_id is None
+        ):
+            raise ValueError("candidate evidence targets require candidate_id.")
+        if self.target_type == EvidenceTargetType.SOURCE_METADATA:
+            if self.source_id is None:
+                raise ValueError("source metadata evidence targets require source_id.")
+            if any(
+                (
+                    self.product_id,
+                    self.listing_id,
+                    self.candidate_id,
+                    self.seller_name,
+                )
+            ):
+                raise ValueError(
+                    "source metadata evidence targets cannot identify products, "
+                    "listings, sellers, or candidates."
+                )
+        return self
 
 
 class SearchQuery(CartCartBaseModel):
@@ -179,6 +236,7 @@ class VideoTranscriptSegment(CartCartBaseModel):
 class VideoReviewEvidence(CartCartBaseModel):
     evidence_id: SourceId = Field(default_factory=new_id)
     source_id: SourceId
+    target: EvidenceTarget
     video_id: str = Field(min_length=1, max_length=128)
     claim: str = Field(min_length=1, max_length=2000)
     confidence: Confidence
@@ -193,6 +251,16 @@ class VideoReviewEvidence(CartCartBaseModel):
 
     @model_validator(mode="after")
     def _validate_evidence_basis(self) -> "VideoReviewEvidence":
+        if (
+            self.target.target_type == EvidenceTargetType.SOURCE_METADATA
+            and self.target.source_id != self.source_id
+        ):
+            raise ValueError("source metadata evidence target must match source_id.")
+        if (
+            self.metadata_only
+            and self.target.target_type != EvidenceTargetType.SOURCE_METADATA
+        ):
+            raise ValueError("metadata-only video evidence must target source metadata.")
         if self.metadata_only and (
             self.timestamp_references or self.transcript_segment_ids
         ):
@@ -234,6 +302,7 @@ class SourceSnapshot(VersionedSchema):
 class SourceEvidence(CartCartBaseModel):
     evidence_id: SourceId = Field(default_factory=new_id)
     source_id: SourceId
+    target: EvidenceTarget
     evidence_type: EvidenceType
     claim: str = Field(min_length=1, max_length=2000)
     confidence: Confidence
@@ -243,6 +312,11 @@ class SourceEvidence(CartCartBaseModel):
 
     @model_validator(mode="after")
     def _video_evidence_requires_video_context(self) -> "SourceEvidence":
+        if (
+            self.target.target_type == EvidenceTargetType.SOURCE_METADATA
+            and self.target.source_id != self.source_id
+        ):
+            raise ValueError("source metadata evidence target must match source_id.")
         if (
             self.evidence_type == EvidenceType.VIDEO_CLAIM
             or self.timestamp_references

@@ -59,6 +59,8 @@ from app.schemas.runs import (
 from app.schemas.search_sources import (
     ChannelSignal,
     ConflictSeverity,
+    EvidenceTarget,
+    EvidenceTargetType,
     EvidenceConflict,
     EvidenceType,
     ExtractionStatus,
@@ -102,6 +104,8 @@ __all__ = [
     "CurrencyCode",
     "DeduplicationDecision",
     "DeduplicationOutcome",
+    "EvidenceTarget",
+    "EvidenceTargetType",
     "ErrorBody",
     "ErrorEnvelope",
     "EvidenceConflict",

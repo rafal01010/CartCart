@@ -1,17 +1,24 @@
 # CartCart API
 
 Status: Initial public API shape with session, run, result, and product endpoints implemented
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 ## Contract Direction
 
 The backend API should be a typed FastAPI HTTP API. FastAPI OpenAPI output should become the source of truth for generated frontend types once schemas stabilize.
 
+The current OpenAPI JSON can be exported with
+`scripts/local/export-openapi.sh`. By default it writes `docs/openapi.json`.
+The frontend currently uses hand-written TypeScript contracts under
+`apps/frontend/src/lib/api` for these implemented endpoints. Generated frontend
+types should replace or narrow those contracts once OpenAPI type generation is
+added.
+
 API responses should hide internal agent implementation details while exposing human-useful run stages, recoverable errors, result versions, source references, and recommendation output.
 
 Long-running discovery and analysis runs should be asynchronous. Server-Sent Events are the recommended MVP progress transport because CartCart mostly needs one-way run progress plus normal request/response actions. WebSockets are not required for MVP.
 
-## Initial Endpoints
+## Implemented Endpoints
 
 ```text
 POST   /api/sessions
@@ -25,14 +32,13 @@ GET    /api/sessions/{session_id}/runs/{run_id}/events
 GET    /api/sessions/{session_id}/results
 POST   /api/sessions/{session_id}/products
 POST   /api/sessions/{session_id}/refinements
-GET    /api/sessions/{session_id}/sources/{source_id}
 
 GET    /healthz
 GET    /readyz
-GET    /metrics
 ```
 
-`/metrics` is optional until a Prometheus-compatible exporter or equivalent monitoring path is added.
+Planned later endpoints include `GET /api/sessions/{session_id}/sources/{source_id}`
+and `GET /metrics`. They are not present in the current OpenAPI export.
 
 ## Endpoint Responsibilities
 
@@ -67,9 +73,10 @@ them. The response returns the updated `ShoppingSession`.
 
 Starts a discovery/analysis run from the current session state. Runs should persist status, stage summaries, trace IDs, and result versions.
 
-Current implementation creates a persisted stub `ShoppingRunRecord` for an
-existing session with `status: "pending"` and no current stage. It does not run
-analysis, call providers, or emit progress events yet.
+Current implementation creates a persisted `ShoppingRunRecord` and runs the
+fixture `ShoppingRunOrchestrator` synchronously. The response returns the
+terminal succeeded run, persisted progress events, and a fixture monitor-shopping
+result bundle. It does not call live providers or models.
 
 `GET /api/sessions/{session_id}/runs/{run_id}`
 
@@ -84,8 +91,9 @@ Streams ordered progress events using Server-Sent Events. Events should include 
 
 Current implementation streams persisted `RunEvent` records for the requested run
 in sequence order as `text/event-stream` events named `run_event`, then closes the
-response. Live event production and long-running orchestration are later
-milestones.
+response. In fixture mode, `POST /runs` produces the events synchronously before
+the client opens the stream. Long-running background orchestration is a later
+milestone.
 
 `GET /api/sessions/{session_id}/results`
 
@@ -94,8 +102,10 @@ Returns the latest recommendation bundle for the session, including final pick o
 Current implementation returns the latest persisted fixture result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
-recommendation bundle. If the session exists but no result has been saved yet,
-the API returns `404` with `result_not_ready`.
+recommendation bundle, plus the run's source snapshots and source evidence so
+the frontend can render inspectable source links for result claims. If the
+session exists but no result has been saved yet, the API returns `404` with
+`result_not_ready`.
 
 `POST /api/sessions/{session_id}/products`
 
@@ -109,14 +119,11 @@ the updated session state. It does not fetch URLs or extract listing details yet
 
 Submits a refinement such as changed budget, corrected category, new constraint, or added preference. The backend should start targeted recompute where cached artifacts make that possible.
 
-Current implementation stores a `RefinementRequest`, creates a new pending stub
-`ShoppingRunRecord`, links the refinement to that run, and returns both records.
-It does not perform targeted recompute yet. Existing result versions remain
-attached to their original runs.
-
-`GET /api/sessions/{session_id}/sources/{source_id}`
-
-Returns source and evidence metadata needed for inspection, such as URL, title, provider, extraction status, quality signals, transcript availability when relevant, and claims linked to that source.
+Current implementation stores a `RefinementRequest`, creates a new stub
+`ShoppingRunRecord`, links the refinement to that run, executes the same fixture
+orchestrator path used by `POST /runs`, and returns both records. It does not
+perform targeted recompute yet. Existing result versions remain attached to
+their original runs.
 
 `GET /healthz`
 

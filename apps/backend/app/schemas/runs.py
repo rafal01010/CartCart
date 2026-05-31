@@ -2,7 +2,7 @@ from enum import StrEnum
 
 from pydantic import Field, model_validator
 
-from app.schemas.base import CartCartBaseModel, VersionedSchema
+from app.schemas.base import VersionedSchema
 from app.schemas.errors import ErrorEnvelope
 from app.schemas.ids import CandidateId, RunId, SessionId, SourceId, new_id
 from app.schemas.intake import BudgetConstraint, PreferenceConstraint, RegionPreference

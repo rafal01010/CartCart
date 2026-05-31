@@ -1,0 +1,2759 @@
+{
+  "components": {
+    "schemas": {
+      "AgentRunRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "record_id": {
+            "format": "uuid",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/RunStage"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "run_id",
+          "stage",
+          "agent_name",
+          "status",
+          "started_at"
+        ],
+        "title": "AgentRunRecord",
+        "type": "object"
+      },
+      "BudgetConstraint-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money-Input"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BudgetMode"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource",
+            "default": "user_provided"
+          }
+        },
+        "required": [
+          "amount",
+          "mode"
+        ],
+        "title": "BudgetConstraint",
+        "type": "object"
+      },
+      "BudgetConstraint-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BudgetMode"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource",
+            "default": "user_provided"
+          }
+        },
+        "required": [
+          "amount",
+          "mode"
+        ],
+        "title": "BudgetConstraint",
+        "type": "object"
+      },
+      "BudgetMode": {
+        "enum": [
+          "hard_cap",
+          "preferred"
+        ],
+        "title": "BudgetMode",
+        "type": "string"
+      },
+      "CanonicalProduct": {
+        "additionalProperties": false,
+        "properties": {
+          "brand": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "listing_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Listing Ids",
+            "type": "array"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CanonicalProduct",
+        "type": "object"
+      },
+      "CategoryAnalysis": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Category",
+            "type": "string"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "fit_summary": {
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Fit Summary",
+            "type": "string"
+          },
+          "listing_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Listing Ids",
+            "type": "array"
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "strengths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Strengths",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "weaknesses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weaknesses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "product_id",
+          "category",
+          "fit_summary",
+          "confidence",
+          "evidence_ids"
+        ],
+        "title": "CategoryAnalysis",
+        "type": "object"
+      },
+      "ComparisonCriterion": {
+        "additionalProperties": false,
+        "properties": {
+          "higher_is_better": {
+            "default": true,
+            "title": "Higher Is Better",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ComparisonCriterion",
+        "type": "object"
+      },
+      "ComparisonMatrix": {
+        "additionalProperties": false,
+        "properties": {
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonCriterion"
+            },
+            "minItems": 1,
+            "title": "Criteria",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ComparisonRow"
+            },
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "criteria",
+          "rows"
+        ],
+        "title": "ComparisonMatrix",
+        "type": "object"
+      },
+      "ComparisonRow": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "scores": {
+            "additionalProperties": {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            "title": "Scores",
+            "type": "object"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "product_id"
+        ],
+        "title": "ComparisonRow",
+        "type": "object"
+      },
+      "Confidence": {
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "score",
+          "level"
+        ],
+        "title": "Confidence",
+        "type": "object"
+      },
+      "ConfidenceLevel": {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "title": "ConfidenceLevel",
+        "type": "string"
+      },
+      "CreateRefinementRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "instruction": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "preferences": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Preferences",
+            "type": "array"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "CreateRefinementRequest",
+        "type": "object"
+      },
+      "CreateSessionRequest-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Preferences",
+            "type": "array"
+          },
+          "query": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "CreateSessionRequest-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Preferences",
+            "type": "array"
+          },
+          "query": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "CreateUserAddedProductRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "brand": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "input_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Text"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "CreateUserAddedProductRequest",
+        "type": "object"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "FieldSource": {
+        "enum": [
+          "user_provided",
+          "inferred",
+          "defaulted"
+        ],
+        "title": "FieldSource",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ListingAvailabilityStatus": {
+        "enum": [
+          "available",
+          "out_of_stock",
+          "preorder",
+          "region_restricted",
+          "unavailable",
+          "unknown"
+        ],
+        "title": "ListingAvailabilityStatus",
+        "type": "string"
+      },
+      "ListingTrustAssessment": {
+        "additionalProperties": false,
+        "properties": {
+          "assessed_at": {
+            "format": "date-time",
+            "title": "Assessed At",
+            "type": "string"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "level": {
+            "$ref": "#/components/schemas/ListingTrustLevel"
+          },
+          "listing_id": {
+            "format": "uuid",
+            "title": "Listing Id",
+            "type": "string"
+          },
+          "positive_signals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Positive Signals",
+            "type": "array"
+          },
+          "red_flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Red Flags",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "summary": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "listing_id",
+          "level",
+          "confidence",
+          "summary",
+          "evidence_ids"
+        ],
+        "title": "ListingTrustAssessment",
+        "type": "object"
+      },
+      "ListingTrustLevel": {
+        "enum": [
+          "strong",
+          "reasonable",
+          "mixed",
+          "weak",
+          "suspicious",
+          "unknown"
+        ],
+        "title": "ListingTrustLevel",
+        "type": "string"
+      },
+      "Money-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "Money",
+        "type": "object"
+      },
+      "Money-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "Money",
+        "type": "object"
+      },
+      "PreferenceConstraint": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/PreferenceMode"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource",
+            "default": "user_provided"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "mode"
+        ],
+        "title": "PreferenceConstraint",
+        "type": "object"
+      },
+      "PreferenceMode": {
+        "enum": [
+          "hard",
+          "soft"
+        ],
+        "title": "PreferenceMode",
+        "type": "string"
+      },
+      "ProductListing": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "listing_id": {
+            "format": "uuid",
+            "title": "Listing Id",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "region_availability": {
+            "items": {
+              "$ref": "#/components/schemas/RegionAvailability"
+            },
+            "title": "Region Availability",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/SellerProfile"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "title",
+          "url",
+          "seller",
+          "source_ids"
+        ],
+        "title": "ProductListing",
+        "type": "object"
+      },
+      "RecommendationBundle": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle_id": {
+            "format": "uuid",
+            "title": "Bundle Id",
+            "type": "string"
+          },
+          "comparison_matrix": {
+            "$ref": "#/components/schemas/ComparisonMatrix"
+          },
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "final_listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Listing Id"
+          },
+          "final_product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Product Id"
+          },
+          "final_rationale": {
+            "anyOf": [
+              {
+                "maxLength": 1500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Rationale"
+          },
+          "mode_results": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendationModeResult"
+            },
+            "title": "Mode Results",
+            "type": "array"
+          },
+          "no_strong_buy": {
+            "default": false,
+            "title": "No Strong Buy",
+            "type": "boolean"
+          },
+          "no_strong_buy_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Strong Buy Reason"
+          },
+          "rejected_items": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedItem"
+            },
+            "title": "Rejected Items",
+            "type": "array"
+          },
+          "runner_up_product_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Runner Up Product Ids",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "comparison_matrix",
+          "evidence_ids"
+        ],
+        "title": "RecommendationBundle",
+        "type": "object"
+      },
+      "RecommendationMode": {
+        "enum": [
+          "best_overall",
+          "best_value",
+          "within_budget",
+          "stretch_pick",
+          "runner_up"
+        ],
+        "title": "RecommendationMode",
+        "type": "string"
+      },
+      "RecommendationModeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RecommendationMode"
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "product_id",
+          "title",
+          "rationale",
+          "confidence",
+          "evidence_ids"
+        ],
+        "title": "RecommendationModeResult",
+        "type": "object"
+      },
+      "RefinementRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "instruction": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Preferences",
+            "type": "array"
+          },
+          "refinement_id": {
+            "format": "uuid",
+            "title": "Refinement Id",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "instruction"
+        ],
+        "title": "RefinementRequest",
+        "type": "object"
+      },
+      "RefinementRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "refinement": {
+            "$ref": "#/components/schemas/RefinementRequest"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ShoppingRunRecord"
+          }
+        },
+        "required": [
+          "refinement",
+          "run"
+        ],
+        "title": "RefinementRunResponse",
+        "type": "object"
+      },
+      "Region-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "country_code": {
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country Code",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "maxLength": 3,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          }
+        },
+        "required": [
+          "country_code"
+        ],
+        "title": "Region",
+        "type": "object"
+      },
+      "Region-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "country_code": {
+            "pattern": "^[A-Z]{2}$",
+            "title": "Country Code",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          }
+        },
+        "required": [
+          "country_code"
+        ],
+        "title": "Region",
+        "type": "object"
+      },
+      "RegionAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region_code": {
+            "pattern": "^[A-Z]{2}$",
+            "title": "Region Code",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ListingAvailabilityStatus",
+            "default": "unknown"
+          }
+        },
+        "required": [
+          "region_code"
+        ],
+        "title": "RegionAvailability",
+        "type": "object"
+      },
+      "RegionPreference-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region-Input"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource"
+          }
+        },
+        "required": [
+          "region",
+          "source"
+        ],
+        "title": "RegionPreference",
+        "type": "object"
+      },
+      "RegionPreference-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region-Output"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource"
+          }
+        },
+        "required": [
+          "region",
+          "source"
+        ],
+        "title": "RegionPreference",
+        "type": "object"
+      },
+      "RejectedItem": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/RejectionSeverity",
+            "default": "medium"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reason",
+          "evidence_ids"
+        ],
+        "title": "RejectedItem",
+        "type": "object"
+      },
+      "RejectionSeverity": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "blocking"
+        ],
+        "title": "RejectionSeverity",
+        "type": "string"
+      },
+      "ResultVersionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_matrix_id": {
+            "format": "uuid",
+            "title": "Comparison Matrix Id",
+            "type": "string"
+          },
+          "recommendation_bundle_id": {
+            "format": "uuid",
+            "title": "Recommendation Bundle Id",
+            "type": "string"
+          },
+          "result_version_id": {
+            "format": "uuid",
+            "title": "Result Version Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result_version_id",
+          "run_id",
+          "version",
+          "recommendation_bundle_id",
+          "comparison_matrix_id"
+        ],
+        "title": "ResultVersionResponse",
+        "type": "object"
+      },
+      "RunStage": {
+        "enum": [
+          "intake",
+          "query_planning",
+          "discovery",
+          "extraction",
+          "deduplication",
+          "listing_trust",
+          "category_analysis",
+          "comparison_decision",
+          "verification",
+          "complete"
+        ],
+        "title": "RunStage",
+        "type": "string"
+      },
+      "RunStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "SellerProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "is_marketplace_seller": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Marketplace Seller"
+          },
+          "marketplace_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marketplace Name"
+          },
+          "seller_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Seller Name",
+            "type": "string"
+          },
+          "seller_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Url"
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "trust_confidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trust_notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trust Notes"
+          },
+          "trust_signal": {
+            "$ref": "#/components/schemas/SellerTrustSignal",
+            "default": "unknown"
+          }
+        },
+        "required": [
+          "seller_name"
+        ],
+        "title": "SellerProfile",
+        "type": "object"
+      },
+      "SellerTrustSignal": {
+        "enum": [
+          "strong",
+          "reasonable",
+          "mixed",
+          "weak",
+          "suspicious",
+          "unknown"
+        ],
+        "title": "SellerTrustSignal",
+        "type": "string"
+      },
+      "SessionResultsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_records": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRunRecord"
+            },
+            "title": "Agent Records",
+            "type": "array"
+          },
+          "category_analyses": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryAnalysis"
+            },
+            "title": "Category Analyses",
+            "type": "array"
+          },
+          "comparison_matrix": {
+            "$ref": "#/components/schemas/ComparisonMatrix"
+          },
+          "recommendation_bundle": {
+            "$ref": "#/components/schemas/RecommendationBundle"
+          },
+          "result_version": {
+            "$ref": "#/components/schemas/ResultVersionResponse"
+          },
+          "trust_assessments": {
+            "items": {
+              "$ref": "#/components/schemas/ListingTrustAssessment"
+            },
+            "title": "Trust Assessments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_version",
+          "trust_assessments",
+          "category_analyses",
+          "agent_records",
+          "comparison_matrix",
+          "recommendation_bundle"
+        ],
+        "title": "SessionResultsResponse",
+        "type": "object"
+      },
+      "SessionStateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_brief": {
+            "$ref": "#/components/schemas/ShoppingBrief"
+          },
+          "original_input": {
+            "$ref": "#/components/schemas/CreateSessionRequest-Output"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_added_products": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/UserAddedProduct"
+            },
+            "title": "User Added Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "session_id",
+          "original_input",
+          "current_brief",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionStateResponse",
+        "type": "object"
+      },
+      "ShoppingBrief": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "category_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FieldSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Constraints",
+            "type": "array"
+          },
+          "original_query": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Original Query",
+            "type": "string"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceConstraint"
+            },
+            "title": "Preferences",
+            "type": "array"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "original_query"
+        ],
+        "title": "ShoppingBrief",
+        "type": "object"
+      },
+      "ShoppingRunRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus",
+            "default": "pending"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "ShoppingRunRecord",
+        "type": "object"
+      },
+      "UpdateShoppingBriefRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetConstraint-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "category_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FieldSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PreferenceConstraint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraints"
+          },
+          "preferences": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PreferenceConstraint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferences"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionPreference-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "UpdateShoppingBriefRequest",
+        "type": "object"
+      },
+      "UserAddedProduct": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "input_text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Text"
+          },
+          "listing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductListing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanonicalProduct"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "UserAddedProduct",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "CartCart Backend",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/sessions": {
+      "post": {
+        "operationId": "create_session_api_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_api_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/brief": {
+      "patch": {
+        "operationId": "update_session_brief_api_sessions__session_id__brief_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShoppingBriefRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Session Brief",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/products": {
+      "post": {
+        "operationId": "add_user_added_product_api_sessions__session_id__products_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserAddedProductRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add User Added Product",
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/refinements": {
+      "post": {
+        "operationId": "create_refinement_api_sessions__session_id__refinements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRefinementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefinementRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Refinement",
+        "tags": [
+          "refinements"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/results": {
+      "get": {
+        "operationId": "get_session_results_api_sessions__session_id__results_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Results",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/runs": {
+      "post": {
+        "operationId": "create_run_api_sessions__session_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingRunRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_api_sessions__session_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingRunRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/runs/{run_id}/events": {
+      "get": {
+        "operationId": "stream_run_events_api_sessions__session_id__runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Run Events",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Readyz Readyz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

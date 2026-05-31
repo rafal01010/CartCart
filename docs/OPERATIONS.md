@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Initial local operations assumptions for planning
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 ## Local MVP Assumptions
 
@@ -14,7 +14,13 @@ The MVP is local-first:
 - No cross-session user preference profiling.
 - External search, extraction, model, and source-intelligence providers are configured explicitly by environment variables when implementation reaches those milestones.
 
-The initial monorepo skeleton exists under `apps/backend`, `apps/frontend`, `docs`, and `scripts/local`. The backend Python project can be initialized with `scripts/local/init-backend.sh`, synced with `scripts/local/sync-backend.sh`, started with `scripts/local/start-backend.sh`, reset with `scripts/local/reset-db.sh`, cleaned with `scripts/local/cleanup-artifacts.sh`, and migrated with Alembic from `apps/backend`. Frontend, stop/restart, migration wrapper, and full-app lifecycle scripts have not been scaffolded yet, so the rest of this document describes intended operational direction where implementation has not reached a runnable command.
+The initial monorepo skeleton exists under `apps/backend`, `apps/frontend`, `docs`, and `scripts/local`. The backend Python project can be initialized with `scripts/local/init-backend.sh`, synced with `scripts/local/sync-backend.sh`, linted with `scripts/local/lint-backend.sh`, type checked with `scripts/local/typecheck-backend.sh`, tested with `scripts/local/test-backend.sh`, migrated with `scripts/local/migrate-backend.sh`, started with `scripts/local/start-backend.sh`, exported to OpenAPI with `scripts/local/export-openapi.sh`, reset with `scripts/local/reset-db.sh`, and cleaned with `scripts/local/cleanup-artifacts.sh`. The frontend can be initialized with `scripts/local/init-frontend.sh`, synced with `scripts/local/sync-frontend.sh`, linted with `scripts/local/lint-frontend.sh`, checked with `scripts/local/check-frontend.sh`, tested with `scripts/local/test-frontend.sh`, built with `scripts/local/build-frontend.sh`, prepared for browser checks with `scripts/local/setup-playwright.sh`, and started with `scripts/local/start-frontend.sh`. The local app can be started, stopped, and restarted with `scripts/local/start-app.sh`, `scripts/local/stop-app.sh`, and `scripts/local/restart-app.sh`.
+
+Manual local prerequisites:
+
+- Install `uv` before backend setup.
+- Install Node.js before frontend setup.
+- Make `pnpm` available on `PATH` before frontend setup. With a Node.js installation that includes Corepack, run `corepack enable`, `corepack prepare pnpm@latest --activate`, then verify with `pnpm --version`.
 
 ## Current Local Scripts
 
@@ -24,6 +30,74 @@ Run it:
 
 - after a fresh checkout before backend development
 
+`scripts/local/init-frontend.sh` initializes `apps/frontend/package.json` when it is missing by running the Svelte CLI with the minimal SvelteKit template, TypeScript, no add-ons, and `pnpm` dependency installation. It also runs `pnpm --dir apps/frontend install` so repeated invocations refresh dependencies from the lockfile.
+
+Run it:
+
+- after a fresh checkout before frontend development
+- when `apps/frontend/node_modules` is missing or stale
+
+`scripts/local/sync-frontend.sh` syncs frontend dependencies from `apps/frontend/package.json` and `apps/frontend/pnpm-lock.yaml`.
+
+Run it:
+
+- after frontend dependency metadata changes
+- when `apps/frontend/node_modules` is missing or stale
+
+Frontend browser API configuration defaults to `http://127.0.0.1:8000`. Override it with `PUBLIC_CARTCART_API_BASE_URL` when the backend is available at another origin.
+
+`scripts/local/lint-frontend.sh` runs strict frontend lint-style Svelte diagnostics. It currently uses `svelte-check --fail-on-warnings`, so warning output is treated as actionable.
+
+Run it:
+
+- before submitting frontend changes when Svelte diagnostics or warnings need to be checked
+- with additional `svelte-check` arguments after the script name when needed
+
+`scripts/local/check-frontend.sh` runs the frontend SvelteKit type/component check.
+
+Run it:
+
+- before submitting frontend changes that affect Svelte components, routes, or TypeScript contracts
+- after changing frontend API types, form state, route code, or shared UI utilities
+
+`scripts/local/test-frontend.sh` runs frontend unit tests through Vitest. Pass Vitest arguments after the script name for focused checks.
+
+Run it:
+
+- before submitting frontend behavior changes
+- with a focused test path for task-local checks, such as `scripts/local/test-frontend.sh src/lib/api/client.test.ts`
+
+`scripts/local/build-frontend.sh` builds the frontend production bundle.
+
+Run it:
+
+- before release-like local checks
+- after changes to routing, SvelteKit config, build config, or browser-only imports
+
+`scripts/local/setup-playwright.sh` installs Playwright browser binaries using the frontend-local Playwright CLI.
+
+Run it:
+
+- after `scripts/local/sync-frontend.sh` on a machine that needs browser/E2E checks
+- before running later Playwright smoke tests
+
+`pnpm --dir apps/frontend run test:e2e` runs the Playwright smoke test. The Playwright config starts the backend and frontend on `127.0.0.1:8000` and `127.0.0.1:5173` by default, runs Alembic migrations against `data/e2e/cartcart-e2e.sqlite3`, then drives the browser through session creation, a fixture run, progress observation, and final-pick rendering.
+
+Run it:
+
+- at the Section I local developer workflow gate
+- after `scripts/local/setup-playwright.sh` has installed browser binaries
+- when the first stubbed browser workflow needs verification
+
+Stop the managed local app first if it is already using the default ports, or override E2E ports and database path with `CARTCART_E2E_BACKEND_HOST`, `CARTCART_E2E_BACKEND_PORT`, `CARTCART_E2E_FRONTEND_HOST`, `CARTCART_E2E_FRONTEND_PORT`, and `CARTCART_E2E_DATABASE_PATH`.
+
+`scripts/local/start-frontend.sh` starts the SvelteKit development server in the background. It reads `apps/backend/.env` and `apps/frontend/.env` when present, derives `PUBLIC_CARTCART_API_BASE_URL` from the backend host and port when that variable is not already set, and writes logs and a PID file.
+
+Run it:
+
+- when manually exercising the frontend without starting the backend through `start-app.sh`
+- after frontend dependencies have been synced
+
 `scripts/local/sync-backend.sh` syncs the backend environment from `apps/backend/pyproject.toml` and `apps/backend/uv.lock`.
 
 Run it:
@@ -32,12 +106,70 @@ Run it:
 - when `apps/backend/.venv` is missing or stale
 - before backend verification commands if dependencies may have changed
 
-`scripts/local/start-backend.sh` starts the local FastAPI backend with Uvicorn. It reads shell environment variables and `apps/backend/.env` when present.
+`scripts/local/lint-backend.sh` runs Ruff against backend application and test code.
+
+Run it:
+
+- before submitting backend changes when lint failures need to be checked
+- with additional Ruff arguments after the script name when needed, such as `--fix`
+
+`scripts/local/typecheck-backend.sh` runs mypy against backend application code.
+
+Run it:
+
+- before submitting backend changes that affect typed application contracts
+- after changing schemas, repositories, services, API routes, or orchestration code
+
+`scripts/local/test-backend.sh` runs the backend pytest suite. Pass pytest arguments after the script name for focused checks.
+
+Run it:
+
+- before submitting backend behavior changes
+- with a focused test path for task-local checks, such as `scripts/local/test-backend.sh tests/test_health.py`
+
+`scripts/local/migrate-backend.sh` runs Alembic migrations from the backend project. It upgrades to `head` by default, and accepts an optional revision as the first argument.
+
+Run it:
+
+- after a fresh dependency sync when the local SQLite database has not been created yet
+- after database model or migration changes
+- after `scripts/local/reset-db.sh --yes` when rebuilding the default local database
+
+`scripts/local/start-backend.sh` starts the local FastAPI backend with Uvicorn in the background. It reads shell environment variables and `apps/backend/.env` when present, then writes logs and a PID file.
 
 Run it:
 
 - when manually checking backend endpoints such as `GET /healthz` and `GET /readyz`
 - when a later frontend or integration step needs the backend running locally
+
+`scripts/local/start-app.sh` starts the managed backend and frontend processes. The command is idempotent for already-running managed services with valid PID files.
+
+Run it:
+
+- after backend and frontend dependencies have been synced
+- when manually using the local CartCart app
+
+`scripts/local/stop-app.sh` stops the managed frontend process first, then the managed backend process. Missing or stale PID files are handled as already-stopped services.
+
+Run it:
+
+- when finished with manual local app usage
+- before changing lifecycle environment variables such as ports or run/log directories
+
+`scripts/local/restart-app.sh` runs `stop-app.sh`, then `start-app.sh`.
+
+Run it:
+
+- after changing backend or frontend code when a clean local process restart is easier than relying on reload behavior
+- after changing lifecycle environment variables
+
+`scripts/local/export-openapi.sh` exports the FastAPI OpenAPI contract to `docs/openapi.json` by default. It accepts an optional output path.
+
+Run it:
+
+- after backend API or schema changes
+- before generating frontend API types once that workflow exists
+- when reviewing the current implemented endpoint/schema contract
 
 `scripts/local/reset-db.sh --yes` deletes the configured local SQLite database file plus SQLite sidecar files (`-journal`, `-shm`, and `-wal`). It reads `apps/backend/.env` when present and respects `CARTCART_DATABASE_PATH` or `CARTCART_DATA_DIR`.
 
@@ -53,7 +185,74 @@ Run it:
 - before live-provider development if previous raw snapshots, extraction outputs, traces, or eval artifacts should be cleaned
 - periodically during local development to control disk usage
 
-Do not use setup/sync scripts as test checkpoint commands. Dedicated lint, type-check, test, stop/restart, and full-app lifecycle scripts will be added with the backend and frontend milestones that need them.
+Do not use setup/sync scripts as test checkpoint commands. Use the dedicated backend verification wrappers for backend lint, type check, test, migration, startup, and OpenAPI export workflows. Use the dedicated frontend wrappers for frontend lint, check, test, build, and Playwright browser setup workflows. Use the lifecycle scripts for manual local app startup, shutdown, and restart.
+
+## App Lifecycle
+
+Default service URLs:
+
+- Backend: `http://127.0.0.1:8000`
+- Frontend: `http://127.0.0.1:5173`
+
+Lifecycle state is stored under `data/` by default:
+
+- Backend PID: `data/run/backend.pid`
+- Frontend PID: `data/run/frontend.pid`
+- Backend log: `data/logs/backend.log`
+- Frontend log: `data/logs/frontend.log`
+
+Start the full local app:
+
+```sh
+scripts/local/start-app.sh
+```
+
+Stop the full local app:
+
+```sh
+scripts/local/stop-app.sh
+```
+
+Restart the full local app:
+
+```sh
+scripts/local/restart-app.sh
+```
+
+Start only one side when needed:
+
+```sh
+scripts/local/start-backend.sh
+scripts/local/start-frontend.sh
+```
+
+`start-backend.sh` and `start-frontend.sh` refuse to start a duplicate managed service when the PID file points to a running process. If the PID file is stale, the start script removes it and starts a new process. `stop-app.sh` treats missing or stale PID files as already stopped. If a service exits during the first startup second, the start script prints the last log lines and removes its PID file.
+
+Lifecycle environment variables:
+
+- `CARTCART_BACKEND_HOST`: backend bind host. Defaults to `127.0.0.1`.
+- `CARTCART_BACKEND_PORT`: backend bind port. Defaults to `8000`.
+- `CARTCART_BACKEND_RELOAD`: backend Uvicorn reload toggle. Defaults to `true`.
+- `CARTCART_FRONTEND_HOST`: frontend bind host. Defaults to `127.0.0.1`.
+- `CARTCART_FRONTEND_PORT`: frontend bind port. Defaults to `5173`.
+- `PUBLIC_CARTCART_API_BASE_URL`: frontend browser API base URL. Defaults to the configured backend URL.
+- `CARTCART_RUN_DIR`: PID directory. Defaults to `data/run`.
+- `CARTCART_LOG_DIR`: lifecycle log directory. Defaults to `data/logs`.
+- `CARTCART_E2E_BACKEND_HOST`: Playwright backend host. Defaults to `127.0.0.1`.
+- `CARTCART_E2E_BACKEND_PORT`: Playwright backend port. Defaults to `8000`.
+- `CARTCART_E2E_FRONTEND_HOST`: Playwright frontend host. Defaults to `127.0.0.1`.
+- `CARTCART_E2E_FRONTEND_PORT`: Playwright frontend port. Defaults to `5173`.
+- `CARTCART_E2E_DATABASE_PATH`: Playwright SQLite database path. Defaults to `data/e2e/cartcart-e2e.sqlite3`.
+
+Set backend lifecycle variables in the shell or in `apps/backend/.env`. Set frontend-specific variables in the shell or in `apps/frontend/.env`. Keep `CARTCART_RUN_DIR` and `CARTCART_LOG_DIR` common for the local app so the start and stop scripts agree on managed process locations.
+
+The current local vertical slice is fixture-only. Creating a session, starting a stub run, streaming progress, and rendering the final fixture recommendation do not require external search provider keys, live model credentials, live web access, or OpenAI agent calls.
+
+The Section I local workflow gate covers:
+
+- backend lint, type check, tests, migration, app startup, and OpenAPI export
+- frontend lint, check, unit tests, build, Playwright browser setup, and E2E smoke test
+- lifecycle start/stop behavior with managed PID and log files
 
 ## Database Migrations
 
@@ -61,11 +260,10 @@ Alembic is configured in `apps/backend/alembic.ini` and uses the backend setting
 
 The current pre-release migration history is squashed into one initial persistence baseline. If a local database was created from the earlier task-by-task migration chain, reset it before applying the current baseline.
 
-Run migrations from the backend project directory:
+Run migrations through the local wrapper:
 
 ```sh
-cd apps/backend
-uv run alembic -c alembic.ini upgrade head
+scripts/local/migrate-backend.sh
 ```
 
 Override `CARTCART_DATABASE_PATH` or `CARTCART_DATA_DIR` to migrate a different local SQLite database. Use absolute paths for overrides.
@@ -74,8 +272,7 @@ Reset the default local database and rebuild the schema:
 
 ```sh
 scripts/local/reset-db.sh --yes
-cd apps/backend
-uv run alembic -c alembic.ini upgrade head
+scripts/local/migrate-backend.sh
 ```
 
 The reset script deletes only the configured SQLite database and sidecar files. It does not delete `data/artifacts/`, traces, eval output, or source snapshot files. Use `scripts/local/cleanup-artifacts.sh --yes` for artifact cleanup.
@@ -94,7 +291,7 @@ Backend:
 Frontend:
 
 - SvelteKit development server.
-- TypeScript checks and frontend tests once implemented.
+- TypeScript checks and focused frontend tests.
 
 Later local deployment-like operation may add Docker Compose, persistent volumes, and release scripts.
 
@@ -108,8 +305,13 @@ Current backend variables:
 - `CARTCART_BACKEND_HOST`: local backend bind host. Defaults to `127.0.0.1`.
 - `CARTCART_BACKEND_PORT`: local backend bind port. Defaults to `8000`.
 - `CARTCART_BACKEND_RELOAD`: local startup reload toggle used by `scripts/local/start-backend.sh`. Defaults to `true`.
+- `CARTCART_FRONTEND_HOST`: local frontend bind host. Defaults to `127.0.0.1`.
+- `CARTCART_FRONTEND_PORT`: local frontend bind port. Defaults to `5173`.
+- `CARTCART_RUN_DIR`: lifecycle PID directory. Defaults to `data/run`.
+- `CARTCART_LOG_DIR`: lifecycle log directory. Defaults to `data/logs`.
 - `CARTCART_LOG_LEVEL`: backend structured log level. Defaults to `INFO`.
 - `CARTCART_FRONTEND_ORIGINS`: JSON array of allowed frontend origins for CORS. Defaults to local SvelteKit origins.
+- `PUBLIC_CARTCART_API_BASE_URL`: frontend browser API base URL. Defaults in code to `http://127.0.0.1:8000`.
 - `CARTCART_TELEMETRY_ENABLED`: enables OpenTelemetry FastAPI instrumentation when `true`. Defaults to `false`.
 - `CARTCART_TELEMETRY_EXPORTER`: telemetry exporter. Allowed values are `console` and `otlp`. Defaults to `console`.
 - `CARTCART_TELEMETRY_SERVICE_NAME`: OpenTelemetry service name. Defaults to `cartcart-backend`.

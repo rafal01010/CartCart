@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-05-29
+Last updated: 2026-05-31
 
 ## Evaluation Direction
 
@@ -69,9 +69,11 @@ Integration tests should cover API endpoints, persistence, run lifecycle, event 
 
 Contract tests should verify OpenAPI export and generated or hand-maintained frontend API expectations once the backend exists.
 
-End-to-end tests should cover the first stubbed workflow, then the fixture-backed full workflow: create a session, start a run, observe progress, inspect results, add a product, and submit a refinement.
+End-to-end tests should cover the first stubbed workflow, then the fixture-backed full workflow: create a session, start a run, observe progress, inspect results, add a product, and submit a refinement. The first Playwright smoke test lives at `apps/frontend/tests/e2e/stub-run-smoke.spec.ts` and covers the session creation, fixture run, progress, and final-pick path.
 
 Eval tests should run against stable local fixtures first. Live provider or live model evals should be opt-in because they require credentials, cost, and network access.
+
+Local frontend verification wrappers live under `scripts/local/`: `lint-frontend.sh`, `check-frontend.sh`, `test-frontend.sh`, `build-frontend.sh`, and `setup-playwright.sh`. Use focused unit test arguments during normal feature work and reserve full frontend verification, production builds, and browser checks such as `pnpm --dir apps/frontend run test:e2e` for the relevant gate or explicit release-like checks.
 
 ## Evidence And Fixture Policy
 

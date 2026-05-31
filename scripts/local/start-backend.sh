@@ -4,35 +4,28 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/apps/backend"
+UVICORN_BIN="${BACKEND_DIR}/.venv/bin/uvicorn"
 
-if ! command -v uv >/dev/null 2>&1; then
-  echo "Error: uv is required to start the backend." >&2
-  echo "Install uv first: https://docs.astral.sh/uv/getting-started/installation/" >&2
-  exit 1
-fi
+# shellcheck source=scripts/local/lifecycle-common.sh
+source "${SCRIPT_DIR}/lifecycle-common.sh"
 
-if [[ ! -f "${BACKEND_DIR}/pyproject.toml" ]]; then
-  echo "Error: apps/backend/pyproject.toml is missing." >&2
-  echo "Run scripts/local/init-backend.sh first." >&2
-  exit 1
-fi
+require_command "uv" "start the backend" "Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
+require_file "${BACKEND_DIR}/pyproject.toml" "apps/backend/pyproject.toml is missing." "Run scripts/local/init-backend.sh first."
+require_file "${UVICORN_BIN}" "apps/backend/.venv/bin/uvicorn is missing." "Run scripts/local/sync-backend.sh first."
 
-if [[ -f "${BACKEND_DIR}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${BACKEND_DIR}/.env"
-  set +a
-fi
+source_env_file "${BACKEND_DIR}/.env"
 
+DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
+RUN_DIR="${CARTCART_RUN_DIR:-${DATA_DIR}/run}"
+LOG_DIR="${CARTCART_LOG_DIR:-${DATA_DIR}/logs}"
+PID_FILE="${RUN_DIR}/backend.pid"
+LOG_FILE="${LOG_DIR}/backend.log"
 HOST="${CARTCART_BACKEND_HOST:-127.0.0.1}"
 PORT="${CARTCART_BACKEND_PORT:-8000}"
 RELOAD="${CARTCART_BACKEND_RELOAD:-true}"
 
 args=(
-  uv
-  run
-  --project "${BACKEND_DIR}"
-  uvicorn
+  "${UVICORN_BIN}"
   --app-dir "${BACKEND_DIR}"
   app.main:create_app
   --factory
@@ -44,4 +37,4 @@ if [[ "${RELOAD}" == "true" ]]; then
   args+=(--reload)
 fi
 
-exec "${args[@]}"
+start_managed_service "backend" "${PID_FILE}" "${LOG_FILE}" "${args[@]}"

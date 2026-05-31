@@ -185,8 +185,8 @@ def test_create_refinement_stores_request_and_creates_new_stub_run(
         "Tighten the budget and prioritize noise cancellation."
     )
     assert body["run"]["session_id"] == session_id
-    assert body["run"]["status"] == "pending"
-    assert body["run"]["current_stage"] is None
+    assert body["run"]["status"] == "succeeded"
+    assert body["run"]["current_stage"] == "complete"
 
 
 def test_refinement_run_result_version_does_not_overwrite_original(
@@ -195,7 +195,6 @@ def test_refinement_run_result_version_does_not_overwrite_original(
     session_id = create_session(refinement_api_client)
     original_run_id = create_run(refinement_api_client, session_id)
     original_result = make_fixture_recommendation("Original result remains saved.")
-    refined_result = make_fixture_recommendation("Refined result is separate.")
     asyncio.run(
         save_fixture_result(
             refinement_api_client.app.state.settings,
@@ -210,13 +209,6 @@ def test_refinement_run_result_version_does_not_overwrite_original(
     )
     assert refinement_response.status_code == 201
     refinement_run_id = refinement_response.json()["run"]["run_id"]
-    asyncio.run(
-        save_fixture_result(
-            refinement_api_client.app.state.settings,
-            refinement_run_id,
-            refined_result,
-        )
-    )
 
     original_version, original_reason, refined_version, instruction = asyncio.run(
         load_result_version_and_refinement(
@@ -226,7 +218,7 @@ def test_refinement_run_result_version_does_not_overwrite_original(
         )
     )
 
-    assert original_version == 1
+    assert original_version == 2
     assert original_reason == "Original result remains saved."
     assert refined_version == 1
     assert instruction == "Prefer cheaper options."

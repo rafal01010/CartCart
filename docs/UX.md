@@ -1,13 +1,15 @@
 # CartCart UX Information Architecture
 
-Status: Initial frontend acceptance checklist
-Last updated: 2026-05-29
+Status: Workspace shell with session creation, stub run progress, and fixture result rendering wired; remaining items are acceptance guidance
+Last updated: 2026-05-31
 
 ## Purpose
 
 This document defines the MVP user experience structure before UI implementation. It should be used as the acceptance checklist for the first SvelteKit workspace shell, fixture result UI, and later live workflow UI.
 
 CartCart should open directly into the shopping research workspace. Do not build a marketing landing page as the first screen.
+
+The current frontend route implements the first workspace shell with query controls, region and budget fields, user-added product entry, refinement controls, inferred brief summary, progress timeline, shortlist, comparison, recommendation, trust notes, and source evidence panels. The query/region/budget form creates a persisted backend session through `POST /api/sessions`, stores the session ID in the URL, and reloads that session on refresh. The user-added product controls persist URL placeholders and manual product details through `POST /api/sessions/{session_id}/products`, render the returned session state, and reset stale run/result state before the next run. The refinement controls submit category, region, budget, and preference corrections through `POST /api/sessions/{session_id}/refinements`, show created refinement runs, and keep the current result version/run visible. The run action starts the fixture backend run, renders stage events from the SSE stream, and fetches the latest fixture recommendation bundle on completion. The result UI shows the final pick, why it wins, runner-ups, recommendation modes from the same analysis, trust notes, warnings/red flags, meaningful rejected items only when present, and inspectable source links. Workspace notices cover no session, loading, no result, run in progress, failed run, partial data, weak evidence, conflicting signals, warning/red-flag result, and API-error states.
 
 ## UX Principles
 
@@ -258,4 +260,3 @@ Before the MVP frontend is accepted:
 - Source drawer exposes evidence and gaps.
 - Refinement loop preserves result versions.
 - Mobile layout is usable, but desktop comparison remains the primary design target.
-

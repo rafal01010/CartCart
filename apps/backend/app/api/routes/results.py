@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ApplicationError
 from app.db.repositories.results import ResultRepository, SavedResultBundle
+from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.session import get_db_session
 from app.schemas.analysis import (
@@ -16,6 +17,7 @@ from app.schemas.analysis import (
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import CandidateId, RunId, SessionId
 from app.schemas.runs import AgentRunRecord
+from app.schemas.search_sources import SourceEvidence, SourceSnapshot
 
 
 router = APIRouter(prefix="/api/sessions/{session_id}/results", tags=["results"])
@@ -38,6 +40,8 @@ class SessionResultsResponse(CartCartBaseModel):
     agent_records: tuple[AgentRunRecord, ...]
     comparison_matrix: ComparisonMatrix
     recommendation_bundle: RecommendationBundle
+    source_snapshots: tuple[SourceSnapshot, ...]
+    source_evidence: tuple[SourceEvidence, ...]
 
 
 @router.get("", response_model=SessionResultsResponse)
@@ -57,10 +61,22 @@ async def get_session_results(
     if saved_result is None:
         raise _result_not_ready(session_id)
 
-    return _to_response(saved_result)
+    source_repository = SearchSourceRepository(db_session)
+    source_snapshots = await source_repository.list_source_snapshots(
+        saved_result.result_version.run_id,
+    )
+    source_evidence = await source_repository.list_source_evidence(
+        saved_result.result_version.run_id,
+    )
+
+    return _to_response(saved_result, source_snapshots, source_evidence)
 
 
-def _to_response(saved_result: SavedResultBundle) -> SessionResultsResponse:
+def _to_response(
+    saved_result: SavedResultBundle,
+    source_snapshots: tuple[SourceSnapshot, ...],
+    source_evidence: tuple[SourceEvidence, ...],
+) -> SessionResultsResponse:
     return SessionResultsResponse(
         result_version=ResultVersionResponse(
             result_version_id=saved_result.result_version.result_version_id,
@@ -74,6 +90,8 @@ def _to_response(saved_result: SavedResultBundle) -> SessionResultsResponse:
         agent_records=saved_result.agent_records,
         comparison_matrix=saved_result.comparison_matrix,
         recommendation_bundle=saved_result.recommendation_bundle,
+        source_snapshots=source_snapshots,
+        source_evidence=source_evidence,
     )
 
 

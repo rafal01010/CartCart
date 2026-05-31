@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Initial public architecture notes for planning
-Last updated: 2026-05-29
+Last updated: 2026-05-31
 
 ## Product Model
 
@@ -46,7 +46,7 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, product/listing records, and result bundle records have been added. Product API behavior will be added in later implementation milestones.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, product/listing records, result bundle records, a fixture-only shopping run orchestrator, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
 
 Current skeleton:
 
@@ -65,12 +65,34 @@ apps/
     uv.lock
     tests/
   frontend/
+    src/
+    package.json
+    pnpm-lock.yaml
 docs/
 scripts/
   local/
+    cleanup-artifacts.sh
+    export-openapi.sh
+    build-frontend.sh
+    check-frontend.sh
     init-backend.sh
+    init-frontend.sh
+    lifecycle-common.sh
+    lint-frontend.sh
+    lint-backend.sh
+    migrate-backend.sh
+    reset-db.sh
+    setup-playwright.sh
+    start-app.sh
     start-backend.sh
+    start-frontend.sh
+    stop-app.sh
     sync-backend.sh
+    sync-frontend.sh
+    test-frontend.sh
+    test-backend.sh
+    typecheck-backend.sh
+    restart-app.sh
 AGENTS.md
 .gitignore
 README.md
@@ -109,8 +131,18 @@ scripts/
   local/
     init-backend.sh
     sync-backend.sh
+    lint-backend.sh
+    typecheck-backend.sh
+    test-backend.sh
+    migrate-backend.sh
+    export-openapi.sh
     init-frontend.sh
     sync-frontend.sh
+    lint-frontend.sh
+    check-frontend.sh
+    test-frontend.sh
+    build-frontend.sh
+    setup-playwright.sh
     start-backend.sh
     start-frontend.sh
     start-app.sh
@@ -122,7 +154,7 @@ supported_agents.md
 
 ## Workflow Architecture
 
-CartCart should use deterministic workflow orchestration around typed agent steps. A backend `ShoppingRunOrchestrator` should own workflow state, persistence, retries, trace IDs, provider boundaries, and emitted progress events.
+CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and a fixture monitor-shopping result bundle. The current implementation is fixture-only; `POST /api/sessions/{session_id}/runs` executes it synchronously and records deterministic stages plus persisted search/source, product/listing, user-added item, trust, analysis, and recommendation output without live providers or model calls.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -143,7 +175,7 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. When implementation reaches the agent catalog task, the approved hierarchy should be represented in a validated code registry such as `apps/backend/app/agents/catalog.py`.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls.
 
 Required MVP agent roles include:
 

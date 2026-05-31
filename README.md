@@ -10,18 +10,20 @@ CartCart is not intended to be only a product recommendation app, a price compar
 
 ## Current Status
 
-The repository is in early setup. The backend can start locally, exposes health/readiness endpoints, and has local SQLite persistence/migrations for the current backend data model. Product API behavior, live agents, and frontend scaffolding have not been implemented yet.
+CartCart currently has a local, fixture-backed full-stack workflow. The backend is a FastAPI app with SQLite persistence, migrations, health/readiness endpoints, typed API routes, a stub shopping-run orchestrator, and exported OpenAPI docs. The frontend is a SvelteKit workspace that can create or reload a shopping session, add known products, start a fixture run, show streamed run progress, render the fixture recommendation bundle, and submit refinement stubs.
 
-## What CartCart Should Do
+This milestone does not use live search providers, live OpenAI model calls, affiliate links, or production deployment. The recommendation data is deterministic fixture data so the web app can be manually exercised without external credentials.
 
-CartCart starts from a natural-language shopping goal, such as:
+## Product Direction
+
+CartCart is intended to start from a natural-language shopping goal, such as:
 
 - "I want a monitor for coding and movies."
 - "I need wireless headphones under a certain budget."
 - "I want an office chair that is actually worth it."
 - "Here is a product I already know about. Compare it against better options."
 
-The app should then help with:
+Over time, the app should then help with:
 
 - understanding the user's needs, constraints, budget, and region
 - finding relevant products
@@ -48,11 +50,11 @@ It should help users avoid:
 
 ```text
 apps/
-  backend/       Python/FastAPI backend will live here.
-  frontend/      SvelteKit frontend will live here.
+  backend/       Python/FastAPI backend.
+  frontend/      SvelteKit frontend.
 docs/            Public architecture, API, evaluation, operations, UX, and decision docs.
 scripts/
-  local/         Local developer workflow scripts will live here.
+  local/         Local developer workflow scripts.
 data/            Local SQLite database and bulky runtime artifacts; do not commit.
 AGENTS.md        Contributor and agent working rules.
 supported_agents.md
@@ -61,29 +63,64 @@ README.md
 
 `data/` is created by local persistence workflows when needed. By default, the SQLite database lives at `data/cartcart.sqlite3`.
 
-Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required yet.
+Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Frontend local overrides can live in `apps/frontend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required for the current fixture workflow.
 
-## Local Workflow
+## Run Locally
 
-Use committed scripts under `scripts/local/` for repeatable local setup and operations rather than ad hoc commands.
+Use the committed `.sh` scripts under `scripts/local/` for setup, migrations, lifecycle management, and verification.
 
-Current scripts:
+Prerequisites:
 
-- `scripts/local/init-backend.sh` initializes the backend Python project in `apps/backend` if needed, then syncs dependencies. Run it after a fresh checkout before backend work.
-- `scripts/local/sync-backend.sh` syncs the backend environment from `apps/backend/pyproject.toml` and `apps/backend/uv.lock`. Run it after backend dependency metadata changes, when `apps/backend/.venv` is missing or stale, and before backend verification commands if dependencies may have changed.
-- `scripts/local/start-backend.sh` starts the local FastAPI backend. Run it when you want to manually exercise the backend API, such as checking `GET /healthz` or `GET /readyz`.
-- `scripts/local/reset-db.sh --yes` deletes the configured local SQLite database and sidecar files. Run it when you need a clean local database before rerunning Alembic migrations.
-- `scripts/local/cleanup-artifacts.sh --yes` deletes local artifact files according to configured retention windows. Run it when raw snapshots, extracted content, screenshots, traces, or eval outputs should be cleaned.
+- `uv` for backend dependency management.
+- Node.js and `pnpm` on `PATH` for frontend dependency management. If Node.js provides Corepack, run `corepack enable`, `corepack prepare pnpm@latest --activate`, and confirm with `pnpm --version`.
 
-Dedicated lint, type-check, test, stop, full-app startup, and frontend setup scripts will be added when those workflows exist.
+From a fresh checkout:
 
-Script conventions:
+```sh
+scripts/local/init-backend.sh
+scripts/local/init-frontend.sh
+scripts/local/migrate-backend.sh
+scripts/local/start-app.sh
+```
 
-- Use `.sh` files with explicit names such as `init-backend.sh`, `sync-frontend.sh`, or `start-app.sh`.
-- Keep scripts small and composable.
-- Make scripts runnable from a clean checkout by resolving paths from the repository root or script location.
-- Prefer strict shell options such as `set -euo pipefail`.
-- Document new scripts in this README or `docs/OPERATIONS.md` when they become useful.
+Then open `http://127.0.0.1:5173`.
+
+For an existing checkout after dependencies are already installed:
+
+```sh
+scripts/local/sync-backend.sh
+scripts/local/sync-frontend.sh
+scripts/local/migrate-backend.sh
+scripts/local/start-app.sh
+```
+
+Use these lifecycle scripts while manually testing:
+
+- `scripts/local/start-app.sh` starts backend and frontend together.
+- `scripts/local/stop-app.sh` stops both managed processes.
+- `scripts/local/restart-app.sh` restarts both managed processes.
+- `scripts/local/start-backend.sh` starts only the FastAPI backend on `127.0.0.1:8000` by default.
+- `scripts/local/start-frontend.sh` starts only the SvelteKit dev server on `127.0.0.1:5173` by default.
+
+Lifecycle scripts write PID files to `data/run/` and logs to `data/logs/` by default. Override bind addresses and ports with `CARTCART_BACKEND_HOST`, `CARTCART_BACKEND_PORT`, `CARTCART_FRONTEND_HOST`, and `CARTCART_FRONTEND_PORT`; override PID and log directories with `CARTCART_RUN_DIR` and `CARTCART_LOG_DIR`.
+
+The current local app can create a shopping session, preserve it across refreshes through a `session` URL parameter, start the fixture run, stream stage progress, and render the latest fixture recommendation bundle with trust notes, warnings, mode results, and source evidence links.
+
+## Verification
+
+Common local checks:
+
+- `scripts/local/lint-backend.sh`
+- `scripts/local/typecheck-backend.sh`
+- `scripts/local/test-backend.sh`
+- `scripts/local/lint-frontend.sh`
+- `scripts/local/check-frontend.sh`
+- `scripts/local/test-frontend.sh`
+- `scripts/local/build-frontend.sh`
+- `scripts/local/setup-playwright.sh`
+- `pnpm --dir apps/frontend run test:e2e`
+
+Run `scripts/local/setup-playwright.sh` once before the Playwright smoke test on a machine that does not already have the browser binaries installed. See `docs/OPERATIONS.md` for the full script reference, database reset command, cleanup command, and lifecycle environment variables.
 
 ## Project Docs
 
@@ -92,6 +129,7 @@ Script conventions:
 - `docs/DATABASE.md` - current SQLite schema, tables, indexes, and artifact boundary.
 - `docs/EVALUATION.md` - evaluation and testing strategy.
 - `docs/OPERATIONS.md` - local operations assumptions.
+- `docs/WORKFLOW.md` - current fixture workflow, run lifecycle, event emission, and result versioning.
 - `docs/UX.md` - desktop-first product surface guidance.
 - `docs/DECISIONS.md` - accepted and pending decisions.
 - `supported_agents.md` - human-editable agent and source-capability intent.

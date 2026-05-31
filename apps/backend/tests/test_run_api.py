@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -10,14 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.db.models  # noqa: F401
 from app.core.settings import Settings
 from app.db.base import Base
-from app.db.repositories.runs import RunRepository
 from app.db.session import (
     create_database_engine,
     create_session_factory,
     get_db_session,
 )
 from app.main import create_app
-from app.schemas.runs import RunStage, RunStatus
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -64,29 +63,6 @@ def create_session(client: TestClient) -> str:
     return response.json()["session_id"]
 
 
-async def append_run_events(settings: Settings, run_id: str) -> None:
-    engine = create_database_engine(settings)
-    try:
-        session_factory = create_session_factory(engine)
-        async with session_factory() as session:
-            repository = RunRepository(session)
-            await repository.append_event(
-                UUID(run_id),
-                stage=RunStage.INTAKE,
-                status=RunStatus.RUNNING,
-                message="Intake started.",
-            )
-            await repository.append_event(
-                UUID(run_id),
-                stage=RunStage.QUERY_PLANNING,
-                status=RunStatus.RUNNING,
-                message="Query planning started.",
-            )
-            await session.commit()
-    finally:
-        await engine.dispose()
-
-
 def parse_sse_payloads(body: str) -> list[dict[str, str]]:
     payloads: list[dict[str, str]] = []
     for raw_event in body.strip().split("\n\n"):
@@ -98,7 +74,9 @@ def parse_sse_payloads(body: str) -> list[dict[str, str]]:
     return payloads
 
 
-def test_create_run_records_pending_stub_run(run_api_client: TestClient) -> None:
+def test_create_run_runs_stub_orchestrator_synchronously(
+    run_api_client: TestClient,
+) -> None:
     session_id = create_session(run_api_client)
 
     response = run_api_client.post(f"/api/sessions/{session_id}/runs")
@@ -107,10 +85,10 @@ def test_create_run_records_pending_stub_run(run_api_client: TestClient) -> None
     body = response.json()
     UUID(body["run_id"])
     assert body["session_id"] == session_id
-    assert body["status"] == "pending"
-    assert body["current_stage"] is None
-    assert body["started_at"] is None
-    assert body["completed_at"] is None
+    assert body["status"] == "succeeded"
+    assert body["current_stage"] == "complete"
+    assert body["started_at"] is not None
+    assert body["completed_at"] is not None
     assert body["error"] is None
 
 
@@ -167,7 +145,6 @@ def test_stream_run_events_returns_persisted_events_in_order(
     create_response = run_api_client.post(f"/api/sessions/{session_id}/runs")
     assert create_response.status_code == 201
     run_id = create_response.json()["run_id"]
-    asyncio.run(append_run_events(run_api_client.app.state.settings, run_id))
 
     with run_api_client.stream(
         "GET",
@@ -178,14 +155,53 @@ def test_stream_run_events_returns_persisted_events_in_order(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     payloads = parse_sse_payloads(body)
-    assert [payload["id"] for payload in payloads] == ["0", "1"]
-    assert [payload["event"] for payload in payloads] == [
-        "run_event",
-        "run_event",
+    event_data = [json.loads(payload["data"]) for payload in payloads]
+    assert [payload["id"] for payload in payloads] == [
+        str(index) for index in range(10)
     ]
-    assert '"sequence":0' in payloads[0]["data"]
-    assert '"stage":"intake"' in payloads[0]["data"]
-    assert '"message":"Intake started."' in payloads[0]["data"]
-    assert '"sequence":1' in payloads[1]["data"]
-    assert '"stage":"query_planning"' in payloads[1]["data"]
-    assert '"message":"Query planning started."' in payloads[1]["data"]
+    assert {payload["event"] for payload in payloads} == {"run_event"}
+    assert [event["stage"] for event in event_data] == [
+        "intake",
+        "query_planning",
+        "discovery",
+        "extraction",
+        "deduplication",
+        "listing_trust",
+        "category_analysis",
+        "comparison_decision",
+        "verification",
+        "complete",
+    ]
+    assert event_data[-1]["status"] == "succeeded"
+    assert event_data[-1]["message"] == "Fixture shopping run completed."
+
+
+def test_create_run_streams_events_and_fetches_fixture_results(
+    run_api_client: TestClient,
+) -> None:
+    session_id = create_session(run_api_client)
+    create_response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+    assert create_response.status_code == 201
+    run_id = create_response.json()["run_id"]
+
+    with run_api_client.stream(
+        "GET",
+        f"/api/sessions/{session_id}/runs/{run_id}/events",
+    ) as events_response:
+        events_body = events_response.read().decode()
+    results_response = run_api_client.get(f"/api/sessions/{session_id}/results")
+
+    assert events_response.status_code == 200
+    assert parse_sse_payloads(events_body)[-1]["id"] == "9"
+    assert results_response.status_code == 200
+    result_body = results_response.json()
+    assert result_body["result_version"]["run_id"] == run_id
+    bundle = result_body["recommendation_bundle"]
+    assert bundle["final_rationale"].startswith("Dell UltraSharp U2724DE")
+    assert len(bundle["runner_up_product_ids"]) == 2
+    assert bundle["rejected_items"][0]["reason"].startswith("Rejected because")
+    assert any(
+        assessment["level"] == "suspicious"
+        for assessment in result_body["trust_assessments"]
+    )
+    assert len(result_body["agent_records"]) == 9

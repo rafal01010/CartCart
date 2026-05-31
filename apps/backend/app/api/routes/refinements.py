@@ -5,8 +5,11 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ApplicationError
+from app.db.repositories.products import ProductRepository
 from app.db.repositories.refinements import RefinementRepository
+from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
+from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.session import get_db_session
 from app.schemas.base import CartCartBaseModel
@@ -76,6 +79,9 @@ def _refinement_service(db_session: AsyncSession) -> RefinementService:
         session_repository=SessionRepository(db_session),
         run_repository=RunRepository(db_session),
         refinement_repository=RefinementRepository(db_session),
+        result_repository=ResultRepository(db_session),
+        search_source_repository=SearchSourceRepository(db_session),
+        product_repository=ProductRepository(db_session),
     )
 
 

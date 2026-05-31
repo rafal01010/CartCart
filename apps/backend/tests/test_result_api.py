@@ -153,10 +153,10 @@ def test_get_session_results_returns_latest_persisted_fixture_bundle(
     assert response.status_code == 200
     body = response.json()
     assert body["result_version"]["run_id"] == run_id
-    assert body["result_version"]["version"] == 2
-    assert body["trust_assessments"] == []
-    assert body["category_analyses"] == []
-    assert body["agent_records"] == []
+    assert body["result_version"]["version"] == 3
+    assert body["trust_assessments"]
+    assert body["category_analyses"]
+    assert body["agent_records"]
     assert body["recommendation_bundle"]["bundle_id"] == str(latest.bundle_id)
     assert body["recommendation_bundle"]["no_strong_buy"] is True
     assert body["recommendation_bundle"]["no_strong_buy_reason"] == (
@@ -165,3 +165,6 @@ def test_get_session_results_returns_latest_persisted_fixture_bundle(
     assert body["comparison_matrix"] == body["recommendation_bundle"][
         "comparison_matrix"
     ]
+    assert body["source_snapshots"]
+    assert body["source_evidence"]
+    assert all(snapshot["url"] for snapshot in body["source_snapshots"])

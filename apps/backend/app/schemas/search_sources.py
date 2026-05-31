@@ -373,12 +373,12 @@ class VideoReviewEvidenceBundle(VersionedSchema):
             if item.source_id not in source_ids:
                 raise ValueError("video review evidence must reference a bundled source.")
             for segment_id in item.transcript_segment_ids:
-                segment = segment_by_id.get(segment_id)
-                if segment is None:
+                referenced_segment = segment_by_id.get(segment_id)
+                if referenced_segment is None:
                     raise ValueError(
                         "video review evidence must reference bundled transcript segments."
                     )
-                if segment.video_id != item.video_id:
+                if referenced_segment.video_id != item.video_id:
                     raise ValueError(
                         "video review evidence cannot cite another video's transcript segment."
                     )

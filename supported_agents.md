@@ -16,7 +16,7 @@ This is intentionally broader than an agent hierarchy file. Some agents belong i
 
 - This file is design documentation and approved product/source-routing intent.
 - The application must not parse this Markdown file at runtime.
-- Once implementation reaches the agent catalog task, runtime configuration will live in a validated code registry such as `apps/backend/app/agents/catalog.py`.
+- Runtime configuration lives in the validated code registry at `apps/backend/app/agents/catalog.py`.
 - The code registry, agent tests, routing evals, and this file must be updated together whenever an implemented agent is added, removed, moved, or assigned a new fallback.
 - A proposed future agent can appear here before it is implemented, but its status must clearly be `proposed-later` or `candidate-mvp` rather than `implemented`.
 

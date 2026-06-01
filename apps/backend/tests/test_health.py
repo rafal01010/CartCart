@@ -1,13 +1,14 @@
 from fastapi.testclient import TestClient
 
-from app.core.settings import Settings
+from app.core.settings import SearchProviderName, Settings
 from app.main import create_app
 
 
-def make_test_client() -> TestClient:
+def make_test_client(**settings_overrides: object) -> TestClient:
     settings = Settings(
         _env_file=None,  # type: ignore[call-arg]
         frontend_origins=("http://frontend.test",),
+        **settings_overrides,
     )
     return TestClient(create_app(settings))
 
@@ -30,7 +31,26 @@ def test_readyz_reports_configuration_readiness() -> None:
     body = response.json()
     assert body["status"] == "ready"
     assert body["checks"]["configuration"] == "ok"
+    assert body["checks"]["providers"] == "ok"
     assert body["checks"]["data_dir"]
+    assert body["warnings"] == []
+
+
+def test_readyz_reports_provider_configuration_warnings() -> None:
+    client = make_test_client(
+        search_provider=SearchProviderName.TAVILY,
+        search_provider_enabled=True,
+    )
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["checks"]["configuration"] == "warning"
+    assert body["checks"]["providers"] == "warning"
+    assert body["warnings"][0]["provider"] == "search:tavily"
+    assert body["warnings"][0]["missing_env_var"] == "CARTCART_TAVILY_API_KEY"
 
 
 def test_cors_allows_configured_frontend_origin() -> None:

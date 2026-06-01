@@ -315,6 +315,28 @@ Search and extraction should be adapter-based. Initial provider interfaces shoul
 - Optional shopping-specific product search.
 - Later reusable source-intelligence providers such as video search, transcripts, marketplace availability, and official store lookup.
 
+The implemented backend provider boundary lives under `apps/backend/app/providers`.
+`SearchProvider`, `ExtractionProvider`, and optional `ShoppingProvider` are async
+protocols that return existing typed source and product schemas. Provider options
+carry a `SourceAllowAvoidPolicy` so orchestration can pass explicit allow and
+avoid rules without hard-coding a single marketplace, source category, or search
+vendor. Deterministic fake providers live beside the contracts and are intended
+for fixture-mode tests until real adapters are configured.
+
+Reusable source-intelligence providers are also defined in the provider layer:
+`VideoSearchProvider`, `TranscriptProvider`, `MarketplaceAvailabilityProvider`,
+and `OfficialStoreProvider`. These protocols expose `ProviderCapabilityFlags`
+for enabled state, supported capabilities, official/user-authorized access, and
+compliance notes. Their fake implementations can return metadata-only video
+evidence, available transcript segments, explicit unavailable-transcript gaps,
+and disabled-provider results without making live calls.
+
+Provider runtime configuration is typed in backend settings. Search, extraction,
+and optional shopping providers have explicit provider names, enabled flags,
+shared timeout/rate-limit defaults, a default region, and local secret fields.
+Missing keys for enabled live providers surface as readiness warnings rather
+than blocking fixture or stub operation.
+
 The MVP should start with one general web search provider when implementation reaches provider work. Tavily is preferred if a key is available because search and extraction both matter for agent workflows. Brave is a credible alternative. SerpApi should remain optional because it introduces cost, dependency, and terms considerations.
 
 Source policy:

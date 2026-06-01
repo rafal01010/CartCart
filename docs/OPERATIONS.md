@@ -316,6 +316,18 @@ Current backend variables:
 - `CARTCART_TELEMETRY_EXPORTER`: telemetry exporter. Allowed values are `console` and `otlp`. Defaults to `console`.
 - `CARTCART_TELEMETRY_SERVICE_NAME`: OpenTelemetry service name. Defaults to `cartcart-backend`.
 - `CARTCART_TELEMETRY_OTLP_ENDPOINT`: OTLP HTTP traces endpoint for a local collector. Defaults to `http://127.0.0.1:4318/v1/traces`.
+- `CARTCART_DEFAULT_REGION_CODE`: default provider region code. Defaults to `US`.
+- `CARTCART_PROVIDER_TIMEOUT_SECONDS`: default provider call timeout. Defaults to `10`.
+- `CARTCART_PROVIDER_RATE_LIMIT_PER_MINUTE`: default local provider rate-limit budget. Defaults to `60`.
+- `CARTCART_SEARCH_PROVIDER`: general web search provider. Allowed values are `fixture`, `tavily`, and `brave`. Defaults to `fixture`.
+- `CARTCART_SEARCH_PROVIDER_ENABLED`: enables live general web search provider use when `true`. Defaults to `false`.
+- `CARTCART_EXTRACTION_PROVIDER`: source extraction provider. Allowed values are `disabled`, `fixture`, and `tavily`. Defaults to `fixture`.
+- `CARTCART_EXTRACTION_PROVIDER_ENABLED`: enables live extraction provider use when `true`. Defaults to `false`.
+- `CARTCART_SHOPPING_PROVIDER`: optional shopping-specific provider. Allowed values are `disabled`, `fixture`, and `serpapi`. Defaults to `disabled`.
+- `CARTCART_SHOPPING_PROVIDER_ENABLED`: enables optional shopping-specific provider use when `true`. Defaults to `false`.
+- `CARTCART_TAVILY_API_KEY`: local Tavily API key. Required only when Tavily-backed search or extraction is enabled.
+- `CARTCART_BRAVE_SEARCH_API_KEY`: local Brave Search API key. Required only when Brave search is enabled.
+- `CARTCART_SERPAPI_API_KEY`: local SerpApi key. Required only when SerpApi shopping search is enabled.
 - `CARTCART_DATA_DIR`: local data directory. Defaults to the repository-level `data/` directory.
 - `CARTCART_DATABASE_PATH`: SQLite database path. Defaults to `data/cartcart.sqlite3`.
 - `CARTCART_ARTIFACT_DIR`: local artifact directory. Defaults to `data/artifacts`.
@@ -328,14 +340,28 @@ Current backend variables:
 - `CARTCART_SCREENSHOTS_ENABLED`: enables optional screenshot capture when a later provider/extraction workflow supports it. Defaults to `false`.
 - `CARTCART_CROSS_SESSION_PREFERENCE_PROFILING_ENABLED`: must remain `false` for MVP. Attempts to set it to `true` are rejected by settings validation.
 
-No real secrets are required for the current backend settings. The project owner only needs to set these variables manually when overriding local paths or runtime mode. Use absolute paths for local path overrides. Provider and model keys will be introduced in later milestones and must be supplied locally by the project owner rather than committed.
+No real secrets are required for default fixture/stub operation. The project
+owner only needs to set variables manually when overriding local paths, changing
+runtime mode, or opting into live provider mode. Use absolute paths for local
+path overrides. Provider and model keys must be supplied locally by the project
+owner rather than committed.
+
+The current provider layer defines backend interfaces, fake providers, and typed
+runtime configuration. It does not implement live provider adapters yet. Keep
+using fixture/stub mode until adapter tasks add recorded/live provider behavior.
+When live mode is needed, copy `apps/backend/.env.example` to
+`apps/backend/.env` and enter real provider keys only in that ignored local file.
+Source-intelligence provider interfaces likewise have only fake implementations
+right now. Their capability flags model enabled/disabled state and compliance
+boundaries for video search, transcript access, marketplace availability, and
+official-store lookup, but no API keys are read yet.
 
 Future configuration areas include:
 
 - OpenAI API key and model settings.
 - OpenAI Agents SDK tracing options.
-- Search provider keys and enabled-provider flags.
-- Extraction provider options and timeouts.
+- Additional source-intelligence provider keys and enabled-provider flags.
+- Provider-specific timeout and rate-limit settings beyond the shared defaults.
 - Optional YouTube/video provider keys and transcript strategy.
 - Telemetry enabled/disabled flag.
 - Logfire or OTEL exporter settings.
@@ -446,7 +472,10 @@ The backend attaches `X-Request-ID` to responses. If a request supplies that hea
 
 `GET /healthz` reports process liveness and remains cheap.
 
-`GET /readyz` currently reports configuration readiness. Database availability and configured provider readiness will be added when persistence and provider milestones exist. Optional providers should be reported as disabled or warning states when not configured.
+`GET /readyz` reports configuration readiness and provider warnings. Missing
+keys for enabled live providers return warning entries while the endpoint still
+returns HTTP 200 and `status: ready`, so fixture/stub mode is not blocked.
+Database availability checks may be added later.
 
 `GET /metrics` may be added when a Prometheus-compatible exporter or equivalent monitoring path exists.
 

@@ -131,7 +131,9 @@ Liveness check. It should be cheap and not depend on external providers.
 
 `GET /readyz`
 
-Readiness check. It currently reports configuration readiness. It should cover database availability and configured provider readiness or warnings once those milestones exist.
+Readiness check. It reports configuration readiness, data directory location,
+and provider warnings. Missing keys for enabled live providers are returned as
+warnings while fixture/stub mode remains ready.
 
 ## Error Responses
 

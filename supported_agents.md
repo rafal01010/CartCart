@@ -190,6 +190,7 @@ The YouTube agent should produce structured evidence, not final recommendations.
 ## Provider And Compliance Constraints
 
 - Providers must be configured through explicit adapters; agents should not directly call vendor SDKs or scrape pages outside approved tools.
+- Provider adapters should expose capability and compliance flags so agents can distinguish disabled providers, metadata-only evidence, transcript access, marketplace availability, and official-store lookup before using provider output.
 - Provider keys, enabled-provider flags, timeouts, and capability flags belong in runtime configuration once implementation begins.
 - Reseller-only platforms are excluded initially. Mixed marketplaces are allowed only when seller/listing trust can be assessed.
 - YouTube metadata may come from the official YouTube Data API when configured.

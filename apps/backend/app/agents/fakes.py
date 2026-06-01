@@ -9,9 +9,12 @@ from app.agents.contracts import (
     DiscoveryAgentOutput,
     ExtractionReviewAgentInput,
     ExtractionReviewAgentOutput,
+    AmazonProductIntelligenceAgentInput,
+    IKEAStoreIntelligenceAgentInput,
     IntakeAgentInput,
     ProductAnalysisAgentInput,
     QueryPlannerAgentInput,
+    RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgentInput,
     SourceIntelligenceAgentInput,
     SourceIntelligenceAgentOutput,
@@ -37,16 +40,30 @@ from app.schemas.ids import new_id
 from app.schemas.intake import FieldSource, ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
 from app.schemas.search_sources import (
+    AmazonEvidenceFactType,
+    AmazonListingContext,
+    AmazonProductEvidence,
+    AmazonProductEvidenceBundle,
+    CommunityDiscussionContext,
+    CommunityDiscussionEvidence,
+    CommunityDiscussionEvidenceBundle,
     EvidenceTarget,
     EvidenceTargetType,
     EvidenceType,
     ExtractionStatus,
+    IKEAEvidenceFactType,
+    IKEAStoreContext,
+    IKEAStoreEvidence,
+    IKEAStoreEvidenceBundle,
     ProviderMetadata,
+    RegionalStoreAvailability,
     SearchIntent,
     SearchPlan,
     SearchQuery,
     SearchResult,
     SourceEvidence,
+    SourceEvidenceGap,
+    SourceIntelligenceCapability,
     SourceQuality,
     SourceQualityLevel,
     SourceSnapshot,
@@ -313,6 +330,303 @@ class FakeYouTubeReviewIntelligenceAgent:
 
 
 @dataclass(frozen=True)
+class FakeRedditCommunityIntelligenceAgent:
+    output: CommunityDiscussionEvidenceBundle | None = None
+
+    async def run(
+        self,
+        input_data: RedditCommunityIntelligenceAgentInput,
+    ) -> CommunityDiscussionEvidenceBundle:
+        if self.output is not None:
+            return self.output
+        source_id = new_id()
+        product_id = (
+            input_data.products[0].product_id if input_data.products else new_id()
+        )
+        source_url = AnyHttpUrl(
+            "https://www.reddit.com/r/BuyItForLife/comments/fixture/thread/"
+        )
+        discussion = CommunityDiscussionContext(
+            source_id=source_id,
+            url=source_url,
+            community_name="r/BuyItForLife",
+            thread_id="fixture-thread",
+            thread_title="Fixture owner impressions",
+            comment_count=12,
+            extracted_public_summary=(
+                "Fixture public thread summary with recurring owner comments."
+            ),
+        )
+        return CommunityDiscussionEvidenceBundle(
+            source_references=(
+                SourceReference(
+                    source_id=source_id,
+                    url=source_url,
+                    title=discussion.thread_title,
+                ),
+            ),
+            discussions=(discussion,),
+            evidence=(
+                CommunityDiscussionEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.PRODUCT,
+                        product_id=product_id,
+                    ),
+                    claim=(
+                        "Fixture Reddit discussion reports recurring owner "
+                        "setup concerns."
+                    ),
+                    confidence=_confidence(0.6),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.MIXED,
+                        score=0.6,
+                    ),
+                    context_source_ids=(source_id,),
+                    recurring_signal=True,
+                    evidence_quality_warnings=(
+                        "Community evidence is qualitative and anecdotal.",
+                    ),
+                ),
+            ),
+            evidence_gaps=(
+                SourceEvidenceGap(
+                    capability=SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.PRODUCT,
+                        product_id=product_id,
+                    ),
+                    source_id=source_id,
+                    summary="Fixture mode does not fetch private or full Reddit text.",
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class FakeAmazonProductIntelligenceAgent:
+    output: AmazonProductEvidenceBundle | None = None
+
+    async def run(
+        self,
+        input_data: AmazonProductIntelligenceAgentInput,
+    ) -> AmazonProductEvidenceBundle:
+        if self.output is not None:
+            return self.output
+        source_id = new_id()
+        product_id = (
+            input_data.products[0].product_id if input_data.products else new_id()
+        )
+        listing_id = (
+            input_data.listings[0].listing_id if input_data.listings else new_id()
+        )
+        region_code = _target_region_code(input_data.target_region_code, input_data)
+        listing_url = AnyHttpUrl("https://www.amazon.com/dp/B012345678")
+        context = AmazonListingContext(
+            source_id=source_id,
+            marketplace_name="Amazon",
+            marketplace_domain="amazon.com",
+            marketplace_country_code=region_code,
+            listing_url=listing_url,
+            asin="B012345678",
+            product_title="Fixture product listing",
+            seller_name="Fixture Marketplace Seller",
+            fulfillment="Fulfilled by Amazon",
+            ships_to_region_code=region_code,
+            ships_to_region=True,
+            review_count=128,
+            average_rating=4.2,
+        )
+        return AmazonProductEvidenceBundle(
+            source_references=(
+                SourceReference(
+                    source_id=source_id,
+                    url=listing_url,
+                    title=context.product_title,
+                ),
+            ),
+            listing_contexts=(context,),
+            evidence=(
+                AmazonProductEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.PRODUCT,
+                        product_id=product_id,
+                    ),
+                    fact_type=AmazonEvidenceFactType.PRODUCT_PAGE_FACT,
+                    claim="Fixture Amazon page provides product-page facts.",
+                    confidence=_confidence(0.7),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.ADEQUATE,
+                        score=0.7,
+                    ),
+                    listing_context_source_id=source_id,
+                ),
+                AmazonProductEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.LISTING,
+                        listing_id=listing_id,
+                    ),
+                    fact_type=AmazonEvidenceFactType.LISTING_IDENTITY,
+                    claim="Fixture Amazon listing identity preserves ASIN B012345678.",
+                    confidence=_confidence(0.75),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.ADEQUATE,
+                        score=0.7,
+                    ),
+                    listing_context_source_id=source_id,
+                ),
+                AmazonProductEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.SELLER,
+                        listing_id=listing_id,
+                    ),
+                    fact_type=AmazonEvidenceFactType.SELLER_FULFILLMENT,
+                    claim="Fixture seller and fulfillment are represented separately.",
+                    confidence=_confidence(0.65),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.MIXED,
+                        score=0.6,
+                    ),
+                    listing_context_source_id=source_id,
+                ),
+                AmazonProductEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.REVIEW,
+                        review_id="fixture-review-summary",
+                    ),
+                    fact_type=AmazonEvidenceFactType.REVIEW_SUMMARY,
+                    claim="Fixture Amazon review summary is source-specific evidence.",
+                    confidence=_confidence(0.6),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.MIXED,
+                        score=0.6,
+                    ),
+                    listing_context_source_id=source_id,
+                ),
+                AmazonProductEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.REGION,
+                        region_code=region_code,
+                    ),
+                    fact_type=AmazonEvidenceFactType.REGIONAL_AVAILABILITY,
+                    claim=(
+                        "Fixture Amazon listing includes regional ship-to evidence."
+                    ),
+                    confidence=_confidence(0.65),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.ADEQUATE,
+                        score=0.7,
+                    ),
+                    listing_context_source_id=source_id,
+                ),
+            ),
+            evidence_gaps=(
+                SourceEvidenceGap(
+                    capability=(
+                        SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW
+                    ),
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.REVIEW,
+                        review_id="fixture-review-summary",
+                    ),
+                    source_id=source_id,
+                    summary="Fixture mode does not retrieve individual Amazon reviews.",
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class FakeIKEAStoreIntelligenceAgent:
+    output: IKEAStoreEvidenceBundle | None = None
+
+    async def run(
+        self,
+        input_data: IKEAStoreIntelligenceAgentInput,
+    ) -> IKEAStoreEvidenceBundle:
+        if self.output is not None:
+            return self.output
+        source_id = new_id()
+        product_id = (
+            input_data.products[0].product_id if input_data.products else new_id()
+        )
+        region_code = _target_region_code(input_data.target_region_code, input_data)
+        official_url = AnyHttpUrl(
+            "https://www.ikea.com/us/en/p/fixture-product-12345678/"
+        )
+        context = IKEAStoreContext(
+            source_id=source_id,
+            country_code=region_code,
+            official_url=official_url,
+            product_code="12345678",
+            product_name="Fixture IKEA product",
+            store_name=f"IKEA {region_code}",
+            delivery_area=f"{region_code} online delivery",
+            availability=RegionalStoreAvailability.UNKNOWN,
+        )
+        return IKEAStoreEvidenceBundle(
+            source_references=(
+                SourceReference(
+                    source_id=source_id,
+                    url=official_url,
+                    title=context.product_name,
+                ),
+            ),
+            store_contexts=(context,),
+            evidence=(
+                IKEAStoreEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.PRODUCT,
+                        product_id=product_id,
+                    ),
+                    fact_type=IKEAEvidenceFactType.OFFICIAL_PRODUCT_FACT,
+                    claim="Fixture IKEA page preserves official product context.",
+                    confidence=_confidence(0.7),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.STRONG,
+                        score=0.85,
+                    ),
+                    store_context_source_id=source_id,
+                ),
+                IKEAStoreEvidence(
+                    source_id=source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.REGION,
+                        region_code=region_code,
+                    ),
+                    fact_type=IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
+                    claim="Fixture IKEA evidence is scoped to a country or region.",
+                    confidence=_confidence(0.65),
+                    source_quality=SourceQuality(
+                        level=SourceQualityLevel.ADEQUATE,
+                        score=0.7,
+                    ),
+                    store_context_source_id=source_id,
+                ),
+            ),
+            evidence_gaps=(
+                SourceEvidenceGap(
+                    capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.REGION,
+                        region_code=region_code,
+                    ),
+                    source_id=source_id,
+                    summary=(
+                        "Fixture mode does not assert live IKEA regional inventory."
+                    ),
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class FakeComparisonDecisionAgent:
     output: RecommendationBundle | None = None
 
@@ -432,3 +746,14 @@ def _category_analysis(
 def _confidence(score: float = 0.8) -> Confidence:
     level = ConfidenceLevel.HIGH if score >= 0.75 else ConfidenceLevel.MEDIUM
     return Confidence(score=score, level=level, rationale="Fixture confidence.")
+
+
+def _target_region_code(
+    explicit_region_code: str | None,
+    input_data: SourceIntelligenceAgentInput,
+) -> str:
+    if explicit_region_code is not None:
+        return explicit_region_code
+    if input_data.brief.region is not None:
+        return input_data.brief.region.region.country_code
+    return "US"

@@ -12,7 +12,7 @@ CartCart is not intended to be only a product recommendation app, a price compar
 
 CartCart currently has a local, fixture-backed full-stack workflow. The backend is a FastAPI app with SQLite persistence, migrations, health/readiness endpoints, typed API routes, a stub shopping-run orchestrator, and exported OpenAPI docs. The frontend is a SvelteKit workspace that can create or reload a shopping session, add known products, start a fixture run, show streamed run progress, render the fixture recommendation bundle, and submit refinement stubs.
 
-This milestone does not use live search providers, live OpenAI model calls, affiliate links, or production deployment. The recommendation data is deterministic fixture data so the web app can be manually exercised without external credentials.
+This milestone does not use live search providers, live reusable source intelligence agents, live OpenAI model calls, affiliate links, or production deployment. The recommendation data is deterministic fixture data so the web app can be manually exercised without external credentials.
 
 ## Product Direction
 
@@ -32,7 +32,7 @@ Over time, the app should then help with:
 - comparing the generated shortlist plus user-added products
 - identifying a best pick, runner-ups, and meaningful alternatives
 - warning about weak, suspicious, or poor-fit listings
-- using useful source evidence, including product pages, reviews, and video reviews where available
+- using useful source evidence, including product pages, reviews, video reviews, Reddit/community discussions, Amazon product/listing/review signals, and region-aware official-store evidence such as IKEA where available
 
 ## Product Principles
 
@@ -132,4 +132,4 @@ Run `scripts/local/setup-playwright.sh` once before the Playwright smoke test on
 - `docs/WORKFLOW.md` - current fixture workflow, run lifecycle, event emission, and result versioning.
 - `docs/UX.md` - desktop-first product surface guidance.
 - `docs/DECISIONS.md` - accepted and pending decisions.
-- `supported_agents.md` - human-editable agent and source-capability intent.
+- `supported_agents.md` - human-editable agent and reusable source-capability intent.

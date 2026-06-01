@@ -6,6 +6,8 @@ from pydantic import AnyHttpUrl, Field, model_validator
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence, ConfidenceScore
 from app.schemas.ids import CandidateId, ListingId, ProductId, SourceId, new_id
+from app.schemas.intake import ShoppingBrief
+from app.schemas.money import Money
 from app.schemas.regions import RegionCode
 from app.schemas.source_references import SourceReference
 from app.schemas.timestamps import Timestamp, utc_now
@@ -46,6 +48,12 @@ class EvidenceType(StrEnum):
     SELLER_TRUST = "seller_trust"
     REVIEW_CLAIM = "review_claim"
     VIDEO_CLAIM = "video_claim"
+    COMMUNITY_CLAIM = "community_claim"
+    MARKETPLACE_PRODUCT_FACT = "marketplace_product_fact"
+    LISTING_IDENTITY = "listing_identity"
+    REVIEW_SUMMARY = "review_summary"
+    OFFICIAL_STORE_FACT = "official_store_fact"
+    REGION_AVAILABILITY = "region_availability"
     WARRANTY = "warranty"
     WARNING = "warning"
     OTHER = "other"
@@ -55,7 +63,9 @@ class EvidenceTargetType(StrEnum):
     PRODUCT = "product"
     LISTING = "listing"
     SELLER = "seller"
+    REVIEW = "review"
     CANDIDATE = "candidate"
+    REGION = "region"
     SOURCE_METADATA = "source_metadata"
 
 
@@ -87,6 +97,41 @@ class ChannelSignal(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SourceIntelligenceCapability(StrEnum):
+    VIDEO_REVIEW = "video_review"
+    COMMUNITY_DISCUSSION = "community_discussion"
+    AMAZON_PRODUCT_LISTING_REVIEW = "amazon_product_listing_review"
+    IKEA_REGIONAL_OFFICIAL_STORE = "ikea_regional_official_store"
+
+
+class AmazonEvidenceFactType(StrEnum):
+    PRODUCT_PAGE_FACT = "product_page_fact"
+    LISTING_IDENTITY = "listing_identity"
+    SELLER_FULFILLMENT = "seller_fulfillment"
+    REVIEW_SUMMARY = "review_summary"
+    REVIEW_QUALITY_WARNING = "review_quality_warning"
+    REGIONAL_AVAILABILITY = "regional_availability"
+    PRICE = "price"
+    WARRANTY_OR_RETURN = "warranty_or_return"
+    MARKETPLACE_WARNING = "marketplace_warning"
+
+
+class IKEAEvidenceFactType(StrEnum):
+    OFFICIAL_PRODUCT_FACT = "official_product_fact"
+    REGIONAL_PRICE = "regional_price"
+    REGIONAL_AVAILABILITY = "regional_availability"
+    STORE_DELIVERY_CONTEXT = "store_delivery_context"
+
+
+class RegionalStoreAvailability(StrEnum):
+    AVAILABLE = "available"
+    OUT_OF_STOCK = "out_of_stock"
+    DELIVERY_UNAVAILABLE = "delivery_unavailable"
+    PICKUP_ONLY = "pickup_only"
+    REGION_UNSUPPORTED = "region_unsupported"
+    UNKNOWN = "unknown"
+
+
 class ConflictSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -113,6 +158,8 @@ class EvidenceTarget(CartCartBaseModel):
     listing_id: ListingId | None = None
     candidate_id: CandidateId | None = None
     seller_name: str | None = Field(default=None, min_length=1, max_length=200)
+    review_id: str | None = Field(default=None, min_length=1, max_length=200)
+    region_code: RegionCode | None = None
     source_id: SourceId | None = None
 
     @model_validator(mode="after")
@@ -133,11 +180,15 @@ class EvidenceTarget(CartCartBaseModel):
             raise ValueError(
                 "seller evidence targets require listing_id or seller_name."
             )
+        if self.target_type == EvidenceTargetType.REVIEW and self.review_id is None:
+            raise ValueError("review evidence targets require review_id.")
         if (
             self.target_type == EvidenceTargetType.CANDIDATE
             and self.candidate_id is None
         ):
             raise ValueError("candidate evidence targets require candidate_id.")
+        if self.target_type == EvidenceTargetType.REGION and self.region_code is None:
+            raise ValueError("region evidence targets require region_code.")
         if self.target_type == EvidenceTargetType.SOURCE_METADATA:
             if self.source_id is None:
                 raise ValueError("source metadata evidence targets require source_id.")
@@ -147,13 +198,45 @@ class EvidenceTarget(CartCartBaseModel):
                     self.listing_id,
                     self.candidate_id,
                     self.seller_name,
+                    self.review_id,
+                    self.region_code,
                 )
             ):
                 raise ValueError(
                     "source metadata evidence targets cannot identify products, "
-                    "listings, sellers, or candidates."
+                    "listings, sellers, reviews, regions, or candidates."
                 )
         return self
+
+
+class SourceIntelligenceCapabilityDescriptor(CartCartBaseModel):
+    capability: SourceIntelligenceCapability
+    provider_name: str | None = Field(default=None, min_length=1, max_length=120)
+    enabled: bool = True
+    official_access: bool | None = None
+    user_authorized_access: bool | None = None
+    domain_scoped_search: bool | None = None
+    marketplace_product_support: bool | None = None
+    marketplace_review_support: bool | None = None
+    regional_official_store_support: bool | None = None
+    compliance_notes: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class ReusableSourceIntelligenceRequest(VersionedSchema):
+    request_id: SourceId = Field(default_factory=new_id)
+    brief: ShoppingBrief
+    target_region_code: RegionCode | None = None
+    product_ids: tuple[ProductId, ...] = Field(default_factory=tuple)
+    listing_ids: tuple[ListingId, ...] = Field(default_factory=tuple)
+    candidate_ids: tuple[CandidateId, ...] = Field(default_factory=tuple)
+    source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    query_hints: tuple[str, ...] = Field(default_factory=tuple)
+    requested_capabilities: tuple[SourceIntelligenceCapability, ...] = Field(
+        min_length=1
+    )
+    allowed_capabilities: tuple[SourceIntelligenceCapabilityDescriptor, ...] = Field(
+        default_factory=tuple
+    )
 
 
 class SearchQuery(CartCartBaseModel):
@@ -279,6 +362,167 @@ class VideoReviewEvidence(CartCartBaseModel):
         return self
 
 
+class SourceEvidenceGap(CartCartBaseModel):
+    gap_id: SourceId = Field(default_factory=new_id)
+    capability: SourceIntelligenceCapability
+    target: EvidenceTarget | None = None
+    source_id: SourceId | None = None
+    summary: str = Field(min_length=1, max_length=1000)
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
+    source_quality: SourceQuality = Field(
+        default_factory=lambda: SourceQuality(level=SourceQualityLevel.UNKNOWN)
+    )
+    confidence: Confidence | None = None
+
+
+class CommunityDiscussionContext(CartCartBaseModel):
+    source_id: SourceId
+    url: AnyHttpUrl
+    platform: str = Field(default="reddit", min_length=1, max_length=80)
+    community_name: str | None = Field(default=None, min_length=1, max_length=120)
+    thread_id: str | None = Field(default=None, min_length=1, max_length=200)
+    thread_title: str | None = Field(default=None, min_length=1, max_length=300)
+    comment_id: str | None = Field(default=None, min_length=1, max_length=200)
+    posted_at: Timestamp | None = None
+    engagement_score: int | None = Field(default=None, ge=0)
+    comment_count: int | None = Field(default=None, ge=0)
+    extracted_public_summary: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2000,
+    )
+
+
+class CommunityDiscussionEvidence(CartCartBaseModel):
+    evidence_id: SourceId = Field(default_factory=new_id)
+    source_id: SourceId
+    target: EvidenceTarget
+    claim: str = Field(min_length=1, max_length=2000)
+    confidence: Confidence
+    source_quality: SourceQuality
+    context_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    recurring_signal: bool = False
+    qualitative_signal: bool = True
+    evidence_quality_warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_source_metadata_target(self) -> "CommunityDiscussionEvidence":
+        if (
+            self.target.target_type == EvidenceTargetType.SOURCE_METADATA
+            and self.target.source_id != self.source_id
+        ):
+            raise ValueError("source metadata evidence target must match source_id.")
+        return self
+
+
+class AmazonListingContext(CartCartBaseModel):
+    source_id: SourceId
+    marketplace_name: str = Field(min_length=1, max_length=120)
+    marketplace_domain: str = Field(min_length=1, max_length=200)
+    marketplace_country_code: RegionCode | None = None
+    listing_url: AnyHttpUrl
+    asin: str | None = Field(default=None, min_length=1, max_length=20)
+    external_listing_id: str | None = Field(default=None, min_length=1, max_length=200)
+    product_title: str | None = Field(default=None, min_length=1, max_length=300)
+    variant_label: str | None = Field(default=None, min_length=1, max_length=200)
+    seller_name: str | None = Field(default=None, min_length=1, max_length=200)
+    fulfillment: str | None = Field(default=None, min_length=1, max_length=200)
+    ships_to_region_code: RegionCode | None = None
+    ships_to_region: bool | None = None
+    review_count: int | None = Field(default=None, ge=0)
+    average_rating: float | None = Field(default=None, ge=0, le=5)
+
+
+class AmazonProductEvidence(CartCartBaseModel):
+    evidence_id: SourceId = Field(default_factory=new_id)
+    source_id: SourceId
+    target: EvidenceTarget
+    fact_type: AmazonEvidenceFactType
+    claim: str = Field(min_length=1, max_length=2000)
+    confidence: Confidence
+    source_quality: SourceQuality
+    listing_context_source_id: SourceId | None = None
+    evidence_quality_warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_fact_target_boundary(self) -> "AmazonProductEvidence":
+        if (
+            self.target.target_type == EvidenceTargetType.SOURCE_METADATA
+            and self.target.source_id != self.source_id
+        ):
+            raise ValueError("source metadata evidence target must match source_id.")
+        if (
+            self.fact_type == AmazonEvidenceFactType.PRODUCT_PAGE_FACT
+            and self.target.target_type != EvidenceTargetType.PRODUCT
+        ):
+            raise ValueError("Amazon product-page facts must target a product.")
+        if (
+            self.fact_type == AmazonEvidenceFactType.LISTING_IDENTITY
+            and self.target.target_type != EvidenceTargetType.LISTING
+        ):
+            raise ValueError("Amazon listing identity facts must target a listing.")
+        if (
+            self.fact_type == AmazonEvidenceFactType.SELLER_FULFILLMENT
+            and self.target.target_type != EvidenceTargetType.SELLER
+        ):
+            raise ValueError("Amazon seller/fulfillment facts must target a seller.")
+        if self.fact_type in (
+            AmazonEvidenceFactType.REVIEW_SUMMARY,
+            AmazonEvidenceFactType.REVIEW_QUALITY_WARNING,
+        ) and self.target.target_type != EvidenceTargetType.REVIEW:
+            raise ValueError("Amazon review facts must target review evidence.")
+        if (
+            self.fact_type == AmazonEvidenceFactType.REGIONAL_AVAILABILITY
+            and self.target.target_type != EvidenceTargetType.REGION
+        ):
+            raise ValueError("Amazon regional availability facts must target a region.")
+        return self
+
+
+class IKEAStoreContext(CartCartBaseModel):
+    source_id: SourceId
+    country_code: RegionCode
+    official_url: AnyHttpUrl
+    product_code: str | None = Field(default=None, min_length=1, max_length=120)
+    product_name: str | None = Field(default=None, min_length=1, max_length=300)
+    store_name: str | None = Field(default=None, min_length=1, max_length=200)
+    delivery_area: str | None = Field(default=None, min_length=1, max_length=200)
+    price: Money | None = None
+    availability: RegionalStoreAvailability = RegionalStoreAvailability.UNKNOWN
+
+
+class IKEAStoreEvidence(CartCartBaseModel):
+    evidence_id: SourceId = Field(default_factory=new_id)
+    source_id: SourceId
+    target: EvidenceTarget
+    fact_type: IKEAEvidenceFactType
+    claim: str = Field(min_length=1, max_length=2000)
+    confidence: Confidence
+    source_quality: SourceQuality
+    store_context_source_id: SourceId | None = None
+    evidence_quality_warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_fact_target_boundary(self) -> "IKEAStoreEvidence":
+        if (
+            self.target.target_type == EvidenceTargetType.SOURCE_METADATA
+            and self.target.source_id != self.source_id
+        ):
+            raise ValueError("source metadata evidence target must match source_id.")
+        if (
+            self.fact_type == IKEAEvidenceFactType.OFFICIAL_PRODUCT_FACT
+            and self.target.target_type != EvidenceTargetType.PRODUCT
+        ):
+            raise ValueError("IKEA official product facts must target a product.")
+        if self.fact_type in (
+            IKEAEvidenceFactType.REGIONAL_PRICE,
+            IKEAEvidenceFactType.REGIONAL_AVAILABILITY,
+            IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
+        ) and self.target.target_type != EvidenceTargetType.REGION:
+            raise ValueError("IKEA regional store facts must target a region.")
+        return self
+
+
 class SourceSnapshot(VersionedSchema):
     source_id: SourceId = Field(default_factory=new_id)
     url: AnyHttpUrl
@@ -382,4 +626,119 @@ class VideoReviewEvidenceBundle(VersionedSchema):
                     raise ValueError(
                         "video review evidence cannot cite another video's transcript segment."
                     )
+        return self
+
+
+class CommunityDiscussionEvidenceBundle(VersionedSchema):
+    bundle_id: SourceId = Field(default_factory=new_id)
+    source_references: tuple[SourceReference, ...] = Field(default_factory=tuple)
+    discussions: tuple[CommunityDiscussionContext, ...] = Field(default_factory=tuple)
+    evidence: tuple[CommunityDiscussionEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_bundle_relationships(self) -> "CommunityDiscussionEvidenceBundle":
+        source_ids = {reference.source_id for reference in self.source_references}
+        if len(source_ids) != len(self.source_references):
+            raise ValueError(
+                "source reference IDs must be unique within a community evidence bundle."
+            )
+
+        discussion_source_ids = {discussion.source_id for discussion in self.discussions}
+        if len(discussion_source_ids) != len(self.discussions):
+            raise ValueError(
+                "discussion source IDs must be unique within a community evidence bundle."
+            )
+        if not discussion_source_ids.issubset(source_ids):
+            raise ValueError("community discussions must reference bundled sources.")
+
+        for item in self.evidence:
+            if item.source_id not in source_ids:
+                raise ValueError(
+                    "community evidence must reference a bundled source."
+                )
+            for context_source_id in item.context_source_ids:
+                if context_source_id not in discussion_source_ids:
+                    raise ValueError(
+                        "community evidence must reference bundled discussion context."
+                    )
+        for gap in self.evidence_gaps:
+            if gap.source_id is not None and gap.source_id not in source_ids:
+                raise ValueError("evidence gaps can only cite bundled sources.")
+        return self
+
+
+class AmazonProductEvidenceBundle(VersionedSchema):
+    bundle_id: SourceId = Field(default_factory=new_id)
+    source_references: tuple[SourceReference, ...] = Field(default_factory=tuple)
+    listing_contexts: tuple[AmazonListingContext, ...] = Field(default_factory=tuple)
+    evidence: tuple[AmazonProductEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_bundle_relationships(self) -> "AmazonProductEvidenceBundle":
+        source_ids = {reference.source_id for reference in self.source_references}
+        if len(source_ids) != len(self.source_references):
+            raise ValueError(
+                "source reference IDs must be unique within an Amazon evidence bundle."
+            )
+
+        context_source_ids = {context.source_id for context in self.listing_contexts}
+        if len(context_source_ids) != len(self.listing_contexts):
+            raise ValueError(
+                "listing context source IDs must be unique within an Amazon evidence bundle."
+            )
+        if not context_source_ids.issubset(source_ids):
+            raise ValueError("Amazon listing contexts must reference bundled sources.")
+
+        for item in self.evidence:
+            if item.source_id not in source_ids:
+                raise ValueError("Amazon evidence must reference a bundled source.")
+            if (
+                item.listing_context_source_id is not None
+                and item.listing_context_source_id not in context_source_ids
+            ):
+                raise ValueError(
+                    "Amazon evidence must reference bundled listing context."
+                )
+        for gap in self.evidence_gaps:
+            if gap.source_id is not None and gap.source_id not in source_ids:
+                raise ValueError("evidence gaps can only cite bundled sources.")
+        return self
+
+
+class IKEAStoreEvidenceBundle(VersionedSchema):
+    bundle_id: SourceId = Field(default_factory=new_id)
+    source_references: tuple[SourceReference, ...] = Field(default_factory=tuple)
+    store_contexts: tuple[IKEAStoreContext, ...] = Field(default_factory=tuple)
+    evidence: tuple[IKEAStoreEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_bundle_relationships(self) -> "IKEAStoreEvidenceBundle":
+        source_ids = {reference.source_id for reference in self.source_references}
+        if len(source_ids) != len(self.source_references):
+            raise ValueError(
+                "source reference IDs must be unique within an IKEA evidence bundle."
+            )
+
+        context_source_ids = {context.source_id for context in self.store_contexts}
+        if len(context_source_ids) != len(self.store_contexts):
+            raise ValueError(
+                "store context source IDs must be unique within an IKEA evidence bundle."
+            )
+        if not context_source_ids.issubset(source_ids):
+            raise ValueError("IKEA store contexts must reference bundled sources.")
+
+        for item in self.evidence:
+            if item.source_id not in source_ids:
+                raise ValueError("IKEA evidence must reference a bundled source.")
+            if (
+                item.store_context_source_id is not None
+                and item.store_context_source_id not in context_source_ids
+            ):
+                raise ValueError("IKEA evidence must reference bundled store context.")
+        for gap in self.evidence_gaps:
+            if gap.source_id is not None and gap.source_id not in source_ids:
+                raise ValueError("evidence gaps can only cite bundled sources.")
         return self

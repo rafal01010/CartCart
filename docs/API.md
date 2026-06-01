@@ -1,7 +1,7 @@
 # CartCart API
 
 Status: Initial public API shape with session, run, result, and product endpoints implemented
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Contract Direction
 
@@ -158,7 +158,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 
 - Base primitives in `app.schemas`: UUID-based entity IDs, timezone-aware UTC timestamps, non-negative money amounts with ISO-style currency codes, country regions, confidence scores, source references, and schema version fields.
 - Intake and session schemas in `app.schemas`: `CreateSessionRequest`, `ShoppingSession`, `ShoppingBrief`, `BudgetConstraint`, `RegionPreference`, and `PreferenceConstraint`.
-- Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, and sponsorship/affiliate-bias signals.
+- Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, `ReusableSourceIntelligenceRequest`, `SourceIntelligenceCapabilityDescriptor`, `SourceEvidenceGap`, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, sponsorship/affiliate-bias signals, Reddit/community discussion evidence, Amazon product/listing/review evidence, and IKEA regional official-store evidence.
 - Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `SellerProfile`, `UserAddedProduct`, price money fields, region availability, and extracted seller trust signals that remain separate from later listing trust assessments.
 - Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
 - Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
@@ -171,6 +171,11 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - `SearchResult`
 - `SourceSnapshot`
 - `SourceEvidence`
+- `ReusableSourceIntelligenceRequest`
+- `VideoReviewEvidenceBundle`
+- `CommunityDiscussionEvidenceBundle`
+- `AmazonProductEvidenceBundle`
+- `IKEAStoreEvidenceBundle`
 - `ProductListing`
 - `CanonicalProduct`
 - `DeduplicationDecision`
@@ -199,8 +204,9 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Require source URLs and provider metadata on search results and source snapshots.
 - Keep `SourceQuality` separate from analysis `Confidence`.
 - Preserve video source IDs, transcript availability, and timestamp references when evidence is video-derived.
-- Require source IDs for factual claims about products, prices, sellers, and reviews.
-- Require evidence targets for source-backed claims so product, listing, seller, candidate, and source-metadata evidence remain distinguishable.
+- Preserve source-specific context for reusable source intelligence, including Reddit thread/comment references where available, Amazon marketplace/listing/seller/fulfillment context where available, and IKEA country/region official-store context where available.
+- Require source IDs for factual claims about products, listings, prices, sellers, reviews, regions, community discussion, marketplace evidence, official-store evidence, and video evidence.
+- Require evidence targets for source-backed claims so product, listing, seller, review, candidate, region, and source-metadata evidence remain distinguishable.
 - Require evidence ID citations on downstream analysis and recommendation claims while retaining source IDs for source-level inspection.
 - Separate known, unknown, and inferred fields.
 - Preserve confidence separately from evidence quality.
@@ -209,6 +215,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Preserve ordered run events and use `pending`, `running`, `succeeded`, `failed`, and `cancelled` run statuses consistently.
 - Preserve materially conflicting evidence rather than overwriting it silently.
 - Represent transcript availability honestly for video evidence.
+- Represent unavailable, blocked, weak, anecdotal, stale, or region-mismatched source intelligence as explicit evidence gaps or low-confidence evidence rather than fabricated product facts.
 
 ## Error Model
 

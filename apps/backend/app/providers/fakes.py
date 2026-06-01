@@ -3,7 +3,13 @@ from dataclasses import dataclass
 from pydantic import AnyHttpUrl
 
 from app.providers.contracts import (
+    AmazonProductIntelligenceProviderOptions,
+    AmazonProductIntelligenceProviderResult,
+    CommunityDiscussionProviderOptions,
+    CommunityDiscussionProviderResult,
     ExtractionProviderOptions,
+    IKEAStoreIntelligenceProviderOptions,
+    IKEAStoreIntelligenceProviderResult,
     MarketplaceAvailabilityProviderOptions,
     MarketplaceAvailabilityProviderResult,
     OfficialStoreProviderOptions,
@@ -20,12 +26,26 @@ from app.providers.contracts import (
 from app.schemas.ids import new_id
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
 from app.schemas.search_sources import (
+    AmazonEvidenceFactType,
+    AmazonListingContext,
+    AmazonProductEvidence,
+    AmazonProductEvidenceBundle,
+    CommunityDiscussionContext,
+    CommunityDiscussionEvidence,
+    CommunityDiscussionEvidenceBundle,
     EvidenceTarget,
     EvidenceTargetType,
     ExtractionStatus,
+    IKEAEvidenceFactType,
+    IKEAStoreContext,
+    IKEAStoreEvidence,
+    IKEAStoreEvidenceBundle,
     ProviderMetadata,
+    RegionalStoreAvailability,
     SearchQuery,
     SearchResult,
+    SourceEvidenceGap,
+    SourceIntelligenceCapability,
     SourceQuality,
     SourceQualityLevel,
     SourceSnapshot,
@@ -150,6 +170,47 @@ class FakeVideoSearchProvider:
 
 
 @dataclass(frozen=True)
+class FakeCommunityDiscussionProvider:
+    bundle: CommunityDiscussionEvidenceBundle | None = None
+    provider_name: str = "fixture-community-discussion"
+    disabled: bool = False
+
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        return ProviderCapabilityFlags(
+            provider_name=self.provider_name,
+            enabled=not self.disabled,
+            supports_domain_scoped_search=True,
+            supports_public_page_extraction=True,
+            supports_community_discussion_retrieval=True,
+            compliance_notes=("Fixture domain-scoped public community provider.",),
+        )
+
+    async def search_discussions(
+        self,
+        query: str,
+        products: tuple[CanonicalProduct, ...] = (),
+        options: CommunityDiscussionProviderOptions | None = None,
+    ) -> CommunityDiscussionProviderResult:
+        if self.disabled:
+            return CommunityDiscussionProviderResult(
+                status=ProviderRunStatus.DISABLED,
+                capabilities=self.capabilities,
+                notes=("Community discussion provider is disabled.",),
+            )
+        return CommunityDiscussionProviderResult(
+            status=ProviderRunStatus.SUCCEEDED,
+            capabilities=self.capabilities,
+            bundle=self.bundle
+            or _community_bundle(
+                provider_name=self.provider_name,
+                query=query,
+                product_id=products[0].product_id if products else None,
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class FakeTranscriptProvider:
     provider_name: str = "fixture-transcript"
     disabled: bool = False
@@ -244,6 +305,49 @@ class FakeMarketplaceAvailabilityProvider:
 
 
 @dataclass(frozen=True)
+class FakeAmazonProductIntelligenceProvider:
+    bundle: AmazonProductEvidenceBundle | None = None
+    provider_name: str = "fixture-amazon-product-intelligence"
+    disabled: bool = False
+
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        return ProviderCapabilityFlags(
+            provider_name=self.provider_name,
+            enabled=not self.disabled,
+            supports_amazon_product_intelligence=True,
+            supports_amazon_listing_identity=True,
+            supports_amazon_review_signals=True,
+            supports_regional_ship_to_evidence=True,
+            compliance_notes=("Fixture Amazon product/listing/review provider.",),
+        )
+
+    async def fetch_product_evidence(
+        self,
+        product: CanonicalProduct,
+        listings: tuple[ProductListing, ...] = (),
+        options: AmazonProductIntelligenceProviderOptions | None = None,
+    ) -> AmazonProductIntelligenceProviderResult:
+        if self.disabled:
+            return AmazonProductIntelligenceProviderResult(
+                status=ProviderRunStatus.DISABLED,
+                capabilities=self.capabilities,
+                notes=("Amazon product intelligence provider is disabled.",),
+            )
+        region_code = options.region_code if options is not None else None
+        return AmazonProductIntelligenceProviderResult(
+            status=ProviderRunStatus.SUCCEEDED,
+            capabilities=self.capabilities,
+            bundle=self.bundle
+            or _amazon_bundle(
+                product=product,
+                listing=listings[0] if listings else None,
+                region_code=region_code or "US",
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class FakeOfficialStoreProvider:
     provider_name: str = "fixture-official-store"
     disabled: bool = False
@@ -283,6 +387,47 @@ class FakeOfficialStoreProvider:
         )
 
 
+@dataclass(frozen=True)
+class FakeIKEAStoreIntelligenceProvider:
+    bundle: IKEAStoreEvidenceBundle | None = None
+    provider_name: str = "fixture-ikea-store-intelligence"
+    disabled: bool = False
+
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        return ProviderCapabilityFlags(
+            provider_name=self.provider_name,
+            enabled=not self.disabled,
+            uses_official_api=True,
+            supports_ikea_regional_store_lookup=True,
+            supports_ikea_product_pages=True,
+            supports_ikea_store_delivery_context=True,
+            compliance_notes=("Fixture IKEA regional official-store provider.",),
+        )
+
+    async def fetch_store_evidence(
+        self,
+        product: CanonicalProduct,
+        options: IKEAStoreIntelligenceProviderOptions | None = None,
+    ) -> IKEAStoreIntelligenceProviderResult:
+        if self.disabled:
+            return IKEAStoreIntelligenceProviderResult(
+                status=ProviderRunStatus.DISABLED,
+                capabilities=self.capabilities,
+                notes=("IKEA store intelligence provider is disabled.",),
+            )
+        region_code = options.region_code if options is not None else None
+        return IKEAStoreIntelligenceProviderResult(
+            status=ProviderRunStatus.SUCCEEDED,
+            capabilities=self.capabilities,
+            bundle=self.bundle
+            or _ikea_bundle(
+                product=product,
+                region_code=region_code or "US",
+            ),
+        )
+
+
 def _search_result(
     query: SearchQuery,
     provider_name: str,
@@ -304,6 +449,229 @@ def _search_result(
             raw={"intent": query.intent.value},
         ),
         quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
+    )
+
+
+def _community_bundle(
+    *,
+    provider_name: str,
+    query: str,
+    product_id: str | None,
+) -> CommunityDiscussionEvidenceBundle:
+    source_id = new_id()
+    target_product_id = product_id or new_id()
+    url = AnyHttpUrl("https://www.reddit.com/r/BuyItForLife/comments/fixture/thread/")
+    discussion = CommunityDiscussionContext(
+        source_id=source_id,
+        url=url,
+        community_name="r/BuyItForLife",
+        thread_id="fixture-thread",
+        thread_title=f"{query} fixture discussion from {provider_name}",
+        comment_count=14,
+        extracted_public_summary="Fixture public discussion summary.",
+    )
+    return CommunityDiscussionEvidenceBundle(
+        source_references=(
+            SourceReference(
+                source_id=source_id,
+                url=url,
+                title=discussion.thread_title,
+            ),
+        ),
+        discussions=(discussion,),
+        evidence=(
+            CommunityDiscussionEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=target_product_id,
+                ),
+                claim="Fixture community thread reports recurring owner concerns.",
+                confidence={"score": 0.6, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.MIXED, score=0.6),
+                context_source_ids=(source_id,),
+                recurring_signal=True,
+                evidence_quality_warnings=("Community evidence is qualitative.",),
+            ),
+        ),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=target_product_id,
+                ),
+                source_id=source_id,
+                summary="Fixture provider does not fetch private or deleted content.",
+            ),
+        ),
+    )
+
+
+def _amazon_bundle(
+    *,
+    product: CanonicalProduct,
+    listing: ProductListing | None,
+    region_code: str,
+) -> AmazonProductEvidenceBundle:
+    source_id = new_id()
+    listing_id = listing.listing_id if listing is not None else new_id()
+    url = AnyHttpUrl("https://www.amazon.com/dp/B012345678")
+    context = AmazonListingContext(
+        source_id=source_id,
+        marketplace_name="Amazon",
+        marketplace_domain="amazon.com",
+        marketplace_country_code=region_code,
+        listing_url=url,
+        asin="B012345678",
+        product_title=product.name,
+        seller_name="Fixture Marketplace Seller",
+        fulfillment="Fulfilled by Amazon",
+        ships_to_region_code=region_code,
+        ships_to_region=True,
+        review_count=128,
+        average_rating=4.2,
+    )
+    return AmazonProductEvidenceBundle(
+        source_references=(
+            SourceReference(source_id=source_id, url=url, title=product.name),
+        ),
+        listing_contexts=(context,),
+        evidence=(
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product.product_id,
+                ),
+                fact_type=AmazonEvidenceFactType.PRODUCT_PAGE_FACT,
+                claim="Fixture Amazon page provides product-page facts.",
+                confidence={"score": 0.7, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.LISTING,
+                    listing_id=listing_id,
+                ),
+                fact_type=AmazonEvidenceFactType.LISTING_IDENTITY,
+                claim="Fixture Amazon listing preserves ASIN identity.",
+                confidence={"score": 0.75, "level": "high"},
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.SELLER,
+                    listing_id=listing_id,
+                ),
+                fact_type=AmazonEvidenceFactType.SELLER_FULFILLMENT,
+                claim="Fixture seller and fulfillment context is separate evidence.",
+                confidence={"score": 0.65, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.MIXED),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.REVIEW,
+                    review_id="fixture-review-summary",
+                ),
+                fact_type=AmazonEvidenceFactType.REVIEW_SUMMARY,
+                claim="Fixture Amazon review summary is source-specific evidence.",
+                confidence={"score": 0.6, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.MIXED),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.REGION,
+                    region_code=region_code,
+                ),
+                fact_type=AmazonEvidenceFactType.REGIONAL_AVAILABILITY,
+                claim="Fixture Amazon listing includes ship-to-region evidence.",
+                confidence={"score": 0.65, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+        ),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.REVIEW,
+                    review_id="fixture-review-summary",
+                ),
+                source_id=source_id,
+                summary="Fixture provider does not retrieve individual review text.",
+            ),
+        ),
+    )
+
+
+def _ikea_bundle(
+    *,
+    product: CanonicalProduct,
+    region_code: str,
+) -> IKEAStoreEvidenceBundle:
+    source_id = new_id()
+    url = AnyHttpUrl("https://www.ikea.com/us/en/p/fixture-product-12345678/")
+    context = IKEAStoreContext(
+        source_id=source_id,
+        country_code=region_code,
+        official_url=url,
+        product_code="12345678",
+        product_name=product.name,
+        store_name=f"IKEA {region_code}",
+        delivery_area=f"{region_code} online delivery",
+        availability=RegionalStoreAvailability.UNKNOWN,
+    )
+    return IKEAStoreEvidenceBundle(
+        source_references=(
+            SourceReference(source_id=source_id, url=url, title=product.name),
+        ),
+        store_contexts=(context,),
+        evidence=(
+            IKEAStoreEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product.product_id,
+                ),
+                fact_type=IKEAEvidenceFactType.OFFICIAL_PRODUCT_FACT,
+                claim="Fixture IKEA page preserves official product context.",
+                confidence={"score": 0.7, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.STRONG),
+                store_context_source_id=source_id,
+            ),
+            IKEAStoreEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.REGION,
+                    region_code=region_code,
+                ),
+                fact_type=IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
+                claim="Fixture IKEA evidence is scoped to the requested region.",
+                confidence={"score": 0.65, "level": "medium"},
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+                store_context_source_id=source_id,
+            ),
+        ),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.REGION,
+                    region_code=region_code,
+                ),
+                source_id=source_id,
+                summary="Fixture provider does not assert live IKEA inventory.",
+            ),
+        ),
     )
 
 

@@ -1,7 +1,7 @@
 # CartCart UX Information Architecture
 
 Status: Workspace shell with session creation, stub run progress, and fixture result rendering wired; remaining items are acceptance guidance
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Purpose
 
@@ -194,6 +194,9 @@ Acceptance checklist:
 - Show source title, URL, provider, source type, extraction status, and quality/confidence signals.
 - Show claim/evidence snippets when available.
 - Show video IDs, channel metadata, timestamps, and transcript availability for video evidence when relevant.
+- Show Reddit/community thread or comment context where available, with qualitative evidence warnings when the signal is anecdotal or weak.
+- Show Amazon marketplace/listing/seller/fulfillment, review, and regional availability context where available.
+- Show IKEA country/region, official product/store URL, price/currency, availability, and store/delivery context where available.
 - Show evidence gaps and conflicts.
 - Keep outbound links neutral.
 - Do not show secrets, raw private provider payloads, or full sensitive traces.

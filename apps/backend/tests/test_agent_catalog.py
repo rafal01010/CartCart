@@ -49,18 +49,46 @@ def test_agent_catalog_routes_configured_mvp_technology_specialists(
     )
 
 
-def test_agent_catalog_exposes_reusable_source_agent_availability() -> None:
+def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     source_agents = DEFAULT_AGENT_CATALOG.reusable_source_agents()
 
     assert [agent.agent_name for agent in source_agents] == [
-        "YouTubeReviewIntelligenceAgent"
+        "YouTubeReviewIntelligenceAgent",
+        "RedditCommunityIntelligenceAgent",
+        "AmazonProductIntelligenceAgent",
+        "IKEAStoreIntelligenceAgent",
     ]
-    youtube_agent = source_agents[0]
-    assert youtube_agent.status == AgentStatus.CANDIDATE_MVP
-    assert youtube_agent.kind == AgentKind.SOURCE_INTELLIGENCE
-    assert youtube_agent.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
-    assert youtube_agent.is_reusable_source_agent is True
-    assert "youtube_data_api_optional" in youtube_agent.provider_requirements
+    assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
+    assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
+    assert all(
+        agent.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
+        for agent in source_agents
+    )
+    assert all(agent.is_reusable_source_agent is True for agent in source_agents)
+    assert [agent.output_schema for agent in source_agents] == [
+        "VideoReviewEvidenceBundle",
+        "CommunityDiscussionEvidenceBundle",
+        "AmazonProductEvidenceBundle",
+        "IKEAStoreEvidenceBundle",
+    ]
+
+    provider_requirement_names = {
+        requirement
+        for agent in source_agents
+        for requirement in agent.provider_requirements
+    }
+    assert "youtube_video_metadata_provider_optional" in provider_requirement_names
+    assert "reddit_community_discussion_provider_optional" in (
+        provider_requirement_names
+    )
+    assert "amazon_product_intelligence_provider_optional" in (
+        provider_requirement_names
+    )
+    assert "ikea_regional_official_store_provider_optional" in (
+        provider_requirement_names
+    )
+    assert "youtube_data_api_optional" not in provider_requirement_names
+    assert "marketplace_availability_provider_optional" not in provider_requirement_names
 
 
 def test_agent_catalog_requires_explicit_entries_for_specialist_routes() -> None:

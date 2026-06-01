@@ -1,10 +1,11 @@
 # CartCart Database
 
 Status: Initial SQLite persistence reference
-Last updated: 2026-05-30
+Last updated: 2026-06-02
 
 This document describes the current local database schema implemented by SQLAlchemy
-ORM models and Alembic migration `0001_initial_persistence_schema`.
+ORM models and Alembic migrations `0001_initial_persistence_schema` and
+`0002_reusable_source_intelligence_persistence`.
 
 The database is a local SQLite database. By default it lives at
 `data/cartcart.sqlite3`; `CARTCART_DATABASE_PATH` can override it. Large raw
@@ -16,6 +17,8 @@ snapshots of typed Pydantic objects.
 
 - Migration config: `apps/backend/alembic.ini`.
 - Current baseline migration: `apps/backend/alembic/versions/0001_initial_persistence_schema.py`.
+- Current source-intelligence backfill migration:
+  `apps/backend/alembic/versions/0002_reusable_source_intelligence_persistence.py`.
 - ORM base: `apps/backend/app/db/base.py`.
 - ORM models: `apps/backend/app/db/models/`.
 - Repository classes: `apps/backend/app/db/repositories/`.
@@ -39,6 +42,10 @@ shopping_sessions
      -> refinement_requests
      -> search_plans -> search_results -> source_snapshots -> source_evidence
      -> video_sources / video_transcript_segments / video_review_evidence_bundles
+     -> community_discussion_evidence_bundles / community_discussion_contexts
+     -> amazon_product_evidence_bundles / amazon_listing_contexts
+     -> ikea_store_evidence_bundles / ikea_store_contexts
+     -> reusable_source_evidence_gaps
      -> canonical_products -> product_listings
      -> candidate_shortlist_memberships
      -> listing_trust_assessments / category_analyses
@@ -231,6 +238,35 @@ sources, runs, bundles, and future recommendation claims.
 | `recommendation_claim_id` | `String(120)` | Yes | Future link to a recommendation claim. |
 | `metadata_only` | `Boolean` | No | True when evidence is metadata-only. |
 | `evidence` | `JSON` | No | Full `VideoReviewEvidence` payload. |
+
+### Reusable source-intelligence evidence tables
+
+Task 24B backfills persistence for required reusable source intelligence beyond
+YouTube. The new tables store typed bundle JSON for exact round trips and
+separate indexed target columns so downstream code can query product-level,
+listing-level, seller-level, review-level, and region-level facts without
+collapsing them into one generic evidence blob.
+
+| Table | Purpose |
+| --- | --- |
+| `community_discussion_evidence_bundles` | Full `CommunityDiscussionEvidenceBundle` payloads for Reddit/community source-intelligence runs. |
+| `community_discussion_contexts` | Reddit/community thread and comment context, linked to source snapshots. |
+| `community_discussion_evidence` | Community claims with run/source/bundle links, confidence, target columns, recurring-signal flags, and optional future recommendation-claim IDs. |
+| `amazon_product_evidence_bundles` | Full `AmazonProductEvidenceBundle` payloads for product/listing/review marketplace evidence. |
+| `amazon_listing_contexts` | Marketplace, ASIN/listing, seller, fulfillment, rating, and regional shipping context linked to source snapshots. |
+| `amazon_product_evidence` | Amazon product-page, listing identity, seller/fulfillment, review, price/warranty, marketplace warning, and regional availability facts. |
+| `ikea_store_evidence_bundles` | Full `IKEAStoreEvidenceBundle` payloads for official regional IKEA evidence. |
+| `ikea_store_contexts` | Official country/store/product-code, price, delivery-area, and availability context linked to source snapshots. |
+| `ikea_store_evidence` | IKEA official product facts and regional price/availability/store-delivery facts. |
+| `reusable_source_evidence_gaps` | Missing or low-quality evidence gaps from Reddit, Amazon, and IKEA bundles, preserving capability, source, target, and optional recommendation-claim links. |
+
+The evidence tables intentionally mirror the target shape used by
+`video_review_evidence`: `run_id`, `source_id`, `bundle_id`, `target_type`,
+`product_id`, `listing_id`, `candidate_id`, `seller_name`, `review_id`,
+`region_code`, `source_target_id`, `recommendation_claim_id`, and a full JSON
+payload. Amazon and IKEA evidence also persist source-context links
+(`listing_context_source_id` or `store_context_source_id`) so listing/store
+facts remain tied to the source snapshot that produced them.
 
 ### `canonical_products`
 

@@ -4,7 +4,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas import (
+    AmazonEvidenceFactType,
+    AmazonListingContext,
+    AmazonProductEvidence,
+    AmazonProductEvidenceBundle,
     ChannelSignal,
+    CommunityDiscussionContext,
+    CommunityDiscussionEvidence,
+    CommunityDiscussionEvidenceBundle,
     Confidence,
     ConfidenceLevel,
     ConflictSeverity,
@@ -13,13 +20,24 @@ from app.schemas import (
     EvidenceConflict,
     EvidenceType,
     ExtractionStatus,
+    FieldSource,
+    IKEAEvidenceFactType,
+    IKEAStoreContext,
+    IKEAStoreEvidence,
+    IKEAStoreEvidenceBundle,
+    Money,
     ProviderMetadata,
+    RegionalStoreAvailability,
+    ReusableSourceIntelligenceRequest,
     SearchIntent,
     SearchPlan,
     SearchQuery,
     SearchResult,
     SourceEvidence,
+    SourceEvidenceGap,
     SourceId,
+    SourceIntelligenceCapability,
+    SourceIntelligenceCapabilityDescriptor,
     SourceQuality,
     SourceQualityLevel,
     SourceReference,
@@ -32,6 +50,7 @@ from app.schemas import (
     VideoSource,
     VideoTranscriptSegment,
     new_id,
+    ShoppingBrief,
 )
 
 
@@ -101,6 +120,28 @@ def make_source_metadata_target(source_id: SourceId) -> EvidenceTarget:
     )
 
 
+def make_review_target() -> EvidenceTarget:
+    return EvidenceTarget(
+        target_type=EvidenceTargetType.REVIEW,
+        review_id="review-summary",
+    )
+
+
+def make_region_target(region_code: str = "US") -> EvidenceTarget:
+    return EvidenceTarget(
+        target_type=EvidenceTargetType.REGION,
+        region_code=region_code,
+    )
+
+
+def make_brief() -> ShoppingBrief:
+    return ShoppingBrief(
+        original_query="Find a compact desk chair",
+        category="office chair",
+        category_source=FieldSource.INFERRED,
+    )
+
+
 def test_search_plan_requires_at_least_one_query() -> None:
     plan = SearchPlan(queries=(make_search_query(),), rationale="Find review evidence.")
 
@@ -109,6 +150,47 @@ def test_search_plan_requires_at_least_one_query() -> None:
 
     with pytest.raises(ValidationError):
         SearchPlan(queries=())
+
+
+def test_reusable_source_intelligence_request_preserves_capabilities_and_targets() -> None:
+    product_id = new_id()
+    listing_id = new_id()
+    request = ReusableSourceIntelligenceRequest(
+        brief=make_brief(),
+        target_region_code="US",
+        product_ids=(product_id,),
+        listing_ids=(listing_id,),
+        query_hints=("long-term owner complaints",),
+        requested_capabilities=(
+            SourceIntelligenceCapability.VIDEO_REVIEW,
+            SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+            SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+            SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+        ),
+        allowed_capabilities=(
+            SourceIntelligenceCapabilityDescriptor(
+                capability=SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+                provider_name="fixture-search",
+                domain_scoped_search=True,
+                compliance_notes=("Public reddit.com results only.",),
+            ),
+        ),
+    )
+
+    assert request.brief.category == "office chair"
+    assert request.product_ids == (product_id,)
+    assert request.listing_ids == (listing_id,)
+    assert request.target_region_code == "US"
+    assert (
+        request.allowed_capabilities[0].capability
+        == SourceIntelligenceCapability.COMMUNITY_DISCUSSION
+    )
+
+    with pytest.raises(ValidationError):
+        ReusableSourceIntelligenceRequest(
+            brief=make_brief(),
+            requested_capabilities=(),
+        )
 
 
 def test_search_result_requires_source_url_and_provider_metadata() -> None:
@@ -484,6 +566,299 @@ def test_metadata_only_video_evidence_must_target_source_metadata() -> None:
             confidence=make_confidence(),
             source_quality=make_quality(SourceQualityLevel.WEAK),
             metadata_only=True,
+        )
+
+
+def test_community_discussion_bundle_preserves_reddit_context_and_quality_gaps() -> None:
+    source_id = new_id()
+    product_id = new_id()
+    discussion = CommunityDiscussionContext(
+        source_id=source_id,
+        url="https://www.reddit.com/r/BuyItForLife/comments/thread123/example/",
+        community_name="r/BuyItForLife",
+        thread_id="thread123",
+        thread_title="Long-term desk chair experiences",
+        comment_id="comment456",
+        posted_at="2026-05-20T00:00:00Z",
+        engagement_score=42,
+        comment_count=18,
+        extracted_public_summary="Multiple owners mention armrest wobble.",
+    )
+    evidence = CommunityDiscussionEvidence(
+        source_id=source_id,
+        target=EvidenceTarget(
+            target_type=EvidenceTargetType.PRODUCT,
+            product_id=product_id,
+        ),
+        claim="Owners repeatedly mention armrest wobble after extended use.",
+        confidence=Confidence(
+            score=0.58,
+            level=ConfidenceLevel.MEDIUM,
+            rationale="Recurring community signal, but still anecdotal.",
+        ),
+        source_quality=make_quality(SourceQualityLevel.MIXED),
+        context_source_ids=(source_id,),
+        recurring_signal=True,
+        qualitative_signal=True,
+        evidence_quality_warnings=("Community discussion is anecdotal.",),
+    )
+    bundle = CommunityDiscussionEvidenceBundle(
+        source_references=(
+            SourceReference(
+                source_id=source_id,
+                url=discussion.url,
+                title=discussion.thread_title,
+            ),
+        ),
+        discussions=(discussion,),
+        evidence=(evidence,),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product_id,
+                ),
+                source_id=source_id,
+                summary="No official warranty fact was available from Reddit.",
+                reason="Community threads are not authoritative warranty sources.",
+                source_quality=make_quality(SourceQualityLevel.WEAK),
+            ),
+        ),
+    )
+
+    assert bundle.evidence[0].qualitative_signal is True
+    assert bundle.evidence[0].target.target_type == EvidenceTargetType.PRODUCT
+    assert bundle.discussions[0].community_name == "r/BuyItForLife"
+    assert bundle.evidence_gaps[0].source_id == source_id
+
+
+def test_source_evidence_bundles_reject_claims_without_bundled_source_references() -> None:
+    source_id = new_id()
+    unsupported_source_id = new_id()
+
+    with pytest.raises(ValidationError):
+        CommunityDiscussionEvidenceBundle(
+            source_references=(
+                SourceReference(
+                    source_id=source_id,
+                    url="https://www.reddit.com/r/example/comments/thread/example/",
+                ),
+            ),
+            discussions=(
+                CommunityDiscussionContext(
+                    source_id=source_id,
+                    url="https://www.reddit.com/r/example/comments/thread/example/",
+                ),
+            ),
+            evidence=(
+                CommunityDiscussionEvidence(
+                    source_id=unsupported_source_id,
+                    target=make_product_target(),
+                    claim="This unsupported claim cites a source outside the bundle.",
+                    confidence=make_confidence(),
+                    source_quality=make_quality(),
+                ),
+            ),
+        )
+
+
+def test_amazon_product_bundle_keeps_product_listing_seller_review_and_region_facts_distinct() -> None:
+    source_id = new_id()
+    product_id = new_id()
+    listing_id = new_id()
+    listing_context = AmazonListingContext(
+        source_id=source_id,
+        marketplace_name="Amazon",
+        marketplace_domain="amazon.com",
+        marketplace_country_code="US",
+        listing_url="https://www.amazon.com/dp/B012345678",
+        asin="B012345678",
+        product_title="Fixture Desk Chair",
+        seller_name="Third Party Seller",
+        fulfillment="Fulfilled by Amazon",
+        ships_to_region_code="US",
+        ships_to_region=True,
+        review_count=128,
+        average_rating=4.2,
+    )
+    bundle = AmazonProductEvidenceBundle(
+        source_references=(
+            SourceReference(
+                source_id=source_id,
+                url=listing_context.listing_url,
+                title="Fixture Desk Chair",
+            ),
+        ),
+        listing_contexts=(listing_context,),
+        evidence=(
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product_id,
+                ),
+                fact_type=AmazonEvidenceFactType.PRODUCT_PAGE_FACT,
+                claim="The product page describes adjustable armrests.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.LISTING,
+                    listing_id=listing_id,
+                ),
+                fact_type=AmazonEvidenceFactType.LISTING_IDENTITY,
+                claim="The listing is identified by ASIN B012345678.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.SELLER,
+                    listing_id=listing_id,
+                ),
+                fact_type=AmazonEvidenceFactType.SELLER_FULFILLMENT,
+                claim="The listing names a third-party seller with FBA fulfillment.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.MIXED),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=make_review_target(),
+                fact_type=AmazonEvidenceFactType.REVIEW_SUMMARY,
+                claim="The listing shows 128 reviews with a 4.2 average rating.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.MIXED),
+                listing_context_source_id=source_id,
+            ),
+            AmazonProductEvidence(
+                source_id=source_id,
+                target=make_region_target("US"),
+                fact_type=AmazonEvidenceFactType.REGIONAL_AVAILABILITY,
+                claim="The listing is marked as shipping to the US.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.ADEQUATE),
+                listing_context_source_id=source_id,
+            ),
+        ),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+                target=make_review_target(),
+                source_id=source_id,
+                summary="Individual review text was not available in the fixture.",
+            ),
+        ),
+    )
+
+    target_types = {item.target.target_type for item in bundle.evidence}
+    assert EvidenceTargetType.PRODUCT in target_types
+    assert EvidenceTargetType.LISTING in target_types
+    assert EvidenceTargetType.SELLER in target_types
+    assert EvidenceTargetType.REVIEW in target_types
+    assert EvidenceTargetType.REGION in target_types
+    assert bundle.listing_contexts[0].asin == "B012345678"
+    assert bundle.evidence_gaps[0].target is not None
+
+    with pytest.raises(ValidationError):
+        AmazonProductEvidence(
+            source_id=source_id,
+            target=EvidenceTarget(
+                target_type=EvidenceTargetType.PRODUCT,
+                product_id=product_id,
+            ),
+            fact_type=AmazonEvidenceFactType.REVIEW_SUMMARY,
+            claim="Review summaries cannot be collapsed into product facts.",
+            confidence=make_confidence(),
+            source_quality=make_quality(),
+        )
+
+
+def test_ikea_store_bundle_keeps_official_product_and_region_facts_distinct() -> None:
+    source_id = new_id()
+    product_id = new_id()
+    store_context = IKEAStoreContext(
+        source_id=source_id,
+        country_code="US",
+        official_url="https://www.ikea.com/us/en/p/example-chair-12345678/",
+        product_code="12345678",
+        product_name="Example chair",
+        store_name="IKEA US",
+        delivery_area="US online delivery",
+        price=Money(amount="129.99", currency="USD"),
+        availability=RegionalStoreAvailability.AVAILABLE,
+    )
+    bundle = IKEAStoreEvidenceBundle(
+        source_references=(
+            SourceReference(
+                source_id=source_id,
+                url=store_context.official_url,
+                title="Example chair",
+            ),
+        ),
+        store_contexts=(store_context,),
+        evidence=(
+            IKEAStoreEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product_id,
+                ),
+                fact_type=IKEAEvidenceFactType.OFFICIAL_PRODUCT_FACT,
+                claim="The official IKEA US page identifies product code 12345678.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.STRONG),
+                store_context_source_id=source_id,
+            ),
+            IKEAStoreEvidence(
+                source_id=source_id,
+                target=make_region_target("US"),
+                fact_type=IKEAEvidenceFactType.REGIONAL_PRICE,
+                claim="The IKEA US page lists the regional price as 129.99 USD.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.STRONG),
+                store_context_source_id=source_id,
+            ),
+            IKEAStoreEvidence(
+                source_id=source_id,
+                target=make_region_target("US"),
+                fact_type=IKEAEvidenceFactType.REGIONAL_AVAILABILITY,
+                claim="The IKEA US page marks the product as available.",
+                confidence=make_confidence(),
+                source_quality=make_quality(SourceQualityLevel.STRONG),
+                store_context_source_id=source_id,
+            ),
+        ),
+        evidence_gaps=(
+            SourceEvidenceGap(
+                capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+                target=make_region_target("PH"),
+                summary="No IKEA Philippines official-store evidence was checked.",
+                reason="Fixture only covers the US regional store.",
+            ),
+        ),
+    )
+
+    assert bundle.store_contexts[0].country_code == "US"
+    assert bundle.store_contexts[0].price is not None
+    assert bundle.evidence[0].target.target_type == EvidenceTargetType.PRODUCT
+    assert bundle.evidence[1].target.target_type == EvidenceTargetType.REGION
+    assert bundle.evidence_gaps[0].target is not None
+
+    with pytest.raises(ValidationError):
+        IKEAStoreEvidence(
+            source_id=source_id,
+            target=make_listing_target(),
+            fact_type=IKEAEvidenceFactType.REGIONAL_PRICE,
+            claim="Regional IKEA prices cannot be collapsed into listing facts.",
+            confidence=make_confidence(),
+            source_quality=make_quality(),
         )
 
 

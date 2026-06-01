@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Initial local operations assumptions for planning
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Local MVP Assumptions
 
@@ -353,8 +353,12 @@ When live mode is needed, copy `apps/backend/.env.example` to
 `apps/backend/.env` and enter real provider keys only in that ignored local file.
 Source-intelligence provider interfaces likewise have only fake implementations
 right now. Their capability flags model enabled/disabled state and compliance
-boundaries for video search, transcript access, marketplace availability, and
-official-store lookup, but no API keys are read yet.
+boundaries for video search, transcript access, community discussion retrieval,
+Amazon product/listing/review evidence, and IKEA regional official-store
+lookup. Provider protocols return source evidence bundles or explicit gaps for
+the required YouTube, Reddit, Amazon, and IKEA reusable source agents without
+calling vendor SDKs directly from source agents. No API keys are read yet; live
+adapters remain future opt-in work.
 
 Future configuration areas include:
 
@@ -362,7 +366,10 @@ Future configuration areas include:
 - OpenAI Agents SDK tracing options.
 - Additional source-intelligence provider keys and enabled-provider flags.
 - Provider-specific timeout and rate-limit settings beyond the shared defaults.
-- Optional YouTube/video provider keys and transcript strategy.
+- YouTube/video provider keys and transcript strategy.
+- Reddit/domain-scoped community search and extraction provider configuration.
+- Amazon product/listing/review provider configuration.
+- IKEA regional official-store provider configuration.
 - Telemetry enabled/disabled flag.
 - Logfire or OTEL exporter settings.
 - Provider timeout and rate-limit settings.
@@ -415,6 +422,8 @@ Current persistence implementation stores shopping sessions in SQLite with the o
 Lookup indexes currently cover session/run/refinement relationships, ordered run events, source and product URLs, provider names and provider result/query IDs, video/source/product/listing target IDs, product brand/model/category identifiers, agent record names/stages/trace IDs, and result version lookup by run/version.
 
 Video review evidence persistence stores video sources, transcript availability, permitted transcript segments or explicit transcript gaps, channel metadata, source-backed video evidence bundles, and link metadata for run IDs, source snapshot IDs, target product/listing/candidate IDs, and future recommendation claim IDs.
+
+Reusable source-intelligence persistence also stores Reddit/community discussion evidence, Amazon product/listing/review evidence, and IKEA regional official-store evidence before live source-intelligence mode. Those records preserve source links, source-specific context, confidence, evidence gaps, and product/listing/seller/review/region targets without storing unnecessary raw provider payloads in SQLite.
 
 Product persistence stores canonical products, distinct product listings, candidate shortlist membership, and user-added products. Multiple listings can point to one canonical product while preserving listing-specific seller, URL, price, availability, and source details.
 
@@ -492,6 +501,9 @@ Operational rules:
 - Keep SerpApi and other shopping-specific providers optional.
 - Do not assume all YouTube videos have accessible transcripts.
 - Treat unofficial transcript providers as optional and explicitly configured if ever used.
+- Treat Reddit/community evidence as qualitative and source-context dependent; do not use private, deleted, logged-in-only, or otherwise inaccessible content.
+- Treat Amazon evidence as marketplace/listing-specific. Preserve seller/fulfillment, variant, review, and regional availability context, and do not add affiliate behavior.
+- Treat IKEA evidence as country/region-specific official-source evidence. Do not infer global shipping from global brand presence.
 
 ## Privacy And Safety Direction
 

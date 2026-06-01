@@ -165,7 +165,12 @@ def build_default_agent_catalog() -> AgentCatalog:
         entries=_DEFAULT_AGENT_ENTRIES,
         product_category_routes=_DEFAULT_PRODUCT_CATEGORY_ROUTES,
         technology_category_keywords=_DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS,
-        reusable_source_agent_names=("YouTubeReviewIntelligenceAgent",),
+        reusable_source_agent_names=(
+            "YouTubeReviewIntelligenceAgent",
+            "RedditCommunityIntelligenceAgent",
+            "AmazonProductIntelligenceAgent",
+            "IKEAStoreIntelligenceAgent",
+        ),
     )
 
 
@@ -430,15 +435,58 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "YouTubeReviewIntelligenceAgent": _entry(
         "YouTubeReviewIntelligenceAgent",
-        status=AgentStatus.CANDIDATE_MVP,
+        status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
         contract_name="YouTubeReviewIntelligenceAgent",
         provider_requirements=(
-            "youtube_data_api_optional",
+            "youtube_video_metadata_provider_optional",
             "authorized_caption_or_approved_transcript_provider_optional",
         ),
         output_schema="VideoReviewEvidenceBundle",
+        is_reusable_source_agent=True,
+    ),
+    "RedditCommunityIntelligenceAgent": _entry(
+        "RedditCommunityIntelligenceAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.SOURCE_INTELLIGENCE,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        contract_name="RedditCommunityIntelligenceAgent",
+        provider_requirements=(
+            "reddit_community_discussion_provider_optional",
+            "domain_scoped_reddit_search_provider_optional",
+            "permitted_public_page_extraction_optional",
+        ),
+        output_schema="CommunityDiscussionEvidenceBundle",
+        is_reusable_source_agent=True,
+    ),
+    "AmazonProductIntelligenceAgent": _entry(
+        "AmazonProductIntelligenceAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.SOURCE_INTELLIGENCE,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        contract_name="AmazonProductIntelligenceAgent",
+        provider_requirements=(
+            "amazon_product_intelligence_provider_optional",
+            "amazon_listing_identity_provider_optional",
+            "amazon_review_signal_provider_optional",
+            "regional_ship_to_evidence_provider_optional",
+        ),
+        output_schema="AmazonProductEvidenceBundle",
+        is_reusable_source_agent=True,
+    ),
+    "IKEAStoreIntelligenceAgent": _entry(
+        "IKEAStoreIntelligenceAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.SOURCE_INTELLIGENCE,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        contract_name="IKEAStoreIntelligenceAgent",
+        provider_requirements=(
+            "ikea_regional_official_store_provider_optional",
+            "ikea_product_page_provider_optional",
+            "ikea_store_delivery_evidence_provider_optional",
+        ),
+        output_schema="IKEAStoreEvidenceBundle",
         is_reusable_source_agent=True,
     ),
     "ComparisonDecisionAgent": _entry(

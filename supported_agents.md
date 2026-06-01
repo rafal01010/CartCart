@@ -1,16 +1,18 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-05-30
+Last updated: 2026-06-02
 
 ## Purpose
 
 This file is the human-editable source of intent for CartCart's supported agents and agent-like source capabilities. It covers both:
 
 - Hierarchical product/domain analysis agents, such as generic product analysis, technology analysis, or monitor analysis.
-- Reusable cross-cutting agents-as-tools, such as YouTube review intelligence, seller/listing trust, retailer availability, or official brand-store lookup.
+- Reusable cross-cutting agents-as-tools, such as YouTube review intelligence, Reddit community intelligence, Amazon product intelligence, IKEA regional store intelligence, seller/listing trust, marketplace product intelligence, or official brand-store lookup.
 
 This is intentionally broader than an agent hierarchy file. Some agents belong in the product-analysis hierarchy; others are reusable source intelligence tools that can be called by agents at different hierarchy levels.
+
+Reusable source intelligence means retrieving usable source-backed information, not only checking availability. Depending on the source, usable information can include product descriptions, specifications, pricing, regional availability, shipping or store presence, seller/fulfillment signals, review summaries, recurring owner complaints, product-page claims, warranty/return context, and evidence gaps.
 
 ## Relationship To Runtime Code
 
@@ -18,7 +20,8 @@ This is intentionally broader than an agent hierarchy file. Some agents belong i
 - The application must not parse this Markdown file at runtime.
 - Runtime configuration lives in the validated code registry at `apps/backend/app/agents/catalog.py`.
 - The code registry, agent tests, routing evals, and this file must be updated together whenever an implemented agent is added, removed, moved, or assigned a new fallback.
-- A proposed future agent can appear here before it is implemented, but its status must clearly be `proposed-later` or `candidate-mvp` rather than `implemented`.
+- A proposed or required future agent can appear here before it is implemented, but its status must not be changed to `implemented` until code, tests, and eval coverage exist.
+- The 2026-06-02 required source-intelligence expansion is a design update only. The runtime catalog must be brought back into sync in the dedicated implementation backfill task before provider/live-agent work continues.
 
 ## Architectural Decision
 
@@ -35,8 +38,12 @@ The product must support broad shopping queries even when no deep specialist exi
 - `GenericProductAnalystAgent` is the buy-anything fallback for all normal shopping categories.
 - `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning.
 - MVP technology specialists are `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, and `SmartwatchSpecialistAgent`.
-- `YouTubeReviewIntelligenceAgent` is approved as a reusable `candidate-mvp` source intelligence capability, not as a required MVP blocker and not as a category specialist.
+- `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are approved as reusable `required-mvp` source intelligence capabilities, not as category specialists.
+- Reusable source intelligence agents are evidence retrieval and normalization tools. They must not be limited to availability checks, and they must not make final purchase recommendations.
 - YouTube metadata may use the official YouTube Data API when configured. Transcript text may be used only through authorized official caption access, future user-provided transcript input, or a separately approved third-party provider. The system must never assume transcript availability.
+- Reddit community evidence should be gathered through approved search/extraction providers, for example domain-scoped web search for public `reddit.com` results. It must summarize recurring user-reported patterns with source links and quality warnings rather than treating anecdotes as authoritative product facts.
+- Amazon product intelligence should retrieve product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, and review signals when compliant provider access is available. It must preserve marketplace seller risk separately from product quality and must not add affiliate logic.
+- IKEA store intelligence should retrieve official IKEA product/store evidence for the user's region when applicable, including regional product availability, product-page information, price/currency where available, and evidence gaps. It must not assume IKEA ships globally; it should check whether IKEA has a relevant country/region presence and whether the item is available there.
 - Broad non-technology domain layers should remain `proposed-later` until multiple implemented specialists or shared domain rules justify them.
 - MVP agent invocation should use typed steps, tools, or sub-runs. Handoffs are reserved for a later conversational use case where a specialist must take over a user turn.
 
@@ -80,9 +87,11 @@ These agents can be called by the orchestrator, discovery flow, product analysts
 
 ```text
 SourceIntelligenceLayer
-  YouTubeReviewIntelligenceAgent                             [candidate-mvp]
-  MarketplaceAvailabilityAgent                               [proposed-later]
-    AmazonAvailabilityAgent                                  [proposed-later]
+  YouTubeReviewIntelligenceAgent                             [required-mvp]
+  RedditCommunityIntelligenceAgent                           [required-mvp]
+  AmazonProductIntelligenceAgent                             [required-mvp]
+  IKEAStoreIntelligenceAgent                                 [required-mvp]
+  MarketplaceProductIntelligenceAgent                        [proposed-later]
   OfficialBrandStoreAgent                                    [proposed-later]
   ProfessionalReviewSourceAgent                              [proposed-later]
   CommunityDiscussionSignalAgent                             [proposed-later]
@@ -102,13 +111,37 @@ Reusable source intelligence agents own source-specific discovery, extraction re
 
 `ComparisonDecisionAgent` owns comparative recommendation modes from the same analysis pass. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint.
 
-## Why YouTube Is A Source Intelligence Agent
+## Why These Are Source Intelligence Agents
+
+YouTube, Reddit, Amazon, and IKEA are reusable source-intelligence capabilities because each source can support many product categories. They should be callable by the orchestrator, discovery flow, product/domain analysts, or decision agents when the source is relevant to the user's shopping brief and candidate set.
+
+They should not be product/category specialists. A monitor specialist, smartphone specialist, laptop specialist, headphone specialist, TV specialist, smartwatch specialist, office-chair analysis path, furniture analysis path, or generic product analyst may all request source-derived evidence.
+
+Each source agent should produce structured evidence, not final recommendations. The output should be source-backed, tied to product/listing/source IDs where possible, explicit about unavailable or low-quality evidence, and safe for downstream analysts to cite or discount.
+
+### YouTube Review Intelligence
 
 YouTube product reviews are often valuable because reviewers discuss real-world usage, long-term issues, comparisons, ergonomics, subjective experience, and buyer regrets that product pages do not capture.
 
-It should not be a category specialist because it is useful across categories. A monitor specialist, smartphone specialist, laptop specialist, headphone specialist, TV specialist, smartwatch specialist, office-chair analysis path, or generic product analyst may all request YouTube-derived evidence.
+The YouTube agent should find relevant product review videos, assess source/channel/video quality, retrieve or ingest available transcripts when permitted, summarize product-specific claims, preserve timestamps/source links, identify recurring pros/cons, flag sponsorship/affiliate bias where visible, and hand source-backed evidence to downstream analysts.
 
-The YouTube agent should produce structured evidence, not final recommendations. It should find relevant product review videos, assess source/channel/video quality, retrieve or ingest available transcripts when permitted, summarize product-specific claims, preserve timestamps/source links, identify recurring pros/cons, flag sponsorship/affiliate bias where visible, and hand source-backed evidence to downstream analysts.
+### Reddit Community Intelligence
+
+Reddit can surface owner complaints, failure patterns, setup issues, long-term impressions, support experiences, and "avoid this" stories that are not visible on retailer pages. The Reddit agent should use approved domain-scoped search/extraction, retrieve public thread/comment content where permitted, summarize recurring claims, record subreddit/thread/comment links, preserve recency and engagement signals when available, and flag anecdotal, brigaded, astroturfed, deleted, or low-context evidence.
+
+Reddit evidence should be treated as qualitative community signal. It can raise concerns or corroborate patterns, but it should not become the sole basis for factual product claims such as specs, warranty, current price, or availability.
+
+### Amazon Product Intelligence
+
+Amazon can provide product-page data, listing identity, seller/fulfillment context, marketplace availability, ship-to-region signals, price/currency where available, review counts/ratings, review-pattern summaries, and review-quality warnings. The Amazon agent should match products conservatively, preserve ASIN/listing/marketplace identity where available, distinguish Amazon retail, fulfilled-by-Amazon, third-party marketplace sellers, and unknown sellers, and separate review evidence from seller/listing trust.
+
+Amazon evidence is not inherently safe or authoritative. The agent must preserve marketplace risk, variant ambiguity, suspicious review patterns, stale or merged reviews, unavailable shipping, and regional marketplace differences.
+
+### IKEA Store Intelligence
+
+IKEA is relevant because it has official country/region store presence rather than universal global shipping. The IKEA agent should check whether IKEA is available in the user's selected region, retrieve official product-page information when a product or comparable IKEA candidate is relevant, capture regional price/currency and availability where available, and preserve pickup/delivery/store-region limitations as evidence.
+
+IKEA evidence should be official-source evidence, not a generic marketplace substitute. If IKEA has no relevant presence, no matching product, or unavailable regional inventory, the agent should return a clear evidence gap rather than implying global availability.
 
 ## Due Diligence Notes For YouTube
 
@@ -117,6 +150,14 @@ The YouTube agent should produce structured evidence, not final recommendations.
 - Unofficial transcript APIs and scrapers may be practical but carry reliability, quota, terms, and compliance risk. They must be treated as optional providers with explicit configuration and documented constraints.
 - The MVP should avoid assuming all YouTube videos have accessible transcripts.
 - Fallback behavior should include metadata-only evidence, video description evidence, user-provided transcript input if later added, or skipping unavailable transcripts with a clear evidence gap.
+
+## Due Diligence Notes For Reddit, Amazon, And IKEA
+
+- Reddit, Amazon, and IKEA provider choices must be verified at implementation time against current provider terms, allowed API use, crawling rules, privacy constraints, and rate limits.
+- Reddit retrieval should prefer approved search-provider domain filters and compliant extraction of public pages. It must not use private, deleted, logged-in-only, or otherwise inaccessible content.
+- Amazon retrieval should use compliant APIs, approved data providers, or permitted user-visible page access. It must avoid affiliate assumptions, preserve neutral outbound links, and keep marketplace seller/listing trust separate from product desirability.
+- IKEA retrieval should prefer official IKEA country/region pages or approved provider paths. It must treat country/region availability as source-specific evidence and never infer global shipping from global brand presence.
+- All three agents need fixture replay before live calls, explicit disabled-provider behavior, source-quality scoring, and eval cases for weak, missing, conflicting, or low-confidence evidence.
 
 ## Agent Catalog
 
@@ -140,9 +181,11 @@ The YouTube agent should produce structured evidence, not final recommendations.
 | `MouseSpecialistAgent` | `proposed-later` | Deeper mouse analysis. | Not implemented | TBD | TBD | Technology domain or generic fallback when later approved. |
 | `KitchenAppliancesDomainAnalystAgent` | `proposed-later` | Domain reasoning for kitchen appliance purchases. | Not implemented | TBD | TBD | Generic fallback until implemented. |
 | `SellerListingTrustAgent` | `required-mvp` | Review seller/store/listing legitimacy, suspicious prices, and trust/red-flag evidence. | Cross-cutting typed step | Listings and source evidence | `ListingTrustAssessment` | Unknown trust if evidence is insufficient; suspicious deterministic flags cannot be silently overridden. |
-| `YouTubeReviewIntelligenceAgent` | `candidate-mvp` | Discover relevant product review videos, collect permitted transcript/metadata evidence, summarize product-specific claims, and return timestamped source evidence. | Reusable source agent/tool | Brief, candidate products, optional source/video queries | `VideoReviewEvidenceBundle` | If transcripts are unavailable, return metadata-only evidence or explicit evidence gaps; never fabricate video claims. |
-| `MarketplaceAvailabilityAgent` | `proposed-later` | Check marketplace listing availability, shipping constraints, seller quality, and region relevance across mixed marketplaces. | Reusable source agent/tool | Product/listing candidates and region | Marketplace evidence | Fall back to listing trust/source quality rules. |
-| `AmazonAvailabilityAgent` | `proposed-later` | Assess Amazon listing identity, seller, fulfillment, global shipping, regional availability, and suspicious marketplace signals. | Reusable marketplace source agent/tool | Product candidates and target region | Amazon listing evidence | Use only compliant APIs/providers or user-visible pages permitted by policy. |
+| `YouTubeReviewIntelligenceAgent` | `required-mvp` | Discover relevant product review videos, collect permitted transcript/metadata evidence, summarize product-specific claims, and return timestamped source evidence. | Reusable source agent/tool | Brief, candidate products, optional source/video queries | `VideoReviewEvidenceBundle` | If transcripts are unavailable, return metadata-only evidence or explicit evidence gaps; never fabricate video claims. |
+| `RedditCommunityIntelligenceAgent` | `required-mvp` | Discover relevant Reddit discussions, collect permitted public thread/comment evidence, summarize recurring owner/community signals, and flag anecdotal or low-quality evidence. | Reusable source agent/tool | Brief, candidate products, optional source/community queries | `CommunityDiscussionEvidenceBundle` | If relevant public content cannot be fetched or quality is weak, return explicit evidence gaps; never treat anecdotes as authoritative product facts. |
+| `AmazonProductIntelligenceAgent` | `required-mvp` | Assess Amazon product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, review signals, and suspicious marketplace/review patterns. | Reusable source agent/tool | Product/listing candidates and target region | `AmazonProductEvidenceBundle` | Use only compliant APIs/providers or permitted user-visible pages; preserve seller/listing trust concerns separately from product desirability. |
+| `IKEAStoreIntelligenceAgent` | `required-mvp` | Check whether IKEA has relevant country/region presence, retrieve official IKEA product information, regional price/currency and availability where available, and store/delivery evidence gaps. | Reusable source agent/tool | Product/listing candidates, product/category intent, and target region | `IKEAStoreEvidenceBundle` | If IKEA is unavailable in region or product evidence is missing, return an evidence gap; never imply global shipping or availability. |
+| `MarketplaceProductIntelligenceAgent` | `proposed-later` | Gather product-page, listing, review, availability, shipping, seller quality, and region-relevance evidence across mixed marketplaces. | Reusable source agent/tool | Product/listing candidates and region | Marketplace product evidence | Fall back to listing trust/source quality rules. |
 | `OfficialBrandStoreAgent` | `proposed-later` | Locate official brand/store pages by country and assess official price, availability, warranty, and authorized sellers. | Reusable source agent/tool | Brand/product and region | Official-source evidence | Generic search/source extraction fallback. |
 | `ProfessionalReviewSourceAgent` | `proposed-later` | Gather structured evidence from reputable written review sites and lab-test sources where available. | Reusable source agent/tool | Product/category and region | Review evidence | Generic source extraction fallback. |
 | `CommunityDiscussionSignalAgent` | `proposed-later` | Summarize recurring owner complaints/praise from community discussions when allowed and source quality is adequate. | Reusable source agent/tool | Product/category and source set | Community signal evidence | Treat as lower-confidence qualitative signal, not definitive truth. |
@@ -157,10 +200,13 @@ The YouTube agent should produce structured evidence, not final recommendations.
 4. If no product/category specialist matches, routing must fall back to domain analysis where applicable, then generic analysis rather than presenting an unsupported-category error.
 5. If a specialist fails, times out, or has insufficient relevant evidence, technology-domain analysis and generic analysis must remain available.
 6. Non-technology domain layers are optional and should only be implemented when they improve shared reasoning or routing.
-7. Source intelligence agents can be used across hierarchy levels and product categories.
+7. Reusable source intelligence can be used across hierarchy levels and product categories, but must be scoped by product/category, region, source relevance, and provider compliance.
 8. YouTube/video evidence must remain source-backed with video IDs, channel metadata where available, timestamps when available, transcript availability status, and confidence.
-9. Seller/listing trust assessment applies independently of category analysis and must be surfaced where it materially affects purchase safety.
-10. Recommendation output must be verified after product, source, and trust outputs are combined.
+9. Reddit/community evidence must remain source-backed with thread/comment URLs where available, source context, recency/engagement signals when available, and confidence. It is qualitative evidence unless corroborated.
+10. Amazon evidence must preserve marketplace, ASIN/listing identity where available, seller/fulfillment, review signal provenance, regional availability or ship-to-region status, and confidence.
+11. IKEA evidence must preserve country/region context, official source URLs, local price/currency and availability where available, store/delivery limitations, and confidence.
+12. Seller/listing trust assessment applies independently of category analysis and must be surfaced where it materially affects purchase safety.
+13. Recommendation output must be verified after product, source, and trust outputs are combined.
 
 ## Tool, Handoff, And Control Policy
 
@@ -178,32 +224,39 @@ The YouTube agent should produce structured evidence, not final recommendations.
 - `SearchPlan` and source strategy are owned by query planning.
 - `ProductListing`, `SourceSnapshot`, and `SourceEvidence` are produced by deterministic extraction first, with extraction review only when needed.
 - `DeduplicationDecision` records duplicate reasoning and must preserve uncertain cases.
+- `ReusableSourceIntelligenceRequest` is the shared request boundary for source agents. It includes the shopping brief, target region, candidate product/listing/source IDs, optional source-specific query hints, requested source capabilities, and allowed-provider/capability descriptors.
 - `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status, source references, timestamped transcript evidence where available, explicit transcript gaps where unavailable, and sponsorship/affiliate-bias signals.
+- `CommunityDiscussionEvidenceBundle` is the Reddit/community evidence boundary. It must include thread/comment source references, extracted public snippets or summaries where allowed, recurring claims, recency/engagement context when available, evidence-quality warnings, and explicit gaps.
+- `AmazonProductEvidenceBundle` is the Amazon evidence boundary. It must include product/listing identity, marketplace/region context, seller/fulfillment signals, product-page facts, review-summary signals, availability/ship-to-region evidence, and suspicious marketplace/review warnings.
+- `IKEAStoreEvidenceBundle` is the IKEA evidence boundary. It must include country/region context, official product/store source references, product-page facts, regional price/currency where available, availability/store/delivery signals, and explicit gaps.
 - `ListingTrustAssessment` is the seller/listing trust boundary and must remain separate from product desirability.
 - `CategoryAnalysis` is the product/category analysis boundary.
 - `RecommendationBundle` is the comparison and decision boundary.
 - Important output schemas should be versioned when implemented.
-- Factual claims about products, prices, sellers, and reviews must reference source IDs.
+- Factual claims about products, listings, prices, sellers, reviews, source-only metadata, region availability, community discussion, marketplace evidence, official-store evidence, or video evidence must reference source IDs.
 - Known, unknown, and inferred fields must remain distinguishable.
 - Product-level and listing-level entities must not be collapsed.
 
 ## Provider And Compliance Constraints
 
 - Providers must be configured through explicit adapters; agents should not directly call vendor SDKs or scrape pages outside approved tools.
-- Provider adapters should expose capability and compliance flags so agents can distinguish disabled providers, metadata-only evidence, transcript access, marketplace availability, and official-store lookup before using provider output.
+- Provider adapters should expose capability and compliance flags so agents can distinguish disabled providers, metadata-only evidence, transcript access, community discussion retrieval, marketplace product/review retrieval, regional official-store lookup, and availability signals before using provider output.
 - Provider keys, enabled-provider flags, timeouts, and capability flags belong in runtime configuration once implementation begins.
 - Reseller-only platforms are excluded initially. Mixed marketplaces are allowed only when seller/listing trust can be assessed.
 - YouTube metadata may come from the official YouTube Data API when configured.
 - YouTube transcript text may be used only through authorized official caption access, future user-provided transcript input, or an explicitly approved third-party transcript provider.
 - Unofficial transcript providers require a separate accepted decision covering terms, reliability, quotas, and fallback behavior.
 - Video evidence must preserve video IDs, source URLs, channel metadata where available, timestamps when available, transcript availability status, and evidence confidence.
+- Reddit evidence may use approved domain-scoped search and compliant extraction of public pages. It must preserve URLs and source context, avoid private/deleted/logged-in-only content, and represent anecdotal community evidence as lower-confidence unless corroborated.
+- Amazon evidence may use compliant APIs, approved providers, or permitted user-visible pages. It must preserve neutral links, avoid affiliate behavior, keep product/listing/seller/review evidence separate, and represent unavailable regional shipping or missing review access as explicit gaps.
+- IKEA evidence should use official country/region source pages or approved providers. It must preserve country/region context and must not infer global availability or shipping from brand presence.
 - No source agent may fabricate unavailable transcript claims, review claims, seller details, prices, or warranty facts.
 
 ## Adding Or Moving An Agent
 
 When introducing or changing an agent:
 
-1. Edit this file, marking a new agent as `proposed-later` or `candidate-mvp` until approved.
+1. Edit this file, marking a new agent as `proposed-later`, `candidate-mvp`, or `required-mvp` according to the approved product scope.
 2. Record the decision and rationale in `docs/DECISIONS.md`.
 3. Identify ownership, routing scope, fallback, input/output schema, permitted tools/providers, guardrails, compliance constraints, trace expectations, and necessary eval cases.
 4. Implement or update the executable registry only in the dedicated implementation task.
@@ -216,7 +269,9 @@ Examples:
 - Add a Mouse Analysis Agent: place it under the implemented technology domain and keep technology-domain plus generic fallback.
 - Add a Kitchen Appliances domain agent: define the categories and shared domain rules first, then add any deeper appliance specialists later.
 - Add a YouTube review capability: keep it in the reusable source intelligence layer and allow multiple product/domain agents to call it.
-- Add an Amazon global-shipping capability: keep it in the reusable source intelligence layer unless it becomes part of a broader marketplace availability layer.
+- Add a Reddit community capability: keep it in the reusable source intelligence layer and treat community discussion as qualitative source evidence, not definitive product truth.
+- Add an Amazon product intelligence capability: keep it in the reusable source intelligence layer unless it becomes part of a broader marketplace product intelligence layer.
+- Add an IKEA regional store capability: keep it in the reusable source intelligence layer because it is official source/store evidence that varies by country or region.
 - Add a brand-store capability: make it region-aware because official stores, warranties, and availability vary by country.
 - Move a specialist: update this file, the decision record, runtime registry, routing tests, and eval cases together.
 - Change fallback: treat this as a behavior change requiring documented rationale and regression evaluation across affected categories.

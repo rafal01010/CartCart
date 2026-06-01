@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Initial public architecture notes for planning
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Product Model
 
@@ -46,7 +46,7 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, product/listing records, result bundle records, a fixture-only shopping run orchestrator, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a fixture-only shopping run orchestrator, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
 
 Current skeleton:
 
@@ -198,7 +198,16 @@ Required MVP agent roles include:
 - `ComparisonDecisionAgent`
 - `VerifierCriticAgent`
 
-`GenericProductAnalystAgent` is the buy-anything fallback for normal shopping categories. `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning. MVP technology specialists cover monitors, smartphones, laptops, earphones/headphones, TVs, and smartwatches. Candidate or later reusable source capabilities include YouTube review intelligence, marketplace availability, official brand-store lookup, professional review sources, and community discussion signals. Generic product analysis must remain available when no narrower specialist exists or when a specialist/domain fallback is needed.
+`GenericProductAnalystAgent` is the buy-anything fallback for normal shopping categories. `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning. MVP technology specialists cover monitors, smartphones, laptops, earphones/headphones, TVs, and smartwatches. Reusable source intelligence capabilities include required MVP YouTube, Reddit, Amazon, and IKEA source agents plus later marketplace product intelligence, official brand-store lookup, professional review sources, and broader community discussion signals. Generic product analysis must remain available when no narrower specialist exists or when a specialist/domain fallback is needed.
+
+Required MVP reusable source intelligence roles include:
+
+- `YouTubeReviewIntelligenceAgent`
+- `RedditCommunityIntelligenceAgent`
+- `AmazonProductIntelligenceAgent`
+- `IKEAStoreIntelligenceAgent`
+
+Reusable source intelligence agents are not category specialists and are not final decision agents. They retrieve, normalize, quality-score, and summarize source-specific evidence that can be reused by discovery, product/domain analysts, trust analysis, and the final decision flow. Their scope is usable evidence retrieval, not availability-only checks. Depending on the source, they may return product-page information, review summaries, recurring owner complaints, seller/fulfillment signals, price/currency, regional availability, shipping/store context, warranty/return context, and explicit evidence gaps.
 
 ## MVP Behavior Rules
 
@@ -234,12 +243,16 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 
 ### Evidence And Confidence
 
-- Factual claims about products, prices, sellers, reviews, warranties, availability, or video evidence must reference source IDs.
+- Factual claims about products, prices, sellers, reviews, warranties, availability, community discussion, official-store evidence, marketplace evidence, or video evidence must reference source IDs.
 - Evidence quality and analysis confidence are separate fields. A product can be desirable with weak evidence, or well-evidenced but still a poor fit.
 - Unknown, inferred, and source-confirmed values must remain distinguishable.
 - Conflicting evidence should be preserved as conflicting records and surfaced when material to the decision.
 - Weak evidence should reduce confidence and may lead to no-strong-buy, but it should not force the system to invent certainty.
+- Reusable source-intelligence schemas use explicit evidence targets so product, listing, seller, review, source-only metadata, and region-specific facts do not collapse into recommendation fields.
 - Video-derived claims must include transcript availability status and timestamps when available. Missing transcripts must be represented as an evidence gap.
+- Reddit/community-derived claims must identify the source thread/comment context where available and remain qualitative unless corroborated by stronger sources.
+- Amazon-derived claims must preserve marketplace/listing/seller/fulfillment and regional availability context instead of collapsing Amazon evidence into generic product truth.
+- IKEA-derived claims must preserve country/region context and must not imply global shipping or availability.
 - Tests should reject unsupported factual claims and verify confidence/evidence-quality separation.
 
 ### Broad Category Fallback
@@ -313,7 +326,7 @@ Search and extraction should be adapter-based. Initial provider interfaces shoul
 - General web search.
 - Source extraction.
 - Optional shopping-specific product search.
-- Later reusable source-intelligence providers such as video search, transcripts, marketplace availability, and official store lookup.
+- Reusable source-intelligence providers such as video search, transcripts, Reddit/community retrieval, Amazon product/listing/review retrieval, IKEA regional store lookup, marketplace product intelligence, and official store lookup.
 
 The implemented backend provider boundary lives under `apps/backend/app/providers`.
 `SearchProvider`, `ExtractionProvider`, and optional `ShoppingProvider` are async
@@ -323,13 +336,19 @@ avoid rules without hard-coding a single marketplace, source category, or search
 vendor. Deterministic fake providers live beside the contracts and are intended
 for fixture-mode tests until real adapters are configured.
 
-Reusable source-intelligence providers are also defined in the provider layer:
-`VideoSearchProvider`, `TranscriptProvider`, `MarketplaceAvailabilityProvider`,
-and `OfficialStoreProvider`. These protocols expose `ProviderCapabilityFlags`
-for enabled state, supported capabilities, official/user-authorized access, and
-compliance notes. Their fake implementations can return metadata-only video
-evidence, available transcript segments, explicit unavailable-transcript gaps,
-and disabled-provider results without making live calls.
+Reusable source-intelligence providers are also defined in the provider layer.
+The agent contract and executable catalog layer exposes required reusable source
+tools for YouTube, Reddit, Amazon, and IKEA. Those source agents return evidence
+bundles for usable source intelligence rather than recommendations or
+availability-only checks. The provider boundary exposes enabled state, supported
+capabilities, official/user-authorized access, domain-scoped search support,
+public-page extraction support, Amazon product/listing/review support, regional
+ship-to evidence support, IKEA regional official-store support, and compliance
+notes. Fake implementations can return metadata-only video evidence, available
+transcript segments, explicit unavailable-transcript gaps, Reddit/community
+evidence gaps or recurring discussion signals, Amazon product/listing/review
+evidence, IKEA regional store evidence, and disabled-provider results without
+making live calls.
 
 Provider runtime configuration is typed in backend settings. Search, extraction,
 and optional shopping providers have explicit provider names, enabled flags,

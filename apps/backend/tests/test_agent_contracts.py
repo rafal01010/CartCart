@@ -3,6 +3,8 @@ from inspect import Signature, signature
 import pytest
 
 from app.agents import (
+    AmazonProductIntelligenceAgent,
+    AmazonProductIntelligenceAgentInput,
     ComparisonDecisionAgent,
     ComparisonDecisionAgentInput,
     DeduplicationReviewAgent,
@@ -14,16 +16,19 @@ from app.agents import (
     ExtractionReviewAgent,
     ExtractionReviewAgentInput,
     ExtractionReviewAgentOutput,
+    FakeAmazonProductIntelligenceAgent,
     FakeComparisonDecisionAgent,
     FakeDeduplicationReviewAgent,
     FakeDiscoveryAgent,
     FakeEarphonesHeadphonesSpecialistAgent,
     FakeExtractionReviewAgent,
     FakeGenericProductAnalystAgent,
+    FakeIKEAStoreIntelligenceAgent,
     FakeIntakeAgent,
     FakeLaptopSpecialistAgent,
     FakeMonitorSpecialistAgent,
     FakeQueryPlannerAgent,
+    FakeRedditCommunityIntelligenceAgent,
     FakeSellerListingTrustAgent,
     FakeSmartphoneSpecialistAgent,
     FakeSmartwatchSpecialistAgent,
@@ -33,6 +38,8 @@ from app.agents import (
     FakeVerifierCriticAgent,
     FakeYouTubeReviewIntelligenceAgent,
     GenericProductAnalystAgent,
+    IKEAStoreIntelligenceAgent,
+    IKEAStoreIntelligenceAgentInput,
     IntakeAgent,
     IntakeAgentInput,
     LaptopSpecialistAgent,
@@ -40,6 +47,8 @@ from app.agents import (
     ProductAnalysisAgentInput,
     QueryPlannerAgent,
     QueryPlannerAgentInput,
+    RedditCommunityIntelligenceAgent,
+    RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgent,
     SellerListingTrustAgentInput,
     SmartphoneSpecialistAgent,
@@ -63,7 +72,13 @@ from app.schemas.analysis import (
 )
 from app.schemas.ids import new_id
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
-from app.schemas.search_sources import SearchPlan, VideoReviewEvidenceBundle
+from app.schemas.search_sources import (
+    AmazonProductEvidenceBundle,
+    CommunityDiscussionEvidenceBundle,
+    IKEAStoreEvidenceBundle,
+    SearchPlan,
+    VideoReviewEvidenceBundle,
+)
 
 
 def test_agent_protocols_declare_typed_run_boundaries() -> None:
@@ -84,6 +99,9 @@ def test_agent_protocols_declare_typed_run_boundaries() -> None:
         SellerListingTrustAgent,
         SourceIntelligenceAgent,
         YouTubeReviewIntelligenceAgent,
+        RedditCommunityIntelligenceAgent,
+        AmazonProductIntelligenceAgent,
+        IKEAStoreIntelligenceAgent,
         ComparisonDecisionAgent,
         VerifierCriticAgent,
     )
@@ -195,6 +213,51 @@ async def test_agent_contract_fakes_return_typed_outputs_without_live_calls() ->
         )
     )
     assert isinstance(youtube_output, VideoReviewEvidenceBundle)
+    assert not isinstance(youtube_output, RecommendationBundle)
+
+    reddit_output = await FakeRedditCommunityIntelligenceAgent().run(
+        RedditCommunityIntelligenceAgentInput(
+            run_id=run_id,
+            brief=intake_output,
+            products=extraction_output.products,
+            listings=extraction_output.listings,
+            community_queries=("fixture monitor reddit",),
+        )
+    )
+    assert isinstance(reddit_output, CommunityDiscussionEvidenceBundle)
+    assert not isinstance(reddit_output, RecommendationBundle)
+    assert reddit_output.evidence
+    assert reddit_output.evidence[0].qualitative_signal is True
+
+    amazon_output = await FakeAmazonProductIntelligenceAgent().run(
+        AmazonProductIntelligenceAgentInput(
+            run_id=run_id,
+            brief=intake_output,
+            products=extraction_output.products,
+            listings=extraction_output.listings,
+            product_queries=("fixture monitor amazon",),
+            target_region_code="US",
+        )
+    )
+    assert isinstance(amazon_output, AmazonProductEvidenceBundle)
+    assert not isinstance(amazon_output, RecommendationBundle)
+    assert amazon_output.listing_contexts
+    assert amazon_output.evidence
+
+    ikea_output = await FakeIKEAStoreIntelligenceAgent().run(
+        IKEAStoreIntelligenceAgentInput(
+            run_id=run_id,
+            brief=intake_output,
+            products=extraction_output.products,
+            listings=extraction_output.listings,
+            product_queries=("fixture monitor ikea",),
+            target_region_code="US",
+        )
+    )
+    assert isinstance(ikea_output, IKEAStoreEvidenceBundle)
+    assert not isinstance(ikea_output, RecommendationBundle)
+    assert ikea_output.store_contexts
+    assert ikea_output.evidence_gaps
 
     comparison_output = await FakeComparisonDecisionAgent().run(
         ComparisonDecisionAgentInput(

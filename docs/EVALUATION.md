@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Evaluation Direction
 
@@ -26,6 +26,9 @@ The first local eval dataset should contain roughly 15 to 25 shopping scenarios 
 - Running shoes.
 - Portable power bank.
 - Product with strong video review evidence.
+- Product with useful Reddit/community discussion evidence.
+- Product with Amazon product/listing/review evidence and marketplace seller ambiguity.
+- Product with IKEA regional official-store evidence.
 - User-added product comparison.
 - Region-specific query.
 - No clear strong buy.
@@ -60,6 +63,10 @@ Eval cases should check whether the system:
 - Preserves broad category fallback.
 - Uses video review evidence only when source-backed and available.
 - Represents transcript gaps honestly.
+- Uses Reddit/community evidence as qualitative signal with source context, not as uncited authoritative product facts.
+- Uses Amazon evidence with marketplace, listing, seller/fulfillment, review, and regional availability context preserved.
+- Uses IKEA evidence only with explicit country/region context and does not infer global shipping or availability.
+- Handles unavailable, blocked, weak, stale, anecdotal, or conflicting reusable source intelligence without fabricating certainty.
 
 ## Test Layers
 
@@ -82,7 +89,7 @@ Provider responses used in tests should be recorded safely:
 - Do not commit secrets.
 - Avoid excessive raw content.
 - Preserve enough metadata to debug search, extraction, trust, and source quality behavior.
-- Include representative failure modes such as unavailable transcripts, extraction failures, weak evidence, duplicate listings, and suspicious sellers.
+- Include representative failure modes such as unavailable transcripts, inaccessible or weak Reddit threads, Amazon variant/review ambiguity, unavailable IKEA regional inventory, extraction failures, weak evidence, duplicate listings, and suspicious sellers.
 
 Claims in expected outputs should reference source IDs where the production schema requires them.
 
@@ -98,3 +105,5 @@ Before a workflow capability is considered accepted, verification should show:
 - Suspicious listing behavior is not silently bypassed.
 
 When adding, removing, moving, or changing fallback behavior for an agent or source capability, update `supported_agents.md`, the runtime agent catalog once it exists, related routing tests, provider fixtures where relevant, and eval cases together.
+
+Required reusable source intelligence evals should cover YouTube/video, Reddit/community, Amazon product/listing/review, and IKEA regional store evidence. They should prove that source agents add useful evidence to product analysis without becoming final recommendation agents or bypassing seller/listing trust.

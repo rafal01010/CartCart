@@ -12,8 +12,12 @@ from app.schemas.base import VersionedSchema
 from app.schemas.ids import RunId, SourceId
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
+from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
+    AmazonProductEvidenceBundle,
+    CommunityDiscussionEvidenceBundle,
     EvidenceConflict,
+    IKEAStoreEvidenceBundle,
     SearchPlan,
     SearchResult,
     SourceEvidence,
@@ -94,6 +98,20 @@ class SourceIntelligenceAgentOutput(VersionedSchema):
 
 class YouTubeReviewIntelligenceAgentInput(SourceIntelligenceAgentInput):
     video_queries: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class RedditCommunityIntelligenceAgentInput(SourceIntelligenceAgentInput):
+    community_queries: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class AmazonProductIntelligenceAgentInput(SourceIntelligenceAgentInput):
+    product_queries: tuple[str, ...] = Field(default_factory=tuple)
+    target_region_code: RegionCode | None = None
+
+
+class IKEAStoreIntelligenceAgentInput(SourceIntelligenceAgentInput):
+    product_queries: tuple[str, ...] = Field(default_factory=tuple)
+    target_region_code: RegionCode | None = None
 
 
 class ComparisonDecisionAgentInput(VersionedSchema):
@@ -219,6 +237,30 @@ class YouTubeReviewIntelligenceAgent(Protocol):
         input_data: YouTubeReviewIntelligenceAgentInput,
     ) -> VideoReviewEvidenceBundle:
         """Produce video review evidence without assuming transcript availability."""
+
+
+class RedditCommunityIntelligenceAgent(Protocol):
+    async def run(
+        self,
+        input_data: RedditCommunityIntelligenceAgentInput,
+    ) -> CommunityDiscussionEvidenceBundle:
+        """Produce qualitative Reddit/community evidence with source context."""
+
+
+class AmazonProductIntelligenceAgent(Protocol):
+    async def run(
+        self,
+        input_data: AmazonProductIntelligenceAgentInput,
+    ) -> AmazonProductEvidenceBundle:
+        """Produce Amazon product/listing/review evidence without recommendations."""
+
+
+class IKEAStoreIntelligenceAgent(Protocol):
+    async def run(
+        self,
+        input_data: IKEAStoreIntelligenceAgentInput,
+    ) -> IKEAStoreEvidenceBundle:
+        """Produce region-aware official IKEA store evidence and gaps."""
 
 
 class ComparisonDecisionAgent(Protocol):

@@ -7,6 +7,9 @@ from app.schemas.base import CartCartBaseModel
 from app.schemas.products import CanonicalProduct, ProductListing
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
+    AmazonProductEvidenceBundle,
+    CommunityDiscussionEvidenceBundle,
+    IKEAStoreEvidenceBundle,
     SearchQuery,
     SearchResult,
     SourceEvidence,
@@ -38,7 +41,17 @@ class ProviderCapabilityFlags(CartCartBaseModel):
     supports_video_search: bool = False
     supports_transcripts: bool = False
     supports_marketplace_availability: bool = False
+    supports_domain_scoped_search: bool = False
+    supports_public_page_extraction: bool = False
+    supports_community_discussion_retrieval: bool = False
+    supports_amazon_product_intelligence: bool = False
+    supports_amazon_listing_identity: bool = False
+    supports_amazon_review_signals: bool = False
+    supports_regional_ship_to_evidence: bool = False
     supports_official_store_lookup: bool = False
+    supports_ikea_regional_store_lookup: bool = False
+    supports_ikea_product_pages: bool = False
+    supports_ikea_store_delivery_context: bool = False
     permits_transcript_text: bool = False
     compliance_notes: tuple[str, ...] = Field(default_factory=tuple)
 
@@ -115,6 +128,28 @@ class MarketplaceAvailabilityProviderOptions(CartCartBaseModel):
     )
 
 
+class CommunityDiscussionProviderOptions(CartCartBaseModel):
+    region_code: RegionCode | None = None
+    max_results: int = Field(default=10, ge=1, le=50)
+    source_policy: SourceAllowAvoidPolicy = Field(
+        default_factory=SourceAllowAvoidPolicy
+    )
+
+
+class AmazonProductIntelligenceProviderOptions(CartCartBaseModel):
+    region_code: RegionCode | None = None
+    source_policy: SourceAllowAvoidPolicy = Field(
+        default_factory=SourceAllowAvoidPolicy
+    )
+
+
+class IKEAStoreIntelligenceProviderOptions(CartCartBaseModel):
+    region_code: RegionCode | None = None
+    source_policy: SourceAllowAvoidPolicy = Field(
+        default_factory=SourceAllowAvoidPolicy
+    )
+
+
 class OfficialStoreProviderOptions(CartCartBaseModel):
     region_code: RegionCode | None = None
     source_policy: SourceAllowAvoidPolicy = Field(
@@ -169,6 +204,57 @@ class MarketplaceAvailabilityProviderResult(CartCartBaseModel):
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
     notes: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class CommunityDiscussionProviderResult(CartCartBaseModel):
+    status: ProviderRunStatus
+    capabilities: ProviderCapabilityFlags
+    bundle: CommunityDiscussionEvidenceBundle | None = None
+    notes: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _succeeded_requires_bundle(self) -> "CommunityDiscussionProviderResult":
+        if self.status == ProviderRunStatus.SUCCEEDED and self.bundle is None:
+            raise ValueError("successful community discussion results require a bundle.")
+        if self.status != ProviderRunStatus.SUCCEEDED and self.bundle is not None:
+            raise ValueError(
+                "disabled or unavailable community discussion results cannot include a bundle."
+            )
+        return self
+
+
+class AmazonProductIntelligenceProviderResult(CartCartBaseModel):
+    status: ProviderRunStatus
+    capabilities: ProviderCapabilityFlags
+    bundle: AmazonProductEvidenceBundle | None = None
+    notes: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _succeeded_requires_bundle(self) -> "AmazonProductIntelligenceProviderResult":
+        if self.status == ProviderRunStatus.SUCCEEDED and self.bundle is None:
+            raise ValueError("successful Amazon product results require a bundle.")
+        if self.status != ProviderRunStatus.SUCCEEDED and self.bundle is not None:
+            raise ValueError(
+                "disabled or unavailable Amazon product results cannot include a bundle."
+            )
+        return self
+
+
+class IKEAStoreIntelligenceProviderResult(CartCartBaseModel):
+    status: ProviderRunStatus
+    capabilities: ProviderCapabilityFlags
+    bundle: IKEAStoreEvidenceBundle | None = None
+    notes: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _succeeded_requires_bundle(self) -> "IKEAStoreIntelligenceProviderResult":
+        if self.status == ProviderRunStatus.SUCCEEDED and self.bundle is None:
+            raise ValueError("successful IKEA store results require a bundle.")
+        if self.status != ProviderRunStatus.SUCCEEDED and self.bundle is not None:
+            raise ValueError(
+                "disabled or unavailable IKEA store results cannot include a bundle."
+            )
+        return self
 
 
 class OfficialStoreProviderResult(CartCartBaseModel):
@@ -245,6 +331,47 @@ class MarketplaceAvailabilityProvider(Protocol):
         options: MarketplaceAvailabilityProviderOptions | None = None,
     ) -> MarketplaceAvailabilityProviderResult:
         """Return marketplace availability and listing-trust evidence."""
+
+
+class CommunityDiscussionProvider(Protocol):
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        """Describe community retrieval and public-page compliance boundaries."""
+
+    async def search_discussions(
+        self,
+        query: str,
+        products: tuple[CanonicalProduct, ...] = (),
+        options: CommunityDiscussionProviderOptions | None = None,
+    ) -> CommunityDiscussionProviderResult:
+        """Return public community discussion evidence or explicit gaps."""
+
+
+class AmazonProductIntelligenceProvider(Protocol):
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        """Describe Amazon product/listing/review capability boundaries."""
+
+    async def fetch_product_evidence(
+        self,
+        product: CanonicalProduct,
+        listings: tuple[ProductListing, ...] = (),
+        options: AmazonProductIntelligenceProviderOptions | None = None,
+    ) -> AmazonProductIntelligenceProviderResult:
+        """Return Amazon product, listing, seller, review, and region evidence."""
+
+
+class IKEAStoreIntelligenceProvider(Protocol):
+    @property
+    def capabilities(self) -> ProviderCapabilityFlags:
+        """Describe IKEA regional official-store capability boundaries."""
+
+    async def fetch_store_evidence(
+        self,
+        product: CanonicalProduct,
+        options: IKEAStoreIntelligenceProviderOptions | None = None,
+    ) -> IKEAStoreIntelligenceProviderResult:
+        """Return official IKEA product/store evidence or region-specific gaps."""
 
 
 class OfficialStoreProvider(Protocol):

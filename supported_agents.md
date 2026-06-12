@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-06-02
+Last updated: 2026-06-12
 
 ## Purpose
 
@@ -22,6 +22,7 @@ Reusable source intelligence means retrieving usable source-backed information, 
 - The code registry, agent tests, routing evals, and this file must be updated together whenever an implemented agent is added, removed, moved, or assigned a new fallback.
 - A proposed or required future agent can appear here before it is implemented, but its status must not be changed to `implemented` until code, tests, and eval coverage exist.
 - The 2026-06-02 required source-intelligence expansion is a design update only. The runtime catalog must be brought back into sync in the dedicated implementation backfill task before provider/live-agent work continues.
+- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. Their live OpenAI Agents SDK implementations remain later tasks.
 
 ## Architectural Decision
 
@@ -36,6 +37,8 @@ The product must support broad shopping queries even when no deep specialist exi
 ## Accepted Scope Decisions
 
 - `GenericProductAnalystAgent` is the buy-anything fallback for all normal shopping categories.
+- `ShoppingGuideAgent` is the user-facing guided intake role. It asks one plain-language question at a time, supports skip/reanswer behavior, and decides when enough information exists to start analysis without exposing internal workflow mechanics.
+- `ShoppingScopeGuardrail` is the shopping-scope and safe-consumer-product guardrail. It blocks or redirects off-topic, unsafe, illegal, or inappropriate requests before discovery or analysis starts.
 - `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning.
 - MVP technology specialists are `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, and `SmartwatchSpecialistAgent`.
 - `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are approved as reusable `required-mvp` source intelligence capabilities, not as category specialists.
@@ -60,6 +63,8 @@ The product must support broad shopping queries even when no deep specialist exi
 
 ```text
 ShoppingRunOrchestrator                                      [required-mvp]
+  ShoppingGuideAgent                                         [required-mvp]
+  ShoppingScopeGuardrail                                     [required-mvp]
   IntakeAgent                                                [required-mvp]
   QueryPlannerAgent                                          [required-mvp]
   DiscoveryAgent                                             [required-mvp]
@@ -100,6 +105,18 @@ SourceIntelligenceLayer
 ## Ownership Boundaries
 
 `ShoppingRunOrchestrator` owns workflow order, durable state, run events, retries, provider boundaries, trace IDs, and final result assembly. Agents return typed outputs; they do not own persistence or global control flow.
+
+`ShoppingGuideAgent` owns the regular-person-facing intake sequence before
+analysis starts. It returns the current question, inline choice-control
+recommendation when genuinely useful, skip/reanswer metadata, and
+enough-information-to-start-analysis state. It must prefer natural-language answers,
+avoid one large upfront forms, avoid normal product-link requests, and avoid
+exposing internal agent, prompt, provider, trace, or run details.
+
+`ShoppingScopeGuardrail` owns early shopping-scope and safe-product checks. It
+should return short user-safe redirection copy for off-topic, unsafe, illegal,
+or inappropriate requests and prevent source retrieval or analysis from starting
+for blocked requests.
 
 Product/category analysts own fit analysis for a product bundle in the context of a shopping brief. They should evaluate tradeoffs, missing evidence, product-level strengths and weaknesses, and category-specific concerns. They should not decide final ranking alone.
 
@@ -164,6 +181,8 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | Agent | Status | Responsibility | Invocation Pattern | Input | Output | Fallback / Failure Behavior |
 | --- | --- | --- | --- | --- | --- | --- |
 | `ShoppingRunOrchestrator` | `required-mvp` | Controls stages, persistence, events, retries, tracing, and result assembly. | Application code | Session/run context | Persisted workflow state | Persist failure and provide retry/recovery path. |
+| `ShoppingGuideAgent` | `required-mvp` | Ask one user-facing intake question at a time, decide when inline choices help, support skip/reanswer behavior, and determine when enough information exists to start analysis. | Typed step before analysis | First shopping question, prior answers, local region setup state | Guided intake state or ready-for-analysis signal | Ask a plain-language follow-up, allow skip where safe, preserve uncertainty, or defer to guardrail when request is unsuitable. |
+| `ShoppingScopeGuardrail` | `required-mvp` | Keep requests within shopping scope and safe consumer-product scope before discovery starts. | Early typed guardrail | Current user input and guided intake context | Allowed or blocked/redirection result | Return short regular-person-facing redirection copy and do not start discovery or analysis for blocked requests. |
 | `IntakeAgent` | `required-mvp` | Interpret user goal, inferred category, region, budget, hard constraints, soft preferences, and clarification needs. | Typed step | Query and explicit controls | `ShoppingBrief` | Ask for correction or preserve uncertainty when critical intent is ambiguous. |
 | `QueryPlannerAgent` | `required-mvp` | Plan region-aware searches and source strategy, including when video-review search is useful. | Typed step | `ShoppingBrief` | `SearchPlan` | Generic shopping query plan. |
 | `DiscoveryAgent` | `required-mvp` | Select candidate products, listings, and evidence sources from search results for extraction. | Typed step | Brief, plan, search results | Candidate source selections | Keep only evidence-backed discovered items; report insufficient candidates. |

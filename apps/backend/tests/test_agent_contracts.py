@@ -30,6 +30,8 @@ from app.agents import (
     FakeQueryPlannerAgent,
     FakeRedditCommunityIntelligenceAgent,
     FakeSellerListingTrustAgent,
+    FakeShoppingGuideAgent,
+    FakeShoppingScopeGuardrail,
     FakeSmartphoneSpecialistAgent,
     FakeSmartwatchSpecialistAgent,
     FakeSourceIntelligenceAgent,
@@ -51,6 +53,10 @@ from app.agents import (
     RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgent,
     SellerListingTrustAgentInput,
+    ShoppingGuideAgent,
+    ShoppingGuideAgentInput,
+    ShoppingScopeGuardrail,
+    ShoppingScopeGuardrailInput,
     SmartphoneSpecialistAgent,
     SmartwatchSpecialistAgent,
     SourceIntelligenceAgent,
@@ -72,6 +78,17 @@ from app.schemas.analysis import (
 )
 from app.schemas.ids import new_id
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
+from app.schemas.guided_intake import (
+    GuidedAnswerSurface,
+    GuidedIntakeState,
+    GuidedIntakeStatus,
+    InlineChoiceControlType,
+    RegionSetupStatus,
+    ShoppingGuardrailDecision,
+    ShoppingGuardrailReason,
+    ShoppingGuardrailResult,
+)
+from app.schemas.regions import Region
 from app.schemas.search_sources import (
     AmazonProductEvidenceBundle,
     CommunityDiscussionEvidenceBundle,
@@ -84,6 +101,8 @@ from app.schemas.search_sources import (
 def test_agent_protocols_declare_typed_run_boundaries() -> None:
     agent_protocols = (
         IntakeAgent,
+        ShoppingGuideAgent,
+        ShoppingScopeGuardrail,
         QueryPlannerAgent,
         DiscoveryAgent,
         ExtractionReviewAgent,
@@ -123,6 +142,22 @@ async def test_agent_contract_fakes_return_typed_outputs_without_live_calls() ->
         )
     )
     assert isinstance(intake_output, ShoppingBrief)
+
+    guardrail_output = await FakeShoppingScopeGuardrail().run(
+        ShoppingScopeGuardrailInput(user_input="Need a 27 inch monitor")
+    )
+    assert isinstance(guardrail_output, ShoppingGuardrailResult)
+    assert guardrail_output.decision == ShoppingGuardrailDecision.ALLOWED
+
+    guide_output = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(user_input="Need a 27 inch monitor")
+    )
+    assert isinstance(guide_output, GuidedIntakeState)
+    assert guide_output.status == GuidedIntakeStatus.COLLECTING
+    assert guide_output.current_question is not None
+    assert guide_output.current_question.answer_surface == (
+        GuidedAnswerSurface.INLINE_CHOICE
+    )
 
     search_plan = await FakeQueryPlannerAgent().run(
         QueryPlannerAgentInput(run_id=run_id, brief=intake_output)
@@ -285,3 +320,136 @@ async def test_agent_contract_fakes_return_typed_outputs_without_live_calls() ->
     )
     assert isinstance(verification_output, VerificationReport)
     assert verification_output.approved is True
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guide_prefers_combined_optional_free_text() -> None:
+    guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(
+            user_input="Which laptop should I buy for travel?",
+            region_setup={
+                "status": RegionSetupStatus.PROVIDED,
+                "region": Region(country_code="US", currency="USD"),
+            },
+        )
+    )
+
+    assert guide.status == GuidedIntakeStatus.COLLECTING
+    assert guide.current_question is not None
+    assert guide.current_question.question_id == "optional-context"
+    assert guide.current_question.answer_surface == GuidedAnswerSurface.TEXTBOX
+    assert guide.current_question.inline_choice is None
+    assert guide.current_question.combined_optional_prompt is not None
+    assert guide.skippable_question.can_skip is True
+    assert guide.analysis_start.can_skip_all_and_start_analysis is True
+    assert guide.region_setup.status == RegionSetupStatus.PROVIDED
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guide_uses_inline_choices_only_when_helpful() -> None:
+    monitor_guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(user_input="Need a portable monitor for travel")
+    )
+    comparison_guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(
+            user_input="Between an iPhone and a Samsung, which is better?"
+        )
+    )
+
+    assert monitor_guide.current_question is not None
+    assert monitor_guide.current_question.inline_choice is not None
+    assert monitor_guide.current_question.inline_choice.control_type == (
+        InlineChoiceControlType.YES_NO
+    )
+    assert comparison_guide.current_question is not None
+    assert comparison_guide.current_question.inline_choice is not None
+    assert comparison_guide.current_question.inline_choice.control_type == (
+        InlineChoiceControlType.TWO_OPTION_PLUS_TYPE_ANSWER
+    )
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guide_can_skip_all_and_hand_complete_brief_to_intake() -> None:
+    guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(
+            user_input="Which laptop should I buy for travel?",
+            prior_answers=(
+                {
+                    "question_id": "optional-context",
+                    "answer": {
+                        "answer_type": "natural_language",
+                        "text": (
+                            "Around $1,200. I am considering the ThinkPad X1 "
+                            "Carbon and need long battery life."
+                        ),
+                    },
+                },
+            ),
+            start_analysis_requested=True,
+        )
+    )
+
+    assert guide.status == GuidedIntakeStatus.READY_FOR_ANALYSIS
+    assert guide.ready_brief is not None
+    assert guide.ready_brief.category == "laptop"
+    assert guide.ready_brief.budget is not None
+    assert guide.ready_brief.budget.amount.amount == 1200
+    assert guide.ready_brief.constraints[0].text.endswith("long battery life.")
+    assert "ThinkPad X1 Carbon" in guide.ready_brief.constraints[0].text
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guide_supports_skip_one_optional_question() -> None:
+    guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(
+            user_input="Which desk should I buy?",
+            skipped_question_ids=("optional-context",),
+        )
+    )
+
+    assert guide.status == GuidedIntakeStatus.READY_FOR_ANALYSIS
+    assert guide.ready_brief is not None
+    assert guide.ready_brief.category == "desk"
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guide_supports_reanswer_without_restart() -> None:
+    guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(
+            user_input="Need a portable monitor for travel",
+            prior_answers=(
+                {
+                    "question_id": "monitor-connection",
+                    "answer": {"answer_type": "yes_no", "value": True},
+                },
+            ),
+            reanswer_question_id="monitor-connection",
+        )
+    )
+
+    assert guide.status == GuidedIntakeStatus.COLLECTING
+    assert guide.current_question is not None
+    assert guide.current_question.question_id == "monitor-connection"
+    assert guide.navigation.can_go_back is True
+    assert guide.navigation.current_reanswer_question_id == "monitor-connection"
+
+
+@pytest.mark.asyncio
+async def test_fake_shopping_guardrail_blocks_unsuitable_requests_before_discovery() -> None:
+    off_topic = await FakeShoppingScopeGuardrail().run(
+        ShoppingScopeGuardrailInput(user_input="Write a poem about a laptop")
+    )
+    unsafe = await FakeShoppingScopeGuardrail().run(
+        ShoppingScopeGuardrailInput(user_input="Which gun should I buy?")
+    )
+    blocked_guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(user_input="Write a poem about a laptop")
+    )
+
+    assert off_topic.decision == ShoppingGuardrailDecision.BLOCKED
+    assert off_topic.reason == ShoppingGuardrailReason.OFF_TOPIC
+    assert unsafe.decision == ShoppingGuardrailDecision.BLOCKED
+    assert unsafe.reason == ShoppingGuardrailReason.UNSAFE_PRODUCT
+    assert blocked_guide.status == GuidedIntakeStatus.BLOCKED
+    assert blocked_guide.guardrail is not None
+    assert "shopping decisions" in blocked_guide.guardrail.message

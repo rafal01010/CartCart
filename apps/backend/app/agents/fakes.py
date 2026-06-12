@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from decimal import Decimal
+import re
 
 from pydantic import AnyHttpUrl
 
@@ -16,6 +18,8 @@ from app.agents.contracts import (
     QueryPlannerAgentInput,
     RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgentInput,
+    ShoppingGuideAgentInput,
+    ShoppingScopeGuardrailInput,
     SourceIntelligenceAgentInput,
     SourceIntelligenceAgentOutput,
     VerificationAgentInput,
@@ -36,8 +40,46 @@ from app.schemas.analysis import (
     RecommendationModeResult,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
+from app.schemas.guided_intake import (
+    AnalysisStartAvailability,
+    ChoiceGuidedAnswer,
+    ChoiceWithTextGuidedAnswer,
+    CombinedOptionalQuestionPrompt,
+    CurrentGuidedQuestion,
+    GuidedAnswer,
+    GuidedAnswerSurface,
+    GuidedCaptureTarget,
+    GuidedIntakeState,
+    GuidedIntakeStatus,
+    GuidedQuestionPurpose,
+    InlineChoiceControl,
+    InlineChoiceControlType,
+    InlineChoiceOption,
+    LocalRegionSetupState,
+    NaturalLanguageGuidedAnswer,
+    PriorQuestionNavigationState,
+    ProgressDisplayKind,
+    ProgressDisplayStatus,
+    ReanswerableQuestion,
+    RegionSetupStatus,
+    RegionSetupSubmission,
+    ShoppingGuardrailDecision,
+    ShoppingGuardrailReason,
+    ShoppingGuardrailResult,
+    SkippableQuestionState,
+    YesNoGuidedAnswer,
+)
 from app.schemas.ids import new_id
-from app.schemas.intake import FieldSource, ShoppingBrief
+from app.schemas.intake import (
+    BudgetConstraint,
+    BudgetMode,
+    FieldSource,
+    PreferenceConstraint,
+    PreferenceMode,
+    RegionPreference,
+    ShoppingBrief,
+)
+from app.schemas.money import Money
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
 from app.schemas.search_sources import (
     AmazonEvidenceFactType,
@@ -74,6 +116,11 @@ from app.schemas.search_sources import (
 )
 from app.schemas.source_references import SourceReference
 
+FIRST_QUESTION_ID = "first-question"
+MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
+COMPARISON_PRIORITY_QUESTION_ID = "comparison-priority"
+OPTIONAL_CONTEXT_QUESTION_ID = "optional-context"
+
 
 @dataclass(frozen=True)
 class FakeIntakeAgent:
@@ -90,6 +137,80 @@ class FakeIntakeAgent:
             budget=input_data.request.budget,
             constraints=input_data.request.constraints,
             preferences=input_data.request.preferences,
+        )
+
+
+@dataclass(frozen=True)
+class FakeShoppingScopeGuardrail:
+    output: ShoppingGuardrailResult | None = None
+
+    async def run(
+        self,
+        input_data: ShoppingScopeGuardrailInput,
+    ) -> ShoppingGuardrailResult:
+        if self.output is not None:
+            return self.output
+        return _guardrail_for_user_input(input_data.user_input)
+
+
+@dataclass(frozen=True)
+class FakeShoppingGuideAgent:
+    output: GuidedIntakeState | None = None
+
+    async def run(self, input_data: ShoppingGuideAgentInput) -> GuidedIntakeState:
+        if self.output is not None:
+            return self.output
+
+        guardrail = _guardrail_for_user_input(input_data.user_input)
+        if guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
+            return GuidedIntakeState(
+                status=GuidedIntakeStatus.BLOCKED,
+                guardrail=guardrail,
+                region_setup=_region_setup_state(input_data.region_setup),
+                progress=ProgressDisplayStatus(
+                    kind=ProgressDisplayKind.BLOCKED,
+                    message="This request is outside shopping help.",
+                ),
+            )
+
+        answer_map = {
+            submission.question_id: submission.answer
+            for submission in input_data.prior_answers
+        }
+        first_followup = _first_followup_question_id(input_data.user_input)
+        ready_requested = (
+            input_data.start_analysis_requested
+            or OPTIONAL_CONTEXT_QUESTION_ID in answer_map
+            or OPTIONAL_CONTEXT_QUESTION_ID in input_data.skipped_question_ids
+        )
+        if ready_requested and input_data.reanswer_question_id is None:
+            return _ready_guided_state(input_data, answer_map)
+
+        question_id = input_data.reanswer_question_id
+        if question_id is None:
+            if first_followup not in answer_map:
+                question_id = first_followup
+            else:
+                question_id = OPTIONAL_CONTEXT_QUESTION_ID
+
+        question = _guided_question_by_id(question_id, input_data.user_input)
+        return GuidedIntakeState(
+            status=GuidedIntakeStatus.COLLECTING,
+            current_question=question,
+            navigation=_navigation_state(answer_map, input_data.reanswer_question_id),
+            skippable_question=SkippableQuestionState(
+                can_skip=question.question_id == OPTIONAL_CONTEXT_QUESTION_ID,
+            ),
+            analysis_start=AnalysisStartAvailability(
+                enough_information=True,
+                can_skip_all_and_start_analysis=True,
+                message="We can start with what you have already shared.",
+            ),
+            region_setup=_region_setup_state(input_data.region_setup),
+            progress=ProgressDisplayStatus(
+                kind=ProgressDisplayKind.IDLE,
+                message="Ready for your answer.",
+            ),
         )
 
 
@@ -685,6 +806,288 @@ class FakeVerifierCriticAgent:
             recommendation_bundle=input_data.recommendation_bundle,
             notes=("Fixture verification approved.",),
         )
+
+
+def _guardrail_for_user_input(user_input: str) -> ShoppingGuardrailResult:
+    normalized = user_input.lower()
+    if any(term in normalized for term in ("homework", "write an essay", "poem")):
+        return _blocked_guardrail(
+            ShoppingGuardrailReason.OFF_TOPIC,
+            "I can help with shopping decisions. Try asking what to buy or compare.",
+        )
+    if any(term in normalized for term in ("gun", "explosive", "weapon")):
+        return _blocked_guardrail(
+            ShoppingGuardrailReason.UNSAFE_PRODUCT,
+            "I cannot help choose unsafe products. I can help with ordinary consumer purchases.",
+        )
+    if any(term in normalized for term in ("fake passport", "stolen", "illegal")):
+        return _blocked_guardrail(
+            ShoppingGuardrailReason.ILLEGAL_PRODUCT,
+            "I cannot help with illegal purchases. I can help with ordinary consumer products.",
+        )
+    if any(term in normalized for term in ("porn", "explicit sexual")):
+        return _blocked_guardrail(
+            ShoppingGuardrailReason.INAPPROPRIATE_PRODUCT,
+            "I cannot help with that request. I can help with ordinary consumer purchases.",
+        )
+    return ShoppingGuardrailResult(decision=ShoppingGuardrailDecision.ALLOWED)
+
+
+def _blocked_guardrail(
+    reason: ShoppingGuardrailReason,
+    message: str,
+) -> ShoppingGuardrailResult:
+    return ShoppingGuardrailResult(
+        decision=ShoppingGuardrailDecision.BLOCKED,
+        reason=reason,
+        message=message,
+    )
+
+
+def _first_followup_question_id(user_input: str) -> str:
+    normalized = user_input.lower()
+    if "monitor" in normalized:
+        return MONITOR_CONNECTION_QUESTION_ID
+    if " between " in f" {normalized} " or " vs " in normalized:
+        return COMPARISON_PRIORITY_QUESTION_ID
+    return OPTIONAL_CONTEXT_QUESTION_ID
+
+
+def _guided_question_by_id(question_id: str, user_input: str) -> CurrentGuidedQuestion:
+    if question_id == FIRST_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=FIRST_QUESTION_ID,
+            text="Send your question",
+            purpose=GuidedQuestionPurpose.FIRST_QUESTION,
+            capture_targets=(GuidedCaptureTarget.SHOPPING_QUESTION,),
+        )
+    if question_id == MONITOR_CONNECTION_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=MONITOR_CONNECTION_QUESTION_ID,
+            text="Would one-cable setup be useful for this monitor?",
+            purpose=GuidedQuestionPurpose.PRIORITIES,
+            answer_surface=GuidedAnswerSurface.INLINE_CHOICE,
+            capture_targets=(GuidedCaptureTarget.PRIORITIES,),
+            inline_choice=InlineChoiceControl(
+                control_id="monitor-connection-choice",
+                control_type=InlineChoiceControlType.YES_NO,
+                options=(
+                    InlineChoiceOption(choice_id="yes", label="Yes"),
+                    InlineChoiceOption(choice_id="no", label="No"),
+                ),
+            ),
+        )
+    if question_id == COMPARISON_PRIORITY_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=COMPARISON_PRIORITY_QUESTION_ID,
+            text="For that comparison, what should matter most?",
+            purpose=GuidedQuestionPurpose.PRIORITIES,
+            answer_surface=GuidedAnswerSurface.INLINE_CHOICE,
+            capture_targets=(GuidedCaptureTarget.PRIORITIES,),
+            inline_choice=InlineChoiceControl(
+                control_id="comparison-priority-choice",
+                control_type=InlineChoiceControlType.TWO_OPTION_PLUS_TYPE_ANSWER,
+                options=(
+                    InlineChoiceOption(choice_id="everyday-use", label="Everyday use"),
+                    InlineChoiceOption(choice_id="best-value", label="Best value"),
+                ),
+                custom_answer_label="Type my answer",
+            ),
+        )
+    return _optional_context_question()
+
+
+def _optional_context_question() -> CurrentGuidedQuestion:
+    return CurrentGuidedQuestion(
+        question_id=OPTIONAL_CONTEXT_QUESTION_ID,
+        text=(
+            "Anything we should keep in mind, like budget, must-haves, "
+            "or products you are already considering?"
+        ),
+        purpose=GuidedQuestionPurpose.COMBINED_OPTIONAL,
+        capture_targets=(
+            GuidedCaptureTarget.BUDGET,
+            GuidedCaptureTarget.CONSTRAINTS,
+            GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
+        ),
+        combined_optional_prompt=CombinedOptionalQuestionPrompt(
+            text=(
+                "Share any budget, must-haves, "
+                "or product names you already have in mind."
+            ),
+            capture_targets=(
+                GuidedCaptureTarget.BUDGET,
+                GuidedCaptureTarget.CONSTRAINTS,
+                GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
+            ),
+        ),
+    )
+
+
+def _ready_guided_state(
+    input_data: ShoppingGuideAgentInput,
+    answer_map: dict[str, GuidedAnswer],
+) -> GuidedIntakeState:
+    return GuidedIntakeState(
+        status=GuidedIntakeStatus.READY_FOR_ANALYSIS,
+        navigation=_navigation_state(answer_map, input_data.reanswer_question_id),
+        analysis_start=AnalysisStartAvailability(
+            enough_information=True,
+            message="We have enough to start checking options.",
+        ),
+        region_setup=_region_setup_state(input_data.region_setup),
+        progress=ProgressDisplayStatus(
+            kind=ProgressDisplayKind.CHECKING_OPTIONS,
+            message="Ready to start checking options.",
+        ),
+        ready_brief=_brief_for_guide(input_data, answer_map),
+    )
+
+
+def _navigation_state(
+    answer_map: dict[str, GuidedAnswer],
+    reanswer_question_id: str | None,
+) -> PriorQuestionNavigationState:
+    ordered_question_ids = (
+        MONITOR_CONNECTION_QUESTION_ID,
+        COMPARISON_PRIORITY_QUESTION_ID,
+        OPTIONAL_CONTEXT_QUESTION_ID,
+    )
+    questions = tuple(
+        ReanswerableQuestion(
+            question_id=question_id,
+            label=_reanswer_label(question_id),
+        )
+        for question_id in ordered_question_ids
+        if question_id in answer_map
+    )
+    return PriorQuestionNavigationState(
+        can_go_back=bool(questions),
+        current_reanswer_question_id=reanswer_question_id,
+        reanswerable_questions=questions,
+    )
+
+
+def _region_setup_state(
+    submission: RegionSetupSubmission | None,
+) -> LocalRegionSetupState:
+    if submission is None:
+        return LocalRegionSetupState(
+            status=RegionSetupStatus.NEEDS_ANSWER,
+            prompt_text=(
+                "Where are you buying from? "
+                "It helps show options you can actually buy."
+            ),
+            resumes_pending_question=True,
+        )
+    if submission.status == RegionSetupStatus.PROVIDED:
+        return LocalRegionSetupState(
+            status=RegionSetupStatus.PROVIDED,
+            region=submission.region,
+            resumes_pending_question=True,
+        )
+    return LocalRegionSetupState(
+        status=RegionSetupStatus.REFUSED,
+        resumes_pending_question=True,
+    )
+
+
+def _brief_for_guide(
+    input_data: ShoppingGuideAgentInput,
+    answer_map: dict[str, GuidedAnswer],
+) -> ShoppingBrief:
+    answer_texts = tuple(
+        text for text in (_answer_text(answer) for answer in answer_map.values()) if text
+    )
+    constraints = tuple(
+        PreferenceConstraint(text=text, mode=PreferenceMode.HARD)
+        for text in answer_texts
+        if _looks_like_constraint(text)
+    )
+    preferences = tuple(
+        PreferenceConstraint(text=text, mode=PreferenceMode.SOFT)
+        for text in answer_texts
+        if not _looks_like_constraint(text)
+    )
+    return ShoppingBrief(
+        original_query=input_data.user_input,
+        region=_region_preference_from_setup(input_data.region_setup),
+        budget=_budget_from_texts(answer_texts),
+        constraints=constraints,
+        preferences=preferences,
+        **_category_fields(input_data.user_input),
+    )
+
+
+def _region_preference_from_setup(
+    submission: RegionSetupSubmission | None,
+) -> RegionPreference | None:
+    if submission is None or submission.status != RegionSetupStatus.PROVIDED:
+        return None
+    if submission.region is None:
+        return None
+    return RegionPreference(region=submission.region, source=FieldSource.USER_PROVIDED)
+
+
+def _category_fields(user_input: str) -> dict[str, str]:
+    normalized = user_input.lower()
+    categories = {
+        "laptop": "laptop",
+        "phone": "smartphone",
+        "iphone": "smartphone",
+        "samsung": "smartphone",
+        "camera": "camera",
+        "desk": "desk",
+        "monitor": "monitor",
+        "headphone": "headphones",
+        "earbud": "earbuds",
+    }
+    for keyword, category in categories.items():
+        if keyword in normalized:
+            return {"category": category, "category_source": FieldSource.INFERRED}
+    return {}
+
+
+def _answer_text(answer: GuidedAnswer | None) -> str | None:
+    if answer is None:
+        return None
+    if isinstance(answer, NaturalLanguageGuidedAnswer | ChoiceWithTextGuidedAnswer):
+        return answer.text
+    if isinstance(answer, YesNoGuidedAnswer):
+        return "Yes" if answer.value else "No"
+    if isinstance(answer, ChoiceGuidedAnswer):
+        return answer.choice_id.replace("-", " ")
+    return None
+
+
+def _budget_from_texts(texts: tuple[str, ...]) -> BudgetConstraint | None:
+    for text in texts:
+        match = re.search(
+            r"(?:\$|usd\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+            text,
+            re.I,
+        )
+        if match is None:
+            continue
+        return BudgetConstraint(
+            amount=Money(amount=Decimal(match.group(1).replace(",", "")), currency="USD"),
+            mode=BudgetMode.PREFERRED,
+        )
+    return None
+
+
+def _looks_like_constraint(text: str) -> bool:
+    normalized = text.lower()
+    return any(term in normalized for term in ("must", "need", "needs", "cannot"))
+
+
+def _reanswer_label(question_id: str) -> str:
+    labels = {
+        MONITOR_CONNECTION_QUESTION_ID: "Monitor setup",
+        COMPARISON_PRIORITY_QUESTION_ID: "Comparison priority",
+        OPTIONAL_CONTEXT_QUESTION_ID: "Budget and must-haves",
+    }
+    return labels.get(question_id, "Earlier answer")
 
 
 def _search_result(query: SearchQuery) -> SearchResult:

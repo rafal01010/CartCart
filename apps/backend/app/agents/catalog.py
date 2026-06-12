@@ -14,6 +14,8 @@ class AgentStatus(StrEnum):
 
 class AgentKind(StrEnum):
     ORCHESTRATOR = "orchestrator"
+    GUIDE = "guide"
+    GUARDRAIL = "guardrail"
     WORKFLOW_STEP = "workflow_step"
     ROUTER = "router"
     DOMAIN_ANALYST = "domain_analyst"
@@ -273,6 +275,22 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.APPLICATION_CODE,
         contract_name="ShoppingRunOrchestrator",
         output_schema="Persisted workflow state",
+    ),
+    "ShoppingGuideAgent": _entry(
+        "ShoppingGuideAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.GUIDE,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="ShoppingGuideAgent",
+        output_schema="GuidedIntakeState",
+    ),
+    "ShoppingScopeGuardrail": _entry(
+        "ShoppingScopeGuardrail",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.GUARDRAIL,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="ShoppingScopeGuardrail",
+        output_schema="ShoppingGuardrailResult",
     ),
     "IntakeAgent": _entry(
         "IntakeAgent",

@@ -3,7 +3,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-	--font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+	--font-sans: var(--font-inter-variable);
+	--font-mono: var(--font-berkeley-mono);
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -27,50 +28,92 @@
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
+	--radius-xl: calc(var(--radius) + 6px);
+	--shadow-subtle: inset 0 0 0 1px rgb(35 37 42);
+	--shadow-input: inset 0 0 0 1px rgb(0 0 0 / 0.2), 0 2px 4px rgb(0 0 0 / 0.25);
+	--shadow-button:
+		0 5px 2px rgb(0 0 0 / 0.01), 0 3px 2px rgb(0 0 0 / 0.04),
+		0 1px 1px rgb(0 0 0 / 0.07), 0 0 1px rgb(0 0 0 / 0.08);
+	--shadow-elevated: 0 4px 32px rgb(8 9 10 / 0.6);
+	--text-prompt: clamp(2.5rem, 8vw, 4.5rem);
 }
 
 :root {
-	--radius: 0.5rem;
-	--background: oklch(0.982 0.006 247);
-	--foreground: oklch(0.21 0.035 252);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.21 0.035 252);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.21 0.035 252);
-	--primary: oklch(0.38 0.08 245);
-	--primary-foreground: oklch(0.99 0.004 247);
-	--secondary: oklch(0.95 0.018 238);
-	--secondary-foreground: oklch(0.26 0.04 248);
-	--muted: oklch(0.946 0.014 247);
-	--muted-foreground: oklch(0.48 0.032 250);
-	--accent: oklch(0.93 0.035 175);
-	--accent-foreground: oklch(0.25 0.052 182);
-	--destructive: oklch(0.56 0.19 25);
-	--border: oklch(0.89 0.018 247);
-	--input: oklch(0.9 0.02 247);
-	--ring: oklch(0.56 0.08 238);
-	--warning: oklch(0.86 0.12 82);
-	--warning-foreground: oklch(0.31 0.07 58);
+	color-scheme: dark;
+	--font-inter-variable:
+		Inter, "Inter Variable", "General Sans", ui-sans-serif, system-ui, -apple-system,
+		BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-berkeley-mono:
+		"Berkeley Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo,
+		Monaco, Consolas, monospace;
+
+	--color-onyx: #08090a;
+	--color-charcoal: #0f1011;
+	--color-obsidian: #161718;
+	--color-graphite: #23252a;
+	--color-iron: #323334;
+	--color-steel: #383b3f;
+	--color-slate: #62666d;
+	--color-fog: #8a8f98;
+	--color-mist: #d0d6e0;
+	--color-platinum: #e5e5e6;
+	--color-snow: #f7f8f8;
+	--color-acid-lime: #e4f222;
+	--color-indigo: #5e6ad2;
+	--color-emerald: #27a644;
+	--color-crimson: #eb5757;
+	--color-cyan: #02b8cc;
+
+	--radius: 0.375rem;
+	--background: var(--color-onyx);
+	--foreground: var(--color-snow);
+	--card: var(--color-charcoal);
+	--card-foreground: var(--color-snow);
+	--popover: var(--color-obsidian);
+	--popover-foreground: var(--color-snow);
+	--primary: var(--color-acid-lime);
+	--primary-foreground: #030404;
+	--secondary: var(--color-obsidian);
+	--secondary-foreground: var(--color-mist);
+	--muted: var(--color-obsidian);
+	--muted-foreground: var(--color-fog);
+	--accent: var(--color-indigo);
+	--accent-foreground: var(--color-mist);
+	--destructive: var(--color-crimson);
+	--border: var(--color-graphite);
+	--input: var(--color-steel);
+	--ring: var(--color-indigo);
+	--warning: #5f4b18;
+	--warning-foreground: #f2d48a;
+
+	--shadow-subtle: inset 0 0 0 1px rgb(35 37 42);
+	--shadow-input: inset 0 0 0 1px rgb(0 0 0 / 0.2), 0 2px 4px rgb(0 0 0 / 0.25);
+	--shadow-button:
+		0 5px 2px rgb(0 0 0 / 0.01), 0 3px 2px rgb(0 0 0 / 0.04),
+		0 1px 1px rgb(0 0 0 / 0.07), 0 0 1px rgb(0 0 0 / 0.08);
+	--shadow-elevated: 0 4px 32px rgb(8 9 10 / 0.6);
 }
 
 @layer base {
 	* {
 		@apply border-border;
+		box-sizing: border-box;
 	}
 
 	html {
 		@apply bg-background text-foreground antialiased;
 		font-family: var(--font-sans);
+		font-feature-settings:
+			"cv01" 1,
+			"ss03" 1;
+		text-rendering: geometricPrecision;
 	}
 
 	body {
 		margin: 0;
 		min-width: 320px;
 		min-height: 100vh;
-		background:
-			linear-gradient(180deg, oklch(1 0 0 / 0.75), transparent 22rem),
-			var(--background);
+		background: var(--background);
 	}
 
 	button,
@@ -78,5 +121,34 @@
 	textarea,
 	select {
 		font: inherit;
+		letter-spacing: 0;
+	}
+
+	textarea::placeholder,
+	input::placeholder {
+		color: var(--color-slate);
+	}
+
+	::selection {
+		background: rgb(94 106 210 / 0.45);
+		color: var(--color-snow);
+	}
+}
+
+@keyframes starter-question-enter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@layer utilities {
+	.starter-question {
+		animation: starter-question-enter 420ms ease-out;
 	}
 }

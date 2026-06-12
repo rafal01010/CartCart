@@ -1,265 +1,297 @@
 # CartCart UX Information Architecture
 
-Status: Workspace shell with session creation, stub run progress, and fixture result rendering wired; remaining items are acceptance guidance
-Last updated: 2026-06-02
+Status: Guided shopping intake direction; the earlier one-page workspace shell is superseded
+Last updated: 2026-06-12
 
 ## Purpose
 
-This document defines the MVP user experience structure before UI implementation. It should be used as the acceptance checklist for the first SvelteKit workspace shell, fixture result UI, and later live workflow UI.
+This document defines the user-facing UX acceptance checklist for CartCart. The
+old all-in-one homepage/workspace direction is not acceptable for the product
+experience. Backend sessions, runs, results, source evidence, and refinement
+plumbing can remain useful, but the frontend should not make shoppers think in
+terms of starting runs, inspecting workflow mechanics, or managing a dense
+research dashboard before CartCart has guided them.
 
-CartCart should open directly into the shopping research workspace. Do not build a marketing landing page as the first screen.
+CartCart should open with a focused shopping question prompt. It should feel
+like a calm guided assistant for deciding what to buy, not a visible chat
+history, a developer console, a raw search page, or a form-heavy comparison
+tool.
 
-The current frontend route implements the first workspace shell with query controls, region and budget fields, user-added product entry, refinement controls, inferred brief summary, progress timeline, shortlist, comparison, recommendation, trust notes, and source evidence panels. The query/region/budget form creates a persisted backend session through `POST /api/sessions`, stores the session ID in the URL, and reloads that session on refresh. The user-added product controls persist URL placeholders and manual product details through `POST /api/sessions/{session_id}/products`, render the returned session state, and reset stale run/result state before the next run. The refinement controls submit category, region, budget, and preference corrections through `POST /api/sessions/{session_id}/refinements`, show created refinement runs, and keep the current result version/run visible. The run action starts the fixture backend run, renders stage events from the SSE stream, and fetches the latest fixture recommendation bundle on completion. The result UI shows the final pick, why it wins, runner-ups, recommendation modes from the same analysis, trust notes, warnings/red flags, meaningful rejected items only when present, and inspectable source links. Workspace notices cover no session, loading, no result, run in progress, failed run, partial data, weak evidence, conflicting signals, warning/red-flag result, and API-error states.
+See `docs/FRONTEND_REPLACEMENT.md` for the current frontend audit, the
+keep/rewrite/delete map for existing Svelte files, and the planned guided
+route/state structure for the replacement.
 
 ## UX Principles
 
-- Natural language comes first. Optional controls should clarify the request, not replace the main query.
-- The interface is desktop-first and optimized for comparison, scanning, and repeated refinement.
-- Mobile should remain usable, but dense desktop workflows are the priority.
-- The app should show what it inferred and let the user correct it.
-- Source evidence, trust notes, and warnings should be inspectable without overwhelming the main result.
-- User-added products should be treated as first-class candidates.
-- Recommendation modes should come from the same stored analysis pass, not from separate reruns.
-- Rejected or "why not" output should appear only when there is a meaningful reason.
+- Start with one natural-language shopping question.
+- Ask one useful follow-up question at a time.
+- Reveal only the next naturally needed step.
+- Prefer the main answer textbox for normal guided intake.
+- Use inline constrained choices only when choosing is clearly easier than
+  typing.
+- Do not show visible chat history in the normal flow.
+- Do not expose agent names, prompts, providers, trace IDs, raw run mechanics, or
+  developer-oriented process language to regular shoppers.
+- Use regular-person language for actions, progress, failures, warnings, and
+  results.
+- Keep seller/listing legitimacy visible when it affects buying safety.
+- Preserve source evidence and result versioning internally, but reveal details
+  only when they help the current decision.
 
-## First Screen Layout
+## Visual Direction
 
-The first screen should be a work surface with these regions:
+Follow `DESIGN.md` for the frontend visual reference:
 
-- Query and controls area.
-- Inferred brief summary.
-- User-added products area.
-- Run progress timeline.
-- Generated shortlist and candidate comparison area.
-- Result and recommendation area.
-- Source/evidence drawer or side panel.
+- Dark Linear-inspired canvas.
+- Restrained surfaces with thin borders and compact spacing.
+- One primary action per screen.
+- Acid-lime filled treatment only for the primary action.
+- Quiet secondary actions in gray text or subtle outlines.
+- Large prompt-led question text on intake screens.
+- Main textbox as the dominant input surface.
+- No decorative clutter, marketing hero layout, or card-heavy dashboard on the
+  first screen.
 
-The layout should make the current shopping session, run status, and latest result visible without forcing the user through chat history.
+The UI should feel precise and calm. It should not use bright multi-accent
+decoration, large explanatory panels, or visible implementation terminology to
+fill space.
 
-## Query Entry
+## First Screen
 
-Acceptance checklist:
+The first screen is a focused "Send your question" prompt with a large textbox.
+It should not show the old workspace regions, progress timeline, source drawer,
+shortlist, comparison table, result cards, or refinement panels before the user
+starts a shopping decision.
 
-- Provide a prominent natural-language query input for the shopping goal.
-- Support examples through placeholder or empty-state copy only if they do not dominate the interface.
-- Include lightweight optional controls for region, budget, hard/soft budget semantics, and key preferences.
-- Do not require the user to choose a product category before starting.
-- Allow the query to mention known products, stores, constraints, use cases, and deal-breakers.
-- Show validation errors near the relevant input.
-- Keep the primary action focused on starting or updating a shopping run.
+Required first-screen elements:
 
-## Inferred Brief
+- A clear "Send your question" prompt.
+- A large natural-language textbox.
+- A single primary send/continue action.
+- Starter-question templates outside the textbox, such as:
+  - "Which phone should I buy?"
+  - "Which laptop should I buy?"
+  - "Which camera should I buy?"
+  - "Which desk should I buy?"
+  - "Between an iPhone and a Samsung, which is better?"
+- Minimal navigation or setup affordances only when they are needed.
 
-The UI should show a compact brief derived from intake:
+Textbox placeholders must stay neutral and short. Do not put suggested answers
+or examples inside answer textboxes.
 
-- Inferred product category.
-- Region.
-- Budget and whether it is a hard cap or preferred budget.
-- Usage context.
-- Hard constraints.
-- Soft preferences.
-- Uncertainty or clarification flags.
+## Guided Intake Flow
 
-Acceptance checklist:
-
-- The inferred category must be visible after intake.
-- The category must be correctable before rerun/refinement.
-- Region and budget must be editable.
-- Correcting category, region, budget, or preferences should create an explicit refinement or rerun path rather than silently mutating prior results.
-- Unknown or inferred fields should be visually distinguishable from user-confirmed fields.
-
-## Region And Budget Controls
-
-Acceptance checklist:
-
-- Region is visible and editable.
-- If a default region is used, it is marked as defaulted/inferred until user-confirmed.
-- Budget entry supports amount and currency where known.
-- Budget entry supports hard cap vs preferred budget.
-- The UI should explain budget behavior through concise field labels and result treatment, not long instructional text.
-- Results should show when a recommendation is within budget, outside a soft budget as a stretch, or invalid under a hard cap.
-
-## Progress Timeline
-
-The run timeline should make long-running workflow stages understandable.
-
-Expected stages:
-
-- Intake.
-- Query planning.
-- Discovery/search.
-- Source extraction.
-- Deduplication.
-- Category/domain analysis.
-- Seller/listing trust analysis.
-- Comparison and decision.
-- Verification.
-- Result ready.
+After the first shopping question, CartCart should keep the same prompt-led
+composition for most intake steps: one displayed question, one main answer
+surface, and a small set of relevant actions.
 
 Acceptance checklist:
 
-- Show pending, running, succeeded, failed, and skipped states.
-- Show user-safe messages for provider failures, weak evidence, no candidates, and partial results.
-- Preserve completed stages after a run finishes.
-- Do not expose internal prompts or raw provider payloads in the normal timeline.
-- Make retry or refinement available when a recoverable stage fails.
+- Ask only the next useful question.
+- Prefer natural-language answer capture over structured mini-forms.
+- Combine small optional questions into one natural-language prompt when that
+  reduces friction, such as "Anything we should keep in mind, like budget or
+  laptops you are already considering?"
+- Do not split ordinary intake into multiple compact rows such as separate
+  Budget, Product, Region, and Preference fields.
+- Do not ask users to find or paste product links during normal intake.
+- Ask for product names or descriptions when the user is considering specific
+  products, then let CartCart find and verify listings.
+- On textbox-based steps, disable and visually mute `Continue` while the textbox
+  is empty.
+- Use `Skip question` for the current optional question only.
+- Use `Skip all and start analysis` when enough information exists and the user
+  can start immediately.
+- Let the user go back and reanswer prior guided questions before analysis
+  starts.
+- Do not display prior questions and answers as a chat transcript.
+- Once analysis has started, changing a prior answer becomes an explicit
+  refinement path instead of silently mutating the original decision.
+- Budget, region, and category changes should open one contextual prompt or
+  aligned choice block when requested. They should not appear as permanent
+  multi-field panels on the first screen.
 
-## Generated Shortlist
+## Inline Choice Blocks
 
-The generated shortlist should show app-discovered candidates before and after analysis.
+Constrained answers should normally render inline in the main window/main div,
+near the active question. They should not open popups for ordinary intake.
+
+Use constrained controls sparingly:
+
+- Use simple yes/no choices for genuinely binary questions.
+- Use two-option choices when both options are specific and useful.
+- Use two-option-plus-type-answer only when the first two choices are specific
+  useful paths and the third path lets the user type something else.
+- Keep "type my answer" as a real input path, not a fake choice that still forces
+  another separate form.
+- Do not use constrained controls just to make the screen look busy.
+
+The default answer surface remains the main textbox. Choice blocks are a
+shortcut when they reduce effort.
+
+## Region Setup
+
+Region is important because availability, shipping, warranty, prices, currency,
+retailers, and seller risk vary by location. The app should collect region
+through a one-time lightweight setup prompt outside the main shopping question
+flow when no saved region preference exists.
+
+Required behavior:
+
+- Explain in regular-person language that region helps CartCart show products
+  the user can actually buy.
+- Allow the user to provide a country/region.
+- Allow the user to explicitly choose not to answer.
+- Store the provided region or refusal locally in browser storage or cookies
+  where appropriate.
+- Let the user edit the saved region later.
+- Do not treat region setup as a normal skippable guided question.
+- If region setup interrupts an already-submitted shopping question, resume the
+  pending guided flow automatically after the user provides a region or refuses
+  to answer.
+- If no region is provided, any backend fallback/default region must remain
+  marked as defaulted or inferred rather than user-confirmed.
+
+## Processing And Progress
+
+Processing messages should be user-safe and plain-language. The UI can say that
+CartCart is checking options, comparing evidence, verifying availability, or
+looking for risky listings.
+
+Do not show:
+
+- Internal agent names.
+- Prompt text.
+- Tool or provider names.
+- Trace IDs.
+- Raw API payloads.
+- Developer labels such as "run", "stage execution", "fixture orchestrator", or
+  "agent record" in normal shopper screens.
+
+Progress should be minimal during guided intake. Detailed progress, source
+status, and evidence inspection belong after analysis has started and only when
+they help explain the recommendation or a recoverable problem.
+
+## Staged Result Reveal
+
+The shortlist, comparison, recommendation, trust notes, warnings, and source
+details should appear only when useful for the current step.
+
+Expected reveal order:
+
+1. First shopping question.
+2. One-time region setup if needed.
+3. Guided follow-up questions until enough information exists.
+4. User-safe processing state.
+5. Final recommendation or no-strong-buy outcome.
+6. Runner-ups, modes, comparison, trust notes, warnings, and source details as
+   supporting surfaces.
+
+Do not show generated candidates as final recommendations before analysis
+completes. Do not force users into a product table, source drawer, or comparison
+matrix before they need those details.
+
+## User-Considered Products
+
+User-considered products are first-class candidates, but normal intake should
+ask for names or descriptions rather than URLs.
 
 Acceptance checklist:
 
-- Show product identity separately from listing identity when both are known.
-- Show enough information for scanning: name, brand when known, price when known, seller/store, region availability, source count, and trust status.
-- Mark missing, inferred, or low-confidence fields.
-- Preserve duplicate/listing differences when seller trust, price, or availability differs.
-- Show when a candidate was excluded because of source policy or listing trust.
-- Do not present the generated shortlist as final recommendations before analysis completes.
+- Let users mention considered products in the first question or a follow-up.
+- Ask for product names/descriptions if the app needs clarification.
+- Use CartCart lookup and matching to find candidate listings.
+- Preserve evidence gaps when a product cannot be matched confidently.
+- Let user-considered products win, become runner-up, appear in a recommendation
+  mode, or be rejected/excluded for a meaningful reason.
+- Keep product quality separate from listing or seller trust.
+- Keep neutral outbound links when source/listing details are revealed.
 
-## User-Added Products
+URL entry can exist later as an advanced or corrective path, but it is not the
+normal guided intake path.
 
-Acceptance checklist:
+In the current guided frontend, product mentions are captured from the guided
+answer text as names or descriptions. The existing product endpoint remains
+available behind that guided path rather than as a normal visible URL form.
 
-- Allow adding a product by URL.
-- Allow adding manual product details when URL extraction is unavailable or not yet implemented.
-- Clearly label user-added products.
-- Include user-added products in the same dedupe, trust, analysis, and decision flow as generated candidates.
-- Show extraction/evidence gaps for manual entries.
-- Let user-added products win, become runner-up, appear in a mode, or be rejected/excluded for meaningful reasons.
-- Preserve user-added products across refinements in the session.
+## Recommendation Surface
 
-## Result Area
+The result area should focus on decision support, not raw output volume.
 
-The result area should focus on decision support, not a raw list.
+Required result surfaces when available:
 
-Required result surfaces:
-
-- Final best pick or explicit no-strong-buy outcome.
+- One final best pick or an explicit no-strong-buy outcome.
 - Runner-ups.
-- Recommendation modes from one analysis pass.
-- Comparison table or matrix.
+- Recommendation modes from the same analysis pass.
+- Meaningful comparison details.
 - Seller/listing trust notes.
 - Warnings and red flags.
-- Meaningful-only rejected items.
-- Source links and evidence access.
+- Rejected or avoid items only when there is a meaningful negative reason.
+- Source links and evidence details behind supporting surfaces.
+
+No-strong-buy is a valid outcome, not an error. It should explain what blocked a
+responsible recommendation and what the user can do next.
+
+## Source And Trust Details
+
+Source evidence should support inspection without becoming the main interface.
 
 Acceptance checklist:
 
-- Show exactly one final best pick unless the result is explicitly no-strong-buy.
-- No-strong-buy should be presented as a valid outcome with next steps, not as an error.
-- Make product quality and listing trust visually separable.
-- If a product is good but the listing is unsafe, the UI should show that distinction.
-- Do not show a forced rejected/why-not section when there are no meaningful rejected items.
-- Avoid affiliate, sponsored, or monetized link treatment.
-
-## Recommendation Modes
-
-Recommendation modes should let users inspect the same analysis through different priorities.
-
-Expected modes:
-
-- Best overall.
-- Best value.
-- Best within budget.
-- Stretch upgrade when justified.
-- No-strong-buy when applicable.
-
-Acceptance checklist:
-
-- Switching modes must not start a new search or analysis run.
-- The active mode should be clear.
-- Each mode should identify the selected candidate or explain why no candidate qualifies.
-- Modes should preserve the same source and trust evidence.
-- Stretch mode should be unavailable or empty when no justified stretch exists.
-
-## Trust Notes And Warnings
-
-Acceptance checklist:
-
-- Show trust level for listings where assessed: `strong`, `reasonable`, `mixed`, `weak`, `suspicious`, or `unknown`.
-- Surface material red flags near affected recommendations.
-- Link trust notes to evidence or listing signals where available.
-- Distinguish suspicious listing concerns from product fit concerns.
-- Blocking listing concerns should be visible before any outbound purchase link.
-- Avoid generic warnings that do not affect the buying decision.
-
-## Source Drawer
-
-The source drawer or side panel should support evidence inspection without cluttering the main decision view.
-
-Acceptance checklist:
-
-- Open from source references, trust notes, factual claims, warnings, and result cards.
-- Show source title, URL, provider, source type, extraction status, and quality/confidence signals.
-- Show claim/evidence snippets when available.
-- Show video IDs, channel metadata, timestamps, and transcript availability for video evidence when relevant.
-- Show Reddit/community thread or comment context where available, with qualitative evidence warnings when the signal is anecdotal or weak.
-- Show Amazon marketplace/listing/seller/fulfillment, review, and regional availability context where available.
-- Show IKEA country/region, official product/store URL, price/currency, availability, and store/delivery context where available.
-- Show evidence gaps and conflicts.
-- Keep outbound links neutral.
+- Open evidence details from result claims, warnings, trust notes, and source
+  references.
+- Show source title, URL, source type, extraction status, and confidence/quality
+  signals when useful.
+- Show evidence gaps and conflicts when they affect the recommendation.
+- Show video transcript availability and timestamps when relevant.
+- Show Reddit/community context as qualitative signal, not product truth.
+- Show Amazon marketplace/listing/seller/fulfillment and regional availability
+  context where available.
+- Show IKEA country/region, official product/store URL, price/currency,
+  availability, and store/delivery context where available.
+- Keep outbound product/source links neutral.
 - Do not show secrets, raw private provider payloads, or full sensitive traces.
 
-## Rejected Items And Why-Not Output
+## Empty, Blocked, Loading, And Failure States
 
 Acceptance checklist:
 
-- Show rejected or avoid items only when a meaningful negative reason exists.
-- Meaningful reasons include suspicious listing, poor fit, hard-budget violation, overpaying, missing critical feature, materially weak evidence, duplicate inferior listing, region unavailability, or better equivalent alternative.
-- Ordinary non-winning candidates can remain in comparison without a negative explanation.
-- Empty rejected state should not render as an artificial section.
-
-## Refinement Loop
-
-The user should be able to iterate without losing the session.
-
-Supported refinements:
-
-- Change budget.
-- Change region.
-- Correct inferred category.
-- Add or remove constraints.
-- Add user-known products.
-- Ask for a targeted recompute where cached artifacts can be reused.
-
-Acceptance checklist:
-
-- Refinements create a new run/result version rather than silently overwriting prior output.
-- The UI distinguishes original run, refinement runs, and current result version.
-- When possible, refinements should reuse cached candidates/evidence instead of restarting from zero.
-- Changing category can trigger a new search or analysis path.
-- Changing budget can recompute modes from stored analysis when possible.
-- The user can inspect prior result versions.
-
-## Empty, Loading, And Failure States
-
-Acceptance checklist:
-
-- No session: show the query entry and optional controls.
-- Session created, no run: show inferred/default fields and a clear run action.
-- Run in progress: show timeline and partial known state.
-- No candidates: show a recoverable message and refinement suggestions.
-- Weak evidence: show low confidence and source gaps.
-- Conflicting evidence: show the conflict and where it affects the decision.
-- Suspicious listing: show red flag treatment and safe next step.
-- Failed run: show failed stage, user-safe reason, and retry/refinement path.
+- No question yet: show the focused "Send your question" screen.
+- Missing saved region: show one-time region setup outside the main flow.
+- Optional question unanswered: allow `Skip question` when the question is
+  skippable.
+- Enough information exists: allow `Skip all and start analysis`.
+- Off-topic, unsafe, illegal, or inappropriate requests: show a short
+  regular-person-safe redirection and do not start discovery.
+- Processing: show calm, user-safe progress copy.
+- No candidates: explain the issue and offer a recovery path.
+- Weak evidence: show low confidence and source gaps where they affect the
+  decision.
+- Conflicting evidence: show the conflict where it changes the recommendation.
+- Suspicious listing: show the red flag before any outbound purchase link.
+- Failed analysis: show a recoverable message and next action, without exposing
+  internals.
 
 ## Frontend Acceptance Checklist
 
-Before the MVP frontend is accepted:
+Before the guided frontend is accepted:
 
-- The first route is the CartCart workspace, not a landing page.
-- Natural-language query entry is the primary input.
-- Optional controls include region and budget.
-- Inferred category is visible and correctable.
-- Progress timeline displays stage states.
-- Generated shortlist is visible and distinct from final recommendation.
-- User-added products can be represented and tracked.
-- Result modes switch without rerunning analysis.
-- Final result supports best pick and no-strong-buy.
-- Trust notes and red flags are visible.
-- Meaningful-only rejected items render correctly.
-- Source drawer exposes evidence and gaps.
-- Refinement loop preserves result versions.
-- Mobile layout is usable, but desktop comparison remains the primary design target.
+- The first route is a focused "Send your question" prompt, not the old
+  all-in-one workspace.
+- The UI is prompt-led but does not show visible chat history.
+- Textboxes do not contain suggested answers or examples.
+- `Continue` is disabled/greyed out while a required textbox is empty.
+- Normal guided intake asks one useful question at a time.
+- Ordinary intake does not use multi-row mini-forms.
+- Inline choice blocks are used only when they reduce effort.
+- `Skip question` works for skippable optional questions.
+- `Skip all and start analysis` appears once enough information exists.
+- The user can go back and reanswer prior guided questions before analysis
+  starts.
+- Region setup is one-time, local, outside the main flow, editable later, and
+  resumes pending questions after region provided/refused.
+- Normal intake asks for product names/descriptions, not product links.
+- Processing messages are user-safe and hide internal mechanics.
+- Result details are staged and do not overwhelm the prompt-led flow.
+- The visual system follows `DESIGN.md`: dark, restrained, compact, and one
+  primary action per screen.

@@ -10,6 +10,13 @@ from app.schemas.analysis import (
 )
 from app.schemas.base import VersionedSchema
 from app.schemas.ids import RunId, SourceId
+from app.schemas.guided_intake import (
+    GuidedAnswerSubmission,
+    GuidedIntakeState,
+    QuestionId,
+    RegionSetupSubmission,
+    ShoppingGuardrailResult,
+)
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
 from app.schemas.regions import RegionCode
@@ -29,6 +36,20 @@ from app.schemas.search_sources import (
 class IntakeAgentInput(VersionedSchema):
     run_id: RunId
     request: CreateSessionRequest
+
+
+class ShoppingScopeGuardrailInput(VersionedSchema):
+    user_input: str = Field(min_length=1, max_length=4000)
+    prior_answers: tuple[GuidedAnswerSubmission, ...] = Field(default_factory=tuple)
+
+
+class ShoppingGuideAgentInput(VersionedSchema):
+    user_input: str = Field(min_length=1, max_length=4000)
+    region_setup: RegionSetupSubmission | None = None
+    prior_answers: tuple[GuidedAnswerSubmission, ...] = Field(default_factory=tuple)
+    skipped_question_ids: tuple[QuestionId, ...] = Field(default_factory=tuple)
+    reanswer_question_id: QuestionId | None = None
+    start_analysis_requested: bool = False
 
 
 class QueryPlannerAgentInput(VersionedSchema):
@@ -147,6 +168,19 @@ class VerificationReport(VersionedSchema):
 class IntakeAgent(Protocol):
     async def run(self, input_data: IntakeAgentInput) -> ShoppingBrief:
         """Produce a typed shopping brief from user input."""
+
+
+class ShoppingScopeGuardrail(Protocol):
+    async def run(
+        self,
+        input_data: ShoppingScopeGuardrailInput,
+    ) -> ShoppingGuardrailResult:
+        """Classify whether guided shopping intake may proceed."""
+
+
+class ShoppingGuideAgent(Protocol):
+    async def run(self, input_data: ShoppingGuideAgentInput) -> GuidedIntakeState:
+        """Produce the next user-facing guided intake state."""
 
 
 class QueryPlannerAgent(Protocol):

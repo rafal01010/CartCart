@@ -1,19 +1,37 @@
 # CartCart Architecture
 
-Status: Initial public architecture notes for planning
-Last updated: 2026-06-02
+Status: Initial public architecture notes with guided intake direction
+Last updated: 2026-06-12
 
 ## Product Model
 
 CartCart is a shopping discovery, comparison, and decision application. It should help a user answer what to buy, whether a candidate is a bad fit, and whether a listing or seller looks unsafe.
 
-The product should use a research workspace model rather than a chat-only model. The first application surface should support:
+The product should use a guided shopping decision model. The first application
+surface is a focused "Send your question" prompt with a large textbox, not a
+one-page research workspace. The UI may feel prompt-led, but it should not show
+visible chat history. It should ask one useful question at a time, reveal only
+the next needed step, and keep internal workflow mechanics out of the normal
+shopper experience.
 
-- Natural-language shopping goal input.
-- Region, budget, and lightweight preference controls.
-- Optional user-added products.
-- Run progress and stage history.
-- Results with a final recommendation, runner-ups, alternate recommendation modes, comparison details, trust notes, warnings, rejected items when meaningful, and inspectable source evidence.
+The old all-in-one homepage/workspace pattern is superseded. It is acceptable to
+preserve useful backend session, run, result, source, and refinement plumbing,
+but future frontend work should not expose the whole workflow on the homepage.
+The normal UI should support:
+
+- Natural-language shopping question entry.
+- One-time local region setup outside the main shopping flow when no saved
+  region exists.
+- Progressive follow-up questions for budget, use case, constraints, and
+  already-considered products only when needed.
+- Inline constrained choices only when they are genuinely easier than typing.
+- Back/reanswer behavior before analysis starts.
+- `Skip question` for skippable optional questions.
+- `Skip all and start analysis` once enough information exists.
+- User-safe processing messages.
+- Staged results with a final recommendation, runner-ups, alternate
+  recommendation modes, comparison details, trust notes, warnings, rejected items
+  when meaningful, and inspectable source evidence only when useful.
 
 MVP is local/no-auth, English-only, desktop-first, and single-user. Mobile should remain usable, but dense desktop workflows take priority.
 
@@ -152,6 +170,43 @@ AGENTS.md
 supported_agents.md
 ```
 
+## Guided Intake Architecture
+
+Guided intake sits before the deeper discovery and analysis workflow. It owns the
+user-facing question sequence and decides whether the next step should be a
+plain-language textbox, a small inline choice block, a skip action, a
+back/reanswer action, a blocked redirection, or a transition to analysis.
+The frontend-facing Pydantic contract for these states lives in
+`app.schemas.guided_intake`.
+
+The guide contract must not require one large upfront form. Budget, region,
+known products, use cases, deal-breakers, and product-specific details should be
+captured progressively. Normal intake should ask for product names or
+descriptions, not product links; CartCart is responsible for lookup and listing
+matching. URL entry can exist later as an advanced corrective path, but it is not
+the normal flow.
+
+The current backend implementation provides fixture-backed guided intake
+endpoints under `/api/sessions/guided` and `/api/sessions/{session_id}/guide`.
+They keep guide state in fixture memory, update the persisted session
+`ShoppingBrief` when the guide reaches `ready_for_analysis`, and leave the
+existing `/api/sessions/{session_id}/runs` endpoint responsible for starting the
+deterministic analysis run.
+
+Region setup is outside the main shopping question flow. If no region preference
+or explicit refusal is saved locally, the frontend can show a lightweight setup
+prompt explaining that location helps show products the user can actually buy.
+The user can provide a region or refuse to answer. If region setup interrupts an
+already-submitted shopping question, the frontend should automatically resume
+the pending guided flow after either choice. Backend defaults remain allowed for
+fixture/local operation, but must be marked as defaulted or inferred rather than
+user-confirmed.
+
+Guardrail behavior should run before costly discovery or analysis. Off-topic,
+unsafe, illegal, or inappropriate product requests should receive short
+regular-person-facing redirection copy and should not start source retrieval or
+analysis.
+
 ## Workflow Architecture
 
 CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and a fixture monitor-shopping result bundle. The current implementation is fixture-only; `POST /api/sessions/{session_id}/runs` executes it synchronously and records deterministic stages plus persisted search/source, product/listing, user-added item, trust, analysis, and recommendation output without live providers or model calls.
@@ -160,26 +215,34 @@ Agents should produce typed outputs at each stage. Search, fetch, extraction, pe
 
 Recommended stages:
 
-1. User creates a shopping session from a query, region, budget, and optional preferences.
-2. Intake produces a typed `ShoppingBrief`.
-3. Query planning creates region-aware search and source plans.
-4. Search provider adapters collect web, product, or source-intelligence results.
-5. Fetch and extraction store source snapshots and structured evidence.
-6. Candidate generation normalizes product and listing data.
-7. Deduplication groups obvious duplicates and preserves uncertain cases.
-8. Category analysis evaluates product fit, specs, tradeoffs, and evidence gaps.
-9. Seller/listing trust analysis evaluates buyer-safety signals.
-10. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
-11. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
-12. The frontend renders the result bundle and supports targeted refinement from cached artifacts.
+1. User sends a first shopping question from the focused prompt.
+2. If needed, the frontend handles one-time local region setup outside the main
+   shopping flow and resumes the pending question.
+3. Guided intake asks one useful follow-up at a time, supports skip/reanswer
+   behavior, and determines when enough information exists.
+4. Shopping-scope and safe-product guardrails block or redirect unsuitable
+   requests before discovery.
+5. Intake produces a typed `ShoppingBrief`.
+6. Query planning creates region-aware search and source plans.
+7. Search provider adapters collect web, product, or source-intelligence results.
+8. Fetch and extraction store source snapshots and structured evidence.
+9. Candidate generation normalizes product and listing data.
+10. Deduplication groups obvious duplicates and preserves uncertain cases.
+11. Category analysis evaluates product fit, specs, tradeoffs, and evidence gaps.
+12. Seller/listing trust analysis evaluates buyer-safety signals.
+13. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
+14. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
+15. The frontend renders staged results and supports targeted refinement from cached artifacts.
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts.
 
 Required MVP agent roles include:
 
 - `ShoppingRunOrchestrator`
+- `ShoppingGuideAgent`
+- `ShoppingScopeGuardrail`
 - `IntakeAgent`
 - `QueryPlannerAgent`
 - `DiscoveryAgent`
@@ -267,8 +330,8 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 ### User-Added Products
 
 - User-added products must enter the same deduplication, extraction, trust, analysis, and decision pipeline as app-generated candidates.
-- User-added products may be provided as URLs or manual details.
-- URL-based user-added products should fetch and extract through the normal source/listing pipeline when that capability exists.
+- Normal guided intake should ask for product names or descriptions, not product URLs.
+- URL-based user-added products can exist later as an advanced or corrective path and should fetch and extract through the normal source/listing pipeline when that capability exists.
 - Manual user-added products must preserve missing evidence rather than inventing specs, price, seller, or review claims.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.
 - User-added products should be marked as user-supplied in stored state and result output so the UI can distinguish them from discovered candidates.
@@ -302,6 +365,9 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 SQLite is the canonical MVP persistence layer. Store structured entities and links in SQLite, including:
 
 - Sessions and user inputs.
+- Guided intake state, current user-facing question, answer history for internal
+  state, skip/reanswer metadata, and region setup/refusal state where backend
+  persistence is useful.
 - Shopping briefs.
 - Search runs and search results.
 - Source snapshots and extracted evidence.

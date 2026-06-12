@@ -2,6 +2,18 @@
 
 SvelteKit TypeScript scaffold for the CartCart frontend.
 
+The one-page workspace route has been replaced by a focused prompt-first
+homepage following `../../DESIGN.md`. The first screen shows "Send your
+question", a large natural-language textbox, rotating starter questions outside
+the textbox, and local one-time region setup after first submit when no saved or
+refused region exists. The guided intake flow creates a backend guided session,
+asks one current fixture question at a time,
+supports inline choices, Back/reanswer, `Skip question`, and `Skip all and start
+analysis`, and avoids visible chat history.
+Backend session, run, result, source evidence, user-considered product, and
+refinement helpers remain in `src/lib` so guided screens can use existing
+plumbing without restoring the old dashboard.
+
 The frontend uses Tailwind CSS through the Vite plugin, shadcn-svelte project
 configuration, copied local UI components under `src/lib/components/ui`, and
 Bits UI headless primitives for accessible interaction building blocks.
@@ -32,35 +44,18 @@ Override it for local development with:
 PUBLIC_CARTCART_API_BASE_URL=http://127.0.0.1:8000 pnpm --dir apps/frontend dev
 ```
 
-Hand-written API types live under `src/lib/api` until OpenAPI type generation is added.
-
-The first route can create a persisted shopping session through the backend
-`POST /api/sessions` endpoint. After creation, the route stores the session ID in
-the `session` URL query parameter so refreshing the page reloads the saved
-session state.
-
-The user-added product controls persist URL placeholders and manual product
-details through `POST /api/sessions/{session_id}/products`. The route renders the
-returned `user_added_products` from session state and clears stale run/result
-state so the next stub run starts from the updated session.
-
-The refinement controls submit category, region, budget, and preference
-corrections through `POST /api/sessions/{session_id}/refinements`. The returned
-refinement run is shown in the workspace, the run timeline subscribes to its SSE
-events, and the current result version/run is shown when the latest fixture
-result loads.
-
-The workspace state band covers no session, loading, no result, run in progress,
-failed run, partial data, weak evidence, conflicting signals, warning/red-flag
-results, and API errors. Most states are derived from fixture data or mocked
-frontend data until later live-provider workflows exist.
-
-With a saved session, the route can start the fixture run through
-`POST /api/sessions/{session_id}/runs` and display stage progress from the run
-events SSE endpoint. When the run completes, it fetches
-`GET /api/sessions/{session_id}/results` and renders the fixture recommendation
-bundle, including modes, runner-ups, trust notes, warnings, meaningful why-not
-items, and source evidence links.
+Hand-written API types live under `src/lib/api` until OpenAPI type generation is
+added. The current route calls the guided fixture API for first-question session
+creation, backend region submission, guided answers, skip/reanswer actions,
+blocked guardrails, readiness, and starting the fixture analysis after readiness.
+After analysis starts, the route subscribes to the existing SSE run events but
+renders only shopper-safe progress labels, then reveals the recommendation first
+with runner-ups, trust notes, warnings, and source details behind explicit
+supporting-detail controls.
+User-considered products are captured as product names or descriptions through
+guided answers, not through a URL/manual entry panel. Budget, region, and
+category changes appear as contextual prompts from the ready screen and submit
+through the existing refinement endpoint.
 
 ## Developing
 
@@ -80,28 +75,40 @@ Focused API client unit test:
 pnpm --dir apps/frontend exec vitest run src/lib/api/client.test.ts
 ```
 
-Focused user-added product form test:
+Focused local region setup unit test:
 
 ```sh
-pnpm --dir apps/frontend exec vitest run src/lib/user-products/user-product-form.test.ts
+pnpm --dir apps/frontend exec vitest run src/lib/guided/local-region.test.ts
 ```
 
-Focused refinement form test:
+Focused guided intake state test:
 
 ```sh
-pnpm --dir apps/frontend exec vitest run src/lib/refinements/refinement-form.test.ts
+pnpm --dir apps/frontend exec vitest run src/lib/guided/guided-state.test.ts
 ```
 
-Focused workspace state test:
+Focused user-considered product prompt test:
 
 ```sh
-pnpm --dir apps/frontend exec vitest run src/lib/workspace-states/workspace-states.test.ts
+pnpm --dir apps/frontend exec vitest run src/lib/user-products/contextual-product-prompt.test.ts
+```
+
+Focused contextual refinement prompt test:
+
+```sh
+pnpm --dir apps/frontend exec vitest run src/lib/refinements/contextual-refinement-prompt.test.ts
 ```
 
 Focused result view unit test:
 
 ```sh
 pnpm --dir apps/frontend exec vitest run src/lib/results/result-view.test.ts
+```
+
+Focused guided Playwright smoke test:
+
+```sh
+pnpm --dir apps/frontend exec playwright test tests/e2e/guided-flow-smoke.spec.ts
 ```
 
 ## Building

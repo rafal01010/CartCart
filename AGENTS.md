@@ -3,6 +3,8 @@
 ## Project
 
 CartCart is a shopping discovery, comparison, and decision web application. It helps users decide what to buy, compare generated and user-added candidates, and avoid bad or suspicious purchases.
+Keep in mind that this is a project that will be used by regular people and not by developers who already has information on what the project is about and what it does and how it works.
+The user interface should not expose information that will not make sense to a regular person who has no developer experience. We should try and hide parts of the process that a user doesn't need to see unless there's a benefit of doing so.
 
 
 ## Working Rules
@@ -91,3 +93,22 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+
+Before implementing features, read DESIGN.md.
+
+Follow DESIGN.md for:
+
+- app architecture
+
+- folder structure
+
+- major feature behavior
+
+- backend/frontend boundaries
+
+- agent hierarchy
+
+- database/storage decisions
+
+If DESIGN.md conflicts with this file, ask before changing architecture.

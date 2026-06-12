@@ -1,7 +1,7 @@
 # CartCart API
 
-Status: Initial public API shape with session, run, result, and product endpoints implemented
-Last updated: 2026-06-02
+Status: Initial public API shape with guided intake direction
+Last updated: 2026-06-12
 
 ## Contract Direction
 
@@ -14,16 +14,58 @@ The frontend currently uses hand-written TypeScript contracts under
 types should replace or narrow those contracts once OpenAPI type generation is
 added.
 
-API responses should hide internal agent implementation details while exposing human-useful run stages, recoverable errors, result versions, source references, and recommendation output.
+API responses should hide internal agent implementation details while exposing
+human-useful guided questions, recoverable errors, result versions, source
+references, and recommendation output. The frontend should not need to show
+agent names, prompts, providers, trace IDs, raw run mechanics, or developer
+language in the normal shopper UI.
 
 Long-running discovery and analysis runs should be asynchronous. Server-Sent Events are the recommended MVP progress transport because CartCart mostly needs one-way run progress plus normal request/response actions. WebSockets are not required for MVP.
+
+## Guided Intake Direction
+
+The public user-facing API should support a guided shopping intake layer before
+deeper discovery and analysis starts. The current implemented endpoints preserve
+useful session/run/result plumbing, but future guided frontend work should not
+force the user through one large form or expose `run` as the user's mental
+model.
+
+Planned guided-intake responsibilities:
+
+- Start from one natural-language shopping question.
+- Return one current user-facing question at a time.
+- Accept natural-language answers through the main textbox.
+- Support inline yes/no, two-option, and justified two-option-plus-type-answer
+  choice controls when constrained answers are genuinely helpful.
+- Support `Skip question` for skippable optional prompts.
+- Support `Skip all and start analysis` once enough information exists.
+- Support going back to reanswer prior guided questions before analysis starts.
+- Capture known products by name or description, not by asking for links in the
+  normal flow.
+- Represent one-time region setup separately from the main shopping question
+  flow, including locally cached region values and explicit refusal to answer.
+- Return short user-safe redirection copy for off-topic, unsafe, illegal, or
+  inappropriate requests without starting discovery.
+
+The guided-intake schema contract exists in `app.schemas.guided_intake`, and
+the fixture-backed guided intake endpoints are implemented as a small API
+surface around the existing session/run plumbing. The frontend-facing response
+models include only regular-person-safe question, control, skip/reanswer,
+region setup, blocked-state, progress, and ready-for-analysis metadata.
 
 ## Implemented Endpoints
 
 ```text
 POST   /api/sessions
+POST   /api/sessions/guided
 GET    /api/sessions/{session_id}
 PATCH  /api/sessions/{session_id}/brief
+GET    /api/sessions/{session_id}/guide
+POST   /api/sessions/{session_id}/answers
+POST   /api/sessions/{session_id}/guide/skip
+POST   /api/sessions/{session_id}/guide/skip-all
+POST   /api/sessions/{session_id}/guide/reanswer
+POST   /api/sessions/{session_id}/guide/region
 
 POST   /api/sessions/{session_id}/runs
 GET    /api/sessions/{session_id}/runs/{run_id}
@@ -50,6 +92,56 @@ Current implementation accepts `CreateSessionRequest` and returns `ShoppingSessi
 The initial `current_brief` preserves the original query plus any user-provided
 region, budget, constraints, and preferences. Category inference is not performed
 by this endpoint yet.
+
+`POST /api/sessions/guided`
+
+Creates a local shopping session from one natural-language shopping question and
+returns the current guided-intake state. The request accepts
+`CreateGuidedSessionRequest`, including optional one-time region setup supplied
+from browser-local storage or explicit region refusal. The fixture implementation
+returns either one current user-facing prompt/control, a blocked guardrail state,
+or enough metadata for the frontend to ask for region setup outside the main
+shopping-question flow. It does not ask for product links.
+
+`GET /api/sessions/{session_id}/guide`
+
+Loads the current guided-intake state for a session. If the session was created
+through the older session endpoint, the fixture guide derives its starting state
+from the persisted session query and current brief.
+
+`POST /api/sessions/{session_id}/answers`
+
+Submits the answer for the active guided question. The request accepts
+`GuidedAnswerSubmission`, including natural-language textbox answers, yes/no
+answers, two-option choices, and justified two-option-plus-type-answer choices.
+The fixture implementation updates the in-memory guide state and persists a
+ready `ShoppingBrief` to the session once intake has enough information. Natural
+language known-product mentions are preserved as user-added product text without
+asking the shopper to provide links.
+
+`POST /api/sessions/{session_id}/guide/skip`
+
+Skips only the active skippable guided question. In the fixture implementation,
+this is limited to the combined optional context prompt and returns
+`ready_for_analysis` when the original question is enough to begin.
+
+`POST /api/sessions/{session_id}/guide/skip-all`
+
+Skips remaining optional intake and persists a ready brief when enough
+information exists. The frontend should use the returned `ready_for_analysis`
+state to move to user-safe progress and then call the existing run endpoint.
+
+`POST /api/sessions/{session_id}/guide/reanswer`
+
+Selects a prior answered guided question for revision before analysis starts.
+The response returns that question as the current answer surface with navigation
+metadata indicating which prior question is being changed.
+
+`POST /api/sessions/{session_id}/guide/region`
+
+Submits one-time region setup after guided session creation. The request accepts
+`RegionSetupSubmission` with either a provided region or explicit refusal, and
+the response resumes the pending guided state.
 
 `GET /api/sessions/{session_id}`
 
@@ -109,7 +201,10 @@ session exists but no result has been saved yet, the API returns `404` with
 
 `POST /api/sessions/{session_id}/products`
 
-Adds a user-known product, URL, or manual candidate to the session. User-added products should participate in later analysis alongside app-generated candidates.
+Adds a user-known product or manual candidate to the session. User-added
+products should participate in later analysis alongside app-generated
+candidates. Normal guided intake should ask users for product names or
+descriptions instead of asking them to paste product links.
 
 Current implementation accepts URL placeholders and lightweight manual product
 details, persists them as session-local `UserAddedProduct` records, and returns
@@ -162,6 +257,14 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `SellerProfile`, `UserAddedProduct`, price money fields, region availability, and extracted seller trust signals that remain separate from later listing trust assessments.
 - Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
 - Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
+- Guided intake schemas in `app.schemas.guided_intake` cover current
+  user-facing question state, natural-language answer submission, yes/no and
+  inline choice controls, combined optional prompt text, skip/reanswer
+  availability, ready-for-analysis state, one-time region setup/refusal,
+  locally cached region handoff, progress display, and shopping-scope/safe-product
+  guardrail results. These schemas do not include frontend-visible
+  agent names, tool names, prompts, provider details, trace IDs, raw process
+  mechanics, normal product-link requests, or multi-row mini-form prompts.
 - `ShoppingSession`
 - `ShoppingBrief`
 - `BudgetConstraint`

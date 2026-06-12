@@ -91,6 +91,23 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert "marketplace_availability_provider_optional" not in provider_requirement_names
 
 
+def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:
+    guide = DEFAULT_AGENT_CATALOG.require("ShoppingGuideAgent")
+    guardrail = DEFAULT_AGENT_CATALOG.require("ShoppingScopeGuardrail")
+
+    assert guide.status == AgentStatus.REQUIRED_MVP
+    assert guide.kind == AgentKind.GUIDE
+    assert guide.invocation_mode == InvocationMode.TYPED_STEP
+    assert guide.contract_name == "ShoppingGuideAgent"
+    assert guide.output_schema == "GuidedIntakeState"
+
+    assert guardrail.status == AgentStatus.REQUIRED_MVP
+    assert guardrail.kind == AgentKind.GUARDRAIL
+    assert guardrail.invocation_mode == InvocationMode.TYPED_STEP
+    assert guardrail.contract_name == "ShoppingScopeGuardrail"
+    assert guardrail.output_schema == "ShoppingGuardrailResult"
+
+
 def test_agent_catalog_requires_explicit_entries_for_specialist_routes() -> None:
     with pytest.raises(ValidationError, match="unknown category route agent"):
         AgentCatalog(

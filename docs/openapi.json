@@ -91,6 +91,42 @@
         "title": "AgentRunRecord",
         "type": "object"
       },
+      "AnalysisStartAvailability": {
+        "additionalProperties": false,
+        "properties": {
+          "can_skip_all_and_start_analysis": {
+            "default": false,
+            "title": "Can Skip All And Start Analysis",
+            "type": "boolean"
+          },
+          "enough_information": {
+            "default": false,
+            "title": "Enough Information",
+            "type": "boolean"
+          },
+          "label": {
+            "const": "Skip all and start analysis",
+            "default": "Skip all and start analysis",
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "title": "AnalysisStartAvailability",
+        "type": "object"
+      },
       "BudgetConstraint-Input": {
         "additionalProperties": false,
         "properties": {
@@ -335,6 +371,103 @@
         "title": "CategoryAnalysis",
         "type": "object"
       },
+      "ChannelSignal": {
+        "enum": [
+          "review_focused",
+          "brand_owned",
+          "retailer_owned",
+          "sponsorship_disclosed",
+          "affiliate_links_disclosed",
+          "frequent_sponsored_content",
+          "low_disclosure_clarity",
+          "unknown"
+        ],
+        "title": "ChannelSignal",
+        "type": "string"
+      },
+      "ChoiceGuidedAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_type": {
+            "const": "choice",
+            "default": "choice",
+            "title": "Answer Type",
+            "type": "string"
+          },
+          "choice_id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Choice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choice_id"
+        ],
+        "title": "ChoiceGuidedAnswer",
+        "type": "object"
+      },
+      "ChoiceWithTextGuidedAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_type": {
+            "const": "choice_with_text",
+            "default": "choice_with_text",
+            "title": "Answer Type",
+            "type": "string"
+          },
+          "choice_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice Id"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ChoiceWithTextGuidedAnswer",
+        "type": "object"
+      },
+      "CombinedOptionalQuestionPrompt": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_targets": {
+            "items": {
+              "$ref": "#/components/schemas/GuidedCaptureTarget"
+            },
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Capture Targets",
+            "type": "array"
+          },
+          "text": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "capture_targets"
+        ],
+        "title": "CombinedOptionalQuestionPrompt",
+        "type": "object"
+      },
       "ComparisonCriterion": {
         "additionalProperties": false,
         "properties": {
@@ -498,6 +631,32 @@
         ],
         "title": "ConfidenceLevel",
         "type": "string"
+      },
+      "CreateGuidedSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "region_setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegionSetupSubmission"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "CreateGuidedSessionRequest",
+        "type": "object"
       },
       "CreateRefinementRequest": {
         "additionalProperties": false,
@@ -749,6 +908,71 @@
         "title": "CreateUserAddedProductRequest",
         "type": "object"
       },
+      "CurrentGuidedQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_surface": {
+            "$ref": "#/components/schemas/GuidedAnswerSurface",
+            "default": "textbox"
+          },
+          "capture_targets": {
+            "items": {
+              "$ref": "#/components/schemas/GuidedCaptureTarget"
+            },
+            "maxItems": 5,
+            "title": "Capture Targets",
+            "type": "array"
+          },
+          "combined_optional_prompt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CombinedOptionalQuestionPrompt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inline_choice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InlineChoiceControl"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/GuidedQuestionPurpose"
+          },
+          "question_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "text",
+          "purpose"
+        ],
+        "title": "CurrentGuidedQuestion",
+        "type": "object"
+      },
       "ErrorBody": {
         "additionalProperties": false,
         "properties": {
@@ -801,6 +1025,150 @@
         "title": "ErrorEnvelope",
         "type": "object"
       },
+      "EvidenceTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "region_code": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Code"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
+          },
+          "seller_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Name"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "target_type": {
+            "$ref": "#/components/schemas/EvidenceTargetType"
+          }
+        },
+        "required": [
+          "target_type"
+        ],
+        "title": "EvidenceTarget",
+        "type": "object"
+      },
+      "EvidenceTargetType": {
+        "enum": [
+          "product",
+          "listing",
+          "seller",
+          "review",
+          "candidate",
+          "region",
+          "source_metadata"
+        ],
+        "title": "EvidenceTargetType",
+        "type": "string"
+      },
+      "EvidenceType": {
+        "enum": [
+          "product_spec",
+          "price",
+          "availability",
+          "seller_trust",
+          "review_claim",
+          "video_claim",
+          "community_claim",
+          "marketplace_product_fact",
+          "listing_identity",
+          "review_summary",
+          "official_store_fact",
+          "region_availability",
+          "warranty",
+          "warning",
+          "other"
+        ],
+        "title": "EvidenceType",
+        "type": "string"
+      },
+      "ExtractionStatus": {
+        "enum": [
+          "not_attempted",
+          "succeeded",
+          "partial",
+          "failed",
+          "excluded"
+        ],
+        "title": "ExtractionStatus",
+        "type": "string"
+      },
       "FieldSource": {
         "enum": [
           "user_provided",
@@ -809,6 +1177,213 @@
         ],
         "title": "FieldSource",
         "type": "string"
+      },
+      "GuidedAnswerSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "discriminator": {
+              "mapping": {
+                "choice": "#/components/schemas/ChoiceGuidedAnswer",
+                "choice_with_text": "#/components/schemas/ChoiceWithTextGuidedAnswer",
+                "natural_language": "#/components/schemas/NaturalLanguageGuidedAnswer",
+                "yes_no": "#/components/schemas/YesNoGuidedAnswer"
+              },
+              "propertyName": "answer_type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NaturalLanguageGuidedAnswer"
+              },
+              {
+                "$ref": "#/components/schemas/YesNoGuidedAnswer"
+              },
+              {
+                "$ref": "#/components/schemas/ChoiceGuidedAnswer"
+              },
+              {
+                "$ref": "#/components/schemas/ChoiceWithTextGuidedAnswer"
+              }
+            ],
+            "title": "Answer"
+          },
+          "question_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "question_id",
+          "answer"
+        ],
+        "title": "GuidedAnswerSubmission",
+        "type": "object"
+      },
+      "GuidedAnswerSurface": {
+        "enum": [
+          "textbox",
+          "inline_choice"
+        ],
+        "title": "GuidedAnswerSurface",
+        "type": "string"
+      },
+      "GuidedCaptureTarget": {
+        "enum": [
+          "shopping_question",
+          "use_case",
+          "budget",
+          "priorities",
+          "constraints",
+          "considered_product_names",
+          "considered_product_descriptions",
+          "comparison_candidates",
+          "product_category"
+        ],
+        "title": "GuidedCaptureTarget",
+        "type": "string"
+      },
+      "GuidedIntakeState": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_start": {
+            "$ref": "#/components/schemas/AnalysisStartAvailability"
+          },
+          "current_question": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CurrentGuidedQuestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "guardrail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShoppingGuardrailResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "navigation": {
+            "$ref": "#/components/schemas/PriorQuestionNavigationState"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgressDisplayStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ready_brief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShoppingBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "region_setup": {
+            "$ref": "#/components/schemas/LocalRegionSetupState"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "skippable_question": {
+            "$ref": "#/components/schemas/SkippableQuestionState"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GuidedIntakeStatus",
+            "default": "collecting"
+          }
+        },
+        "title": "GuidedIntakeState",
+        "type": "object"
+      },
+      "GuidedIntakeStatus": {
+        "enum": [
+          "collecting",
+          "blocked",
+          "ready_for_analysis",
+          "analysis_started"
+        ],
+        "title": "GuidedIntakeStatus",
+        "type": "string"
+      },
+      "GuidedQuestionPurpose": {
+        "enum": [
+          "first_question",
+          "use_case",
+          "budget",
+          "priorities",
+          "constraints",
+          "considered_products",
+          "comparison",
+          "combined_optional",
+          "clarification"
+        ],
+        "title": "GuidedQuestionPurpose",
+        "type": "string"
+      },
+      "GuidedReanswerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id"
+        ],
+        "title": "GuidedReanswerRequest",
+        "type": "object"
+      },
+      "GuidedSessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "guide": {
+            "$ref": "#/components/schemas/GuidedIntakeState"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "guide"
+        ],
+        "title": "GuidedSessionResponse",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -821,6 +1396,99 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InlineChoiceControl": {
+        "additionalProperties": false,
+        "properties": {
+          "control_id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Control Id",
+            "type": "string"
+          },
+          "control_type": {
+            "$ref": "#/components/schemas/InlineChoiceControlType"
+          },
+          "custom_answer_label": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Answer Label"
+          },
+          "options": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/components/schemas/InlineChoiceOption"
+              },
+              {
+                "$ref": "#/components/schemas/InlineChoiceOption"
+              }
+            ],
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "control_id",
+          "control_type",
+          "options"
+        ],
+        "title": "InlineChoiceControl",
+        "type": "object"
+      },
+      "InlineChoiceControlType": {
+        "enum": [
+          "yes_no",
+          "two_option",
+          "two_option_plus_type_answer"
+        ],
+        "title": "InlineChoiceControlType",
+        "type": "string"
+      },
+      "InlineChoiceOption": {
+        "additionalProperties": false,
+        "properties": {
+          "choice_id": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Choice Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choice_id",
+          "label"
+        ],
+        "title": "InlineChoiceOption",
         "type": "object"
       },
       "ListingAvailabilityStatus": {
@@ -920,6 +1588,50 @@
         "title": "ListingTrustLevel",
         "type": "string"
       },
+      "LocalRegionSetupState": {
+        "additionalProperties": false,
+        "properties": {
+          "can_refuse": {
+            "default": true,
+            "title": "Can Refuse",
+            "type": "boolean"
+          },
+          "prompt_text": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Text"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Region-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resumes_pending_question": {
+            "default": false,
+            "title": "Resumes Pending Question",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RegionSetupStatus",
+            "default": "not_needed"
+          }
+        },
+        "title": "LocalRegionSetupState",
+        "type": "object"
+      },
       "Money-Input": {
         "additionalProperties": false,
         "properties": {
@@ -971,6 +1683,28 @@
         "title": "Money",
         "type": "object"
       },
+      "NaturalLanguageGuidedAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_type": {
+            "const": "natural_language",
+            "default": "natural_language",
+            "title": "Answer Type",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "NaturalLanguageGuidedAnswer",
+        "type": "object"
+      },
       "PreferenceConstraint": {
         "additionalProperties": false,
         "properties": {
@@ -1002,6 +1736,38 @@
         ],
         "title": "PreferenceMode",
         "type": "string"
+      },
+      "PriorQuestionNavigationState": {
+        "additionalProperties": false,
+        "properties": {
+          "can_go_back": {
+            "default": false,
+            "title": "Can Go Back",
+            "type": "boolean"
+          },
+          "current_reanswer_question_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Reanswer Question Id"
+          },
+          "reanswerable_questions": {
+            "items": {
+              "$ref": "#/components/schemas/ReanswerableQuestion"
+            },
+            "title": "Reanswerable Questions",
+            "type": "array"
+          }
+        },
+        "title": "PriorQuestionNavigationState",
+        "type": "object"
       },
       "ProductListing": {
         "additionalProperties": false,
@@ -1077,6 +1843,109 @@
           "source_ids"
         ],
         "title": "ProductListing",
+        "type": "object"
+      },
+      "ProgressDisplayKind": {
+        "enum": [
+          "idle",
+          "checking_options",
+          "comparing_evidence",
+          "verifying_risky_listings",
+          "preparing_recommendation",
+          "ready",
+          "blocked"
+        ],
+        "title": "ProgressDisplayKind",
+        "type": "string"
+      },
+      "ProgressDisplayStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ProgressDisplayKind"
+          },
+          "message": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "ProgressDisplayStatus",
+        "type": "object"
+      },
+      "ProviderMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "provider_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "provider_result_id": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Result Id"
+          },
+          "query_id": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Id"
+          },
+          "raw": {
+            "additionalProperties": true,
+            "title": "Raw",
+            "type": "object"
+          }
+        },
+        "required": [
+          "provider_name"
+        ],
+        "title": "ProviderMetadata",
+        "type": "object"
+      },
+      "ReanswerableQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "question_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "label"
+        ],
+        "title": "ReanswerableQuestion",
         "type": "object"
       },
       "RecommendationBundle": {
@@ -1578,6 +2447,44 @@
         "title": "RegionPreference",
         "type": "object"
       },
+      "RegionSetupStatus": {
+        "enum": [
+          "not_needed",
+          "needs_answer",
+          "provided",
+          "refused"
+        ],
+        "title": "RegionSetupStatus",
+        "type": "string"
+      },
+      "RegionSetupSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Region-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "provided",
+              "refused"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RegionSetupSubmission",
+        "type": "object"
+      },
       "RejectedItem": {
         "additionalProperties": false,
         "properties": {
@@ -1841,6 +2748,20 @@
           "result_version": {
             "$ref": "#/components/schemas/ResultVersionResponse"
           },
+          "source_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/SourceEvidence"
+            },
+            "title": "Source Evidence",
+            "type": "array"
+          },
+          "source_snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SourceSnapshot"
+            },
+            "title": "Source Snapshots",
+            "type": "array"
+          },
           "trust_assessments": {
             "items": {
               "$ref": "#/components/schemas/ListingTrustAssessment"
@@ -1855,7 +2776,9 @@
           "category_analyses",
           "agent_records",
           "comparison_matrix",
-          "recommendation_bundle"
+          "recommendation_bundle",
+          "source_snapshots",
+          "source_evidence"
         ],
         "title": "SessionResultsResponse",
         "type": "object"
@@ -1987,6 +2910,66 @@
         "title": "ShoppingBrief",
         "type": "object"
       },
+      "ShoppingGuardrailDecision": {
+        "enum": [
+          "allowed",
+          "blocked"
+        ],
+        "title": "ShoppingGuardrailDecision",
+        "type": "string"
+      },
+      "ShoppingGuardrailReason": {
+        "enum": [
+          "off_topic",
+          "unsafe_product",
+          "illegal_product",
+          "inappropriate_product"
+        ],
+        "title": "ShoppingGuardrailReason",
+        "type": "string"
+      },
+      "ShoppingGuardrailResult": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ShoppingGuardrailDecision"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShoppingGuardrailReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ShoppingGuardrailResult",
+        "type": "object"
+      },
       "ShoppingRunRecord": {
         "additionalProperties": false,
         "properties": {
@@ -2065,6 +3048,270 @@
         ],
         "title": "ShoppingRunRecord",
         "type": "object"
+      },
+      "SkippableQuestionState": {
+        "additionalProperties": false,
+        "properties": {
+          "can_skip": {
+            "default": false,
+            "title": "Can Skip",
+            "type": "boolean"
+          },
+          "label": {
+            "const": "Skip question",
+            "default": "Skip question",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "SkippableQuestionState",
+        "type": "object"
+      },
+      "SourceEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Claim",
+            "type": "string"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "evidence_id": {
+            "format": "uuid",
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "evidence_type": {
+            "$ref": "#/components/schemas/EvidenceType"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_quality": {
+            "$ref": "#/components/schemas/SourceQuality"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EvidenceTarget"
+          },
+          "timestamp_references": {
+            "items": {
+              "$ref": "#/components/schemas/TimestampReference"
+            },
+            "title": "Timestamp References",
+            "type": "array"
+          },
+          "video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source_id",
+          "target",
+          "evidence_type",
+          "claim",
+          "confidence",
+          "source_quality"
+        ],
+        "title": "SourceEvidence",
+        "type": "object"
+      },
+      "SourceQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/SourceQualityLevel"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "required": [
+          "level"
+        ],
+        "title": "SourceQuality",
+        "type": "object"
+      },
+      "SourceQualityLevel": {
+        "enum": [
+          "weak",
+          "mixed",
+          "adequate",
+          "strong",
+          "unknown"
+        ],
+        "title": "SourceQualityLevel",
+        "type": "string"
+      },
+      "SourceSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "extraction_status": {
+            "$ref": "#/components/schemas/ExtractionStatus",
+            "default": "not_attempted"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMetadata"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/SourceQuality"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "url",
+          "source_type",
+          "provider"
+        ],
+        "title": "SourceSnapshot",
+        "type": "object"
+      },
+      "SourceType": {
+        "enum": [
+          "product_page",
+          "retailer_listing",
+          "official_brand_page",
+          "professional_review",
+          "community_discussion",
+          "video",
+          "search_result",
+          "other"
+        ],
+        "title": "SourceType",
+        "type": "string"
+      },
+      "TimestampReference": {
+        "additionalProperties": false,
+        "properties": {
+          "end_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Seconds"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "start_seconds": {
+            "minimum": 0.0,
+            "title": "Start Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "start_seconds"
+        ],
+        "title": "TimestampReference",
+        "type": "object"
+      },
+      "TranscriptAvailability": {
+        "enum": [
+          "available",
+          "partial",
+          "unavailable",
+          "not_checked",
+          "restricted",
+          "not_applicable"
+        ],
+        "title": "TranscriptAvailability",
+        "type": "string"
       },
       "UpdateShoppingBriefRequest": {
         "additionalProperties": false,
@@ -2265,6 +3512,156 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VideoSource": {
+        "additionalProperties": false,
+        "properties": {
+          "affiliate_bias_risk": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "affiliate_links_disclosed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affiliate Links Disclosed"
+          },
+          "bias_notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Notes"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "channel_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Name"
+          },
+          "channel_signals": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelSignal"
+            },
+            "title": "Channel Signals",
+            "type": "array"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "sponsorship_disclosed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sponsorship Disclosed"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "transcript_availability": {
+            "$ref": "#/components/schemas/TranscriptAvailability",
+            "default": "not_checked"
+          },
+          "url": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "video_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Video Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id",
+          "url"
+        ],
+        "title": "VideoSource",
+        "type": "object"
+      },
+      "YesNoGuidedAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_type": {
+            "const": "yes_no",
+            "default": "yes_no",
+            "title": "Answer Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "YesNoGuidedAnswer",
+        "type": "object"
       }
     }
   },
@@ -2315,6 +3712,47 @@
         ]
       }
     },
+    "/api/sessions/guided": {
+      "post": {
+        "operationId": "create_guided_session_api_sessions_guided_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGuidedSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Guided Session",
+        "tags": [
+          "guided intake"
+        ]
+      }
+    },
     "/api/sessions/{session_id}": {
       "get": {
         "operationId": "get_session_api_sessions__session_id__get",
@@ -2355,6 +3793,59 @@
         "summary": "Get Session",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/answers": {
+      "post": {
+        "operationId": "submit_guided_answer_api_sessions__session_id__answers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuidedAnswerSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Guided Answer",
+        "tags": [
+          "guided intake"
         ]
       }
     },
@@ -2408,6 +3899,241 @@
         "summary": "Update Session Brief",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/guide": {
+      "get": {
+        "operationId": "get_guide_state_api_sessions__session_id__guide_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Guide State",
+        "tags": [
+          "guided intake"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/guide/reanswer": {
+      "post": {
+        "operationId": "reanswer_guided_question_api_sessions__session_id__guide_reanswer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuidedReanswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reanswer Guided Question",
+        "tags": [
+          "guided intake"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/guide/region": {
+      "post": {
+        "operationId": "submit_guided_region_setup_api_sessions__session_id__guide_region_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegionSetupSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Guided Region Setup",
+        "tags": [
+          "guided intake"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/guide/skip": {
+      "post": {
+        "operationId": "skip_guided_question_api_sessions__session_id__guide_skip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skip Guided Question",
+        "tags": [
+          "guided intake"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/guide/skip-all": {
+      "post": {
+        "operationId": "skip_all_guided_questions_api_sessions__session_id__guide_skip_all_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuidedIntakeState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skip All Guided Questions",
+        "tags": [
+          "guided intake"
         ]
       }
     },

@@ -7,18 +7,9 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import SearchCheck from '@lucide/svelte/icons/search-check';
-	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import { ApiError, createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
 	import type { GuidedAnswer, GuidedIntakeState, RunId, SessionId } from '$lib/api/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import {
-		buildRefinementRequestFromPrompt,
-		refinementDraftFromSession,
-		refinementPromptCanContinue,
-		refinementPromptSpec,
-		type RefinementPromptDraft,
-		type RefinementPromptKind,
-	} from '$lib/refinements/contextual-refinement-prompt.js';
 	import {
 		defaultRegionCode,
 		readLocalRegionPreference,
@@ -32,8 +23,6 @@
 		buildGuidedAnswerSubmission,
 		canContinueGuidedQuestion,
 		createDraftFromCachedAnswer,
-		questionEyebrow,
-		questionHelper,
 		regionSetupSubmissionFromOption,
 		regionSetupSubmissionFromPreference,
 		type GuidedDraft,
@@ -54,10 +43,8 @@
 		| 'region_setup'
 		| 'guiding'
 		| 'blocked'
-		| 'ready'
 		| 'processing'
-		| 'result'
-		| 'detail_edit';
+		| 'result';
 
 	const api = createApiClient();
 
@@ -76,7 +63,6 @@
 	let resultView = $state<ResultView | null>(null);
 	let showSupportingDetails = $state(false);
 	let showSourceDetails = $state(false);
-	let detailDraft = $state<RefinementPromptDraft | null>(null);
 	let starterIndex = $state(0);
 	let starterTimer: ReturnType<typeof setInterval> | null = null;
 	let runEventSubscription: { close: () => void } | null = null;
@@ -91,10 +77,6 @@
 		currentGuidedQuestion ? canContinueGuidedQuestion(currentGuidedQuestion, answerDraft) : false,
 	);
 	const isAtFirstGuidedQuestion = $derived(!guidedState?.navigation.can_go_back);
-	const currentDetailSpec = $derived(detailDraft ? refinementPromptSpec(detailDraft.kind) : null);
-	const canContinueDetailEdit = $derived(
-		detailDraft ? refinementPromptCanContinue(detailDraft) : false,
-	);
 	const progressHeadline = $derived(shopperProgressHeadline(shopperProgress));
 	const supportingModeViews = $derived(
 		resultView
@@ -173,7 +155,6 @@
 		sessionId = null;
 		answerCache = {};
 		answerDraft = { ...EMPTY_GUIDED_DRAFT };
-		detailDraft = null;
 		guideError = null;
 		resultView = null;
 		showSupportingDetails = false;
@@ -216,7 +197,10 @@
 		}
 		if (nextGuide.status === 'ready_for_analysis' || nextGuide.status === 'analysis_started') {
 			answerDraft = { ...EMPTY_GUIDED_DRAFT };
-			homeState = 'ready';
+			homeState = 'processing';
+			queueMicrotask(() => {
+				void startAnalysis();
+			});
 			return;
 		}
 		homeState = 'guiding';
@@ -316,51 +300,6 @@
 		}
 	}
 
-	async function openDetailEdit(kind: RefinementPromptKind) {
-		if (!sessionId || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			const session = await api.getSession(sessionId);
-			detailDraft = refinementDraftFromSession(kind, session);
-			homeState = 'detail_edit';
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
-	}
-
-	async function submitDetailEdit() {
-		if (!sessionId || !detailDraft || !canContinueDetailEdit || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			const refinement = await api.createRefinement(
-				sessionId,
-				buildRefinementRequestFromPrompt(detailDraft),
-			);
-			detailDraft = null;
-			resultView = null;
-			showSupportingDetails = false;
-			showSourceDetails = false;
-			shopperProgress = createInitialShopperProgress();
-			homeState = 'processing';
-			const run = refinement.run;
-			subscribeToAnalysisProgress(sessionId, run.run_id);
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
-	}
-
-	function cancelDetailEdit() {
-		detailDraft = null;
-		guideError = null;
-		homeState = 'ready';
-	}
-
 	function userFacingErrorMessage(error: unknown): string {
 		if (error instanceof ApiError && error.code === 'network_error') {
 			return 'CartCart could not connect. Check your connection and try again.';
@@ -429,14 +368,6 @@
 		runEventSubscription = null;
 	}
 
-	function resetToReady() {
-		closeRunEventSubscription();
-		homeState = 'ready';
-		resultView = null;
-		showSupportingDetails = false;
-		showSourceDetails = false;
-		shopperProgress = createInitialShopperProgress();
-	}
 </script>
 
 <svelte:head>
@@ -464,42 +395,30 @@
 	</header>
 
 	<section
-		class="mx-auto flex min-h-[calc(100svh-3.5rem)] w-full max-w-5xl items-center px-4 py-10 sm:px-6"
+		class="mx-auto flex min-h-[calc(100svh-3.5rem)] w-full max-w-6xl items-center px-4 py-10 sm:px-6"
 	>
-		<div class="mx-auto w-full max-w-3xl">
-			<div class="mb-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-				<ShieldCheck class="text-accent size-4" />
-				<span>Compare fit, value, and seller risk before you buy.</span>
-			</div>
-
+		<div class="mx-auto w-full max-w-5xl">
 			{#if homeState === 'question'}
 				<div class="text-center">
-					<p class="mb-3 text-sm font-medium text-muted-foreground">CartCart</p>
 					<h1
-						class="text-prompt mx-auto max-w-2xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl md:text-6xl"
+						class="text-prompt mx-auto max-w-5xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl md:text-6xl"
 					>
 						Send your question
+						<br />
+						{#key activeStarter}
+							<button
+								type="button"
+								class="starter-question mt-3 inline text-balance rounded-md text-foreground/75 transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+								onclick={() => chooseStarter(activeStarter)}
+							>
+								{activeStarter}
+							</button>
+						{/key}
 					</h1>
-					<p class="mx-auto mt-4 max-w-xl text-pretty text-base leading-7 text-muted-foreground sm:text-lg">
-						Ask what to buy, what to avoid, or which option is safer for your needs.
-					</p>
-				</div>
-
-				<div class="mt-8 flex justify-center">
-					{#key activeStarter}
-						<button
-							type="button"
-							class="starter-question rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-							onclick={() => chooseStarter(activeStarter)}
-						>
-							<span class="text-accent" aria-hidden="true">Try:</span>
-							{activeStarter}
-						</button>
-					{/key}
 				</div>
 
 				<form
-					class="focus-within:ring-ring/70 bg-input shadow-input mt-5 grid grid-cols-[1fr_auto] items-end gap-3 rounded-md p-3 focus-within:ring-1"
+					class="focus-within:ring-ring/70 bg-input shadow-input mx-auto mt-8 grid max-w-3xl grid-cols-[1fr_auto] items-end gap-3 rounded-md p-3 focus-within:ring-1"
 					aria-label="Question entry"
 					onsubmit={(event) => {
 						event.preventDefault();
@@ -561,7 +480,7 @@
 						</Button>
 						<Button
 							type="button"
-							variant="ghost"
+							variant="outline"
 							onclick={refuseRegionAndResume}
 							disabled={isGuidedRequestPending}
 						>
@@ -574,23 +493,15 @@
 				</div>
 			{:else if homeState === 'guiding' && currentGuidedQuestion}
 				<div class="text-center">
-					<p class="mb-3 text-sm font-medium text-muted-foreground">
-						{questionEyebrow(currentGuidedQuestion)}
-					</p>
 					<h1
-						class="mx-auto max-w-2xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl"
+						class="mx-auto max-w-5xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl"
 					>
 						{currentGuidedQuestion.text}
 					</h1>
-					{#if questionHelper(currentGuidedQuestion)}
-						<p class="mx-auto mt-4 max-w-xl text-pretty text-base leading-7 text-muted-foreground">
-							{questionHelper(currentGuidedQuestion)}
-						</p>
-					{/if}
 				</div>
 
 				<form
-					class="mt-8"
+					class="mx-auto mt-8 max-w-3xl"
 					aria-label="Guided answer"
 					onsubmit={(event) => {
 						event.preventDefault();
@@ -644,7 +555,7 @@
 							<div class="mt-3 flex justify-center">
 								<Button
 									type="button"
-									variant="ghost"
+									variant="outline"
 									onclick={selectCustomAnswer}
 									disabled={isGuidedRequestPending}
 								>
@@ -678,30 +589,32 @@
 						<p class="mt-4 text-center text-sm text-destructive">{guideError}</p>
 					{/if}
 
-					<div class="mt-5 flex flex-wrap items-center justify-center gap-2">
-						<Button type="button" variant="ghost" onclick={goBack} disabled={isGuidedRequestPending}>
+					<div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+						<Button type="button" variant="outline" onclick={goBack} disabled={isGuidedRequestPending}>
 							<ArrowLeft />
-							{isAtFirstGuidedQuestion ? 'Back to question' : 'Back'}
+							Back
 						</Button>
-						{#if guidedState?.skippable_question.can_skip}
-							<Button
-								type="button"
-								variant="ghost"
-								onclick={skipQuestion}
-								disabled={isGuidedRequestPending}
-								>Skip question</Button
-							>
-						{/if}
-						{#if guidedState?.analysis_start.can_skip_all_and_start_analysis}
-							<Button
-								type="button"
-								variant="ghost"
-								onclick={skipAll}
-								disabled={isGuidedRequestPending}
-							>
-								Skip all and start analysis
-							</Button>
-						{/if}
+						<div class="flex flex-wrap items-center justify-end gap-3">
+							{#if guidedState?.skippable_question.can_skip}
+								<Button
+									type="button"
+									variant="outline"
+									onclick={skipQuestion}
+									disabled={isGuidedRequestPending}
+									>Skip</Button
+								>
+							{/if}
+							{#if guidedState?.analysis_start.can_skip_all_and_start_analysis}
+								<Button
+									type="button"
+									variant="outline"
+									onclick={skipAll}
+									disabled={isGuidedRequestPending}
+								>
+									Skip all
+								</Button>
+							{/if}
+						</div>
 					</div>
 				</form>
 			{:else if homeState === 'blocked'}
@@ -719,104 +632,11 @@
 				</div>
 
 				<div class="mt-8 flex justify-center">
-					<Button type="button" variant="ghost" onclick={editQuestion}>
+					<Button type="button" variant="outline" onclick={editQuestion}>
 						<ArrowLeft />
-						Back to question
+						Back
 					</Button>
 				</div>
-			{:else if homeState === 'detail_edit' && detailDraft && currentDetailSpec}
-				<div class="text-center">
-					<p class="mb-3 text-sm font-medium text-muted-foreground">Change details</p>
-					<h1
-						class="mx-auto max-w-2xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl"
-					>
-						{currentDetailSpec.question}
-					</h1>
-				</div>
-
-				<form
-					class="mt-8"
-					aria-label="Change recommendation details"
-					onsubmit={(event) => {
-						event.preventDefault();
-						submitDetailEdit();
-					}}
-				>
-					{#if currentDetailSpec.usesRegionChoice}
-						<div class="bg-card shadow-subtle mx-auto max-w-xl rounded-xl p-4 sm:p-5">
-							<label
-								for="detail-region-select"
-								class="flex items-center gap-2 text-sm font-medium text-foreground"
-							>
-								<MapPin class="text-accent size-4" />
-								Country or region
-							</label>
-							<select
-								id="detail-region-select"
-								bind:value={detailDraft.regionCode}
-								class="bg-input shadow-input mt-3 h-11 w-full rounded-md px-3 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
-							>
-								{#each REGION_OPTIONS as region}
-									<option value={region.code}>{region.label}</option>
-								{/each}
-							</select>
-							<label for="detail-region-note" class="sr-only">Anything else to keep in mind</label>
-							<textarea
-								id="detail-region-note"
-								bind:value={detailDraft.text}
-								rows="3"
-								class="bg-input shadow-input mt-3 max-h-48 min-h-24 w-full resize-none rounded-md px-3 py-2 text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-								placeholder={currentDetailSpec.placeholder}
-							></textarea>
-						</div>
-					{:else}
-						<div
-							class="focus-within:ring-ring/70 bg-input shadow-input grid grid-cols-[1fr_auto] items-end gap-3 rounded-md p-3 focus-within:ring-1"
-						>
-							<label for="detail-answer" class="sr-only">Your answer</label>
-							<textarea
-								id="detail-answer"
-								bind:value={detailDraft.text}
-								rows="3"
-								class="max-h-48 min-h-24 resize-none bg-transparent px-2 py-1 text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground sm:text-lg"
-								placeholder={currentDetailSpec.placeholder}
-							></textarea>
-							<Button
-								type="submit"
-								size="icon"
-								aria-label="Update and check options"
-								disabled={!canContinueDetailEdit || isGuidedRequestPending}
-								class="mb-0.5"
-							>
-								<ArrowUp />
-							</Button>
-						</div>
-					{/if}
-
-					{#if guideError}
-						<p class="mt-4 text-center text-sm text-destructive">{guideError}</p>
-					{/if}
-
-					<div class="mt-5 flex flex-wrap items-center justify-center gap-2">
-						{#if currentDetailSpec.usesRegionChoice}
-							<Button
-								type="submit"
-								disabled={!canContinueDetailEdit || isGuidedRequestPending}
-							>
-								Update and check options
-							</Button>
-						{/if}
-						<Button
-							type="button"
-							variant="ghost"
-							onclick={cancelDetailEdit}
-							disabled={isGuidedRequestPending}
-						>
-							<ArrowLeft />
-							Back
-						</Button>
-					</div>
-				</form>
 			{:else if homeState === 'processing'}
 				<div class="text-center">
 					<p class="mb-3 text-sm font-medium text-muted-foreground">Checking options</p>
@@ -864,9 +684,9 @@
 				{/if}
 
 				<div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-					<Button type="button" variant="ghost" onclick={goBack} disabled={isGuidedRequestPending}>
+					<Button type="button" variant="outline" onclick={goBack} disabled={isGuidedRequestPending}>
 						<ArrowLeft />
-						Change answers
+						Back
 					</Button>
 				</div>
 			{:else if homeState === 'result' && resultView}
@@ -926,7 +746,7 @@
 						</Button>
 						<Button
 							type="button"
-							variant="ghost"
+							variant="outline"
 							onclick={() => (showSourceDetails = !showSourceDetails)}
 						>
 							{#if showSourceDetails}
@@ -1032,70 +852,10 @@
 					{/if}
 				</div>
 
-				<div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-					<Button type="button" variant="ghost" onclick={() => openDetailEdit('budget')}>
-						Change budget
-					</Button>
-					<Button type="button" variant="ghost" onclick={() => openDetailEdit('region')}>
-						Change region
-					</Button>
-					<Button type="button" variant="ghost" onclick={resetToReady}>Check again</Button>
-				</div>
-			{:else}
-				<div class="text-center">
-					<p class="mb-3 text-sm font-medium text-muted-foreground">Ready to compare</p>
-					<h1
-						class="mx-auto max-w-2xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl"
-					>
-						CartCart has enough to start checking options.
-					</h1>
-					<p class="mx-auto mt-4 max-w-xl text-pretty text-base leading-7 text-muted-foreground">
-						Next, we will compare fit, value, evidence, and risky listings for: {submittedQuestion}
-					</p>
-				</div>
-
-				{#if guideError}
-					<p class="mt-4 text-center text-sm text-destructive">{guideError}</p>
-				{/if}
-
-				<div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-					<Button
-						type="button"
-						onclick={startAnalysis}
-						disabled={isGuidedRequestPending || guidedState?.status !== 'ready_for_analysis'}
-					>
-						<SearchCheck />
-						Start checking options
-					</Button>
-					<Button type="button" variant="ghost" onclick={goBack} disabled={isGuidedRequestPending}>
+				<div class="mx-auto mt-8 flex max-w-3xl items-center justify-start">
+					<Button type="button" variant="outline" onclick={goBack} disabled={isGuidedRequestPending}>
 						<ArrowLeft />
 						Back
-					</Button>
-				</div>
-				<div class="mt-5 flex flex-wrap items-center justify-center gap-2">
-					<Button
-						type="button"
-						variant="ghost"
-						onclick={() => openDetailEdit('budget')}
-						disabled={isGuidedRequestPending}
-					>
-						Change budget
-					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						onclick={() => openDetailEdit('region')}
-						disabled={isGuidedRequestPending}
-					>
-						Change region
-					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						onclick={() => openDetailEdit('category')}
-						disabled={isGuidedRequestPending}
-					>
-						Correct category
 					</Button>
 				</div>
 			{/if}

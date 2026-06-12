@@ -79,7 +79,7 @@ def test_create_guided_session_starts_from_single_question_and_loads_state(
     body = created.json()
     guide = body["guide"]
     assert guide["status"] == "collecting"
-    assert guide["current_question"]["question_id"] == "optional-context"
+    assert guide["current_question"]["question_id"] == "budget"
     assert guide["current_question"]["answer_surface"] == "textbox"
     assert guide["region_setup"]["status"] == "provided"
     assert guide["region_setup"]["region"]["country_code"] == "US"
@@ -100,16 +100,27 @@ def test_submit_followup_answer_captures_budget_and_known_product_without_links(
     )
     session_id = created["session_id"]
 
+    budget_response = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "budget",
+            "answer": {
+                "answer_type": "natural_language",
+                "text": "Around $1,200.",
+            },
+        },
+    )
+    assert budget_response.status_code == 200
+    assert budget_response.json()["status"] == "collecting"
+    assert budget_response.json()["current_question"]["question_id"] == "considered-products"
+
     response = guided_api_client.post(
         f"/api/sessions/{session_id}/answers",
         json={
-            "question_id": "optional-context",
+            "question_id": "considered-products",
             "answer": {
                 "answer_type": "natural_language",
-                "text": (
-                    "Around $1,200. I am considering the ThinkPad X1 Carbon "
-                    "and need long battery life."
-                ),
+                "text": "ThinkPad X1 Carbon. I need long battery life.",
             },
         },
     )
@@ -126,13 +137,20 @@ def test_submit_followup_answer_captures_budget_and_known_product_without_links(
 
     session = guided_api_client.get(f"/api/sessions/{session_id}").json()
     assert session["current_brief"] == guide["ready_brief"]
-    assert session["user_added_products"][0]["input_text"].startswith("Around $1,200")
+    assert session["user_added_products"][0]["input_text"].startswith("ThinkPad X1")
 
 
 def test_skip_question_readies_existing_brief(
     guided_api_client: TestClient,
 ) -> None:
     created = _create_guided_session(guided_api_client, "Which camera should I buy?")
+
+    first_skip = guided_api_client.post(
+        f"/api/sessions/{created['session_id']}/guide/skip",
+    )
+    assert first_skip.status_code == 200
+    assert first_skip.json()["status"] == "collecting"
+    assert first_skip.json()["current_question"]["question_id"] == "considered-products"
 
     response = guided_api_client.post(
         f"/api/sessions/{created['session_id']}/guide/skip",
@@ -189,7 +207,7 @@ def test_yes_no_choice_answers_move_to_next_prompt(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "collecting"
-    assert body["current_question"]["question_id"] == "optional-context"
+    assert body["current_question"]["question_id"] == "budget"
     assert body["navigation"]["can_go_back"] is True
 
 
@@ -220,7 +238,7 @@ def test_two_option_plus_type_answer_is_supported_when_justified(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "collecting"
-    assert body["current_question"]["question_id"] == "optional-context"
+    assert body["current_question"]["question_id"] == "budget"
 
 
 def test_reanswer_prior_question_before_analysis(

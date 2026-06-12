@@ -44,7 +44,6 @@ from app.schemas.guided_intake import (
     AnalysisStartAvailability,
     ChoiceGuidedAnswer,
     ChoiceWithTextGuidedAnswer,
-    CombinedOptionalQuestionPrompt,
     CurrentGuidedQuestion,
     GuidedAnswer,
     GuidedAnswerSurface,
@@ -119,7 +118,8 @@ from app.schemas.source_references import SourceReference
 FIRST_QUESTION_ID = "first-question"
 MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
 COMPARISON_PRIORITY_QUESTION_ID = "comparison-priority"
-OPTIONAL_CONTEXT_QUESTION_ID = "optional-context"
+BUDGET_QUESTION_ID = "budget"
+CONSIDERED_PRODUCTS_QUESTION_ID = "considered-products"
 
 
 @dataclass(frozen=True)
@@ -180,18 +180,26 @@ class FakeShoppingGuideAgent:
         first_followup = _first_followup_question_id(input_data.user_input)
         ready_requested = (
             input_data.start_analysis_requested
-            or OPTIONAL_CONTEXT_QUESTION_ID in answer_map
-            or OPTIONAL_CONTEXT_QUESTION_ID in input_data.skipped_question_ids
+            or CONSIDERED_PRODUCTS_QUESTION_ID in answer_map
+            or CONSIDERED_PRODUCTS_QUESTION_ID in input_data.skipped_question_ids
         )
         if ready_requested and input_data.reanswer_question_id is None:
             return _ready_guided_state(input_data, answer_map)
 
         question_id = input_data.reanswer_question_id
         if question_id is None:
-            if first_followup not in answer_map:
+            if (
+                first_followup not in answer_map
+                and first_followup not in input_data.skipped_question_ids
+            ):
                 question_id = first_followup
+            elif (
+                BUDGET_QUESTION_ID not in answer_map
+                and BUDGET_QUESTION_ID not in input_data.skipped_question_ids
+            ):
+                question_id = BUDGET_QUESTION_ID
             else:
-                question_id = OPTIONAL_CONTEXT_QUESTION_ID
+                question_id = CONSIDERED_PRODUCTS_QUESTION_ID
 
         question = _guided_question_by_id(question_id, input_data.user_input)
         return GuidedIntakeState(
@@ -199,7 +207,8 @@ class FakeShoppingGuideAgent:
             current_question=question,
             navigation=_navigation_state(answer_map, input_data.reanswer_question_id),
             skippable_question=SkippableQuestionState(
-                can_skip=question.question_id == OPTIONAL_CONTEXT_QUESTION_ID,
+                can_skip=question.question_id
+                in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID},
             ),
             analysis_start=AnalysisStartAvailability(
                 enough_information=True,
@@ -850,7 +859,7 @@ def _first_followup_question_id(user_input: str) -> str:
         return MONITOR_CONNECTION_QUESTION_ID
     if " between " in f" {normalized} " or " vs " in normalized:
         return COMPARISON_PRIORITY_QUESTION_ID
-    return OPTIONAL_CONTEXT_QUESTION_ID
+    return BUDGET_QUESTION_ID
 
 
 def _guided_question_by_id(question_id: str, user_input: str) -> CurrentGuidedQuestion:
@@ -894,32 +903,20 @@ def _guided_question_by_id(question_id: str, user_input: str) -> CurrentGuidedQu
                 custom_answer_label="Type my answer",
             ),
         )
-    return _optional_context_question()
-
-
-def _optional_context_question() -> CurrentGuidedQuestion:
+    if question_id == BUDGET_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=BUDGET_QUESTION_ID,
+            text="What budget should we stay near?",
+            purpose=GuidedQuestionPurpose.BUDGET,
+            capture_targets=(GuidedCaptureTarget.BUDGET,),
+        )
     return CurrentGuidedQuestion(
-        question_id=OPTIONAL_CONTEXT_QUESTION_ID,
-        text=(
-            "Anything we should keep in mind, like budget, must-haves, "
-            "or products you are already considering?"
-        ),
-        purpose=GuidedQuestionPurpose.COMBINED_OPTIONAL,
+        question_id=CONSIDERED_PRODUCTS_QUESTION_ID,
+        text="Are there any products you want CartCart to check?",
+        purpose=GuidedQuestionPurpose.CONSIDERED_PRODUCTS,
         capture_targets=(
-            GuidedCaptureTarget.BUDGET,
-            GuidedCaptureTarget.CONSTRAINTS,
             GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-        ),
-        combined_optional_prompt=CombinedOptionalQuestionPrompt(
-            text=(
-                "Share any budget, must-haves, "
-                "or product names you already have in mind."
-            ),
-            capture_targets=(
-                GuidedCaptureTarget.BUDGET,
-                GuidedCaptureTarget.CONSTRAINTS,
-                GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-            ),
+            GuidedCaptureTarget.CONSIDERED_PRODUCT_DESCRIPTIONS,
         ),
     )
 
@@ -951,7 +948,8 @@ def _navigation_state(
     ordered_question_ids = (
         MONITOR_CONNECTION_QUESTION_ID,
         COMPARISON_PRIORITY_QUESTION_ID,
-        OPTIONAL_CONTEXT_QUESTION_ID,
+        BUDGET_QUESTION_ID,
+        CONSIDERED_PRODUCTS_QUESTION_ID,
     )
     questions = tuple(
         ReanswerableQuestion(
@@ -1085,7 +1083,8 @@ def _reanswer_label(question_id: str) -> str:
     labels = {
         MONITOR_CONNECTION_QUESTION_ID: "Monitor setup",
         COMPARISON_PRIORITY_QUESTION_ID: "Comparison priority",
-        OPTIONAL_CONTEXT_QUESTION_ID: "Budget and must-haves",
+        BUDGET_QUESTION_ID: "Budget",
+        CONSIDERED_PRODUCTS_QUESTION_ID: "Products to check",
     }
     return labels.get(question_id, "Earlier answer")
 

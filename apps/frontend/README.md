@@ -4,12 +4,12 @@ SvelteKit TypeScript scaffold for the CartCart frontend.
 
 The one-page workspace route has been replaced by a focused prompt-first
 homepage following `../../DESIGN.md`. The first screen shows "Send your
-question", a large natural-language textbox, rotating starter questions outside
-the textbox, and local one-time region setup after first submit when no saved or
-refused region exists. The guided intake flow creates a backend guided session,
-asks one current fixture question at a time,
-supports inline choices, Back/reanswer, `Skip question`, and `Skip all and start
-analysis`, and avoids visible chat history.
+question", a large natural-language textbox, rotating starter questions inside
+the large main text, and local one-time region setup after first submit when no
+saved or refused region exists. The guided intake flow creates a backend guided
+session, asks one current fixture question at a time, supports inline choices,
+Back/reanswer, visible `Skip` and `Skip all` buttons, and avoids visible chat
+history.
 Backend session, run, result, source evidence, user-considered product, and
 refinement helpers remain in `src/lib` so guided screens can use existing
 plumbing without restoring the old dashboard.
@@ -47,15 +47,15 @@ PUBLIC_CARTCART_API_BASE_URL=http://127.0.0.1:8000 pnpm --dir apps/frontend dev
 Hand-written API types live under `src/lib/api` until OpenAPI type generation is
 added. The current route calls the guided fixture API for first-question session
 creation, backend region submission, guided answers, skip/reanswer actions,
-blocked guardrails, readiness, and starting the fixture analysis after readiness.
+blocked guardrails, readiness, and automatic fixture analysis after readiness.
 After analysis starts, the route subscribes to the existing SSE run events but
 renders only shopper-safe progress labels, then reveals the recommendation first
 with runner-ups, trust notes, warnings, and source details behind explicit
 supporting-detail controls.
-User-considered products are captured as product names or descriptions through
-guided answers, not through a URL/manual entry panel. Budget, region, and
-category changes appear as contextual prompts from the ready screen and submit
-through the existing refinement endpoint.
+Budget and user-considered products are separate guided questions. Products are
+captured as names or descriptions through guided answers, not through a
+URL/manual entry panel. The normal flow uses Back rather than result shortcut
+edit buttons.
 
 ## Developing
 

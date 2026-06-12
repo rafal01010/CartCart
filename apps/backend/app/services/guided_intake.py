@@ -11,7 +11,6 @@ from app.schemas.guided_intake import (
     AnalysisStartAvailability,
     ChoiceGuidedAnswer,
     ChoiceWithTextGuidedAnswer,
-    CombinedOptionalQuestionPrompt,
     CreateGuidedSessionRequest,
     CurrentGuidedQuestion,
     GuidedAnswer,
@@ -59,7 +58,8 @@ from app.schemas.regions import Region
 FIRST_QUESTION_ID = "first-question"
 MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
 COMPARISON_PRIORITY_QUESTION_ID = "comparison-priority"
-OPTIONAL_CONTEXT_QUESTION_ID = "optional-context"
+BUDGET_QUESTION_ID = "budget"
+CONSIDERED_PRODUCTS_QUESTION_ID = "considered-products"
 
 
 @dataclass
@@ -146,8 +146,9 @@ class GuidedIntakeService:
         fixture.answers[submission.question_id] = submission.answer
         fixture.reanswer_question_id = None
 
-        if submission.question_id == OPTIONAL_CONTEXT_QUESTION_ID:
-            await self._capture_optional_context(fixture, submission.answer)
+        if submission.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
+            await self._capture_considered_products(fixture, submission.answer)
+        if submission.question_id in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID}:
             await self._persist_ready_brief(fixture)
 
         if self._is_ready_after_answer(
@@ -167,7 +168,7 @@ class GuidedIntakeService:
         question = self._current_question_for_fixture(fixture)
         if question is None:
             raise _guide_not_collecting(session_id)
-        if question.question_id != OPTIONAL_CONTEXT_QUESTION_ID:
+        if question.question_id not in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID}:
             raise ApplicationError(
                 "guided_question_not_skippable",
                 "This question needs an answer before we continue.",
@@ -177,8 +178,10 @@ class GuidedIntakeService:
 
         fixture.skipped_question_ids.add(question.question_id)
         fixture.reanswer_question_id = None
-        await self._persist_ready_brief(fixture)
-        return self._ready_state_for_fixture(fixture)
+        if question.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
+            await self._persist_ready_brief(fixture)
+            return self._ready_state_for_fixture(fixture)
+        return self._state_for_fixture(fixture)
 
     async def skip_all_and_start_analysis(
         self,
@@ -275,7 +278,8 @@ class GuidedIntakeService:
             current_question=question,
             navigation=self._navigation_state(fixture),
             skippable_question=SkippableQuestionState(
-                can_skip=question.question_id == OPTIONAL_CONTEXT_QUESTION_ID,
+                can_skip=question.question_id
+                in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID},
             ),
             analysis_start=AnalysisStartAvailability(
                 enough_information=True,
@@ -321,13 +325,21 @@ class GuidedIntakeService:
             return None
 
         first_followup = _first_followup_question_id(fixture.query)
-        if first_followup not in fixture.answers:
+        if (
+            first_followup not in fixture.answers
+            and first_followup not in fixture.skipped_question_ids
+        ):
             return _question_by_id(first_followup, fixture.query)
         if (
-            OPTIONAL_CONTEXT_QUESTION_ID not in fixture.answers
-            and OPTIONAL_CONTEXT_QUESTION_ID not in fixture.skipped_question_ids
+            BUDGET_QUESTION_ID not in fixture.answers
+            and BUDGET_QUESTION_ID not in fixture.skipped_question_ids
         ):
-            return _optional_context_question()
+            return _question_by_id(BUDGET_QUESTION_ID, fixture.query)
+        if (
+            CONSIDERED_PRODUCTS_QUESTION_ID not in fixture.answers
+            and CONSIDERED_PRODUCTS_QUESTION_ID not in fixture.skipped_question_ids
+        ):
+            return _question_by_id(CONSIDERED_PRODUCTS_QUESTION_ID, fixture.query)
         return None
 
     def _navigation_state(
@@ -351,7 +363,8 @@ class GuidedIntakeService:
         ordered = (
             MONITOR_CONNECTION_QUESTION_ID,
             COMPARISON_PRIORITY_QUESTION_ID,
-            OPTIONAL_CONTEXT_QUESTION_ID,
+            BUDGET_QUESTION_ID,
+            CONSIDERED_PRODUCTS_QUESTION_ID,
         )
         return tuple(
             question_id for question_id in ordered if question_id in fixture.answers
@@ -381,7 +394,7 @@ class GuidedIntakeService:
             resumes_pending_question=True,
         )
 
-    async def _capture_optional_context(
+    async def _capture_considered_products(
         self,
         fixture: FixtureGuidedSession,
         answer: GuidedAnswer,
@@ -389,7 +402,7 @@ class GuidedIntakeService:
         text = _answer_text(answer)
         if text is None or text in fixture.user_added_texts:
             return
-        if not _mentions_considered_product(text):
+        if _declines_considered_products(text):
             return
 
         await self._products.add_user_added_product(
@@ -446,7 +459,7 @@ class GuidedIntakeService:
     ) -> bool:
         if was_reanswering:
             return True
-        return question_id == OPTIONAL_CONTEXT_QUESTION_ID
+        return question_id == CONSIDERED_PRODUCTS_QUESTION_ID
 
 
 def _guide_not_collecting(session_id: SessionId) -> ApplicationError:
@@ -492,8 +505,23 @@ def _question_by_id(question_id: str, query: str) -> CurrentGuidedQuestion:
                 custom_answer_label="Type my answer",
             ),
         )
-    if question_id == OPTIONAL_CONTEXT_QUESTION_ID:
-        return _optional_context_question()
+    if question_id == BUDGET_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=BUDGET_QUESTION_ID,
+            text="What budget should we stay near?",
+            purpose=GuidedQuestionPurpose.BUDGET,
+            capture_targets=(GuidedCaptureTarget.BUDGET,),
+        )
+    if question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=CONSIDERED_PRODUCTS_QUESTION_ID,
+            text="Are there any products you want CartCart to check?",
+            purpose=GuidedQuestionPurpose.CONSIDERED_PRODUCTS,
+            capture_targets=(
+                GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
+                GuidedCaptureTarget.CONSIDERED_PRODUCT_DESCRIPTIONS,
+            ),
+        )
     if question_id == FIRST_QUESTION_ID:
         return CurrentGuidedQuestion(
             question_id=FIRST_QUESTION_ID,
@@ -509,40 +537,13 @@ def _question_by_id(question_id: str, query: str) -> CurrentGuidedQuestion:
     )
 
 
-def _optional_context_question() -> CurrentGuidedQuestion:
-    return CurrentGuidedQuestion(
-        question_id=OPTIONAL_CONTEXT_QUESTION_ID,
-        text=(
-            "Anything we should keep in mind, like budget, must-haves, "
-            "or products you are already considering?"
-        ),
-        purpose=GuidedQuestionPurpose.COMBINED_OPTIONAL,
-        capture_targets=(
-            GuidedCaptureTarget.BUDGET,
-            GuidedCaptureTarget.CONSTRAINTS,
-            GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-        ),
-        combined_optional_prompt=CombinedOptionalQuestionPrompt(
-            text=(
-                "Share any budget, must-haves, "
-                "or product names you already have in mind."
-            ),
-            capture_targets=(
-                GuidedCaptureTarget.BUDGET,
-                GuidedCaptureTarget.CONSTRAINTS,
-                GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-            ),
-        ),
-    )
-
-
 def _first_followup_question_id(query: str) -> str:
     normalized = query.lower()
     if "monitor" in normalized:
         return MONITOR_CONNECTION_QUESTION_ID
     if " between " in f" {normalized} " or " vs " in normalized:
         return COMPARISON_PRIORITY_QUESTION_ID
-    return OPTIONAL_CONTEXT_QUESTION_ID
+    return BUDGET_QUESTION_ID
 
 
 def _category_fields(query: str) -> dict[str, str]:
@@ -645,23 +646,16 @@ def _looks_like_constraint(text: str) -> bool:
     return any(term in normalized for term in ("must", "need", "needs", "cannot"))
 
 
-def _mentions_considered_product(text: str) -> bool:
+def _declines_considered_products(text: str) -> bool:
     normalized = text.lower()
-    return any(
-        term in normalized
-        for term in (
-            "considering",
-            "looking at",
-            "between",
-            "already have in mind",
-        )
-    )
+    return normalized.strip(" .,!") in {"no", "none", "nothing", "not sure", "nope"}
 
 
 def _reanswer_label(question_id: str) -> str:
     labels = {
         MONITOR_CONNECTION_QUESTION_ID: "Monitor setup",
         COMPARISON_PRIORITY_QUESTION_ID: "Comparison priority",
-        OPTIONAL_CONTEXT_QUESTION_ID: "Budget and must-haves",
+        BUDGET_QUESTION_ID: "Budget",
+        CONSIDERED_PRODUCTS_QUESTION_ID: "Products to check",
     }
     return labels.get(question_id, "Earlier answer")

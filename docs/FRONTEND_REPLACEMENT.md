@@ -1,6 +1,6 @@
 # Frontend Replacement Note
 
-Status: Guided frontend rebuild gate passed
+Status: Task 53J guided-flow UX correction complete
 Last updated: 2026-06-12
 
 ## Purpose
@@ -8,12 +8,12 @@ Last updated: 2026-06-12
 The original SvelteKit one-page workspace proved useful backend plumbing, but
 its dashboard-style UI is superseded. The root route now uses a dark focused
 homepage prompt from `DESIGN.md`: "Send your question", a large natural-language
-textbox, animated starter questions outside the textbox, and local one-time
-region setup after first submit when no saved or refused region exists. It now
-connects that guided intake surface to the backend fixture guided API: the
+textbox, animated starter questions inside the large main text, and local
+one-time region setup after first submit when no saved or refused region exists.
+It now connects that guided intake surface to the backend fixture guided API: the
 frontend submits the first shopping question, renders the current backend prompt
-or inline control, submits answers, supports Back/reanswer, `Skip question`, and
-`Skip all and start analysis`, handles provided/refused region setup, and shows
+or inline control, submits answers, supports Back/reanswer, visible `Skip` and
+`Skip all` buttons, handles provided/refused region setup, and shows
 short user-safe guardrail blocks. Future frontend work should build on this
 session, guided-intake, run, result, source, and refinement plumbing without
 restoring the all-in-one workspace.
@@ -34,9 +34,14 @@ restoring the all-in-one workspace.
 - `docs/UX.md` is the acceptance checklist for user-facing behavior.
 
 The homepage starter-question animation currently uses Svelte state plus a small
-CSS transition. No Lottie dependency was added in the homepage pass; any later
-Lottie work should use a Svelte-compatible player and must not introduce a
-React-only path.
+CSS transition inside the large main heading. No Lottie dependency was added in
+the homepage pass; any later Lottie work should use a Svelte-compatible player
+and must not introduce a React-only path.
+
+The region selector derives display names from Unicode CLDR via
+`Intl.DisplayNames` and uses ISO 3166-1 alpha-2 region codes for the selectable
+identifiers. Currency and locale defaults remain separate app metadata. Sources:
+https://cldr.unicode.org/ and https://www.iso.org/iso-3166-country-codes.html.
 
 ## Current Frontend State
 
@@ -52,16 +57,15 @@ than a frontend-only reducer:
    session after the user provides or refuses a region.
 3. Backend prompts can be textbox, yes/no inline choice, or justified
    two-option-plus-type-answer controls.
-4. The combined optional prompt asks for budget, must-haves, or products already
-   being considered by name or description in one textbox.
-5. Ready-for-analysis appears only after the backend says enough information
-   exists; the existing fixture analysis can then be started without exposing
-   run IDs or developer mechanics.
-6. User-considered products stay in the guided answer path as product names or
+4. Budget is asked as its own current question.
+5. Products the user wants CartCart to check are asked as a separate
+   name/description question.
+6. When the backend says enough information exists, fixture analysis starts
+   automatically without exposing run IDs or developer mechanics.
+7. User-considered products stay in the guided answer path as product names or
    descriptions; there is no normal-flow URL/manual product-entry panel.
-7. Budget, region, and category changes open one contextual prompt from the
-   ready screen and submit through the existing refinement endpoint without a
-   permanent refinement panel.
+8. The normal flow uses Back navigation rather than ready/result shortcut edit
+   buttons for changing budget, region, or category.
 
 The old 1,248-line workspace was removed. Its useful API, progress, and result
 projection helpers remain under `src/lib` for later guided-flow wiring.
@@ -222,15 +226,16 @@ depending on that obsolete homepage.
 Gate review outcome:
 
 - First screen is the focused `Send your question` prompt with one large
-  textbox and animated starter questions outside the textbox.
+  textbox and animated starter questions inside the large main text.
 - Normal guided intake keeps the prompt-led composition: one displayed question,
   one answer surface, and no visible chat transcript.
 - Textbox placeholders are neutral, and `Continue` is disabled until the active
   textbox has an answer.
 - Inline choices are limited to the fixture cases where they reduce effort:
   yes/no monitor setup and two-option-plus-type-answer comparison priority.
-- Optional context is one natural-language prompt, not a multi-row mini-form.
-- `Skip question`, `Skip all and start analysis`, Back/reanswer, and
+- Budget and products to check are separate natural-language prompts, not a
+  multi-row mini-form.
+- `Skip`, `Skip all`, Back/reanswer, and
   first-question Back to the homepage-style edit surface are covered.
 - Region setup stores provided/refused choices locally and resumes the pending
   submitted question automatically.
@@ -240,6 +245,10 @@ Gate review outcome:
   trace IDs, fixture labels, and other developer/process language.
 - Progress and result reveal use plain shopping language with recommendation,
   warnings, seller/listing checks, and source details behind explicit controls.
+- Task 53J tightened the flow further: no normal-flow eyebrow/helper copy,
+  homepage starter animation lives in the large main text, budget and product
+  prompts are separate, analysis auto-starts when ready, and result shortcut edit
+  buttons were removed.
 
 Focused gate checks:
 

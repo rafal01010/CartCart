@@ -22,24 +22,6 @@ export const EMPTY_GUIDED_DRAFT: GuidedDraft = {
 	isCustomAnswer: false,
 };
 
-export function questionEyebrow(question: CurrentGuidedQuestion): string {
-	if (question.purpose === 'combined_optional') return 'Useful details';
-	if (question.purpose === 'priorities') return 'What matters';
-	if (question.purpose === 'comparison') return 'Comparison';
-	if (question.purpose === 'clarification') return 'Quick question';
-	return 'A little context';
-}
-
-export function questionHelper(question: CurrentGuidedQuestion): string | null {
-	if (question.combined_optional_prompt?.text) {
-		return `${question.combined_optional_prompt.text} You do not need links.`;
-	}
-	if (question.answer_surface === 'textbox') {
-		return 'One sentence is enough.';
-	}
-	return null;
-}
-
 export function answerSurfaceView(question: CurrentGuidedQuestion): GuidedAnswerSurfaceView {
 	if (question.answer_surface === 'textbox') return 'textbox';
 	if (question.inline_choice?.control_type === 'two_option_plus_type_answer') {

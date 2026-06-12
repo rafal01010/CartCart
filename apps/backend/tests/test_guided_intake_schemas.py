@@ -3,7 +3,6 @@ from pydantic import ValidationError
 
 from app.schemas import (
     AnalysisStartAvailability,
-    CombinedOptionalQuestionPrompt,
     CurrentGuidedQuestion,
     GuidedAnswerSubmission,
     GuidedAnswerSurface,
@@ -30,23 +29,12 @@ from app.schemas import (
 )
 
 
-def test_guided_intake_state_supports_combined_optional_textbox_prompt() -> None:
+def test_guided_intake_state_supports_single_textbox_prompt() -> None:
     question = CurrentGuidedQuestion(
-        question_id="optional-context",
-        text="Anything we should keep in mind, like budget or laptops you are already considering?",
-        purpose=GuidedQuestionPurpose.COMBINED_OPTIONAL,
-        capture_targets=(
-            GuidedCaptureTarget.BUDGET,
-            GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-        ),
-        combined_optional_prompt=CombinedOptionalQuestionPrompt(
-            text="Share any budget, must-haves, or products you are already considering.",
-            capture_targets=(
-                GuidedCaptureTarget.BUDGET,
-                GuidedCaptureTarget.CONSTRAINTS,
-                GuidedCaptureTarget.CONSIDERED_PRODUCT_NAMES,
-            ),
-        ),
+        question_id="budget",
+        text="What budget should we stay near?",
+        purpose=GuidedQuestionPurpose.BUDGET,
+        capture_targets=(GuidedCaptureTarget.BUDGET,),
     )
     state = GuidedIntakeState(
         current_question=question,
@@ -68,7 +56,7 @@ def test_guided_intake_state_supports_combined_optional_textbox_prompt() -> None
 
 def test_guided_answer_submission_accepts_natural_language_budget_and_products() -> None:
     budget_answer = GuidedAnswerSubmission(
-        question_id="optional-context",
+        question_id="budget",
         answer={
             "answer_type": "natural_language",
             "text": "Around $1,200 if possible. I am also looking at the ThinkPad X1 Carbon.",

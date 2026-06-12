@@ -5,22 +5,17 @@ import {
 	buildGuidedAnswerSubmission,
 	canContinueGuidedQuestion,
 	createDraftFromCachedAnswer,
-	questionHelper,
 	regionSetupSubmissionFromPreference,
 } from './guided-state.js';
 import type { CurrentGuidedQuestion } from '$lib/api/types.js';
 
 const textboxQuestion: CurrentGuidedQuestion = {
 	schema_version: 1,
-	question_id: 'optional-context',
-	text: 'Anything we should keep in mind?',
-	purpose: 'combined_optional',
+	question_id: 'budget',
+	text: 'What budget should we stay near?',
+	purpose: 'budget',
 	answer_surface: 'textbox',
-	capture_targets: ['budget', 'constraints'],
-	combined_optional_prompt: {
-		text: 'Share any budget, must-haves, or product names you already have in mind.',
-		capture_targets: ['budget', 'constraints'],
-	},
+	capture_targets: ['budget'],
 };
 
 const yesNoQuestion: CurrentGuidedQuestion = {
@@ -61,14 +56,13 @@ const customChoiceQuestion: CurrentGuidedQuestion = {
 describe('guided API state view helpers', () => {
 	it('requires non-empty text for textbox questions and builds natural language answers', () => {
 		expect(answerSurfaceView(textboxQuestion)).toBe('textbox');
-		expect(questionHelper(textboxQuestion)).toContain('You do not need links.');
 		expect(canContinueGuidedQuestion(textboxQuestion, EMPTY_GUIDED_DRAFT)).toBe(false);
 
 		const draft = { ...EMPTY_GUIDED_DRAFT, text: 'Under $300 and considering the Bekant.' };
 
 		expect(canContinueGuidedQuestion(textboxQuestion, draft)).toBe(true);
 		expect(buildGuidedAnswerSubmission(textboxQuestion, draft)).toEqual({
-			question_id: 'optional-context',
+			question_id: 'budget',
 			answer: {
 				answer_type: 'natural_language',
 				text: 'Under $300 and considering the Bekant.',

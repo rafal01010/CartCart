@@ -68,7 +68,8 @@ Required first-screen elements:
 - A clear "Send your question" prompt.
 - A large natural-language textbox.
 - A single primary send/continue action.
-- Starter-question templates outside the textbox, such as:
+- Starter-question templates animated as part of the large main prompt text,
+  outside the textbox, such as:
   - "Which phone should I buy?"
   - "Which laptop should I buy?"
   - "Which camera should I buy?"
@@ -89,9 +90,11 @@ Acceptance checklist:
 
 - Ask only the next useful question.
 - Prefer natural-language answer capture over structured mini-forms.
-- Combine small optional questions into one natural-language prompt when that
-  reduces friction, such as "Anything we should keep in mind, like budget or
-  laptops you are already considering?"
+- Put the full user-facing question in the large main text. Do not add eyebrow
+  copy above or helper copy below ordinary guided intake questions.
+- Ask budget as its own question when it matters.
+- Ask products the user wants CartCart to check as a separate product-name or
+  description question when it matters.
 - Do not split ordinary intake into multiple compact rows such as separate
   Budget, Product, Region, and Preference fields.
 - Do not ask users to find or paste product links during normal intake.
@@ -99,17 +102,15 @@ Acceptance checklist:
   products, then let CartCart find and verify listings.
 - On textbox-based steps, disable and visually mute `Continue` while the textbox
   is empty.
-- Use `Skip question` for the current optional question only.
-- Use `Skip all and start analysis` when enough information exists and the user
-  can start immediately.
+- Use visible `Skip` and `Skip all` buttons for optional guided questions.
+- Start analysis automatically when the guide has enough information instead of
+  showing a separate confirmation screen.
 - Let the user go back and reanswer prior guided questions before analysis
   starts.
 - Do not display prior questions and answers as a chat transcript.
-- Once analysis has started, changing a prior answer becomes an explicit
-  refinement path instead of silently mutating the original decision.
-- Budget, region, and category changes should open one contextual prompt or
-  aligned choice block when requested. They should not appear as permanent
-  multi-field panels on the first screen.
+- The normal flow should use directional navigation such as Back rather than
+  separate shortcut edit buttons like changing budget, changing region, or
+  correcting category.
 
 ## Inline Choice Blocks
 
@@ -151,6 +152,10 @@ Required behavior:
   to answer.
 - If no region is provided, any backend fallback/default region must remain
   marked as defaulted or inferred rather than user-confirmed.
+- Country/region display names should come from maintained standards, preferably
+  Unicode CLDR display names through `Intl.DisplayNames` backed by ISO 3166-1
+  alpha-2 region codes. App-specific currency and locale defaults should remain
+  separate metadata.
 
 ## Processing And Progress
 
@@ -258,9 +263,9 @@ Acceptance checklist:
 
 - No question yet: show the focused "Send your question" screen.
 - Missing saved region: show one-time region setup outside the main flow.
-- Optional question unanswered: allow `Skip question` when the question is
-  skippable.
-- Enough information exists: allow `Skip all and start analysis`.
+- Optional question unanswered: allow `Skip` when the question is skippable.
+- Enough information exists: allow `Skip all` on optional questions, then start
+  analysis automatically.
 - Off-topic, unsafe, illegal, or inappropriate requests: show a short
   regular-person-safe redirection and do not start discovery.
 - Processing: show calm, user-safe progress copy.
@@ -284,8 +289,9 @@ Before the guided frontend is accepted:
 - Normal guided intake asks one useful question at a time.
 - Ordinary intake does not use multi-row mini-forms.
 - Inline choice blocks are used only when they reduce effort.
-- `Skip question` works for skippable optional questions.
-- `Skip all and start analysis` appears once enough information exists.
+- `Skip` works for skippable optional questions.
+- `Skip all` appears once enough information exists and starts analysis without
+  a separate confirmation screen.
 - The user can go back and reanswer prior guided questions before analysis
   starts.
 - Region setup is one-time, local, outside the main flow, editable later, and

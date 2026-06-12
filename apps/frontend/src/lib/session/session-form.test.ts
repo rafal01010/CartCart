@@ -3,6 +3,8 @@ import {
 	buildCreateSessionRequest,
 	defaultSessionFormState,
 	parseBudget,
+	REGION_OPTIONS,
+	regionByCode,
 	sessionFormStateFromResponse,
 	shortSessionId,
 } from './session-form.js';
@@ -93,5 +95,21 @@ describe('session form helpers', () => {
 		expect(shortSessionId('12345678-1234')).toBe('12345678');
 		expect(shortSessionId('abc')).toBe('abc');
 		expect(defaultSessionFormState().regionCode).toBe('US');
+	});
+
+	it('builds a complete region list from ISO codes and CLDR display names', () => {
+		expect(REGION_OPTIONS.length).toBeGreaterThan(200);
+		expect(regionByCode('PH')).toMatchObject({
+			code: 'PH',
+			label: 'Philippines',
+			currency: 'PHP',
+			locale: 'en-PH',
+		});
+		expect(regionByCode('JP')).toMatchObject({
+			code: 'JP',
+			label: 'Japan',
+			currency: 'JPY',
+			locale: 'ja-JP',
+		});
 	});
 });

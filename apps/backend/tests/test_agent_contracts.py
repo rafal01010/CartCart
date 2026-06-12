@@ -323,7 +323,7 @@ async def test_agent_contract_fakes_return_typed_outputs_without_live_calls() ->
 
 
 @pytest.mark.asyncio
-async def test_fake_shopping_guide_prefers_combined_optional_free_text() -> None:
+async def test_fake_shopping_guide_asks_budget_before_product_names() -> None:
     guide = await FakeShoppingGuideAgent().run(
         ShoppingGuideAgentInput(
             user_input="Which laptop should I buy for travel?",
@@ -336,10 +336,10 @@ async def test_fake_shopping_guide_prefers_combined_optional_free_text() -> None
 
     assert guide.status == GuidedIntakeStatus.COLLECTING
     assert guide.current_question is not None
-    assert guide.current_question.question_id == "optional-context"
+    assert guide.current_question.question_id == "budget"
     assert guide.current_question.answer_surface == GuidedAnswerSurface.TEXTBOX
     assert guide.current_question.inline_choice is None
-    assert guide.current_question.combined_optional_prompt is not None
+    assert guide.current_question.combined_optional_prompt is None
     assert guide.skippable_question.can_skip is True
     assert guide.analysis_start.can_skip_all_and_start_analysis is True
     assert guide.region_setup.status == RegionSetupStatus.PROVIDED
@@ -375,12 +375,18 @@ async def test_fake_shopping_guide_can_skip_all_and_hand_complete_brief_to_intak
             user_input="Which laptop should I buy for travel?",
             prior_answers=(
                 {
-                    "question_id": "optional-context",
+                    "question_id": "budget",
+                    "answer": {
+                        "answer_type": "natural_language",
+                        "text": "Around $1,200.",
+                    },
+                },
+                {
+                    "question_id": "considered-products",
                     "answer": {
                         "answer_type": "natural_language",
                         "text": (
-                            "Around $1,200. I am considering the ThinkPad X1 "
-                            "Carbon and need long battery life."
+                            "ThinkPad X1 Carbon. I need long battery life."
                         ),
                     },
                 },
@@ -399,11 +405,11 @@ async def test_fake_shopping_guide_can_skip_all_and_hand_complete_brief_to_intak
 
 
 @pytest.mark.asyncio
-async def test_fake_shopping_guide_supports_skip_one_optional_question() -> None:
+async def test_fake_shopping_guide_supports_skip_all_optional_questions() -> None:
     guide = await FakeShoppingGuideAgent().run(
         ShoppingGuideAgentInput(
             user_input="Which desk should I buy?",
-            skipped_question_ids=("optional-context",),
+            skipped_question_ids=("budget", "considered-products"),
         )
     )
 

@@ -458,7 +458,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
         contract_name="YouTubeReviewIntelligenceAgent",
         provider_requirements=(
-            "youtube_video_metadata_provider_optional",
+            "youtube_data_api_optional",
             "authorized_caption_or_approved_transcript_provider_optional",
         ),
         output_schema="VideoReviewEvidenceBundle",

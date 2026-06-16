@@ -1,0 +1,17 @@
+{
+  "query": {
+    "query": "Northstar Arc 27 monitor price Philippines",
+    "intent": "price_check",
+    "region_code": "PH"
+  },
+  "url": "https://metro-office.example/products/northstar-arc-27",
+  "title": "Northstar Arc 27 USB-C Monitor",
+  "snippet": "Brand: Northstar. Price: PHP 18,990.00. Sold by: Metro Office. Region: PH.",
+  "provider": {
+    "provider_name": "fixture-search",
+    "provider_result_id": "northstar-search-1",
+    "raw": {
+      "target_region_code": "PH"
+    }
+  }
+}

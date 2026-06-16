@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-06-02
+Last updated: 2026-06-14
 
 ## Evaluation Direction
 
@@ -59,6 +59,9 @@ Eval cases should check whether the system:
 - Separates product quality from listing trust.
 - Handles incomplete information without hallucinating certainty.
 - Preserves conflicting evidence and surfaces material conflicts.
+- Rejects extracted product or listing claims whose target does not cite the
+  exact source snapshot, and retains both sides of contradictory warranty or
+  review-verdict fixture evidence with an explicit conflict record.
 - Offers useful alternate recommendation modes from the same analysis pass.
 - Preserves broad category fallback.
 - Uses video review evidence only when source-backed and available.
@@ -67,12 +70,81 @@ Eval cases should check whether the system:
 - Uses Amazon evidence with marketplace, listing, seller/fulfillment, review, and regional availability context preserved.
 - Uses IKEA evidence only with explicit country/region context and does not infer global shipping or availability.
 - Handles unavailable, blocked, weak, stale, anecdotal, or conflicting reusable source intelligence without fabricating certainty.
+- Classifies official sources, established first-party and mixed retailers,
+  open marketplaces, excluded proxy/resale platforms, review/testing sources,
+  community sources, and unknown stores deterministically.
+- Scores matching and mismatched regional domains, currencies, shipping,
+  Amazon marketplaces, and IKEA country paths predictably and with reasons.
 
 ## Test Layers
 
 Unit tests should cover schemas, deterministic source policy, budget semantics, deduplication, trust rules, and recommendation invariants.
 
 Integration tests should cover API endpoints, persistence, run lifecycle, event ordering, provider fixture replay, source extraction fixtures, and result versioning.
+
+YouTube metadata adapter tests should replay synthetic `search.list` and
+`videos.list` fixtures without network access, verify video identity, title,
+description, channel, publish date, duration, and neutral URL mapping, and keep
+transcript availability explicitly `not_checked`. Missing results and provider
+errors should return typed unavailable or sanitized error behavior without
+leaking API keys.
+
+YouTube transcript-ingestion tests should use deterministic permitted-provider
+fixtures, preserve transcript language and timestamps, represent unavailable or
+failed access as explicit gaps, and retain metadata-only evidence without
+inventing product claims. Deterministic video evidence creation must reject a
+claim unless its cited text appears in bundled transcript segments.
+
+Reddit community discovery evals should replay domain-scoped search fixtures
+without network access and verify public thread/comment URLs, subreddit and
+thread context, permitted excerpts or extracted text, optional recency and
+engagement metadata, qualitative source scoring, and explicit gaps for removed,
+inaccessible, unextracted, weak, or missing content. Expected outputs must not
+treat community anecdotes as authoritative specifications, prices, warranties,
+or availability facts. Focused evidence-creation tests should preserve all
+supporting thread/comment source IDs for recurring complaints, warn on stale or
+low-context discussions, and reject product claims that do not appear in every
+cited public discussion summary.
+
+Amazon product-intelligence tests should replay synthetic SerpApi Amazon Search
+and Product responses without network access. They should verify conservative
+ASIN matching, marketplace and listing identity, neutral non-affiliate product
+URLs, seller/ship-from separation, third-party seller warnings, requested-region
+delivery evidence or explicit gaps, product-page facts, rating/review summaries,
+variant ambiguity, missing review access, disabled/fixture/live runtime modes,
+and sanitized provider failures. Live SerpApi tests must remain credentialed and
+explicitly opt-in.
+
+Focused Amazon evidence-creation tests should verify third-party seller risk,
+variant/review ambiguity warnings, unavailable or inconclusive shipping,
+missing review access, explicit product-fact gaps, and rejection of affiliate or
+tracking URLs without creating unsupported facts.
+
+IKEA regional-store tests should replay synthetic domain-scoped search fixtures
+without network access. They should verify official country-path filtering,
+country/region context, neutral official URLs, product-page identity, local
+price/currency, stock and delivery/store signals, and explicit gaps for
+unavailable products or unsupported regions. A no-regional-presence case should
+prove that no search call occurs, and expected output must never infer global
+shipping from IKEA brand presence.
+
+Focused IKEA evidence-creation tests should verify available and unavailable
+regional products, preservation of official source/store context, explicit gaps
+for missing product facts, price, availability, or store/delivery fields, and
+rejection of tracked or cross-region URLs. Generated availability and shipping
+claims must remain scoped to the declared IKEA country or region.
+
+Focused discovery and extraction integration tests should verify that fixture
+mode makes no network calls, enabled provider configuration resolves the
+intended adapters, planned queries receive region/category options, accepted
+results are policy-scored and persisted, explicitly excluded domains are
+dropped, tracking parameters are normalized away, eligible pages pass through
+the extraction boundary, linked snapshots are persisted, and usable outcomes
+create app-generated shortlist memberships.
+
+The focused Section J fixture-mode gate command and its live-provider exclusions
+are documented in `docs/PROVIDERS.md`. Keep live calls, full backend/frontend
+suites, extraction checks, E2E tests, and model/eval runs outside that gate.
 
 Contract tests should verify OpenAPI export and generated or hand-maintained frontend API expectations once the backend exists.
 
@@ -81,6 +153,35 @@ End-to-end tests should cover the first stubbed workflow, then the fixture-backe
 Eval tests should run against stable local fixtures first. Live provider or live model evals should be opt-in because they require credentials, cost, and network access.
 
 Local frontend verification wrappers live under `scripts/local/`: `lint-frontend.sh`, `check-frontend.sh`, `test-frontend.sh`, `build-frontend.sh`, and `setup-playwright.sh`. Use focused unit test arguments during normal feature work and reserve full frontend verification, production builds, and browser checks such as `pnpm --dir apps/frontend run test:e2e` for the relevant gate or explicit release-like checks.
+
+## Isolated Agent Workbench
+
+Live-agent implementation should include a local-only workbench for hands-on
+inspection of one agent at a time. This is a developer and project-owner
+verification surface, not part of the normal shopper UI and not a public API.
+
+The workbench should provide both a scriptable terminal runner and a small local
+browser page backed by disabled-by-default internal endpoints. It should invoke
+only allowlisted agents from the executable catalog through their existing typed
+protocols. Each implemented agent should provide named normal and
+boundary/failure scenarios with schema-valid inputs; structured workflow agents
+should not be forced into a chat interface merely because conversational agents
+can use one.
+
+An isolated run should make the following inspectable without exposing secrets
+or hidden reasoning:
+
+- Validated agent input and structured output.
+- Allowed tool calls and sanitized tool results.
+- Model, elapsed time, trace ID, token usage when available, and estimated cost
+  when the application can calculate it reliably.
+- Schema-validation, timeout, provider, guardrail, and fallback outcomes.
+
+Mocked-model and fixture scenarios remain the required repeatable acceptance
+path. Live-model runs must be explicitly enabled, credentialed, and clearly
+identified as networked/cost-incurring manual checks. Workbench runs complement
+unit tests and evals; they do not replace regression assertions, routing tests,
+or full-workflow verification.
 
 ## Evidence And Fixture Policy
 

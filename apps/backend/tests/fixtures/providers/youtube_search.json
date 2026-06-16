@@ -1,0 +1,52 @@
+{
+  "provider_name": "youtube-data-api",
+  "request": {
+    "json": null,
+    "method": "GET",
+    "params": {
+      "maxResults": "2",
+      "order": "relevance",
+      "part": "snippet",
+      "q": "portable monitor review",
+      "regionCode": "PH",
+      "safeSearch": "moderate",
+      "type": "video"
+    },
+    "url": "https://www.googleapis.com/youtube/v3/search"
+  },
+  "response": {
+    "json": {
+      "items": [
+        {
+          "id": {
+            "kind": "youtube#video",
+            "videoId": "monitor-review-1"
+          },
+          "snippet": {
+            "channelId": "channel-fixture-1",
+            "channelTitle": "Fixture Reviews",
+            "description": "A synthetic review description with real-world notes.",
+            "publishedAt": "2026-05-10T08:30:00Z",
+            "title": "Portable Monitor Review &amp; Long-Term Test"
+          }
+        },
+        {
+          "id": {
+            "kind": "youtube#video",
+            "videoId": "monitor-review-2"
+          },
+          "snippet": {
+            "channelId": "channel-fixture-2",
+            "channelTitle": "Display Lab",
+            "description": "A second synthetic comparison review.",
+            "publishedAt": "2025-11-02T15:45:00Z",
+            "title": "Two Portable Monitors Compared"
+          }
+        }
+      ],
+      "regionCode": "PH"
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

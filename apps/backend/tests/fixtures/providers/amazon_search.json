@@ -1,0 +1,39 @@
+{
+  "provider_name": "serpapi-amazon",
+  "request": {
+    "method": "GET",
+    "params": {
+      "amazon_domain": "amazon.com",
+      "engine": "amazon",
+      "k": "Acme View 15 Portable Monitor",
+      "output": "json",
+      "shipping_location": "PH"
+    },
+    "url": "https://serpapi.com/search.json"
+  },
+  "response": {
+    "json": {
+      "organic_results": [
+        {
+          "asin": "B0CART5901",
+          "link": "https://www.amazon.com/dp/B0CART5901?tag=fixture-affiliate-20",
+          "rating": 4.4,
+          "reviews": 1287,
+          "title": "Acme View 15 Portable Monitor with USB-C"
+        }
+      ],
+      "search_metadata": {
+        "id": "amazon-search-fixture-1",
+        "status": "Success"
+      },
+      "search_parameters": {
+        "amazon_domain": "amazon.com",
+        "engine": "amazon",
+        "k": "Acme View 15 Portable Monitor",
+        "shipping_location": "PH"
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

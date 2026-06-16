@@ -33,6 +33,13 @@ class ProviderRunStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class TranscriptAccessStrategy(StrEnum):
+    NONE = "none"
+    AUTHORIZED_OFFICIAL_CAPTIONS = "authorized_official_captions"
+    USER_PROVIDED = "user_provided"
+    APPROVED_THIRD_PARTY = "approved_third_party"
+
+
 class ProviderCapabilityFlags(CartCartBaseModel):
     provider_name: str = Field(min_length=1, max_length=120)
     enabled: bool = True
@@ -53,6 +60,7 @@ class ProviderCapabilityFlags(CartCartBaseModel):
     supports_ikea_product_pages: bool = False
     supports_ikea_store_delivery_context: bool = False
     permits_transcript_text: bool = False
+    transcript_access_strategy: TranscriptAccessStrategy = TranscriptAccessStrategy.NONE
     compliance_notes: tuple[str, ...] = Field(default_factory=tuple)
 
 
@@ -92,6 +100,7 @@ class SearchProviderOptions(CartCartBaseModel):
 
 
 class ExtractionProviderOptions(CartCartBaseModel):
+    source_type: SourceType = SourceType.PRODUCT_PAGE
     source_policy: SourceAllowAvoidPolicy = Field(
         default_factory=SourceAllowAvoidPolicy
     )
@@ -115,7 +124,12 @@ class VideoSearchProviderOptions(CartCartBaseModel):
 
 
 class TranscriptProviderOptions(CartCartBaseModel):
-    language: str | None = Field(default=None, min_length=2, max_length=35)
+    language: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=35,
+        pattern=r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+    )
     source_policy: SourceAllowAvoidPolicy = Field(
         default_factory=SourceAllowAvoidPolicy
     )
@@ -184,17 +198,56 @@ class TranscriptProviderResult(CartCartBaseModel):
 
     @model_validator(mode="after")
     def _availability_matches_segments(self) -> "TranscriptProviderResult":
+        if self.segments and not (
+            self.capabilities.supports_transcripts
+            and self.capabilities.permits_transcript_text
+            and self.capabilities.transcript_access_strategy
+            != TranscriptAccessStrategy.NONE
+        ):
+            raise ValueError(
+                "transcript text requires a permitted transcript access strategy."
+            )
         if self.status == ProviderRunStatus.SUCCEEDED:
-            if self.availability in (
-                TranscriptAvailability.AVAILABLE,
-                TranscriptAvailability.PARTIAL,
-            ) and not self.segments:
+            if (
+                self.availability
+                in (
+                    TranscriptAvailability.AVAILABLE,
+                    TranscriptAvailability.PARTIAL,
+                )
+                and not self.segments
+            ):
                 raise ValueError("available transcript results require segments.")
             if (
-                self.availability == TranscriptAvailability.UNAVAILABLE
+                self.availability
+                not in (
+                    TranscriptAvailability.AVAILABLE,
+                    TranscriptAvailability.PARTIAL,
+                )
+                and self.segments
+            ):
+                raise ValueError(
+                    "unavailable transcript results cannot include segments."
+                )
+            if (
+                self.availability
+                not in (
+                    TranscriptAvailability.AVAILABLE,
+                    TranscriptAvailability.PARTIAL,
+                )
                 and not self.gap_notes
             ):
-                raise ValueError("unavailable transcript results require gap notes.")
+                raise ValueError("transcript gaps require explanatory notes.")
+        else:
+            if self.segments:
+                raise ValueError(
+                    "unsuccessful transcript results cannot include segments."
+                )
+            if not self.gap_notes:
+                raise ValueError(
+                    "unsuccessful transcript results require explanatory notes."
+                )
+        if any(segment.video_id != self.video.video_id for segment in self.segments):
+            raise ValueError("transcript segments must match the result video.")
         return self
 
 
@@ -215,7 +268,9 @@ class CommunityDiscussionProviderResult(CartCartBaseModel):
     @model_validator(mode="after")
     def _succeeded_requires_bundle(self) -> "CommunityDiscussionProviderResult":
         if self.status == ProviderRunStatus.SUCCEEDED and self.bundle is None:
-            raise ValueError("successful community discussion results require a bundle.")
+            raise ValueError(
+                "successful community discussion results require a bundle."
+            )
         if self.status != ProviderRunStatus.SUCCEEDED and self.bundle is not None:
             raise ValueError(
                 "disabled or unavailable community discussion results cannot include a bundle."

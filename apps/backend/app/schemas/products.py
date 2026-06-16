@@ -28,6 +28,14 @@ class SellerTrustSignal(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ListingExtractionMissingField(StrEnum):
+    BRAND = "brand"
+    PRICE = "price"
+    CURRENCY = "currency"
+    SELLER_STORE = "seller_store"
+    REGION = "region"
+
+
 class RegionAvailability(CartCartBaseModel):
     region_code: RegionCode
     status: ListingAvailabilityStatus = ListingAvailabilityStatus.UNKNOWN
@@ -67,6 +75,23 @@ class ProductListing(VersionedSchema):
     region_availability: tuple[RegionAvailability, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(min_length=1)
     captured_at: Timestamp = Field(default_factory=utc_now)
+
+
+class ProductListingExtraction(VersionedSchema):
+    product: CanonicalProduct
+    listing: ProductListing
+    missing_data_flags: tuple[ListingExtractionMissingField, ...] = Field(
+        default_factory=tuple
+    )
+    confidence: Confidence
+
+    @model_validator(mode="after")
+    def _product_and_listing_must_match(self) -> "ProductListingExtraction":
+        if self.product.product_id != self.listing.product_id:
+            raise ValueError(
+                "extracted product and listing must reference the same product."
+            )
+        return self
 
 
 class UserAddedProduct(VersionedSchema):

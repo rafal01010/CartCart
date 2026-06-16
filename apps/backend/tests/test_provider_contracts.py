@@ -32,6 +32,7 @@ from app.providers import (
     SourcePolicyAction,
     SourcePolicyRule,
     TranscriptProvider,
+    TranscriptAccessStrategy,
     VideoSearchProvider,
 )
 from app.schemas.ids import new_id
@@ -156,7 +157,11 @@ async def test_fake_source_intelligence_providers_model_video_transcript_states(
     assert available_transcript.status == ProviderRunStatus.SUCCEEDED
     assert available_transcript.availability == TranscriptAvailability.AVAILABLE
     assert available_transcript.segments[0].text is not None
+    assert available_transcript.segments[0].language == "en"
     assert available_transcript.capabilities.permits_transcript_text is True
+    assert available_transcript.capabilities.transcript_access_strategy == (
+        TranscriptAccessStrategy.AUTHORIZED_OFFICIAL_CAPTIONS
+    )
 
     unavailable_transcript = await FakeTranscriptProvider(
         availability=TranscriptAvailability.UNAVAILABLE,

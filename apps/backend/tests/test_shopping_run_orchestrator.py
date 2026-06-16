@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import AnyHttpUrl
 
 import app.db.models  # noqa: F401
 from app.core.settings import Settings
@@ -15,8 +16,106 @@ from app.orchestration import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunOrchestrator,
 )
-from app.schemas.intake import CreateSessionRequest, ShoppingBrief
+from app.providers import ExtractionProviderOptions, SearchProviderOptions
+from app.schemas.intake import CreateSessionRequest, FieldSource, ShoppingBrief
 from app.schemas.runs import RunStage, RunStatus
+from app.schemas.search_sources import (
+    ExtractedPageContent,
+    ExtractionStatus,
+    ProviderMetadata,
+    SearchQuery,
+    SearchResult,
+    SourceQuality,
+    SourceQualityLevel,
+    SourceSnapshot,
+    SourceType,
+)
+
+
+class RecordingSearchProvider:
+    provider_name = "recording-search"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[SearchQuery, SearchProviderOptions | None]] = []
+
+    async def search(
+        self,
+        query: SearchQuery,
+        options: SearchProviderOptions | None = None,
+    ) -> tuple[SearchResult, ...]:
+        self.calls.append((query, options))
+        return (
+            SearchResult(
+                query=query,
+                url=AnyHttpUrl(
+                    "https://www.rtings.com/monitor/reviews/example?utm_source=fixture"
+                ),
+                title="Measured monitor review",
+                snippet="Instrumented review results.",
+                provider=ProviderMetadata(provider_name=self.provider_name),
+                quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
+            ),
+            SearchResult(
+                query=query,
+                url=AnyHttpUrl("https://www.aliexpress.com/item/fixture.html"),
+                title="Excluded reseller result",
+                provider=ProviderMetadata(provider_name=self.provider_name),
+            ),
+        )
+
+
+class ListingSearchProvider:
+    provider_name = "fixture-listing-search"
+
+    async def search(
+        self,
+        query: SearchQuery,
+        options: SearchProviderOptions | None = None,
+    ) -> tuple[SearchResult, ...]:
+        del options
+        return (
+            SearchResult(
+                query=query,
+                url=AnyHttpUrl("https://shop.example/northstar-arc-27"),
+                title="Northstar Arc 27 USB-C Monitor",
+                snippet="Fixture retailer result.",
+                source_type=SourceType.RETAILER_LISTING,
+                provider=ProviderMetadata(provider_name=self.provider_name),
+            ),
+        )
+
+
+class RecordingExtractionProvider:
+    provider_name = "recording-extraction"
+
+    def __init__(self) -> None:
+        self.calls: list[
+            tuple[AnyHttpUrl, ExtractionProviderOptions | None]
+        ] = []
+
+    async def extract(
+        self,
+        url: AnyHttpUrl,
+        options: ExtractionProviderOptions | None = None,
+    ) -> SourceSnapshot:
+        self.calls.append((url, options))
+        text = (
+            "Brand: Northstar\nPrice: USD 329.99\nSeller: Metro Office\n"
+            "Region: US\nA 27 inch USB-C monitor for office work."
+        )
+        return SourceSnapshot(
+            url=url,
+            source_type=SourceType.RETAILER_LISTING,
+            provider=ProviderMetadata(provider_name=self.provider_name),
+            title="Northstar Arc 27 USB-C Monitor",
+            extraction_status=ExtractionStatus.SUCCEEDED,
+            extracted_content=ExtractedPageContent(
+                text=text,
+                extractor="fixture-static",
+                site_name="Metro Office",
+                word_count=len(text.split()),
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -54,7 +153,7 @@ async def test_shopping_run_orchestrator_records_all_expected_fixture_stages(
                 )
             )
 
-            context = await orchestrator.run(run.run_id)
+            context = await orchestrator.run(run.run_id, shopping_session.current_brief)
             await db_session.commit()
 
         async with session_factory() as db_session:
@@ -81,10 +180,15 @@ async def test_shopping_run_orchestrator_records_all_expected_fixture_stages(
         )
         assert tuple(event.status for event in events) == expected_statuses
         assert tuple(context.stage_outputs) == executable_stages
+        assert context.search_plan is not None
+        assert context.search_plan.queries[0].query == "Need a 27 inch monitor reviews"
+        assert context.search_plan.queries[0].region_code == "US"
+        assert context.search_results
+        assert {result.provider.provider_name for result in context.search_results} == {
+            "fixture-search"
+        }
         assert {record.stage for record in agent_records} == set(executable_stages)
-        assert {
-            record.trace_id for record in agent_records
-        } == {
+        assert {record.trace_id for record in agent_records} == {
             f"{context.trace_id}:{stage.value}" for stage in executable_stages
         }
 
@@ -125,7 +229,7 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
                 )
             )
 
-            context = await orchestrator.run(run.run_id)
+            context = await orchestrator.run(run.run_id, shopping_session.current_brief)
             await db_session.commit()
 
         assert context.fixture_output is not None
@@ -151,10 +255,17 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
             listing_counts = tuple(listing_count_items)
 
         fixture = context.fixture_output
-        assert len(search_results) == len(fixture.search_results)
-        assert len(source_snapshots) == len(fixture.source_snapshots)
+        assert len(search_results) == len(context.search_results)
+        assert all(
+            result.provider.provider_name == "fixture-search"
+            for result in search_results
+        )
+        assert len(source_snapshots) == (
+            len(fixture.source_snapshots) + len(context.source_extractions)
+        )
         assert len(source_evidence) == len(fixture.source_evidence)
-        assert len(shortlist) == 4
+        assert len(shortlist) == len(context.source_extractions)
+        assert all(item.listing_extraction is not None for item in context.source_extractions)
         assert len(user_added) == 1
         assert user_added[0].listing is not None
         assert user_added[0].listing.seller.seller_name == "FlashDealz Outlet"
@@ -174,5 +285,165 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         )
         assert any(count > 1 for count in listing_counts)
 
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_query_planning_calls_provider_and_persists_scored_results_only(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-search.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    provider = RecordingSearchProvider()
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a 27 inch monitor"),
+                current_brief=ShoppingBrief(original_query="Need a 27 inch monitor"),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                ),
+                search_provider=provider,
+                default_region_code="US",
+            )
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            repository = SearchSourceRepository(db_session)
+            persisted_results = await repository.list_search_results(run.run_id)
+            snapshots = await repository.list_source_snapshots(run.run_id)
+
+        assert len(provider.calls) == 1
+        called_query, called_options = provider.calls[0]
+        assert called_query.query == "Need a 27 inch monitor reviews"
+        assert called_query.region_code == "US"
+        assert called_options is not None
+        assert called_options.region_code == "US"
+        assert len(context.search_results) == 1
+        assert len(persisted_results) == 1
+        assert str(persisted_results[0].url).startswith("https://rtings.com/")
+        assert "utm_source" not in str(persisted_results[0].url)
+        assert persisted_results[0].quality.level == SourceQualityLevel.ADEQUATE
+        assert persisted_results[0].provider.raw["source_class"] == "review_testing"
+        extracted_snapshot = next(
+            snapshot
+            for snapshot in snapshots
+            if snapshot.provider.provider_name == "fixture-extraction"
+        )
+        assert extracted_snapshot.url == persisted_results[0].url
+        assert extracted_snapshot.provider.raw["search_result_source_id"] == str(
+            persisted_results[0].source_id
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_extraction_provider_creates_persisted_generated_shortlist(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-extraction.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    extraction_provider = RecordingExtractionProvider()
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a USB-C monitor"),
+                current_brief=ShoppingBrief(
+                    original_query="Need a USB-C monitor",
+                    category="monitor",
+                    category_source=FieldSource.USER_PROVIDED,
+                ),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                ),
+                search_provider=ListingSearchProvider(),
+                extraction_provider=extraction_provider,
+                default_region_code="US",
+            )
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            search_repository = SearchSourceRepository(db_session)
+            product_repository = ProductRepository(db_session)
+            snapshots = await search_repository.list_source_snapshots(run.run_id)
+            shortlist = await product_repository.list_shortlist_memberships(run.run_id)
+            events = await RunRepository(db_session).list_events(run.run_id)
+
+            assert len(extraction_provider.calls) == 1
+            called_url, called_options = extraction_provider.calls[0]
+            assert str(called_url) == "https://shop.example/northstar-arc-27"
+            assert called_options is not None
+            assert called_options.source_type == SourceType.RETAILER_LISTING
+
+            assert len(context.source_extractions) == 1
+            generated = context.source_extractions[0]
+            assert generated.listing_extraction is not None
+            assert generated.listing_extraction.product.brand == "Northstar"
+            assert generated.listing_extraction.product.category == "monitor"
+            assert generated.listing_extraction.listing.price is not None
+            assert generated.listing_extraction.listing.price.currency == "USD"
+
+            extracted_snapshot = next(
+                snapshot
+                for snapshot in snapshots
+                if snapshot.provider.provider_name == "recording-extraction"
+            )
+            assert extracted_snapshot.provider.raw["search_result_source_id"] == str(
+                generated.search_result.source_id
+            )
+            assert len(shortlist) == 1
+            assert shortlist[0].product_id == generated.listing_extraction.product.product_id
+            assert shortlist[0].listing_id == generated.listing_extraction.listing.listing_id
+
+            extraction_event = next(
+                event for event in events if event.stage == RunStage.EXTRACTION
+            )
+            assert extraction_event.message == (
+                "Checked 1 shopping source and added 1 product to compare."
+            )
     finally:
         await engine.dispose()

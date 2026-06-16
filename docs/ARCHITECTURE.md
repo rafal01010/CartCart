@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Initial public architecture notes with guided intake direction
-Last updated: 2026-06-12
+Last updated: 2026-06-14
 
 ## Product Model
 
@@ -35,6 +35,15 @@ The normal UI should support:
 
 MVP is local/no-auth, English-only, desktop-first, and single-user. Mobile should remain usable, but dense desktop workflows take priority.
 
+The initial MVP source-policy and retailer-coverage seed targets the
+Philippines (`PH`), United States (`US`), South Korea (`KR`), Canada (`CA`),
+Japan (`JP`), Singapore (`SG`), Macao (`MO`), Australia (`AU`), New Zealand
+(`NZ`), Hong Kong (`HK`), and Taiwan (`TW`). These are prioritization targets
+for source discovery, marketplace/store policy, and region-relevance scoring,
+not a hard product-access allowlist. CartCart retains broad category support and
+the generic fallback for shoppers outside the seeded regions. The runtime
+default region remains separately configurable.
+
 ## Recommended Stack
 
 Backend:
@@ -64,7 +73,7 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, source snapshots/evidence, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a fixture-only shopping run orchestrator, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, provider-backed source extraction, source snapshots/evidence, bounded HTTP source fetch and raw snapshot storage, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a transitional shopping run orchestrator with provider-backed discovery/extraction and fixture analysis stages, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
 
 Current skeleton:
 
@@ -209,7 +218,7 @@ analysis.
 
 ## Workflow Architecture
 
-CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and a fixture monitor-shopping result bundle. The current implementation is fixture-only; `POST /api/sessions/{session_id}/runs` executes it synchronously and records deterministic stages plus persisted search/source, product/listing, user-added item, trust, analysis, and recommendation output without live providers or model calls.
+CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the current fixture monitor-shopping analysis bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, and usable extraction output creates persisted app-generated products, listings, and shortlist memberships. Later trust, analysis, recommendation, and verification stages remain deterministic fixtures and do not call models.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -394,13 +403,141 @@ Search and extraction should be adapter-based. Initial provider interfaces shoul
 - Optional shopping-specific product search.
 - Reusable source-intelligence providers such as video search, transcripts, Reddit/community retrieval, Amazon product/listing/review retrieval, IKEA regional store lookup, marketplace product intelligence, and official store lookup.
 
+Static source retrieval uses `HttpSourceFetcher`: it sends an explicit CartCart user
+agent and HTML accept policy, follows redirects, enforces the configured timeout and
+decoded-body limit while streaming, and rejects non-HTML or unsuccessful responses.
+Completed bodies are written atomically beneath `data/artifacts/raw-sources/`; the
+structured `SourceSnapshot` stores the relative artifact path, content metadata, and
+hash. Fetching does not perform text extraction, which remains a separate stage.
+`StaticPageTextExtractor` reads that stored artifact without another network request
+and uses Trafilatura to add main text, title, author, description, site name,
+publication date, language when available, and word count to the same
+`SourceSnapshot`. Pages with no usable static text retain the raw artifact and are
+marked as failed extraction so later policy can consider an optional dynamic path.
+`DynamicExtractionPolicy` is the decision point for that path. It always requests
+static extraction first, accepts usable static output, and considers dynamic
+extraction only after static output is failed, partial, or below the configured
+minimum word count. Excluded sources, search-result records, and video records do
+not enter browser extraction. Dynamic fallback is disabled by default and remains
+optional even when enabled; the policy returns a decision but does not launch
+Playwright, Crawl4AI, or any other browser runtime.
+
+`ProductListingExtractor` is the deterministic v1 normalization step after
+search or static page extraction. It converts selected search-result snippets
+and extracted product, retailer, or official-brand pages into a linked
+`CanonicalProduct` and `ProductListing`. Brand remains product-level data rather
+than being duplicated on the listing. Price and currency remain a single
+`Money` value, region hints become unknown-status `RegionAvailability` entries,
+and the extraction result records explicit missing-data flags plus confidence.
+Hostname-derived seller names keep partial records valid but are marked as
+missing seller/store data. Professional reviews and other non-listing pages are
+not normalized as listings by this service.
+
+`SourceEvidenceCreator` is the deterministic evidence step for usable extracted
+page text. It converts explicit product, listing, warranty, availability, and
+review-verdict facts into typed `SourceEvidence` records only when the exact
+snapshot source ID is present on the target product or listing. Evidence from
+different sources is retained independently. Facts with the same target and
+fact kind but incompatible normalized values produce `EvidenceConflict`
+records that cite every retained evidence ID instead of selecting a winner.
+
 The implemented backend provider boundary lives under `apps/backend/app/providers`.
 `SearchProvider`, `ExtractionProvider`, and optional `ShoppingProvider` are async
 protocols that return existing typed source and product schemas. Provider options
 carry a `SourceAllowAvoidPolicy` so orchestration can pass explicit allow and
 avoid rules without hard-coding a single marketplace, source category, or search
-vendor. Deterministic fake providers live beside the contracts and are intended
-for fixture-mode tests until real adapters are configured.
+vendor. Deterministic fake providers live beside the contracts for fixture-mode
+tests. The first live adapter is `TavilySearchProvider`, which uses Tavily's HTTP
+Search API behind the same `SearchProvider` protocol. It maps responses into
+`SearchResult`, keeps source quality unknown for the separate deterministic
+scoring layer, applies domain allow/avoid rules through Tavily's domain filters,
+and does not retain raw page content or API secrets.
+
+Configured page extraction uses `HttpStaticExtractionProvider` as the single
+runtime boundary. It composes the bounded `HttpSourceFetcher` and
+`StaticPageTextExtractor`, preserves the requested page source type, and returns
+the resulting stored and extracted `SourceSnapshot`. Runtime modes are explicit:
+`fixture` is deterministic, `disabled` returns an excluded snapshot without a
+request, and `http_static` performs the implemented HTTP/static path when its
+enabled flag is true. Tavily is not an extraction setting. The optional generic
+`ShoppingProvider` remains a contract/fake for test substitution and has no
+runtime setting; SerpApi configuration belongs only to Amazon intelligence.
+
+YouTube video discovery uses `YouTubeDataApiVideoSearchProvider` behind the
+`VideoSearchProvider` protocol. It calls the official YouTube Data API
+`search.list` endpoint for relevant video snippets and `videos.list` for
+duration metadata. Results preserve video ID, neutral watch URL, title,
+description, channel, publish timestamp, and duration when returned. The
+adapter is metadata-only: transcript availability remains `not_checked`, no
+caption endpoint is called, and no transcript claim is inferred.
+
+`YouTubeTranscriptIngestor` is the separate transcript boundary. Fixture mode
+uses `FakeTranscriptProvider`; configured live mode uses
+`YtDlpTranscriptProvider`, an approved third-party strategy for public captions.
+The live adapter accepts only a validated YouTube video ID and matching URL,
+constructs a fixed backend-owned `yt-dlp` argument list, requests manual
+subtitles before automatic captions, and never downloads video or audio. It
+ignores user yt-dlp configuration, disables plugins and remote EJS components,
+uses the configured Deno runtime, bounds subprocess time/output/temp storage,
+and always removes its temporary directory. WebVTT parsing is deterministic and
+preserves language and timestamps while removing duplicate rolling-caption
+text. Missing dependencies, unavailable or restricted captions, rate limits,
+challenge failures, and other provider failures become sanitized explicit gaps;
+live mode does not substitute fixture transcript text. `VideoEvidenceCreator`
+accepts only claims found in cited transcript segments, derives timestamp
+references from those segments when needed, and otherwise emits source-metadata
+evidence that explicitly says no transcript-backed product claim was created.
+
+Reddit community discovery uses `RedditCommunityDiscoveryProvider` behind the
+`CommunityDiscussionProvider` protocol. It composes the configured general
+`SearchProvider`, adds `site:reddit.com` query scope plus a `reddit.com` domain
+allow rule, rejects non-Reddit results, parses subreddit/thread/comment context
+from public URLs, and applies deterministic community source-quality scoring.
+Search excerpts are returned as qualitative evidence with warnings. Full public
+page text is used only when an approved upstream provider supplies it; this
+adapter does not fetch Reddit pages directly and records missing extraction,
+recency, engagement, removed content, and no-result cases as explicit gaps.
+`CommunityEvidenceCreator` requires each qualitative claim to appear in every
+cited bundled discussion summary, preserves all cited thread/comment source IDs
+for recurring signals, and rejects unsupported product facts instead of
+creating evidence from them. Stale, excerpt-only, low-context, and anecdotal
+signals remain explicit evidence-quality warnings.
+
+Amazon product intelligence uses `SerpApiAmazonProductIntelligenceProvider`
+behind the `AmazonProductIntelligenceProvider` protocol. It uses SerpApi's
+documented Amazon Search API for conservative ASIN discovery when no Amazon
+listing is supplied, then the Amazon Product API for structured product-page,
+offer, delivery, and review-summary fields. The adapter preserves marketplace
+domain and country, ASIN/listing identity, selected seller and ship-from
+context, requested ship-to region, product facts, rating/review counts, review
+summaries, third-party seller warnings, and variant/review ambiguity. Evidence
+links are rebuilt as neutral Amazon `/dp/{ASIN}` URLs; provider, tracking, and
+affiliate URLs are not propagated.
+
+`AmazonProductEvidenceCreator` is the provider-independent evidence boundary.
+It converts approved normalized listing context into product, listing, seller,
+review, and region evidence; emits explicit gaps for missing product facts,
+seller/fulfillment, review access, or inconclusive shipping; and rejects
+tracked or affiliate-style listing URLs before evidence is created.
+
+IKEA regional store intelligence uses `IKEARegionalStoreDiscoveryProvider`
+behind the `IKEAStoreIntelligenceProvider` protocol. It composes the configured
+general `SearchProvider`, scopes queries to the expected official IKEA domain
+and country path, and rejects results outside that regional path. Accepted
+results preserve the official URL, country/region, product number and page
+information, local price/currency, and stock, pickup, store, or delivery signals
+when present in search metadata. Unsupported regions, missing products, absent
+price or delivery details, and unavailable products produce explicit evidence
+gaps. The adapter does not fetch IKEA pages directly and never converts global
+brand presence into a shipping or availability claim.
+
+`IKEAStoreEvidenceCreator` is the provider-independent evidence boundary. It
+accepts approved normalized regional store context, validates that source URLs
+are neutral official URLs on the declared IKEA country path, and creates
+separate product and region evidence for product-page facts, local
+price/currency, availability, and store/delivery context. Missing or unavailable
+fields remain explicit gaps, and every purchase-context claim warns that it does
+not establish availability or shipping outside the declared region.
 
 Reusable source-intelligence providers are also defined in the provider layer.
 The agent contract and executable catalog layer exposes required reusable source
@@ -411,14 +548,18 @@ capabilities, official/user-authorized access, domain-scoped search support,
 public-page extraction support, Amazon product/listing/review support, regional
 ship-to evidence support, IKEA regional official-store support, and compliance
 notes. Fake implementations can return metadata-only video evidence, available
-transcript segments, explicit unavailable-transcript gaps, Reddit/community
+transcript segments with language and timestamps, explicit unavailable or
+failed-transcript gaps, Reddit/community
 evidence gaps or recurring discussion signals, Amazon product/listing/review
 evidence, IKEA regional store evidence, and disabled-provider results without
 making live calls.
 
 Provider runtime configuration is typed in backend settings. Search, extraction,
-and optional shopping providers have explicit provider names, enabled flags,
-shared timeout/rate-limit defaults, a default region, and local secret fields.
+optional shopping, video metadata, Amazon product-intelligence, and IKEA
+regional-store providers have explicit provider names, enabled flags, shared
+timeout/rate-limit defaults, a default region, and local secret fields where
+needed. IKEA search mode reuses the configured general search provider rather
+than introducing a separate credential.
 Missing keys for enabled live providers surface as readiness warnings rather
 than blocking fixture or stub operation.
 
@@ -431,6 +572,20 @@ Source policy:
 - Allow mixed marketplaces only when seller/listing legitimacy can be meaningfully assessed.
 - Preserve source evidence and conflicts rather than flattening incompatible claims.
 - Do not recommend a listing merely because it matches the query; source quality and buyer safety are part of candidacy.
+
+The deterministic v1 implementation lives in
+`apps/backend/app/providers/source_quality.py`. It normalizes source URLs and
+removes common affiliate/tracking parameters, classifies the project-owner
+approved seed domains, and returns separate fields for source quality,
+exclusion, listing-trust requirements, region relevance, and human-readable
+reasons. Domain quality never substitutes for offer quality: marketplace and
+mixed-retailer listings remain trust-required, Amazon remains listing-specific,
+Reddit and other communities remain qualitative, and IKEA price/stock evidence
+is strong only on the matching country or region path. Unknown sources are not
+automatically excluded. Query planning now applies the scorer to provider search
+results before persistence, filters sources explicitly excluded by policy, and
+records source class, region relevance, and listing-trust requirements in
+provider metadata for later stages.
 
 ## Recommendation Principles
 

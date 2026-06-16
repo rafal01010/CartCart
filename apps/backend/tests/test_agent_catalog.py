@@ -77,7 +77,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         for agent in source_agents
         for requirement in agent.provider_requirements
     }
-    assert "youtube_video_metadata_provider_optional" in provider_requirement_names
+    assert "youtube_data_api_optional" in provider_requirement_names
     assert "reddit_community_discussion_provider_optional" in (
         provider_requirement_names
     )
@@ -87,7 +87,9 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert "ikea_regional_official_store_provider_optional" in (
         provider_requirement_names
     )
-    assert "youtube_data_api_optional" not in provider_requirement_names
+    assert "youtube_video_metadata_provider_optional" not in (
+        provider_requirement_names
+    )
     assert "marketplace_availability_provider_optional" not in provider_requirement_names
 
 

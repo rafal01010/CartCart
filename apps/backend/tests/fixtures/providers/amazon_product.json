@@ -1,0 +1,101 @@
+{
+  "provider_name": "serpapi-amazon",
+  "request": {
+    "method": "GET",
+    "params": {
+      "amazon_domain": "amazon.com",
+      "asin": "B0CART5901",
+      "engine": "amazon_product",
+      "other_sellers": "true",
+      "output": "json",
+      "shipping_location": "PH"
+    },
+    "url": "https://serpapi.com/search.json"
+  },
+  "response": {
+    "json": {
+      "other_sellers": [
+        {
+          "delivery": [
+            "Delivery to the Philippines in 7-12 days"
+          ],
+          "price": "$179.99",
+          "reviews": 214,
+          "seller_feedback": "82% positive over last 12 months",
+          "ship_from": "Amazon",
+          "sold_by": "Acme Deals"
+        }
+      ],
+      "product_results": {
+        "about_this_item": [
+          "15.6-inch 1080p IPS display",
+          "Single-cable USB-C video and power",
+          "Mini HDMI input and folding stand"
+        ],
+        "asin": "B0CART5901",
+        "availability": "In stock and available for delivery",
+        "description": "A synthetic portable monitor fixture for provider replay tests.",
+        "extracted_price": 179.99,
+        "price": "$179.99",
+        "product_details": {
+          "brand": "Acme",
+          "model_name": "View 15",
+          "screen_size": "15.6 inches"
+        },
+        "rating": 4.4,
+        "reviews": 1287,
+        "title": "Acme View 15 Portable Monitor with USB-C",
+        "variants": [
+          {
+            "items": [
+              {
+                "asin": "B0CART5901",
+                "name": "15.6 inch",
+                "selected": true
+              },
+              {
+                "asin": "B0CART5902",
+                "name": "17.3 inch"
+              }
+            ],
+            "title": "Size"
+          }
+        ]
+      },
+      "reviews_information": {
+        "customer_reviews": {
+          "1 star": 5,
+          "2 star": 3,
+          "3 star": 7,
+          "4 star": 19,
+          "5 star": 66
+        },
+        "reviews_summary": [
+          {
+            "sentiment": "positive",
+            "summary": "Customers like the display clarity and portability.",
+            "title": "Display quality"
+          },
+          {
+            "sentiment": "mixed",
+            "summary": "Cable compatibility depends on the source device.",
+            "title": "USB-C compatibility"
+          }
+        ]
+      },
+      "search_metadata": {
+        "amazon_product_url": "https://www.amazon.com/dp/B0CART5901?tag=fixture-affiliate-20",
+        "id": "amazon-product-fixture-1",
+        "status": "Success"
+      },
+      "search_parameters": {
+        "amazon_domain": "amazon.com",
+        "asin": "B0CART5901",
+        "engine": "amazon_product",
+        "shipping_location": "PH"
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

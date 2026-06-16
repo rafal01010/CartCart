@@ -1,0 +1,46 @@
+{
+  "provider_name": "tavily",
+  "request": {
+    "json": {
+      "include_answer": false,
+      "include_domains": [
+        "ikea.com"
+      ],
+      "include_images": false,
+      "include_raw_content": false,
+      "include_usage": true,
+      "max_results": 5,
+      "query": "MICKE desk IKEA site:ikea.com/ph/en",
+      "search_depth": "basic",
+      "topic": "general"
+    },
+    "method": "POST",
+    "url": "https://api.tavily.com/search"
+  },
+  "response": {
+    "json": {
+      "query": "MICKE desk IKEA site:ikea.com/ph/en",
+      "request_id": "ikea-ph-available-1",
+      "response_time": 0.31,
+      "results": [
+        {
+          "content": "MICKE desk. PHP 3990. Available for delivery in Metro Manila. Displayed at the IKEA Pasay City store.",
+          "score": 0.95,
+          "title": "MICKE desk, white - IKEA",
+          "url": "https://www.ikea.com/ph/en/p/micke-desk-white-90214308/?utm_source=fixture"
+        },
+        {
+          "content": "MICKE desk. USD 99. Available for delivery in the United States.",
+          "score": 0.8,
+          "title": "MICKE desk, white - IKEA",
+          "url": "https://www.ikea.com/us/en/p/micke-desk-white-90214308/"
+        }
+      ],
+      "usage": {
+        "credits": 1
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

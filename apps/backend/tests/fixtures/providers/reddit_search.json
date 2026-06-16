@@ -1,0 +1,46 @@
+{
+  "provider_name": "tavily",
+  "request": {
+    "json": {
+      "include_answer": false,
+      "include_domains": [
+        "reddit.com"
+      ],
+      "include_images": false,
+      "include_raw_content": false,
+      "include_usage": true,
+      "max_results": 5,
+      "query": "portable monitor owner experiences site:reddit.com",
+      "search_depth": "basic",
+      "topic": "general"
+    },
+    "method": "POST",
+    "url": "https://api.tavily.com/search"
+  },
+  "response": {
+    "json": {
+      "query": "portable monitor owner experiences site:reddit.com",
+      "request_id": "recorded-reddit-request-1",
+      "response_time": 0.31,
+      "results": [
+        {
+          "content": "Owners discuss brightness, USB-C compatibility, and stand stability after several months of use.",
+          "score": 0.88,
+          "title": "Portable monitor long-term owner experiences",
+          "url": "https://www.reddit.com/r/Monitors/comments/thread123/portable_monitor_long_term_owner_experiences/"
+        },
+        {
+          "content": "One owner reports that the included cable was unreliable and recommends checking power requirements.",
+          "score": 0.79,
+          "title": "Comment on portable monitor cable reliability",
+          "url": "https://www.reddit.com/r/UsbCHardware/comments/thread456/portable_monitor_setup/comment789/"
+        }
+      ],
+      "usage": {
+        "credits": 1
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

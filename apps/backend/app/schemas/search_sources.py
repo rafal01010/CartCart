@@ -152,6 +152,24 @@ class SourceQuality(CartCartBaseModel):
     rationale: str | None = Field(default=None, min_length=1, max_length=500)
 
 
+class RawSourceSnapshotArtifact(CartCartBaseModel):
+    path: str = Field(min_length=1, max_length=2048)
+    content_type: str = Field(min_length=1, max_length=200)
+    size_bytes: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ExtractedPageContent(CartCartBaseModel):
+    text: str = Field(min_length=1)
+    extractor: str = Field(min_length=1, max_length=120)
+    author: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    site_name: str | None = Field(default=None, min_length=1, max_length=300)
+    published_date: str | None = Field(default=None, min_length=1, max_length=35)
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+    word_count: int = Field(ge=1)
+
+
 class EvidenceTarget(CartCartBaseModel):
     target_type: EvidenceTargetType
     product_id: ProductId | None = None
@@ -268,9 +286,11 @@ class VideoSource(CartCartBaseModel):
     video_id: str = Field(min_length=1, max_length=128)
     url: AnyHttpUrl
     title: str | None = Field(default=None, min_length=1, max_length=300)
+    description: str | None = Field(default=None, min_length=1, max_length=5000)
     channel_id: str | None = Field(default=None, min_length=1, max_length=128)
     channel_name: str | None = Field(default=None, min_length=1, max_length=200)
     published_at: Timestamp | None = None
+    duration_seconds: int | None = Field(default=None, ge=0)
     transcript_availability: TranscriptAvailability = TranscriptAvailability.NOT_CHECKED
     channel_signals: tuple[ChannelSignal, ...] = Field(default_factory=tuple)
     sponsorship_disclosed: bool | None = None
@@ -296,6 +316,7 @@ class VideoTranscriptSegment(CartCartBaseModel):
     video_id: str = Field(min_length=1, max_length=128)
     start_seconds: float = Field(ge=0)
     end_seconds: float | None = Field(default=None, ge=0)
+    language: str | None = Field(default=None, min_length=2, max_length=35)
     text: str | None = Field(default=None, min_length=1, max_length=5000)
     availability: TranscriptAvailability = TranscriptAvailability.AVAILABLE
     gap_reason: str | None = Field(default=None, min_length=1, max_length=500)
@@ -531,6 +552,9 @@ class SourceSnapshot(VersionedSchema):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     captured_at: Timestamp = Field(default_factory=utc_now)
     extraction_status: ExtractionStatus = ExtractionStatus.NOT_ATTEMPTED
+    http_status_code: int | None = Field(default=None, ge=100, le=599)
+    raw_artifact: RawSourceSnapshotArtifact | None = None
+    extracted_content: ExtractedPageContent | None = None
     quality: SourceQuality = Field(
         default_factory=lambda: SourceQuality(level=SourceQualityLevel.UNKNOWN)
     )

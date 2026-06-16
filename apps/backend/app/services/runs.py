@@ -7,7 +7,9 @@ from app.orchestration import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunOrchestrator,
 )
+from app.providers import ExtractionProvider, SearchProvider
 from app.schemas.ids import RunId, SessionId
+from app.schemas.regions import RegionCode
 from app.schemas.runs import RunEvent, ShoppingRunRecord
 
 
@@ -19,12 +21,18 @@ class RunService:
         result_repository: ResultRepository | None = None,
         search_source_repository: SearchSourceRepository | None = None,
         product_repository: ProductRepository | None = None,
+        search_provider: SearchProvider | None = None,
+        extraction_provider: ExtractionProvider | None = None,
+        default_region_code: RegionCode = "US",
     ) -> None:
         self._session_repository = session_repository
         self._run_repository = run_repository
         self._result_repository = result_repository
         self._search_source_repository = search_source_repository
         self._product_repository = product_repository
+        self._search_provider = search_provider
+        self._extraction_provider = extraction_provider
+        self._default_region_code = default_region_code
 
     async def create_stub_run(
         self,
@@ -48,9 +56,12 @@ class RunService:
                 result_repository=self._result_repository,
                 search_source_repository=self._search_source_repository,
                 product_repository=self._product_repository,
-            )
+            ),
+            search_provider=self._search_provider,
+            extraction_provider=self._extraction_provider,
+            default_region_code=self._default_region_code,
         )
-        await orchestrator.run(run.run_id)
+        await orchestrator.run(run.run_id, session.current_brief)
         return await self._run_repository.get(run.run_id)
 
     async def get_run_status(

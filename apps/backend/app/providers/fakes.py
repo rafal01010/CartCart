@@ -20,6 +20,7 @@ from app.providers.contracts import (
     ShoppingProviderOptions,
     TranscriptProviderOptions,
     TranscriptProviderResult,
+    TranscriptAccessStrategy,
     VideoSearchProviderOptions,
     VideoSearchProviderResult,
 )
@@ -82,6 +83,7 @@ class FakeSearchProvider:
 class FakeExtractionProvider:
     snapshot: SourceSnapshot | None = None
     provider_name: str = "fixture-extraction"
+    disabled: bool = False
 
     async def extract(
         self,
@@ -90,13 +92,28 @@ class FakeExtractionProvider:
     ) -> SourceSnapshot:
         if self.snapshot is not None:
             return self.snapshot
+        source_type = (
+            options.source_type if options is not None else SourceType.PRODUCT_PAGE
+        )
         return SourceSnapshot(
             url=url,
-            source_type=SourceType.PRODUCT_PAGE,
-            provider=ProviderMetadata(provider_name=self.provider_name),
-            title="Fixture extracted source",
-            extraction_status=ExtractionStatus.SUCCEEDED,
-            quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
+            source_type=source_type,
+            provider=ProviderMetadata(
+                provider_name=(
+                    "disabled-extraction" if self.disabled else self.provider_name
+                )
+            ),
+            title=None if self.disabled else "Fixture extracted source",
+            extraction_status=(
+                ExtractionStatus.EXCLUDED
+                if self.disabled
+                else ExtractionStatus.SUCCEEDED
+            ),
+            quality=(
+                SourceQuality(level=SourceQualityLevel.UNKNOWN)
+                if self.disabled
+                else SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7)
+            ),
         )
 
 
@@ -215,6 +232,7 @@ class FakeTranscriptProvider:
     provider_name: str = "fixture-transcript"
     disabled: bool = False
     availability: TranscriptAvailability = TranscriptAvailability.AVAILABLE
+    language: str = "en"
 
     @property
     def capabilities(self) -> ProviderCapabilityFlags:
@@ -224,6 +242,11 @@ class FakeTranscriptProvider:
             uses_official_api=True,
             supports_transcripts=True,
             permits_transcript_text=not self.disabled,
+            transcript_access_strategy=(
+                TranscriptAccessStrategy.AUTHORIZED_OFFICIAL_CAPTIONS
+                if not self.disabled
+                else TranscriptAccessStrategy.NONE
+            ),
             requires_user_authorization=True,
             compliance_notes=("Fixture transcript provider.",),
         )
@@ -257,6 +280,7 @@ class FakeTranscriptProvider:
             video_id=video.video_id,
             start_seconds=12.0,
             end_seconds=24.0,
+            language=self.language,
             text="Fixture transcript segment with product-specific review evidence.",
         )
         return TranscriptProviderResult(

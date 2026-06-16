@@ -1,13 +1,15 @@
 # CartCart Workflow
 
-Status: Runnable fixture workflow for the Section G stub-orchestrator slice
-Last updated: 2026-05-30
+Status: Provider-backed discovery and extraction with fixture analysis stages
+Last updated: 2026-06-14
 
 ## Scope
 
-This document describes the current backend workflow shape. The runnable path is
-fixture-only: it does not call live search providers, extraction providers,
-OpenAI models, or live source-intelligence tools.
+This document describes the current backend workflow shape. Search discovery and
+page extraction are provider-backed behind configuration and default to
+deterministic fixture mode. Trust, analysis, recommendation, and reusable source
+intelligence remain fixture based and do not call OpenAI models or live
+source-intelligence tools.
 
 Related docs:
 
@@ -33,19 +35,24 @@ profiles.
 ## Run Lifecycle
 
 `POST /api/sessions/{session_id}/runs` creates a `ShoppingRunRecord` and runs the
-fixture `ShoppingRunOrchestrator` synchronously inside the request. The response
-therefore returns a terminal succeeded run in the current stub slice.
+`ShoppingRunOrchestrator` synchronously inside the request. The response
+therefore returns a terminal succeeded run in the current transitional slice.
 
 The orchestrator:
 
 1. Loads the persisted run.
 2. Creates a run context with `run_id`, `session_id`, and a deterministic fixture
    trace ID.
-3. Executes stages in a fixed order.
-4. Persists one run event per stage.
-5. Persists one agent trace record per executable stage.
-6. Persists the monitor-shopping fixture output.
-7. Appends the final `complete` event.
+3. Builds and persists a search plan from the current shopping brief.
+4. Calls the configured search provider and persists policy-scored search
+   results.
+5. Sends eligible page results through the configured extraction provider,
+   persists linked snapshots, and creates normalized shortlist candidates from
+   usable extraction outcomes.
+6. Executes the remaining fixture stages in a fixed order.
+7. Persists one run event and one agent trace record per executable stage.
+8. Persists the downstream monitor-shopping fixture analysis output.
+9. Appends the final `complete` event.
 
 Long-running background orchestration, retries, cancellation, and partial-result
 resumption are later milestones.
@@ -68,8 +75,9 @@ The terminal stage is:
 
 10. `complete`
 
-Each executable stage persists an `AgentRunRecord` with a fixture trace ID. The
-current trace ID format is deterministic and local-only:
+Each executable stage persists an `AgentRunRecord` with a deterministic local
+trace ID. Query planning and discovery use provider-backed behavior even though
+the trace prefix and later stages remain fixture-oriented:
 
 ```text
 fixture-run-{run_id}:{stage}
@@ -86,18 +94,35 @@ GET /api/sessions/{session_id}/runs/{run_id}/events
 
 The endpoint streams persisted events as Server-Sent Events named `run_event`.
 Because the current `POST /runs` path is synchronous, clients open the stream
-after all fixture events are already persisted.
+after all run events are already persisted.
 
 The current successful fixture event sequence has 10 events: nine `running`
 stage events and one terminal `succeeded` event for `complete`.
 
-## Fixture Output
+## Discovery, Extraction, And Fixture Output
 
-The fixture output is a monitor-shopping scenario. It persists:
+Query planning persists the current run's `SearchPlan`. Discovery executes each
+planned query through the resolved provider, applies deterministic source
+quality policy, drops explicitly excluded domains, and persists accepted
+`SearchResult` records with provider IDs and policy metadata. Eligible non-video
+page results are then passed to the configured `ExtractionProvider`. Each
+returned `SourceSnapshot` is linked to its originating search result and
+persisted with extraction-provider metadata.
 
-- Search plan and search results.
+Candidate creation requires a usable snapshot status. Product, retailer, and
+official-brand pages normalize from extracted page content. Other usable page
+types can use the persisted search-result metadata supported by the deterministic
+listing normalizer. Generated products, listings, and shortlist memberships are
+persisted before later stages run. The extraction event reports how many sources
+were checked and products were added. Fixture and disabled modes remain
+network-free; configured HTTP/static mode uses this same provider boundary.
+
+The downstream fixture analysis output remains a monitor-shopping scenario. It
+persists:
+
 - Source snapshots and source evidence.
-- Generated monitor shortlist items.
+- Fixture products and listings used by the current analysis bundle. Fixture
+  shortlist memberships are used only when extraction yields no candidates.
 - A user-added monitor candidate.
 - Duplicate Dell listings that preserve listing identity.
 - Suspicious seller/listing trust assessments.

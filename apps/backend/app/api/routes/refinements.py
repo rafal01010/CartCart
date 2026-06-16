@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.core.errors import ApplicationError
 from app.db.repositories.products import ProductRepository
@@ -12,6 +13,7 @@ from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.session import get_db_session
+from app.providers import build_extraction_provider, build_search_provider
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import SessionId
 from app.schemas.intake import (
@@ -53,6 +55,7 @@ async def create_refinement(
     session_id: SessionId,
     request: CreateRefinementRequest,
     db_session: DbSession,
+    http_request: Request,
 ) -> RefinementRunResponse:
     refinement = RefinementRequest(
         session_id=session_id,
@@ -62,7 +65,10 @@ async def create_refinement(
         constraints=request.constraints,
         preferences=request.preferences,
     )
-    result = await _refinement_service(db_session).create_stub_refinement_run(
+    result = await _refinement_service(
+        db_session,
+        http_request,
+    ).create_stub_refinement_run(
         session_id,
         refinement,
     )
@@ -74,7 +80,11 @@ async def create_refinement(
     return RefinementRunResponse(refinement=stored_refinement, run=run)
 
 
-def _refinement_service(db_session: AsyncSession) -> RefinementService:
+def _refinement_service(
+    db_session: AsyncSession,
+    request: Request | None = None,
+) -> RefinementService:
+    settings = request.app.state.settings if request is not None else None
     return RefinementService(
         session_repository=SessionRepository(db_session),
         run_repository=RunRepository(db_session),
@@ -82,6 +92,15 @@ def _refinement_service(db_session: AsyncSession) -> RefinementService:
         result_repository=ResultRepository(db_session),
         search_source_repository=SearchSourceRepository(db_session),
         product_repository=ProductRepository(db_session),
+        search_provider=(
+            build_search_provider(settings) if settings is not None else None
+        ),
+        extraction_provider=(
+            build_extraction_provider(settings) if settings is not None else None
+        ),
+        default_region_code=(
+            settings.default_region_code if settings is not None else "US"
+        ),
     )
 
 

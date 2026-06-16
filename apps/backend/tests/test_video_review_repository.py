@@ -101,6 +101,7 @@ async def test_video_review_repository_links_timestamped_evidence_to_run_source_
             video_id=video.video_id,
             start_seconds=92.5,
             end_seconds=104.0,
+            language="en-US",
             text="After six months the USB-C port was still reliable.",
         )
         evidence = VideoReviewEvidence(
@@ -164,6 +165,7 @@ async def test_video_review_repository_links_timestamped_evidence_to_run_source_
         assert videos[0].channel_name == "Review Channel"
         assert segments[0].segment_id == segment.segment_id
         assert segments[0].text is not None
+        assert segments[0].language == "en-US"
         assert evidence_items[0].evidence_id == evidence.evidence_id
         assert links[0].run_id == run.run_id
         assert links[0].source_id == snapshot.source_id

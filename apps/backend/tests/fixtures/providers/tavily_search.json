@@ -1,0 +1,49 @@
+{
+  "provider_name": "tavily",
+  "request": {
+    "json": {
+      "exclude_domains": [
+        "reseller.example"
+      ],
+      "include_answer": false,
+      "include_domains": [
+        "reviews.example.com"
+      ],
+      "include_images": false,
+      "include_raw_content": false,
+      "include_usage": true,
+      "max_results": 20,
+      "query": "best monitor reviews",
+      "search_depth": "basic",
+      "topic": "general"
+    },
+    "method": "POST",
+    "url": "https://api.tavily.com/search"
+  },
+  "response": {
+    "json": {
+      "query": "best monitor reviews",
+      "request_id": "recorded-tavily-request-1",
+      "response_time": 0.42,
+      "results": [
+        {
+          "content": "A recorded Tavily result with monitor testing notes and buying guidance.",
+          "score": 0.91,
+          "title": "Monitor review and buying guide",
+          "url": "https://reviews.example.com/monitor-guide"
+        },
+        {
+          "content": "Official specifications for the recorded monitor fixture.",
+          "score": 0.84,
+          "title": "Official monitor specifications",
+          "url": "https://manufacturer.example/monitor/specifications"
+        }
+      ],
+      "usage": {
+        "credits": 1
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

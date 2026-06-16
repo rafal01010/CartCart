@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-06-12
+Last updated: 2026-06-14
 
 ## Purpose
 
@@ -47,6 +47,7 @@ The product must support broad shopping queries even when no deep specialist exi
 - Reddit community evidence should be gathered through approved search/extraction providers, for example domain-scoped web search for public `reddit.com` results. It must summarize recurring user-reported patterns with source links and quality warnings rather than treating anecdotes as authoritative product facts.
 - Amazon product intelligence should retrieve product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, and review signals when compliant provider access is available. It must preserve marketplace seller risk separately from product quality and must not add affiliate logic.
 - IKEA store intelligence should retrieve official IKEA product/store evidence for the user's region when applicable, including regional product availability, product-page information, price/currency where available, and evidence gaps. It must not assume IKEA ships globally; it should check whether IKEA has a relevant country/region presence and whether the item is available there.
+- The current IKEA adapter uses the configured general search provider with strict official domain and country-path filtering. Fixture mode is the default; unsupported regions and unavailable products return explicit gaps without implying cross-region shipping.
 - Broad non-technology domain layers should remain `proposed-later` until multiple implemented specialists or shared domain rules justify them.
 - MVP agent invocation should use typed steps, tools, or sub-runs. Handoffs are reserved for a later conversational use case where a specialist must take over a user turn.
 
@@ -142,17 +143,45 @@ YouTube product reviews are often valuable because reviewers discuss real-world 
 
 The YouTube agent should find relevant product review videos, assess source/channel/video quality, retrieve or ingest available transcripts when permitted, summarize product-specific claims, preserve timestamps/source links, identify recurring pros/cons, flag sponsorship/affiliate bias where visible, and hand source-backed evidence to downstream analysts.
 
+The current provider implementation supports official YouTube Data API metadata
+discovery in configured live mode plus deterministic fixture and disabled modes.
+It returns video ID, neutral watch URL, title, description, channel, publish
+date, and duration when available. Transcript availability remains explicitly
+`not_checked`; transcript retrieval is not part of the metadata adapter. The
+separate transcript-ingestion path accepts only declared authorized official,
+user-provided, or approved third-party access, preserves language and
+timestamps, records unavailable/provider-failure gaps, and refuses video claims
+that are not present in cited transcript text. Product-claim summarization
+remains later agent work.
+
 ### Reddit Community Intelligence
 
 Reddit can surface owner complaints, failure patterns, setup issues, long-term impressions, support experiences, and "avoid this" stories that are not visible on retailer pages. The Reddit agent should use approved domain-scoped search/extraction, retrieve public thread/comment content where permitted, summarize recurring claims, record subreddit/thread/comment links, preserve recency and engagement signals when available, and flag anecdotal, brigaded, astroturfed, deleted, or low-context evidence.
 
 Reddit evidence should be treated as qualitative community signal. It can raise concerns or corroborate patterns, but it should not become the sole basis for factual product claims such as specs, warranty, current price, or availability.
 
+The current provider implementation discovers public Reddit thread/comment
+URLs through the configured general search provider with both `site:reddit.com`
+and `reddit.com` domain scope. It preserves subreddit/thread/comment context,
+search excerpts or approved upstream extracted text, optional recency and
+engagement metadata, deterministic source quality, anecdotal-evidence warnings,
+and explicit gaps for removed, inaccessible, unextracted, or missing content.
+It does not call Reddit directly or claim public-page extraction support.
+
 ### Amazon Product Intelligence
 
 Amazon can provide product-page data, listing identity, seller/fulfillment context, marketplace availability, ship-to-region signals, price/currency where available, review counts/ratings, review-pattern summaries, and review-quality warnings. The Amazon agent should match products conservatively, preserve ASIN/listing/marketplace identity where available, distinguish Amazon retail, fulfilled-by-Amazon, third-party marketplace sellers, and unknown sellers, and separate review evidence from seller/listing trust.
 
 Amazon evidence is not inherently safe or authoritative. The agent must preserve marketplace risk, variant ambiguity, suspicious review patterns, stale or merged reviews, unavailable shipping, and regional marketplace differences.
+
+The current provider implementation supports deterministic fixture and disabled
+modes plus opt-in SerpApi Amazon Search/Product discovery. It conservatively
+matches a product to an ASIN when needed, preserves marketplace and listing
+identity, seller/ship-from context, ship-to-region evidence, product-page facts,
+rating/review-summary signals, third-party seller and variant-review warnings,
+and explicit gaps. All returned Amazon product links are neutral and contain no
+affiliate parameters. Marketplace reviews remain unverified source signals, and
+seller/listing trust remains a separate downstream concern.
 
 ### IKEA Store Intelligence
 
@@ -211,6 +240,15 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates | `RecommendationBundle` | Permit explicit "no strong buy". |
 | `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle and evidence | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
 
+The current runtime invokes `QueryPlannerAgent`, executes the resulting queries
+through the configured `SearchProvider`, and persists accepted, policy-scored
+search results. Eligible result pages then pass through the configured
+`ExtractionProvider`; usable snapshots create persisted app-generated products,
+listings, and shortlist memberships. Later trust, analysis, recommendation, and
+reusable source-intelligence stages remain fixture-backed. Fixture mode stays
+the default when live providers are disabled or configured credentials are
+unavailable.
+
 ## Required Routing Rules
 
 1. Every normal product query must be eligible for `GenericProductAnalystAgent`.
@@ -263,8 +301,8 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 - Provider keys, enabled-provider flags, timeouts, and capability flags belong in runtime configuration once implementation begins.
 - Reseller-only platforms are excluded initially. Mixed marketplaces are allowed only when seller/listing trust can be assessed.
 - YouTube metadata may come from the official YouTube Data API when configured.
-- YouTube transcript text may be used only through authorized official caption access, future user-provided transcript input, or an explicitly approved third-party transcript provider.
-- Unofficial transcript providers require a separate accepted decision covering terms, reliability, quotas, and fallback behavior.
+- YouTube transcript text may be used only through authorized official caption access, future user-provided transcript input, or the accepted self-managed `YtDlpTranscriptProvider` public-caption path.
+- `YtDlpTranscriptProvider` must remain behind the typed provider boundary with pinned `yt-dlp`/`yt-dlp-ejs` and Deno dependencies, fixed backend-owned arguments, no cookies or media downloads, bounded execution/storage, deterministic WebVTT parsing, and explicit metadata-only gaps for failed access.
 - Video evidence must preserve video IDs, source URLs, channel metadata where available, timestamps when available, transcript availability status, and evidence confidence.
 - Reddit evidence may use approved domain-scoped search and compliant extraction of public pages. It must preserve URLs and source context, avoid private/deleted/logged-in-only content, and represent anecdotal community evidence as lower-confidence unless corroborated.
 - Amazon evidence may use compliant APIs, approved providers, or permitted user-visible pages. It must preserve neutral links, avoid affiliate behavior, keep product/listing/seller/review evidence separate, and represent unavailable regional shipping or missing review access as explicit gaps.

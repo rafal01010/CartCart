@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Initial local operations assumptions for planning
-Last updated: 2026-06-02
+Last updated: 2026-06-14
 
 ## Local MVP Assumptions
 
@@ -321,16 +321,23 @@ Current backend variables:
 - `CARTCART_PROVIDER_RATE_LIMIT_PER_MINUTE`: default local provider rate-limit budget. Defaults to `60`.
 - `CARTCART_SEARCH_PROVIDER`: general web search provider. Allowed values are `fixture`, `tavily`, and `brave`. Defaults to `fixture`.
 - `CARTCART_SEARCH_PROVIDER_ENABLED`: enables live general web search provider use when `true`. Defaults to `false`.
-- `CARTCART_EXTRACTION_PROVIDER`: source extraction provider. Allowed values are `disabled`, `fixture`, and `tavily`. Defaults to `fixture`.
-- `CARTCART_EXTRACTION_PROVIDER_ENABLED`: enables live extraction provider use when `true`. Defaults to `false`.
-- `CARTCART_SHOPPING_PROVIDER`: optional shopping-specific provider. Allowed values are `disabled`, `fixture`, and `serpapi`. Defaults to `disabled`.
-- `CARTCART_SHOPPING_PROVIDER_ENABLED`: enables optional shopping-specific provider use when `true`. Defaults to `false`.
-- `CARTCART_TAVILY_API_KEY`: local Tavily API key. Required only when Tavily-backed search or extraction is enabled.
+- `CARTCART_EXTRACTION_PROVIDER`: source extraction provider. Allowed values are `disabled`, `fixture`, and `http_static`. Defaults to `fixture`.
+- `CARTCART_EXTRACTION_PROVIDER_ENABLED`: enables the configured HTTP/static extraction adapter when `true`. Defaults to `false`.
+- `CARTCART_VIDEO_SEARCH_PROVIDER`: video metadata provider. Allowed values are `disabled`, `fixture`, and `youtube`. Defaults to `fixture`.
+- `CARTCART_VIDEO_SEARCH_PROVIDER_ENABLED`: enables live video metadata provider use when `true`. Defaults to `false`.
+- `CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER`: Amazon product/listing/review provider. Allowed values are `disabled`, `fixture`, and `serpapi`. Defaults to `fixture`.
+- `CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER_ENABLED`: enables live Amazon product intelligence when `true`. Defaults to `false`.
+- `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER`: IKEA regional official-store provider. Allowed values are `disabled`, `fixture`, and `search`. Defaults to `fixture`.
+- `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER_ENABLED`: enables search-backed IKEA regional discovery when `true`. Defaults to `false`.
+- `CARTCART_TAVILY_API_KEY`: local Tavily API key. Required only when Tavily-backed search is enabled.
 - `CARTCART_BRAVE_SEARCH_API_KEY`: local Brave Search API key. Required only when Brave search is enabled.
-- `CARTCART_SERPAPI_API_KEY`: local SerpApi key. Required only when SerpApi shopping search is enabled.
+- `CARTCART_SERPAPI_API_KEY`: local SerpApi key. Required only when SerpApi Amazon product intelligence is enabled.
+- `CARTCART_YOUTUBE_DATA_API_KEY`: local YouTube Data API key. Required only when live YouTube metadata search is enabled.
 - `CARTCART_DATA_DIR`: local data directory. Defaults to the repository-level `data/` directory.
 - `CARTCART_DATABASE_PATH`: SQLite database path. Defaults to `data/cartcart.sqlite3`.
 - `CARTCART_ARTIFACT_DIR`: local artifact directory. Defaults to `data/artifacts`.
+- `CARTCART_SOURCE_FETCH_MAX_CONTENT_BYTES`: maximum decoded HTML response body stored by the source fetcher. Defaults to `2097152` bytes.
+- `CARTCART_SOURCE_FETCH_USER_AGENT`: explicit user agent sent by the source fetcher. Defaults to `CartCart/0.1 source-fetcher`; do not configure browser impersonation or access-control bypass behavior.
 - `CARTCART_RAW_SOURCE_SNAPSHOT_RETENTION_DAYS`: retention window for raw source snapshots. Defaults to `30`.
 - `CARTCART_EXTRACTED_CONTENT_RETENTION_DAYS`: retention window for extracted text/Markdown. Defaults to `30`.
 - `CARTCART_SCREENSHOT_RETENTION_DAYS`: retention window for optional screenshots. Defaults to `7`.
@@ -346,19 +353,140 @@ runtime mode, or opting into live provider mode. Use absolute paths for local
 path overrides. Provider and model keys must be supplied locally by the project
 owner rather than committed.
 
-The current provider layer defines backend interfaces, fake providers, and typed
-runtime configuration. It does not implement live provider adapters yet. Keep
-using fixture/stub mode until adapter tasks add recorded/live provider behavior.
-When live mode is needed, copy `apps/backend/.env.example` to
-`apps/backend/.env` and enter real provider keys only in that ignored local file.
-Source-intelligence provider interfaces likewise have only fake implementations
-right now. Their capability flags model enabled/disabled state and compliance
-boundaries for video search, transcript access, community discussion retrieval,
-Amazon product/listing/review evidence, and IKEA regional official-store
-lookup. Provider protocols return source evidence bundles or explicit gaps for
-the required YouTube, Reddit, Amazon, and IKEA reusable source agents without
-calling vendor SDKs directly from source agents. No API keys are read yet; live
-adapters remain future opt-in work.
+`docs/PROVIDERS.md` is the authoritative provider setup, fixture replay,
+compliance, disabled-provider, and raw-artifact safety reference. The notes below
+summarize the adapters currently available for local operation.
+
+The provider layer defines backend interfaces, fake providers, typed runtime
+configuration, and a Tavily general web search adapter. Normal tests load a
+versioned, sanitized HTTP cassette and replay it through `httpx.MockTransport`;
+they do not use a real key or make a network call. Replay requires the outgoing
+method, URL, query parameters, and JSON request to match the cassette exactly.
+Runtime query
+planning and discovery resolve the configured search provider. Fixture mode
+remains the default. When Tavily is selected, enabled, and supplied with a key,
+runs call Tavily and persist scored search-result metadata. Missing live
+credentials fall back to fixture search after producing the existing readiness
+warning. Provider results are not fetched or extracted in this stage.
+Brave remains a reserved configuration value until a runtime adapter is added;
+enabling it with credentials currently produces a clear configuration error.
+
+Page extraction has one configured non-fixture path:
+`CARTCART_EXTRACTION_PROVIDER=http_static` with
+`CARTCART_EXTRACTION_PROVIDER_ENABLED=true`. The runtime builder composes the
+bounded HTTP fetcher, raw snapshot persistence, and Trafilatura static extractor
+behind `ExtractionProvider`. It requires no provider credential. `fixture`
+returns deterministic snapshots, and `disabled` returns an excluded snapshot
+without making a request. The removed Tavily extraction and generic SerpApi
+shopping settings must not be used; SerpApi remains available only for the
+Amazon intelligence adapter.
+
+For local Tavily credentials, copy `apps/backend/.env.example` to
+`apps/backend/.env` and set:
+
+```dotenv
+CARTCART_SEARCH_PROVIDER=tavily
+CARTCART_SEARCH_PROVIDER_ENABLED=true
+CARTCART_TAVILY_API_KEY=replace-with-your-real-key
+```
+
+The root `.gitignore` ignores `.env` and `.env.*` files except committed example
+templates, so `apps/backend/.env` must remain local. A live adapter test is
+available only when explicitly enabled with
+`CARTCART_RUN_LIVE_PROVIDER_TESTS=1`; otherwise it is skipped. Live provider
+calls spend provider quota and are not part of routine or section-gate checks.
+
+Provider fixture recordings live under
+`apps/backend/tests/fixtures/providers/`. The cassette writer never stores HTTP
+headers, removes secret-like and excessive raw-content fields, bounds response
+lists and strings, and writes stable sorted JSON. Record only synthetic,
+non-personal queries and inspect the complete fixture diff before committing it;
+automatic scrubbing cannot identify every form of sensitive or licensed text.
+
+To deliberately replace the Tavily search fixture, run this from
+`apps/backend`:
+
+```sh
+CARTCART_RECORD_PROVIDER_FIXTURES=1 uv run python \
+  -m app.tools.record_tavily_search_fixture \
+  tests/fixtures/providers/tavily_search.json \
+  "best monitor reviews" \
+  --region PH \
+  --max-results 5
+```
+
+The recorder refuses to run without the explicit recording flag, a configured
+Tavily key, and an output path under the provider fixture directory. This is a
+live provider call and must not be included in routine tests or section-gate
+verification.
+
+YouTube metadata discovery has an official API adapter in addition to fixture
+and disabled modes. It uses API-key-authenticated `search.list` and
+`videos.list` requests, sends the key in the `X-Goog-Api-Key` header rather than
+the URL, and stores only normalized metadata in its result bundle. It does not
+call caption endpoints or assume transcript access. Configure live metadata
+search locally with:
+
+```dotenv
+CARTCART_VIDEO_SEARCH_PROVIDER=youtube
+CARTCART_VIDEO_SEARCH_PROVIDER_ENABLED=true
+CARTCART_YOUTUBE_DATA_API_KEY=replace-with-your-real-key
+```
+
+Without the key, readiness reports `CARTCART_YOUTUBE_DATA_API_KEY` as missing
+and runtime provider selection falls back to fixture behavior. Explicit
+`disabled` mode returns a typed disabled result. Synthetic YouTube replay
+fixtures cover the search and duration-detail requests without live calls or
+quota use.
+
+Amazon product intelligence has a SerpApi adapter in addition to fixture and
+disabled modes. It calls SerpApi's documented Amazon Search and Amazon Product
+engines, uses `shipping_location` when a target region is available, and
+normalizes results into marketplace/listing/seller/review/region evidence. It
+never exposes SerpApi result links or Amazon affiliate parameters; outbound
+evidence links use the neutral `https://www.<marketplace>/dp/<ASIN>` form.
+Configure live Amazon discovery locally with:
+
+```dotenv
+CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER=serpapi
+CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER_ENABLED=true
+CARTCART_SERPAPI_API_KEY=replace-with-your-real-key
+```
+
+Without the key, readiness reports `CARTCART_SERPAPI_API_KEY` as missing and
+runtime selection falls back to fixture behavior. Explicit `disabled` mode
+returns a typed disabled result. Synthetic SerpApi replay fixtures cover search
+and product-detail calls without network access or quota use. Live tests require
+both credentials and `CARTCART_RUN_LIVE_PROVIDER_TESTS=1`; they are not part of
+routine or section-gate verification. SerpApi remains optional, and operators
+must confirm that their account and intended use comply with current provider
+terms before enabling live calls.
+
+IKEA regional store intelligence has a domain-scoped search adapter in addition
+to fixture and disabled modes. It reuses the configured general search provider
+and accepts only official IKEA results matching the target country or region
+path. Configure search-backed IKEA discovery locally with:
+
+```dotenv
+CARTCART_SEARCH_PROVIDER=tavily
+CARTCART_SEARCH_PROVIDER_ENABLED=true
+CARTCART_TAVILY_API_KEY=replace-with-your-real-key
+CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER=search
+CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER_ENABLED=true
+```
+
+If live general search is disabled or its credential is unavailable, readiness
+reports the existing search warning or an IKEA provider-dependency warning and
+runtime selection falls back to fixture behavior. Explicit `disabled` mode
+returns a typed disabled result. Synthetic IKEA replay fixtures cover available
+and unavailable products; unsupported regions return a gap without a provider
+call. Search snippets remain metadata evidence and do not establish global
+shipping.
+
+Remaining source-intelligence provider interfaces still use fake
+implementations where a dedicated adapter has not been added. Provider
+protocols return source evidence bundles or explicit gaps without calling
+vendor SDKs directly from source agents.
 
 Future configuration areas include:
 
@@ -366,10 +494,7 @@ Future configuration areas include:
 - OpenAI Agents SDK tracing options.
 - Additional source-intelligence provider keys and enabled-provider flags.
 - Provider-specific timeout and rate-limit settings beyond the shared defaults.
-- YouTube/video provider keys and transcript strategy.
 - Reddit/domain-scoped community search and extraction provider configuration.
-- Amazon product/listing/review provider configuration.
-- IKEA regional official-store provider configuration.
 - Telemetry enabled/disabled flag.
 - Logfire or OTEL exporter settings.
 - Provider timeout and rate-limit settings.
@@ -484,6 +609,9 @@ The backend attaches `X-Request-ID` to responses. If a request supplies that hea
 `GET /readyz` reports configuration readiness and provider warnings. Missing
 keys for enabled live providers return warning entries while the endpoint still
 returns HTTP 200 and `status: ready`, so fixture/stub mode is not blocked.
+Enabled `yt_dlp` transcript mode also checks the exact pinned `yt-dlp` and
+`yt-dlp-ejs` packages plus Deno `>=2.3.0`; missing or incompatible dependencies
+are reported without replacing live transcript retrieval with fixture text.
 Database availability checks may be added later.
 
 `GET /metrics` may be added when a Prometheus-compatible exporter or equivalent monitoring path exists.
@@ -497,10 +625,14 @@ Operational rules:
 - Respect provider terms and legal constraints.
 - Store provider response metadata for debugging and evals.
 - Use explicit timeouts and content limits.
+- Fetch static pages with the configured CartCart user agent and HTML accept policy. Redirects are followed, but blocked, rate-limited, non-HTML, oversized, and other unsuccessful responses are not persisted as raw snapshots.
 - Handle rate limits with clear user-safe errors.
 - Keep SerpApi and other shopping-specific providers optional.
 - Do not assume all YouTube videos have accessible transcripts.
-- Treat unofficial transcript providers as optional and explicitly configured if ever used.
+- Keep `YtDlpTranscriptProvider` explicitly configured and disabled by default. It uses pinned `yt-dlp[default]==2026.6.9`, `yt-dlp-ejs==0.8.0`, and locked Deno `2.8.1` (minimum `2.3.0`).
+- Never pass agent-supplied yt-dlp arguments, use cookies/accounts, allow runtime-downloaded EJS components, or download video/audio for transcript retrieval.
+- Bound transcript subprocess time, process output, caption/temp storage, and normalized segment count; always delete temporary caption files.
+- Preserve unavailable, restricted, rate-limited, challenge-failed, and no-caption outcomes as explicit metadata-only evidence gaps.
 - Treat Reddit/community evidence as qualitative and source-context dependent; do not use private, deleted, logged-in-only, or otherwise inaccessible content.
 - Treat Amazon evidence as marketplace/listing-specific. Preserve seller/fulfillment, variant, review, and regional availability context, and do not add affiliate behavior.
 - Treat IKEA evidence as country/region-specific official-source evidence. Do not infer global shipping from global brand presence.

@@ -1,0 +1,40 @@
+{
+  "provider_name": "tavily",
+  "request": {
+    "json": {
+      "include_answer": false,
+      "include_domains": [
+        "ikea.com"
+      ],
+      "include_images": false,
+      "include_raw_content": false,
+      "include_usage": true,
+      "max_results": 5,
+      "query": "KALLAX shelf unit IKEA site:ikea.com/us/en",
+      "search_depth": "basic",
+      "topic": "general"
+    },
+    "method": "POST",
+    "url": "https://api.tavily.com/search"
+  },
+  "response": {
+    "json": {
+      "query": "KALLAX shelf unit IKEA site:ikea.com/us/en",
+      "request_id": "ikea-us-unavailable-1",
+      "response_time": 0.28,
+      "results": [
+        {
+          "content": "KALLAX shelf unit. USD 89.99. Out of stock online. Not available for delivery in this ZIP code.",
+          "score": 0.92,
+          "title": "KALLAX shelf unit, white - IKEA",
+          "url": "https://www.ikea.com/us/en/p/kallax-shelf-unit-white-80275887/"
+        }
+      ],
+      "usage": {
+        "credits": 1
+      }
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

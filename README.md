@@ -63,7 +63,7 @@ README.md
 
 `data/` is created by local persistence workflows when needed. By default, the SQLite database lives at `data/cartcart.sqlite3`.
 
-Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Frontend local overrides can live in `apps/frontend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required for the current fixture workflow.
+Backend configuration is loaded from `CARTCART_*` environment variables and optional local overrides in `apps/backend/.env`. Frontend local overrides can live in `apps/frontend/.env`. Start from `apps/backend/.env.example` if you need local path or runtime-mode overrides. No real secrets are required for the current fixture workflow. See `docs/PROVIDERS.md` before enabling live providers or recording fixtures.
 
 ## Run Locally
 
@@ -129,6 +129,7 @@ Run `scripts/local/setup-playwright.sh` once before the Playwright smoke test on
 - `docs/DATABASE.md` - current SQLite schema, tables, indexes, and artifact boundary.
 - `docs/EVALUATION.md` - evaluation and testing strategy.
 - `docs/OPERATIONS.md` - local operations assumptions.
+- `docs/PROVIDERS.md` - provider boundaries, live setup, fixture replay, compliance, and artifact safety.
 - `docs/WORKFLOW.md` - current fixture workflow, run lifecycle, event emission, and result versioning.
 - `docs/UX.md` - desktop-first product surface guidance.
 - `docs/FRONTEND_REPLACEMENT.md` - audit and replacement plan for the guided Svelte frontend.

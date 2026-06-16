@@ -1,0 +1,32 @@
+{
+  "provider_name": "youtube-data-api",
+  "request": {
+    "json": null,
+    "method": "GET",
+    "params": {
+      "id": "monitor-review-1,monitor-review-2",
+      "part": "contentDetails"
+    },
+    "url": "https://www.googleapis.com/youtube/v3/videos"
+  },
+  "response": {
+    "json": {
+      "items": [
+        {
+          "contentDetails": {
+            "duration": "PT14M32S"
+          },
+          "id": "monitor-review-1"
+        },
+        {
+          "contentDetails": {
+            "duration": "PT1H2M3S"
+          },
+          "id": "monitor-review-2"
+        }
+      ]
+    },
+    "status_code": 200
+  },
+  "schema_version": 1
+}

@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
 from app.core.errors import ApplicationError
@@ -12,6 +13,7 @@ from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.session import get_db_session
+from app.providers import build_extraction_provider, build_search_provider
 from app.schemas.ids import RunId, SessionId
 from app.schemas.runs import RunEvent, ShoppingRunRecord
 from app.services.runs import RunService
@@ -26,8 +28,9 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 async def create_run(
     session_id: SessionId,
     db_session: DbSession,
+    request: Request,
 ) -> ShoppingRunRecord:
-    run = await _run_service(db_session).create_stub_run(session_id)
+    run = await _run_service(db_session, request).create_stub_run(session_id)
     if run is None:
         raise _session_not_found(session_id)
 
@@ -73,13 +76,26 @@ async def _sse_event_stream(events: tuple[RunEvent, ...]) -> AsyncIterator[str]:
         )
 
 
-def _run_service(db_session: AsyncSession) -> RunService:
+def _run_service(
+    db_session: AsyncSession,
+    request: Request | None = None,
+) -> RunService:
+    settings = request.app.state.settings if request is not None else None
     return RunService(
         session_repository=SessionRepository(db_session),
         run_repository=RunRepository(db_session),
         result_repository=ResultRepository(db_session),
         search_source_repository=SearchSourceRepository(db_session),
         product_repository=ProductRepository(db_session),
+        search_provider=(
+            build_search_provider(settings) if settings is not None else None
+        ),
+        extraction_provider=(
+            build_extraction_provider(settings) if settings is not None else None
+        ),
+        default_region_code=(
+            settings.default_region_code if settings is not None else "US"
+        ),
     )
 
 

@@ -145,8 +145,9 @@ Stores provider search result records before source snapshot/extraction.
 ### `source_snapshots`
 
 Stores structured source snapshot metadata linked to a run and optional search
-result. Large raw page bodies should be stored as files and referenced from the
-JSON payload when needed.
+result. Successful HTTP fetches store large raw page bodies as files beneath the
+configured raw-source artifact directory. The JSON payload references the file by
+relative path and records its content type, byte size, SHA-256 hash, and HTTP status.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |

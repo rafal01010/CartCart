@@ -1,9 +1,10 @@
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.schemas.base import CartCartBaseModel
@@ -32,13 +33,31 @@ class SearchProviderName(StrEnum):
 class ExtractionProviderName(StrEnum):
     DISABLED = "disabled"
     FIXTURE = "fixture"
-    TAVILY = "tavily"
+    HTTP_STATIC = "http_static"
 
 
-class ShoppingProviderName(StrEnum):
+class VideoSearchProviderName(StrEnum):
+    DISABLED = "disabled"
+    FIXTURE = "fixture"
+    YOUTUBE = "youtube"
+
+
+class TranscriptProviderName(StrEnum):
+    DISABLED = "disabled"
+    FIXTURE = "fixture"
+    YT_DLP = "yt_dlp"
+
+
+class AmazonProductIntelligenceProviderName(StrEnum):
     DISABLED = "disabled"
     FIXTURE = "fixture"
     SERPAPI = "serpapi"
+
+
+class IKEAStoreIntelligenceProviderName(StrEnum):
+    DISABLED = "disabled"
+    FIXTURE = "fixture"
+    SEARCH = "search"
 
 
 class ProviderReadinessWarning(CartCartBaseModel):
@@ -71,15 +90,58 @@ class Settings(BaseSettings):
     default_region_code: RegionCode = "US"
     provider_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     provider_rate_limit_per_minute: int = Field(default=60, ge=1, le=1000)
+    source_fetch_max_content_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1024,
+        le=20 * 1024 * 1024,
+    )
+    source_fetch_user_agent: str = Field(
+        default="CartCart/0.1 source-fetcher",
+        min_length=1,
+        max_length=300,
+    )
     search_provider: SearchProviderName = SearchProviderName.FIXTURE
     search_provider_enabled: bool = False
     extraction_provider: ExtractionProviderName = ExtractionProviderName.FIXTURE
     extraction_provider_enabled: bool = False
-    shopping_provider: ShoppingProviderName = ShoppingProviderName.DISABLED
-    shopping_provider_enabled: bool = False
+    video_search_provider: VideoSearchProviderName = VideoSearchProviderName.FIXTURE
+    video_search_provider_enabled: bool = False
+    transcript_provider: TranscriptProviderName = TranscriptProviderName.FIXTURE
+    transcript_provider_enabled: bool = False
+    youtube_transcript_languages: tuple[str, ...] = Field(
+        default=("en",),
+        min_length=1,
+        max_length=10,
+    )
+    youtube_transcript_deno_executable: str = Field(
+        default="deno",
+        min_length=1,
+        max_length=1024,
+    )
+    youtube_transcript_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    youtube_transcript_output_limit_bytes: int = Field(
+        default=64 * 1024,
+        ge=4096,
+        le=1024 * 1024,
+    )
+    youtube_transcript_temp_storage_limit_bytes: int = Field(
+        default=5 * 1024 * 1024,
+        ge=64 * 1024,
+        le=50 * 1024 * 1024,
+    )
+    youtube_transcript_max_segments: int = Field(default=5000, ge=1, le=20000)
+    amazon_product_intelligence_provider: AmazonProductIntelligenceProviderName = (
+        AmazonProductIntelligenceProviderName.FIXTURE
+    )
+    amazon_product_intelligence_provider_enabled: bool = False
+    ikea_store_intelligence_provider: IKEAStoreIntelligenceProviderName = (
+        IKEAStoreIntelligenceProviderName.FIXTURE
+    )
+    ikea_store_intelligence_provider_enabled: bool = False
     tavily_api_key: SecretStr | None = Field(default=None, min_length=1)
     brave_search_api_key: SecretStr | None = Field(default=None, min_length=1)
     serpapi_api_key: SecretStr | None = Field(default=None, min_length=1)
+    youtube_data_api_key: SecretStr | None = Field(default=None, min_length=1)
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
     database_path: Path | None = None
     artifact_dir: Path | None = None
@@ -90,7 +152,28 @@ class Settings(BaseSettings):
     trace_retention_days: int = Field(default=14, ge=0)
     eval_artifact_retention_days: int = Field(default=30, ge=0)
     screenshots_enabled: bool = False
-    cross_session_preference_profiling_enabled: Literal[False] = False
+    cross_session_preference_profiling_enabled: bool = False
+
+    @field_validator("youtube_transcript_languages")
+    @classmethod
+    def _validate_youtube_transcript_languages(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        language_pattern = re.compile(r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$")
+        if any(language_pattern.fullmatch(language) is None for language in value):
+            raise ValueError(
+                "YouTube transcript languages must be plain BCP 47 language tags."
+            )
+        return tuple(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def _reject_cross_session_preference_profiling(self) -> "Settings":
+        if self.cross_session_preference_profiling_enabled:
+            raise ValueError(
+                "Cross-session preference profiling must remain disabled for MVP."
+            )
+        return self
 
     @property
     def resolved_data_dir(self) -> Path:
@@ -136,10 +219,16 @@ class Settings(BaseSettings):
         warnings: list[ProviderReadinessWarning] = []
         if self.search_provider_enabled:
             warnings.extend(self._missing_key_warnings_for_search_provider())
-        if self.extraction_provider_enabled:
-            warnings.extend(self._missing_key_warnings_for_extraction_provider())
-        if self.shopping_provider_enabled:
-            warnings.extend(self._missing_key_warnings_for_shopping_provider())
+        if self.video_search_provider_enabled:
+            warnings.extend(self._missing_key_warnings_for_video_search_provider())
+        if self.transcript_provider_enabled:
+            warnings.extend(self._warnings_for_transcript_provider())
+        if self.amazon_product_intelligence_provider_enabled:
+            warnings.extend(
+                self._missing_key_warnings_for_amazon_product_intelligence_provider()
+            )
+        if self.ikea_store_intelligence_provider_enabled:
+            warnings.extend(self._warnings_for_ikea_store_intelligence_provider())
         return tuple(warnings)
 
     def _missing_key_warnings_for_search_provider(
@@ -167,32 +256,72 @@ class Settings(BaseSettings):
             )
         return ()
 
-    def _missing_key_warnings_for_extraction_provider(
+    def _missing_key_warnings_for_video_search_provider(
         self,
     ) -> tuple[ProviderReadinessWarning, ...]:
         if (
-            self.extraction_provider == ExtractionProviderName.TAVILY
-            and self.tavily_api_key is None
+            self.video_search_provider == VideoSearchProviderName.YOUTUBE
+            and self.youtube_data_api_key is None
         ):
             return (
                 _missing_provider_key_warning(
-                    provider="extraction:tavily",
-                    env_var="CARTCART_TAVILY_API_KEY",
+                    provider="video_search:youtube",
+                    env_var="CARTCART_YOUTUBE_DATA_API_KEY",
                 ),
             )
         return ()
 
-    def _missing_key_warnings_for_shopping_provider(
+    def _missing_key_warnings_for_amazon_product_intelligence_provider(
         self,
     ) -> tuple[ProviderReadinessWarning, ...]:
         if (
-            self.shopping_provider == ShoppingProviderName.SERPAPI
+            self.amazon_product_intelligence_provider
+            == AmazonProductIntelligenceProviderName.SERPAPI
             and self.serpapi_api_key is None
         ):
             return (
                 _missing_provider_key_warning(
-                    provider="shopping:serpapi",
+                    provider="amazon_product_intelligence:serpapi",
                     env_var="CARTCART_SERPAPI_API_KEY",
+                ),
+            )
+        return ()
+
+    def _warnings_for_transcript_provider(
+        self,
+    ) -> tuple[ProviderReadinessWarning, ...]:
+        if self.transcript_provider != TranscriptProviderName.YT_DLP:
+            return ()
+
+        from app.providers.youtube_transcript import inspect_ytdlp_transcript_runtime
+
+        return tuple(
+            ProviderReadinessWarning(
+                provider="transcript:yt_dlp",
+                code=issue.code,
+                message=issue.message,
+            )
+            for issue in inspect_ytdlp_transcript_runtime(
+                self.youtube_transcript_deno_executable
+            )
+        )
+
+    def _warnings_for_ikea_store_intelligence_provider(
+        self,
+    ) -> tuple[ProviderReadinessWarning, ...]:
+        if (
+            self.ikea_store_intelligence_provider
+            == IKEAStoreIntelligenceProviderName.SEARCH
+            and not self.search_provider_enabled
+        ):
+            return (
+                ProviderReadinessWarning(
+                    provider="ikea_store_intelligence:search",
+                    code="provider_dependency_disabled",
+                    message=(
+                        "IKEA store intelligence uses the configured general search "
+                        "provider, but live search is disabled. Fixture mode can still run."
+                    ),
                 ),
             )
         return ()

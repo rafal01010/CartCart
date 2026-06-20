@@ -1,15 +1,15 @@
 # CartCart Workflow
 
-Status: Provider-backed discovery and extraction with fixture analysis stages
-Last updated: 2026-06-14
+Status: Provider-backed discovery, extraction, and reusable source intelligence
+with fixture analysis stages
+Last updated: 2026-06-20
 
 ## Scope
 
-This document describes the current backend workflow shape. Search discovery and
-page extraction are provider-backed behind configuration and default to
-deterministic fixture mode. Trust, analysis, recommendation, and reusable source
-intelligence remain fixture based and do not call OpenAI models or live
-source-intelligence tools.
+This document describes the current backend workflow shape. Search discovery,
+page extraction, and reusable source intelligence are provider-backed behind
+configuration and default to deterministic fixture mode. Trust, analysis, and
+recommendation remain fixture based and do not call OpenAI models.
 
 Related docs:
 
@@ -47,12 +47,17 @@ The orchestrator:
 4. Calls the configured search provider and persists policy-scored search
    results.
 5. Sends eligible page results through the configured extraction provider,
-   persists linked snapshots, and creates normalized shortlist candidates from
-   usable extraction outcomes.
-6. Executes the remaining fixture stages in a fixed order.
-7. Persists one run event and one agent trace record per executable stage.
-8. Persists the downstream monitor-shopping fixture analysis output.
-9. Appends the final `complete` event.
+   persists linked snapshots, and creates normalized candidate data from usable
+   extraction outcomes.
+6. Deduplicates extracted candidates, persists grouped canonical products,
+   listing records, and shortlist memberships, and reports pre/post grouping
+   counts.
+7. Runs reusable source-intelligence checks for scoped candidate products and
+   categories where provider capability and source relevance allow it.
+8. Executes the remaining fixture stages in a fixed order.
+9. Persists one run event and one agent trace record per executable stage.
+10. Persists the downstream monitor-shopping fixture analysis output.
+11. Appends the final `complete` event.
 
 Long-running background orchestration, retries, cancellation, and partial-result
 resumption are later milestones.
@@ -66,14 +71,15 @@ The executable stages are:
 3. `discovery`
 4. `extraction`
 5. `deduplication`
-6. `listing_trust`
-7. `category_analysis`
-8. `comparison_decision`
-9. `verification`
+6. `source_intelligence`
+7. `listing_trust`
+8. `category_analysis`
+9. `comparison_decision`
+10. `verification`
 
 The terminal stage is:
 
-10. `complete`
+11. `complete`
 
 Each executable stage persists an `AgentRunRecord` with a deterministic local
 trace ID. Query planning and discovery use provider-backed behavior even though
@@ -96,7 +102,7 @@ The endpoint streams persisted events as Server-Sent Events named `run_event`.
 Because the current `POST /runs` path is synchronous, clients open the stream
 after all run events are already persisted.
 
-The current successful fixture event sequence has 10 events: nine `running`
+The current successful fixture event sequence has 11 events: ten `running`
 stage events and one terminal `succeeded` event for `complete`.
 
 ## Discovery, Extraction, And Fixture Output
@@ -112,10 +118,49 @@ persisted with extraction-provider metadata.
 Candidate creation requires a usable snapshot status. Product, retailer, and
 official-brand pages normalize from extracted page content. Other usable page
 types can use the persisted search-result metadata supported by the deterministic
-listing normalizer. Generated products, listings, and shortlist memberships are
-persisted before later stages run. The extraction event reports how many sources
-were checked and products were added. Fixture and disabled modes remain
+listing normalizer. The extraction event reports how many sources were checked
+and products were added to the comparison set. Fixture and disabled modes remain
 network-free; configured HTTP/static mode uses this same provider boundary.
+
+The deduplication stage then groups those normalized candidates before source
+intelligence, trust, analysis, and recommendations run. It uses deterministic
+URL, retailer ID, SKU/model/UPC/EAN, exact brand/model, and conservative
+title/spec similarity matching. Only obvious same-product matches collapse.
+Uncertain or family-level matches stay separate. The stage persists one
+canonical product per group, all listing records under that product, and one
+shortlist membership per product group. Its run event reports pre-dedupe
+candidate count, post-dedupe product-group count, preserved listing count, and
+collapsed duplicate count.
+
+After deduplication, the reusable source-intelligence stage builds a
+`ReusableSourceIntelligenceRequest` from the current brief, target region,
+grouped candidate products, their preserved listings, and source IDs. It then
+calls enabled and source-relevant providers for:
+
+- YouTube/video review metadata plus transcript retrieval through the configured
+  `TranscriptProvider` boundary.
+- Reddit/community discussion signals through the configured community provider.
+- Amazon product/listing/review evidence through the configured Amazon provider.
+- IKEA regional official-store evidence when the product/category or search
+  results make IKEA relevant.
+
+The stage limits transcript retrieval to the small provider-selected review
+video set, preserves transcript failures as video gap notes, stores source
+snapshots for source-intelligence references, and persists source-specific
+evidence bundles separately from normal web/listing evidence. Fixture mode uses
+fake source-intelligence providers. Configured live transcript mode uses
+`YtDlpTranscriptProvider`; it does not substitute fixture transcript text when
+caption retrieval fails.
+
+The listing-trust stage then calls the typed `SellerListingTrustAgent` contract
+for the run's grouped listings and fixture-backed candidates. The fixture agent
+is seeded with deterministic trust-rule output, including price-plausibility
+context where comparable listings exist, and the resulting
+`ListingTrustAssessment` rows are saved through result persistence before the
+final fixture recommendation bundle is stored. Result assembly then folds those
+trust assessments into the persisted recommendation bundle: suspicious or weak
+listings become listing-level warnings or avoid items, and a suspicious final
+listing becomes no-strong-buy unless a safer listing is selected.
 
 The downstream fixture analysis output remains a monitor-shopping scenario. It
 persists:
@@ -127,13 +172,14 @@ persists:
 - Duplicate Dell listings that preserve listing identity.
 - Suspicious seller/listing trust assessments.
 - Category analyses for generated and user-added candidates.
-- A best pick, runner-ups, rejected item, warnings, comparison matrix, and
-  recommendation bundle.
+- A trust-aware best pick, runner-ups, rejected listing items, warnings,
+  comparison matrix, and recommendation bundle.
 
 The fixture best pick is the Dell UltraSharp U2724DE official listing. The
 fixture includes a suspicious duplicate marketplace listing for the same Dell
-monitor and rejects the user-added ViewPro listing because seller/source signals
-are weak.
+monitor and rejects that duplicate as a bad listing rather than a bad product.
+It also rejects the user-added ViewPro listing because seller/source signals are
+weak.
 
 ## Result Versioning
 

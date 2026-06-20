@@ -23,6 +23,32 @@ class ListingTrustLevel(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ListingTrustSignalKind(StrEnum):
+    SELLER_IDENTITY = "seller_identity"
+    ESTABLISHED_RETAILER_SOURCE_TYPE = "established_retailer_source_type"
+    REVIEW_COUNT = "review_count"
+    RETURN_WARRANTY_CLARITY = "return_warranty_clarity"
+    SUSPICIOUS_PRICE = "suspicious_price"
+    MISSING_METADATA = "missing_metadata"
+    CONTRADICTORY_LISTING_DATA = "contradictory_listing_data"
+
+
+class ListingTrustSignalPolarity(StrEnum):
+    POSITIVE = "positive"
+    NEUTRAL = "neutral"
+    NEGATIVE = "negative"
+    UNKNOWN = "unknown"
+
+
+class ListingTrustSignal(CartCartBaseModel):
+    kind: ListingTrustSignalKind
+    polarity: ListingTrustSignalPolarity
+    strength: ConfidenceScore = 0.5
+    summary: str = Field(min_length=1, max_length=1000)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+
+
 class RecommendationMode(StrEnum):
     BEST_OVERALL = "best_overall"
     BEST_VALUE = "best_value"
@@ -63,6 +89,7 @@ class ListingTrustAssessment(VersionedSchema):
     level: ListingTrustLevel
     confidence: Confidence
     summary: str = Field(min_length=1, max_length=1000)
+    trust_signals: tuple[ListingTrustSignal, ...] = Field(default_factory=tuple)
     red_flags: tuple[str, ...] = Field(default_factory=tuple)
     positive_signals: tuple[str, ...] = Field(default_factory=tuple)
     evidence_ids: tuple[SourceId, ...] = Field(min_length=1)

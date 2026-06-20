@@ -168,7 +168,9 @@ Starts a discovery/analysis run from the current session state. Runs should pers
 Current implementation creates a persisted `ShoppingRunRecord` and runs the
 fixture `ShoppingRunOrchestrator` synchronously. The response returns the
 terminal succeeded run, persisted progress events, and a fixture monitor-shopping
-result bundle. It does not call live providers or models.
+result bundle. Search, extraction, and reusable source-intelligence stages use
+configured provider boundaries and default to fixture providers. Later analysis
+and recommendation stages remain deterministic fixtures and do not call models.
 
 `GET /api/sessions/{session_id}/runs/{run_id}`
 
@@ -184,8 +186,13 @@ Streams ordered progress events using Server-Sent Events. Events should include 
 Current implementation streams persisted `RunEvent` records for the requested run
 in sequence order as `text/event-stream` events named `run_event`, then closes the
 response. In fixture mode, `POST /runs` produces the events synchronously before
-the client opens the stream. Long-running background orchestration is a later
-milestone.
+the client opens the stream. The current stage sequence runs `deduplication`
+after `extraction` and before `source_intelligence`. The deduplication event
+uses a user-safe count summary with pre-dedupe extracted products, post-dedupe
+product groups, preserved listings, and collapsed duplicates. The
+`source_intelligence` event then reports checking review videos, community
+discussions, Amazon listings, and regional store sources. Long-running
+background orchestration is a later milestone.
 
 `GET /api/sessions/{session_id}/results`
 
@@ -195,8 +202,11 @@ Current implementation returns the latest persisted fixture result bundle for th
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
 recommendation bundle, plus the run's source snapshots and source evidence so
-the frontend can render inspectable source links for result claims. If the
-session exists but no result has been saved yet, the API returns `404` with
+the frontend can render inspectable source links for result claims. The persisted
+recommendation bundle is trust-aware: weak or suspicious listing assessments are
+surfaced as listing-level warnings or rejections, and a suspicious final listing
+is blocked instead of being returned as an unqualified best buy. If the session
+exists but no result has been saved yet, the API returns `404` with
 `result_not_ready`.
 
 `POST /api/sessions/{session_id}/products`
@@ -254,8 +264,8 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Base primitives in `app.schemas`: UUID-based entity IDs, timezone-aware UTC timestamps, non-negative money amounts with ISO-style currency codes, country regions, confidence scores, source references, and schema version fields.
 - Intake and session schemas in `app.schemas`: `CreateSessionRequest`, `ShoppingSession`, `ShoppingBrief`, `BudgetConstraint`, `RegionPreference`, and `PreferenceConstraint`.
 - Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `RawSourceSnapshotArtifact`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, `ReusableSourceIntelligenceRequest`, `SourceIntelligenceCapabilityDescriptor`, `SourceEvidenceGap`, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, sponsorship/affiliate-bias signals, Reddit/community discussion evidence, Amazon product/listing/review evidence, and IKEA regional official-store evidence.
-- Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `ProductListingExtraction`, `ListingExtractionMissingField`, `SellerProfile`, `UserAddedProduct`, price money fields, region availability, deterministic extraction confidence, explicit extraction gaps, and extracted seller trust signals that remain separate from later listing trust assessments.
-- Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
+- Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `ProductListingExtraction`, `ListingExtractionMissingField`, `SellerProfile`, `UserAddedProduct`, product/listing identity fields such as model, SKU, UPC, EAN, canonical listing URL, and retailer product ID, price money fields, region availability, listing source quality, deterministic extraction confidence, explicit extraction gaps, and extracted seller trust signals that remain separate from later listing trust assessments.
+- Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, structured listing trust signals, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
 - Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
 - Guided intake schemas in `app.schemas.guided_intake` cover current
   user-facing question state, natural-language answer submission, yes/no and
@@ -283,7 +293,10 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - `CanonicalProduct`
 - `DeduplicationDecision`
 - `SellerProfile`
-- `ListingTrustAssessment`
+- `ListingTrustAssessment`, including deterministic signal rows for seller
+  identity, established retailer/source type, review count, return/warranty
+  clarity, suspicious price from plausibility comparison, missing metadata, and
+  contradictory listing data.
 - `CategoryAnalysis`
 - `ComparisonMatrix`
 - `RecommendationMode`
@@ -306,6 +319,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Allow missing region at the schema layer; later intake/defaulting logic must mark any defaulted region as `defaulted`, not user-confirmed.
 - Require source URLs and provider metadata on search results and source snapshots.
 - Keep `SourceQuality` separate from analysis `Confidence`.
+- Keep listing source quality on each `ProductListing`; canonical grouping must not merge away listing-level seller trust, price, availability, or source quality differences.
 - Preserve video source IDs, transcript availability, and timestamp references when evidence is video-derived.
 - Preserve source-specific context for reusable source intelligence, including Reddit thread/comment references where available, Amazon marketplace/listing/seller/fulfillment context where available, and IKEA country/region official-store context where available.
 - Keep Reddit/community claims qualitative, require their text to be grounded in every cited public discussion summary, and retain all supporting context source IDs for recurring signals.
@@ -317,6 +331,12 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Separate known, unknown, and inferred fields.
 - Preserve confidence separately from evidence quality.
 - Keep product-level and listing-level entities separate.
+- Use deterministic product/listing identity fields for exact duplicate
+  matching, followed by conservative normalized title/spec similarity review
+  with `same_product`, `same_family`, `uncertain`, and `different_product`
+  outcomes. Only high-confidence `same_product` outcomes may collapse
+  candidates; uncertain title/spec similarity must preserve distinct
+  candidates.
 - Enforce one final best pick or an explicit no-strong-buy outcome in recommendation bundles.
 - Preserve ordered run events and use `pending`, `running`, `succeeded`, `failed`, and `cancelled` run statuses consistently.
 - Preserve materially conflicting evidence rather than overwriting it silently.

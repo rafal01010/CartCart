@@ -13,6 +13,8 @@ from app.schemas import (
     RegionAvailability,
     SellerProfile,
     SellerTrustSignal,
+    SourceQuality,
+    SourceQualityLevel,
     UserAddedProduct,
     new_id,
 )
@@ -69,6 +71,7 @@ def test_same_product_can_have_multiple_listings_with_different_seller_trust() -
         region_availability=(
             make_region_availability(ListingAvailabilityStatus.AVAILABLE),
         ),
+        source_quality=SourceQuality(level=SourceQualityLevel.STRONG),
         source_ids=(new_id(),),
         captured_at="2026-05-30T00:05:00Z",
     )
@@ -81,6 +84,7 @@ def test_same_product_can_have_multiple_listings_with_different_seller_trust() -
         region_availability=(
             make_region_availability(ListingAvailabilityStatus.REGION_RESTRICTED),
         ),
+        source_quality=SourceQuality(level=SourceQualityLevel.WEAK),
         source_ids=(new_id(),),
     )
     grouped_product = product.model_copy(
@@ -103,6 +107,8 @@ def test_same_product_can_have_multiple_listings_with_different_seller_trust() -
     assert risky_listing.region_availability[0].status == (
         ListingAvailabilityStatus.REGION_RESTRICTED
     )
+    assert official_listing.source_quality.level == SourceQualityLevel.STRONG
+    assert risky_listing.source_quality.level == SourceQualityLevel.WEAK
 
 
 def test_canonical_product_rejects_listing_only_fields() -> None:

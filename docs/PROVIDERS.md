@@ -1,7 +1,7 @@
 # CartCart Provider Setup And Fixture Replay
 
 Status: Provider setup and safety reference
-Last updated: 2026-06-14
+Last updated: 2026-06-20
 
 ## Scope And Defaults
 
@@ -34,6 +34,16 @@ Provider options carry source policy, region, and result-limit context. Shared
 timeout and rate-limit defaults live in runtime settings. Adapters return typed
 records or explicit evidence gaps. Agents and workflow code must not call vendor
 SDKs, scrape sites, or invent a second provider path around these boundaries.
+
+Shopping runs invoke reusable source-intelligence providers after normal
+discovery and extraction have produced candidate products/listings. The workflow
+passes a scoped brief, region, selected product/listing/source IDs, provider
+capability descriptors, and query hints. It persists source-specific evidence
+bundles separately from normal web/listing evidence. YouTube transcript access is
+always routed through the configured `TranscriptProvider`: fixture mode may use
+`FakeTranscriptProvider`, while configured live transcript mode uses
+`YtDlpTranscriptProvider` and returns explicit gaps instead of fixture text when
+caption retrieval fails.
 
 ## Fixture, Live, And Disabled Behavior
 

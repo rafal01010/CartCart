@@ -35,6 +35,7 @@ export interface ModeView {
 	listingId: EntityId | null;
 	rationale: string;
 	confidence: string;
+	listingTrust: TrustView | null;
 	evidence: EvidenceView[];
 	sources: SourceView[];
 }
@@ -42,10 +43,13 @@ export interface ModeView {
 export interface TrustView {
 	listingId: EntityId;
 	level: string;
+	levelLabel: string;
 	confidence: string;
 	summary: string;
 	positiveSignals: string[];
 	redFlags: string[];
+	isBlocking: boolean;
+	isRisky: boolean;
 	evidence: EvidenceView[];
 	sources: SourceView[];
 }
@@ -96,9 +100,13 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		),
 	);
 	const sourceViewById = new Map(sourceViews.map((source) => [source.id, source]));
+	const trustViews = result.trust_assessments.map((trust) =>
+		toTrustView(trust, evidenceById, sourceById, sourceViewById),
+	);
+	const trustViewByListingId = new Map(trustViews.map((trust) => [trust.listingId, trust]));
 
 	const modeViews = result.recommendation_bundle.mode_results.map((mode) =>
-		toModeView(mode, evidenceById, sourceViewById),
+		toModeView(mode, evidenceById, sourceViewById, trustViewByListingId),
 	);
 	const finalMode = findFinalMode(result, modeViews);
 
@@ -115,21 +123,12 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		),
 		modeViews,
 		runnerUps: findRunnerUps(result, modeViews, finalMode),
-		trustViews: result.trust_assessments.map((trust) => ({
-			listingId: trust.listing_id,
-			level: trust.level,
-			confidence: confidenceLabel(trust.confidence.level, trust.confidence.score),
-			summary: shopperSafeText(trust.summary),
-			positiveSignals: trust.positive_signals.map(shopperSafeText),
-			redFlags: trust.red_flags.map(shopperSafeText),
-			evidence: mapEvidence(trust.evidence_ids, evidenceById, sourceById),
-			sources: mapSources(trust.source_ids, sourceViewById),
-		})),
-		warnings: [
+		trustViews,
+		warnings: uniqueText([
 			...result.recommendation_bundle.warnings,
 			...result.category_analyses.flatMap((analysis) => analysis.warnings),
 			...result.trust_assessments.flatMap((trust) => trust.red_flags),
-		].map(shopperSafeText).filter(hasText),
+		].map(shopperSafeText).filter(hasText)),
 		rejectedItems: result.recommendation_bundle.rejected_items
 			.filter(hasMeaningfulRejection)
 			.map((item) => toRejectedView(item, evidenceById, sourceById, sourceViewById)),
@@ -154,6 +153,7 @@ export function scoreLabel(score: number | null | undefined): string {
 
 function findFinalMode(result: SessionResultsResponse, modes: ModeView[]): ModeView | null {
 	const bundle = result.recommendation_bundle;
+	if (bundle.no_strong_buy) return null;
 	return (
 		modes.find(
 			(mode) =>
@@ -195,8 +195,10 @@ function toModeView(
 	mode: RecommendationModeResult,
 	evidenceById: Map<EntityId, SourceEvidence>,
 	sourceViewById: Map<EntityId, SourceView>,
+	trustViewByListingId: Map<EntityId, TrustView>,
 ): ModeView {
 	const sources = mapSources(mode.source_ids, sourceViewById);
+	const listingTrust = mode.listing_id ? trustViewByListingId.get(mode.listing_id) ?? null : null;
 	return {
 		key: `${mode.mode}:${resultKey(mode.product_id, mode.listing_id ?? null)}`,
 		mode: mode.mode,
@@ -205,11 +207,42 @@ function toModeView(
 		listingId: mode.listing_id ?? null,
 		rationale: shopperSafeText(mode.rationale),
 		confidence: confidenceLabel(mode.confidence.level, mode.confidence.score),
+		listingTrust,
 		evidence: mode.evidence_ids
 			.map((id) => evidenceById.get(id))
 			.filter((evidence): evidence is SourceEvidence => Boolean(evidence))
 			.map((evidence) => toEvidenceView(evidence, sources.find((source) => source.id === evidence.source_id))),
 		sources,
+	};
+}
+
+function toTrustView(
+	trust: {
+		listing_id: EntityId;
+		level: string;
+		confidence: { level: string; score?: number | null };
+		summary: string;
+		positive_signals: string[];
+		red_flags: string[];
+		evidence_ids: EntityId[];
+		source_ids: EntityId[];
+	},
+	evidenceById: Map<EntityId, SourceEvidence>,
+	sourceById: Map<EntityId, SourceSnapshot>,
+	sourceViewById: Map<EntityId, SourceView>,
+): TrustView {
+	return {
+		listingId: trust.listing_id,
+		level: trust.level,
+		levelLabel: trustLevelLabel(trust.level),
+		confidence: confidenceLabel(trust.confidence.level, trust.confidence.score),
+		summary: shopperSafeText(trust.summary),
+		positiveSignals: trust.positive_signals.map(shopperSafeText),
+		redFlags: trust.red_flags.map(shopperSafeText),
+		isBlocking: trust.level === 'suspicious',
+		isRisky: trust.level === 'suspicious' || trust.level === 'weak',
+		evidence: mapEvidence(trust.evidence_ids, evidenceById, sourceById),
+		sources: mapSources(trust.source_ids, sourceViewById),
 	};
 }
 
@@ -279,9 +312,25 @@ function hasText(value: string | null | undefined): value is string {
 	return Boolean(value?.trim());
 }
 
+function uniqueText(values: string[]): string[] {
+	return [...new Set(values)];
+}
+
 function confidenceLabel(level: string, score: number | null | undefined): string {
 	const scoreText = typeof score === 'number' ? ` ${Math.round(score * 100)}%` : '';
 	return `${level}${scoreText}`;
+}
+
+function trustLevelLabel(level: string): string {
+	const labels: Record<string, string> = {
+		strong: 'Strong listing',
+		reasonable: 'Reasonable listing',
+		mixed: 'Mixed listing',
+		weak: 'Weak listing',
+		suspicious: 'Blocked listing',
+		unknown: 'Unknown listing',
+	};
+	return labels[level] ?? 'Listing check';
 }
 
 export function shopperSafeText(value: string): string {

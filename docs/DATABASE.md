@@ -88,6 +88,9 @@ Stores each workflow run for a session and its latest status.
 ### `run_events`
 
 Stores ordered progress events for a run, suitable for status history and SSE.
+The deduplication stage event includes the pre-dedupe extracted product count,
+post-dedupe product-group count, preserved listing count, and collapsed duplicate
+count in its user-safe message.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
@@ -282,12 +285,13 @@ canonical product.
 | `brand` | `String(200)` | Yes | Brand identifier when known. |
 | `model` | `String(200)` | Yes | Model identifier when known. |
 | `category` | `String(200)` | Yes | Product category when known. |
-| `product` | `JSON` | No | Full `CanonicalProduct` payload. |
+| `product` | `JSON` | No | Full `CanonicalProduct` payload, including optional SKU/UPC/EAN identity fields when known. |
 
 ### `product_listings`
 
-Stores listing-specific identity and seller/source details for a canonical
-product. Listing identity is not collapsed during deduplication.
+Stores listing-specific identity, seller, price, availability, and source-quality
+details for a canonical product. Listing identity is not collapsed during
+deduplication.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
@@ -299,12 +303,14 @@ product. Listing identity is not collapsed during deduplication.
 | `seller_name` | `String(200)` | No | Seller/store display name. |
 | `seller_trust_signal` | `String(40)` | No | Extracted seller trust signal. |
 | `captured_at` | `String(35)` | No | Capture timestamp. |
-| `listing` | `JSON` | No | Full `ProductListing` payload. |
+| `listing` | `JSON` | No | Full `ProductListing` payload, including optional canonical URL, retailer product ID, SKU, UPC, or EAN identity hints when known, plus listing-specific price, region availability, seller trust signal, and source quality. |
 
 ### `candidate_shortlist_memberships`
 
 Links shortlist candidate IDs to canonical products and optional listings for a
-run.
+run. After workflow deduplication, app-generated shortlist membership is one row
+per grouped canonical product while all listing variants remain in
+`product_listings`.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
@@ -336,7 +342,11 @@ Stores products or product URLs manually supplied by the user.
 
 ### `listing_trust_assessments`
 
-Stores later trust analysis for a specific product listing.
+Stores trust analysis for a specific product listing. The JSON assessment
+payload preserves deterministic signal rows for seller identity, established
+retailer/source type, review count, return/warranty clarity, suspicious price,
+missing metadata, and contradictory listing data so later agent output cannot
+erase rule-based red flags.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |

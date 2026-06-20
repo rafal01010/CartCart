@@ -157,7 +157,7 @@ def test_stream_run_events_returns_persisted_events_in_order(
     payloads = parse_sse_payloads(body)
     event_data = [json.loads(payload["data"]) for payload in payloads]
     assert [payload["id"] for payload in payloads] == [
-        str(index) for index in range(10)
+        str(index) for index in range(11)
     ]
     assert {payload["event"] for payload in payloads} == {"run_event"}
     assert [event["stage"] for event in event_data] == [
@@ -166,6 +166,7 @@ def test_stream_run_events_returns_persisted_events_in_order(
         "discovery",
         "extraction",
         "deduplication",
+        "source_intelligence",
         "listing_trust",
         "category_analysis",
         "comparison_decision",
@@ -192,7 +193,7 @@ def test_create_run_streams_events_and_fetches_fixture_results(
     results_response = run_api_client.get(f"/api/sessions/{session_id}/results")
 
     assert events_response.status_code == 200
-    assert parse_sse_payloads(events_body)[-1]["id"] == "9"
+    assert parse_sse_payloads(events_body)[-1]["id"] == "10"
     assert results_response.status_code == 200
     result_body = results_response.json()
     assert result_body["result_version"]["run_id"] == run_id
@@ -204,4 +205,4 @@ def test_create_run_streams_events_and_fetches_fixture_results(
         assessment["level"] == "suspicious"
         for assessment in result_body["trust_assessments"]
     )
-    assert len(result_body["agent_records"]) == 9
+    assert len(result_body["agent_records"]) == 10

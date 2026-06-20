@@ -233,6 +233,9 @@ Required result surfaces when available:
 - Warnings and red flags.
 - Rejected or avoid items only when there is a meaningful negative reason.
 - Source links and evidence details behind supporting surfaces.
+- When listing trust is linked to a recommended mode, show product fit and
+  listing safety as separate ideas so a good product from a bad listing is not
+  mistaken for a bad product.
 
 No-strong-buy is a valid outcome, not an error. It should explain what blocked a
 responsible recommendation and what the user can do next.

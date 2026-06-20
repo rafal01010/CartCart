@@ -1,12 +1,14 @@
 from enum import StrEnum
+from typing import Any
 
-from pydantic import AnyHttpUrl, Field, model_validator
+from pydantic import AnyHttpUrl, Field, field_validator, model_validator
 
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence
 from app.schemas.ids import CandidateId, ListingId, ProductId, SourceId, new_id
 from app.schemas.money import Money
 from app.schemas.regions import RegionCode
+from app.schemas.search_sources import SourceQuality, SourceQualityLevel
 from app.schemas.timestamps import Timestamp, utc_now
 
 
@@ -60,9 +62,22 @@ class CanonicalProduct(VersionedSchema):
     name: str = Field(min_length=1, max_length=300)
     brand: str | None = Field(default=None, min_length=1, max_length=200)
     model: str | None = Field(default=None, min_length=1, max_length=200)
+    sku: str | None = Field(default=None, min_length=1, max_length=120)
+    upc: str | None = Field(default=None, min_length=1, max_length=14)
+    ean: str | None = Field(default=None, min_length=1, max_length=14)
     category: str | None = Field(default=None, min_length=1, max_length=200)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     listing_ids: tuple[ListingId, ...] = Field(default_factory=tuple)
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def _normalize_identifier(cls, value: Any) -> Any:
+        return _normalize_identifier_value(value)
+
+    @field_validator("upc", "ean", mode="before")
+    @classmethod
+    def _normalize_gtin(cls, value: Any) -> Any:
+        return _normalize_gtin_value(value)
 
 
 class ProductListing(VersionedSchema):
@@ -70,11 +85,29 @@ class ProductListing(VersionedSchema):
     product_id: ProductId
     title: str = Field(min_length=1, max_length=300)
     url: AnyHttpUrl
+    canonical_url: AnyHttpUrl | None = None
+    retailer_id: str | None = Field(default=None, min_length=1, max_length=160)
+    sku: str | None = Field(default=None, min_length=1, max_length=120)
+    upc: str | None = Field(default=None, min_length=1, max_length=14)
+    ean: str | None = Field(default=None, min_length=1, max_length=14)
     seller: SellerProfile
     price: Money | None = None
     region_availability: tuple[RegionAvailability, ...] = Field(default_factory=tuple)
+    source_quality: SourceQuality = Field(
+        default_factory=lambda: SourceQuality(level=SourceQualityLevel.UNKNOWN)
+    )
     source_ids: tuple[SourceId, ...] = Field(min_length=1)
     captured_at: Timestamp = Field(default_factory=utc_now)
+
+    @field_validator("retailer_id", "sku", mode="before")
+    @classmethod
+    def _normalize_identifier(cls, value: Any) -> Any:
+        return _normalize_identifier_value(value)
+
+    @field_validator("upc", "ean", mode="before")
+    @classmethod
+    def _normalize_gtin(cls, value: Any) -> Any:
+        return _normalize_gtin_value(value)
 
 
 class ProductListingExtraction(VersionedSchema):
@@ -118,3 +151,17 @@ class UserAddedProduct(VersionedSchema):
                 "user-added product and listing must reference the same product."
             )
         return self
+
+
+def _normalize_identifier_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = " ".join(value.strip().split())
+    return normalized.upper() if normalized else None
+
+
+def _normalize_gtin_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = "".join(character for character in value if character.isdigit())
+    return normalized or None

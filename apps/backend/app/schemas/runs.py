@@ -22,6 +22,7 @@ class RunStage(StrEnum):
     QUERY_PLANNING = "query_planning"
     DISCOVERY = "discovery"
     EXTRACTION = "extraction"
+    SOURCE_INTELLIGENCE = "source_intelligence"
     DEDUPLICATION = "deduplication"
     LISTING_TRUST = "listing_trust"
     CATEGORY_ANALYSIS = "category_analysis"

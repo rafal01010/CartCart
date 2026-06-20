@@ -12,8 +12,18 @@ from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
+from app.db.repositories.source_intelligence import SourceIntelligenceRepository
+from app.db.repositories.video_sources import VideoReviewRepository
 from app.db.session import get_db_session
-from app.providers import build_extraction_provider, build_search_provider
+from app.providers import (
+    build_amazon_product_intelligence_provider,
+    build_community_discussion_provider,
+    build_extraction_provider,
+    build_ikea_store_intelligence_provider,
+    build_search_provider,
+    build_transcript_provider,
+    build_video_search_provider,
+)
 from app.schemas.ids import RunId, SessionId
 from app.schemas.runs import RunEvent, ShoppingRunRecord
 from app.services.runs import RunService
@@ -87,11 +97,34 @@ def _run_service(
         result_repository=ResultRepository(db_session),
         search_source_repository=SearchSourceRepository(db_session),
         product_repository=ProductRepository(db_session),
+        source_intelligence_repository=SourceIntelligenceRepository(db_session),
+        video_review_repository=VideoReviewRepository(db_session),
         search_provider=(
             build_search_provider(settings) if settings is not None else None
         ),
         extraction_provider=(
             build_extraction_provider(settings) if settings is not None else None
+        ),
+        video_search_provider=(
+            build_video_search_provider(settings) if settings is not None else None
+        ),
+        transcript_provider=(
+            build_transcript_provider(settings) if settings is not None else None
+        ),
+        community_discussion_provider=(
+            build_community_discussion_provider(settings)
+            if settings is not None
+            else None
+        ),
+        amazon_product_intelligence_provider=(
+            build_amazon_product_intelligence_provider(settings)
+            if settings is not None
+            else None
+        ),
+        ikea_store_intelligence_provider=(
+            build_ikea_store_intelligence_provider(settings)
+            if settings is not None
+            else None
         ),
         default_region_code=(
             settings.default_region_code if settings is not None else "US"

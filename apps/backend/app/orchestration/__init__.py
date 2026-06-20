@@ -6,6 +6,7 @@ from app.orchestration.fixtures import (
 from app.orchestration.shopping_runs import (
     FixtureStageOutput,
     RepositoryShoppingRunPersistenceHooks,
+    SourceIntelligenceRunOutput,
     ShoppingRunContext,
     ShoppingRunOrchestrator,
     ShoppingRunPersistenceHooks,
@@ -16,6 +17,7 @@ __all__ = [
     "FixtureStageOutput",
     "MonitorFixtureRunOutput",
     "RepositoryShoppingRunPersistenceHooks",
+    "SourceIntelligenceRunOutput",
     "ShoppingRunContext",
     "ShoppingRunOrchestrator",
     "ShoppingRunPersistenceHooks",

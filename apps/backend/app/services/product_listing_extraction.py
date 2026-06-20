@@ -18,6 +18,7 @@ from app.schemas.products import (
 from app.schemas.search_sources import (
     ExtractionStatus,
     SearchResult,
+    SourceQuality,
     SourceSnapshot,
     SourceType,
 )
@@ -113,7 +114,10 @@ class ProductListingExtractor:
             region_codes=region_codes,
         )
         return _build_extraction(
-            fields, source_id=result.source_id, url=str(result.url)
+            fields,
+            source_id=result.source_id,
+            source_quality=result.quality,
+            url=str(result.url),
         )
 
     def extract_source_snapshot(
@@ -158,6 +162,7 @@ class ProductListingExtractor:
         return _build_extraction(
             fields,
             source_id=snapshot.source_id,
+            source_quality=snapshot.quality,
             url=str(snapshot.url),
         )
 
@@ -186,6 +191,7 @@ def _build_extraction(
     fields: _ExtractionFields,
     *,
     source_id: SourceId,
+    source_quality: SourceQuality,
     url: str,
 ) -> ProductListingExtraction:
     product = CanonicalProduct(
@@ -210,6 +216,7 @@ def _build_extraction(
             )
             for region_code in fields.region_codes
         ),
+        source_quality=source_quality,
         source_ids=(source_id,),
     )
     missing = _missing_fields(fields)

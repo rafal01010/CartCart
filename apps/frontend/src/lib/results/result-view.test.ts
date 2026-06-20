@@ -135,6 +135,57 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.label).toBe('Best value');
 		expect(view.finalMode?.sources[0]?.url).toBe('https://example.test/dell');
 		expect(view.finalMode?.evidence[0]?.claim).toBe('Dell has USB-C support.');
+		expect(view.finalMode?.listingTrust?.levelLabel).toBe('Reasonable listing');
+	});
+
+	it('attaches listing safety to modes separately from product fit', () => {
+		const view = buildResultView({
+			...baseResult,
+			trust_assessments: [
+				...baseResult.trust_assessments,
+				{
+					schema_version: 1,
+					listing_id: 'listing-asus',
+					level: 'suspicious',
+					confidence: { level: 'medium', score: 0.66 },
+					summary: 'The product may fit, but this marketplace listing has risky seller signals.',
+					red_flags: ['Seller details do not line up.'],
+					positive_signals: [],
+					evidence_ids: ['evidence-asus'],
+					source_ids: ['source-asus'],
+					assessed_at: '2026-05-31T00:00:00Z',
+				},
+			],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				warnings: [
+					'Blocked a suspicious listing: The product may still be worth considering from a safer seller.',
+				],
+			},
+		});
+
+		expect(view.runnerUps[0]?.label).toBe('Best value');
+		expect(view.runnerUps[0]?.listingTrust?.isBlocking).toBe(true);
+		expect(view.runnerUps[0]?.listingTrust?.summary).toContain('product may fit');
+		expect(view.warnings).toContain('Seller details do not line up.');
+		expect(view.warnings.some((warning) => warning.includes('safer seller'))).toBe(true);
+	});
+
+	it('does not expose a best-pick card for no-strong-buy results', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				final_product_id: null,
+				final_listing_id: null,
+				no_strong_buy: true,
+				no_strong_buy_reason: 'The best-matching listing is blocked by seller checks.',
+				final_rationale: null,
+			},
+		});
+
+		expect(view.finalMode).toBeNull();
+		expect(view.noStrongBuyReason).toBe('The best-matching listing is blocked by seller checks.');
 	});
 
 	it('omits rejected items when a good-candidate fixture has no meaningful negative reason', () => {

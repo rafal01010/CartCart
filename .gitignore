@@ -270,3 +270,4 @@ apps/backend/app/evals/output/
 # Local planning docs not uploaded to GitHub
 cartcart_codex_initial_prompt*
 IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN_ARCHIVE.md

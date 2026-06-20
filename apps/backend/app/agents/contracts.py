@@ -102,6 +102,7 @@ class SellerListingTrustAgentInput(VersionedSchema):
     run_id: RunId
     listing: ProductListing
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    rule_based_assessment: ListingTrustAssessment | None = None
 
 
 class SourceIntelligenceAgentInput(VersionedSchema):

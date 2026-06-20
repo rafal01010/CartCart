@@ -34,7 +34,6 @@ from app.schemas.analysis import (
     DeduplicationDecision,
     DeduplicationOutcome,
     ListingTrustAssessment,
-    ListingTrustLevel,
     RecommendationBundle,
     RecommendationMode,
     RecommendationModeResult,
@@ -114,6 +113,10 @@ from app.schemas.search_sources import (
     VideoSource,
 )
 from app.schemas.source_references import SourceReference
+from app.services.listing_trust import ListingTrustRuleContext, assess_listing_trust
+from app.services.recommendation_trust import (
+    integrate_trust_analysis_into_recommendation,
+)
 
 FIRST_QUESTION_ID = "first-question"
 MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
@@ -396,17 +399,17 @@ class FakeSellerListingTrustAgent:
     ) -> ListingTrustAssessment:
         if self.output is not None:
             return self.output
+        if input_data.rule_based_assessment is not None:
+            return input_data.rule_based_assessment
         evidence_ids = tuple(item.evidence_id for item in input_data.evidence) or (
             new_id(),
         )
-        return ListingTrustAssessment(
-            listing_id=input_data.listing.listing_id,
-            level=ListingTrustLevel.REASONABLE,
-            confidence=_confidence(),
-            summary="Fixture seller trust assessment.",
-            positive_signals=("Seller identity is present in fixture data.",),
-            evidence_ids=evidence_ids,
-            source_ids=input_data.listing.source_ids,
+        return assess_listing_trust(
+            input_data.listing,
+            ListingTrustRuleContext(
+                evidence_ids=evidence_ids,
+                source_ids=input_data.listing.source_ids,
+            ),
         )
 
 
@@ -783,7 +786,7 @@ class FakeComparisonDecisionAgent:
                 ),
             ),
         )
-        return RecommendationBundle(
+        recommendation = RecommendationBundle(
             final_product_id=product.product_id,
             final_listing_id=listing.listing_id if listing else None,
             final_rationale="Fixture recommendation.",
@@ -800,6 +803,10 @@ class FakeComparisonDecisionAgent:
             ),
             comparison_matrix=matrix,
             evidence_ids=evidence_ids,
+        )
+        return integrate_trust_analysis_into_recommendation(
+            recommendation,
+            input_data.trust_assessments,
         )
 
 

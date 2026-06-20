@@ -21,6 +21,7 @@ from app.schemas.products import (
     UserAddedProduct,
 )
 from app.schemas.ids import new_id
+from app.schemas.search_sources import SourceQuality, SourceQualityLevel
 
 
 def make_seller(name: str, trust_signal: SellerTrustSignal) -> SellerProfile:
@@ -47,6 +48,7 @@ def make_listing(
     seller_name: str,
     trust_signal: SellerTrustSignal,
     price: str,
+    source_quality_level: SourceQualityLevel = SourceQualityLevel.UNKNOWN,
 ) -> ProductListing:
     return ProductListing(
         product_id=product.product_id,
@@ -61,6 +63,7 @@ def make_listing(
                 source_ids=(new_id(),),
             ),
         ),
+        source_quality=SourceQuality(level=source_quality_level),
         source_ids=(new_id(),),
     )
 
@@ -106,6 +109,7 @@ async def test_product_repository_groups_duplicate_listings_without_losing_ident
             "Acme Official",
             SellerTrustSignal.STRONG,
             "999.00",
+            SourceQualityLevel.STRONG,
         )
         risky_listing = make_listing(
             product,
@@ -114,6 +118,7 @@ async def test_product_repository_groups_duplicate_listings_without_losing_ident
             "Too Cheap Deals",
             SellerTrustSignal.SUSPICIOUS,
             "499.00",
+            SourceQualityLevel.WEAK,
         )
 
         async with session_factory() as db_session:
@@ -155,6 +160,16 @@ async def test_product_repository_groups_duplicate_listings_without_losing_ident
         )
         assert seller_trust_by_listing[risky_listing.listing_id] == (
             SellerTrustSignal.SUSPICIOUS
+        )
+        source_quality_by_listing = {
+            listing.listing_id: listing.source_quality.level
+            for listing in loaded_listings
+        }
+        assert source_quality_by_listing[official_listing.listing_id] == (
+            SourceQualityLevel.STRONG
+        )
+        assert source_quality_by_listing[risky_listing.listing_id] == (
+            SourceQualityLevel.WEAK
         )
 
     finally:

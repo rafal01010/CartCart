@@ -10,9 +10,9 @@ CartCart is not intended to be only a product recommendation app, a price compar
 
 ## Current Status
 
-CartCart currently has a local, fixture-backed full-stack workflow. The backend is a FastAPI app with SQLite persistence, migrations, health/readiness endpoints, typed API routes, fixture guided-intake endpoints, a stub shopping-run orchestrator, and exported OpenAPI docs. The SvelteKit frontend now opens on a dark, focused "Send your question" homepage with a large textbox, rotating starter questions, local one-time region setup, and a backend-wired guided fixture intake flow. User-safe progress and staged result reveal are still follow-up work.
+CartCart currently has a local, fixture-backed full-stack workflow. The backend is a FastAPI app with SQLite persistence, migrations, health/readiness endpoints, typed API routes, fixture guided-intake endpoints, a shopping-run orchestrator with provider-backed discovery, extraction, and reusable source-intelligence stages, and exported OpenAPI docs. The SvelteKit frontend now opens on a dark, focused "Send your question" homepage with a large textbox, rotating starter questions, local one-time region setup, and a backend-wired guided fixture intake flow. User-safe progress and staged result reveal are still follow-up work.
 
-This milestone does not use live search providers, live reusable source intelligence agents, live OpenAI model calls, affiliate links, or production deployment. The recommendation data is deterministic fixture data so the web app can be manually exercised without external credentials.
+The default local workflow does not require live provider credentials, live reusable source intelligence agents, live OpenAI model calls, affiliate links, or production deployment. Search, extraction, YouTube/video metadata, transcripts, Reddit/community evidence, Amazon product/listing/review evidence, and IKEA regional store evidence stay behind explicit provider boundaries and default to fixture behavior. YouTube transcript availability is not assumed; failed or unavailable captions become evidence gaps. Reddit remains qualitative, Amazon remains marketplace/listing-specific, and IKEA availability remains region-specific. The recommendation data is still deterministic fixture data so the web app can be manually exercised without external credentials.
 
 ## Product Direction
 
@@ -104,7 +104,7 @@ Use these lifecycle scripts while manually testing:
 
 Lifecycle scripts write PID files to `data/run/` and logs to `data/logs/` by default. Override bind addresses and ports with `CARTCART_BACKEND_HOST`, `CARTCART_BACKEND_PORT`, `CARTCART_FRONTEND_HOST`, and `CARTCART_FRONTEND_PORT`; override PID and log directories with `CARTCART_RUN_DIR` and `CARTCART_LOG_DIR`.
 
-The backend can create sessions, guide staged intake, execute the fixture run, stream stage progress, and return the latest fixture recommendation bundle with trust notes, warnings, mode results, and source evidence links. The current frontend starts from guided intake and can begin fixture analysis after the backend reaches ready-for-analysis; later guided-flow work will add user-safe progress and staged results without restoring the obsolete workspace.
+The backend can create sessions, guide staged intake, execute the fixture run, stream stage progress, persist reusable source-intelligence evidence bundles, and return the latest fixture recommendation bundle with trust notes, warnings, mode results, and source evidence links. The current frontend starts from guided intake and can begin fixture analysis after the backend reaches ready-for-analysis; later guided-flow work will add user-safe progress and staged results without restoring the obsolete workspace.
 
 ## Verification
 

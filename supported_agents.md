@@ -244,10 +244,13 @@ The current runtime invokes `QueryPlannerAgent`, executes the resulting queries
 through the configured `SearchProvider`, and persists accepted, policy-scored
 search results. Eligible result pages then pass through the configured
 `ExtractionProvider`; usable snapshots create persisted app-generated products,
-listings, and shortlist memberships. Later trust, analysis, recommendation, and
-reusable source-intelligence stages remain fixture-backed. Fixture mode stays
-the default when live providers are disabled or configured credentials are
-unavailable.
+listings, and shortlist memberships. Reusable source-intelligence providers run
+after deduplication. The seller/listing trust stage now calls the typed
+`SellerListingTrustAgent` contract in fixture mode, seeded by deterministic
+trust rules, and persists `ListingTrustAssessment` rows through result
+persistence. Later category analysis and recommendation stages remain
+fixture-backed. Fixture mode stays the default when live providers are disabled
+or configured credentials are unavailable.
 
 ## Required Routing Rules
 
@@ -286,7 +289,7 @@ unavailable.
 - `CommunityDiscussionEvidenceBundle` is the Reddit/community evidence boundary. It must include thread/comment source references, extracted public snippets or summaries where allowed, recurring claims, recency/engagement context when available, evidence-quality warnings, and explicit gaps.
 - `AmazonProductEvidenceBundle` is the Amazon evidence boundary. It must include product/listing identity, marketplace/region context, seller/fulfillment signals, product-page facts, review-summary signals, availability/ship-to-region evidence, and suspicious marketplace/review warnings.
 - `IKEAStoreEvidenceBundle` is the IKEA evidence boundary. It must include country/region context, official product/store source references, product-page facts, regional price/currency where available, availability/store/delivery signals, and explicit gaps.
-- `ListingTrustAssessment` is the seller/listing trust boundary and must remain separate from product desirability.
+- `ListingTrustAssessment` is the seller/listing trust boundary and must remain separate from product desirability. It preserves deterministic signal rows for seller identity, established retailer/source type, review count, return/warranty clarity, suspicious price, missing metadata, and contradictory listing data.
 - `CategoryAnalysis` is the product/category analysis boundary.
 - `RecommendationBundle` is the comparison and decision boundary.
 - Important output schemas should be versioned when implemented.

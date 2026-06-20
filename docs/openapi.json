@@ -232,6 +232,19 @@
             ],
             "title": "Category"
           },
+          "ean": {
+            "anyOf": [
+              {
+                "maxLength": 14,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ean"
+          },
           "listing_ids": {
             "items": {
               "format": "uuid",
@@ -270,6 +283,19 @@
             "title": "Schema Version",
             "type": "integer"
           },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
+          },
           "source_ids": {
             "items": {
               "format": "uuid",
@@ -277,6 +303,19 @@
             },
             "title": "Source Ids",
             "type": "array"
+          },
+          "upc": {
+            "anyOf": [
+              {
+                "maxLength": 14,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upc"
           }
         },
         "required": [
@@ -1158,6 +1197,99 @@
         "title": "EvidenceType",
         "type": "string"
       },
+      "ExtractedPageContent": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "extractor": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Extractor",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "published_date": {
+            "anyOf": [
+              {
+                "maxLength": 35,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published Date"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "word_count": {
+            "minimum": 1.0,
+            "title": "Word Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "text",
+          "extractor",
+          "word_count"
+        ],
+        "title": "ExtractedPageContent",
+        "type": "object"
+      },
       "ExtractionStatus": {
         "enum": [
           "not_attempted",
@@ -1772,10 +1904,36 @@
       "ProductListing": {
         "additionalProperties": false,
         "properties": {
+          "canonical_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Url"
+          },
           "captured_at": {
             "format": "date-time",
             "title": "Captured At",
             "type": "string"
+          },
+          "ean": {
+            "anyOf": [
+              {
+                "maxLength": 14,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ean"
           },
           "listing_id": {
             "format": "uuid",
@@ -1804,6 +1962,19 @@
             "title": "Region Availability",
             "type": "array"
           },
+          "retailer_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retailer Id"
+          },
           "schema_version": {
             "default": 1,
             "minimum": 1.0,
@@ -1812,6 +1983,19 @@
           },
           "seller": {
             "$ref": "#/components/schemas/SellerProfile"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sku"
           },
           "source_ids": {
             "items": {
@@ -1822,11 +2006,27 @@
             "title": "Source Ids",
             "type": "array"
           },
+          "source_quality": {
+            "$ref": "#/components/schemas/SourceQuality"
+          },
           "title": {
             "maxLength": 300,
             "minLength": 1,
             "title": "Title",
             "type": "string"
+          },
+          "upc": {
+            "anyOf": [
+              {
+                "maxLength": 14,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upc"
           },
           "url": {
             "format": "uri",
@@ -1923,6 +2123,41 @@
           "provider_name"
         ],
         "title": "ProviderMetadata",
+        "type": "object"
+      },
+      "RawSourceSnapshotArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "content_type": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Content Type",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "content_type",
+          "size_bytes",
+          "sha256"
+        ],
+        "title": "RawSourceSnapshotArtifact",
         "type": "object"
       },
       "ReanswerableQuestion": {
@@ -2601,6 +2836,7 @@
           "query_planning",
           "discovery",
           "extraction",
+          "source_intelligence",
           "deduplication",
           "listing_trust",
           "category_analysis",
@@ -3185,15 +3421,48 @@
             "title": "Captured At",
             "type": "string"
           },
+          "extracted_content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtractedPageContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "extraction_status": {
             "$ref": "#/components/schemas/ExtractionStatus",
             "default": "not_attempted"
+          },
+          "http_status_code": {
+            "anyOf": [
+              {
+                "maximum": 599.0,
+                "minimum": 100.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status Code"
           },
           "provider": {
             "$ref": "#/components/schemas/ProviderMetadata"
           },
           "quality": {
             "$ref": "#/components/schemas/SourceQuality"
+          },
+          "raw_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RawSourceSnapshotArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "schema_version": {
             "default": 1,
@@ -3582,6 +3851,31 @@
             },
             "title": "Channel Signals",
             "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
           },
           "published_at": {
             "anyOf": [

@@ -718,6 +718,35 @@
 								Confidence: {resultView.finalMode.confidence}
 							</div>
 						</div>
+						{#if resultView.finalMode.listingTrust}
+							<div class="mt-4 grid gap-3 sm:grid-cols-2">
+								<div class="rounded-md border border-border bg-secondary/60 p-3">
+									<p class="text-sm font-medium text-foreground">Product fit</p>
+									<p class="mt-1 text-sm leading-6 text-muted-foreground">
+										{resultView.finalMode.rationale}
+									</p>
+								</div>
+								<div
+									class={`rounded-md border p-3 ${
+										resultView.finalMode.listingTrust.isBlocking
+											? 'border-destructive/45 bg-destructive/10'
+											: 'border-border bg-secondary/60'
+									}`}
+								>
+									<p class="text-sm font-medium text-foreground">
+										Listing safety: {resultView.finalMode.listingTrust.levelLabel}
+									</p>
+									<p class="mt-1 text-sm leading-6 text-muted-foreground">
+										{resultView.finalMode.listingTrust.summary}
+									</p>
+									{#if resultView.finalMode.listingTrust.redFlags.length}
+										<p class="mt-1 text-sm leading-6 text-destructive">
+											{resultView.finalMode.listingTrust.redFlags.join(' ')}
+										</p>
+									{/if}
+								</div>
+							</div>
+						{/if}
 					{/if}
 
 					{#if resultView.warnings.length}
@@ -770,6 +799,15 @@
 												<p class="mt-1 text-sm leading-6 text-muted-foreground">
 													{runner.rationale}
 												</p>
+												{#if runner.listingTrust?.isRisky}
+													<p class="mt-2 text-sm leading-6 text-destructive">
+														Listing safety: {runner.listingTrust.levelLabel}. {runner.listingTrust.summary}
+													</p>
+												{:else if runner.listingTrust}
+													<p class="mt-2 text-sm leading-6 text-muted-foreground">
+														Listing safety: {runner.listingTrust.levelLabel}
+													</p>
+												{/if}
 											</div>
 										{/each}
 									</div>
@@ -786,6 +824,15 @@
 												<p class="mt-1 text-sm leading-6 text-muted-foreground">
 													{mode.rationale}
 												</p>
+												{#if mode.listingTrust?.isRisky}
+													<p class="mt-2 text-sm leading-6 text-destructive">
+														Listing safety: {mode.listingTrust.levelLabel}. {mode.listingTrust.summary}
+													</p>
+												{:else if mode.listingTrust}
+													<p class="mt-2 text-sm leading-6 text-muted-foreground">
+														Listing safety: {mode.listingTrust.levelLabel}
+													</p>
+												{/if}
 											</div>
 										{/each}
 									</div>
@@ -798,6 +845,9 @@
 									<div class="mt-2 grid gap-2">
 										{#each resultView.trustViews as trust}
 											<div class="rounded-md border border-border bg-secondary/60 p-3">
+												<p class="text-xs font-medium text-muted-foreground">
+													{trust.levelLabel} · confidence: {trust.confidence}
+												</p>
 												<p class="text-sm font-medium text-foreground">{trust.summary}</p>
 												{#if trust.redFlags.length}
 													<p class="mt-1 text-sm leading-6 text-destructive">

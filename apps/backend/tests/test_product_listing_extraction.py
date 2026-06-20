@@ -12,6 +12,8 @@ from app.schemas import (
     RawSourceSnapshotArtifact,
     SearchQuery,
     SearchResult,
+    SourceQuality,
+    SourceQualityLevel,
     SourceSnapshot,
     SourceType,
 )
@@ -28,9 +30,10 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "extraction"
 def test_search_result_fixture_produces_complete_confident_listing() -> None:
     payload = json.loads((FIXTURE_DIR / "search_product_listing.json").read_text())
 
-    extracted = ProductListingExtractor().extract_search_result(
-        SearchResult.model_validate(payload)
+    result = SearchResult.model_validate(payload).model_copy(
+        update={"quality": SourceQuality(level=SourceQualityLevel.ADEQUATE)}
     )
+    extracted = ProductListingExtractor().extract_search_result(result)
 
     assert extracted.product.brand == "Northstar"
     assert extracted.listing.title == "Northstar Arc 27 USB-C Monitor"
@@ -39,6 +42,7 @@ def test_search_result_fixture_produces_complete_confident_listing() -> None:
     assert extracted.listing.price.currency == "PHP"
     assert extracted.listing.seller.seller_name == "Metro Office"
     assert extracted.listing.region_availability[0].region_code == "PH"
+    assert extracted.listing.source_quality.level == SourceQualityLevel.ADEQUATE
     assert extracted.missing_data_flags == ()
     assert extracted.confidence.score == 1.0
     assert extracted.confidence.level == ConfidenceLevel.HIGH
@@ -47,7 +51,9 @@ def test_search_result_fixture_produces_complete_confident_listing() -> None:
 def test_static_page_fixture_produces_complete_confident_listing(
     tmp_path: Path,
 ) -> None:
-    snapshot = _snapshot_from_fixture(tmp_path, "product_listing_page.html")
+    snapshot = _snapshot_from_fixture(tmp_path, "product_listing_page.html").model_copy(
+        update={"quality": SourceQuality(level=SourceQualityLevel.STRONG)}
+    )
     page = StaticPageTextExtractor(snapshot_dir=tmp_path).extract(snapshot)
 
     extracted = ProductListingExtractor().extract_source_snapshot(page)
@@ -58,6 +64,7 @@ def test_static_page_fixture_produces_complete_confident_listing(
     assert extracted.listing.price.currency == "USD"
     assert extracted.listing.seller.seller_name == "Metro Office"
     assert extracted.listing.region_availability[0].region_code == "US"
+    assert extracted.listing.source_quality.level == SourceQualityLevel.STRONG
     assert extracted.missing_data_flags == ()
     assert extracted.confidence.score == 1.0
 

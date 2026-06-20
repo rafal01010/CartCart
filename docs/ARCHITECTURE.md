@@ -73,7 +73,7 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, provider-backed source extraction, source snapshots/evidence, bounded HTTP source fetch and raw snapshot storage, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a transitional shopping run orchestrator with provider-backed discovery/extraction and fixture analysis stages, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
+The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, provider-backed source extraction, source snapshots/evidence, bounded HTTP source fetch and raw snapshot storage, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a transitional shopping run orchestrator with provider-backed discovery, extraction, reusable source intelligence, and fixture analysis stages, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
 
 Current skeleton:
 
@@ -218,7 +218,7 @@ analysis.
 
 ## Workflow Architecture
 
-CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the current fixture monitor-shopping analysis bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, and usable extraction output creates persisted app-generated products, listings, and shortlist memberships. Later trust, analysis, recommendation, and verification stages remain deterministic fixtures and do not call models.
+CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the current fixture monitor-shopping analysis bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, usable extraction output creates normalized app-generated candidates, deterministic deduplication persists grouped products/listings/shortlist memberships, reusable source-intelligence providers can add source-specific evidence bundles for grouped candidates, and listing trust runs through the fake typed trust-agent contract seeded by deterministic rules. Later analysis, recommendation, and verification stages remain deterministic fixtures and do not call models.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -236,16 +236,21 @@ Recommended stages:
 7. Search provider adapters collect web, product, or source-intelligence results.
 8. Fetch and extraction store source snapshots and structured evidence.
 9. Candidate generation normalizes product and listing data.
-10. Deduplication groups obvious duplicates and preserves uncertain cases.
-11. Category analysis evaluates product fit, specs, tradeoffs, and evidence gaps.
-12. Seller/listing trust analysis evaluates buyer-safety signals.
-13. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
-14. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
-15. The frontend renders staged results and supports targeted refinement from cached artifacts.
+10. Deduplication groups obvious duplicates while preserving all listing-level
+    seller, price, availability, and source-quality differences.
+11. Reusable source-intelligence checks add relevant YouTube/video, Reddit/community, Amazon, and IKEA evidence bundles for grouped products without replacing normal web/listing evidence.
+12. Category analysis evaluates product fit, specs, tradeoffs, and evidence gaps.
+13. Seller/listing trust analysis evaluates buyer-safety signals.
+14. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
+15. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
+16. The frontend renders staged results and supports targeted refinement from cached artifacts.
 
 ## Agent And Source Capability Model
 
 `supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts.
+The current fixture shopping-run workflow also calls the typed
+`SellerListingTrustAgent` contract for listing trust review, seeded by
+deterministic trust rules, before final fixture recommendations are persisted.
 
 Required MVP agent roles include:
 
@@ -300,6 +305,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - A source known to be reseller-only should be marked excluded with a reason, not quietly used as evidence for a recommendation.
 - Mixed marketplaces may be included only when seller/listing legitimacy can be assessed with available signals.
 - Mixed-marketplace listings must preserve listing identity separately from product identity because the same product can be safe from one seller and risky from another.
+- Canonical grouping must preserve each listing's seller trust signal, price, regional availability, and source quality so later trust and recommendation stages can prefer or reject listings independently of product desirability.
 - A mixed-marketplace listing with unknown seller identity, unclear fulfillment, unclear return/warranty policy, suspicious price, or sparse/contradictory metadata must not be treated as equivalent to an established retailer or official source.
 - The system must not recommend a matching listing merely because it matches the query.
 - Tests should cover excluded reseller-only sources, allowed established retailers, mixed marketplaces with strong seller signals, and mixed marketplaces with weak or suspicious seller signals.
@@ -309,6 +315,9 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Product quality and listing trust are separate dimensions.
 - `ListingTrustAssessment` should support at least `strong`, `reasonable`, `mixed`, `weak`, `suspicious`, and `unknown`.
 - Suspicious deterministic signals cannot be silently overridden by an agent.
+- Price plausibility checks compare same-product listing prices first and use
+  category-level prices only as a conservative fallback, so extreme low-price
+  outliers can be flagged without treating normal retailer discounts as unsafe.
 - A suspicious listing must not be the final purchase link unless the result clearly blocks or warns against buying from that listing.
 - A good product from a bad listing should be shown as a product/listing mismatch, not as a safe buy.
 - Trust notes should cite the source or listing signals that support them when available.
@@ -360,6 +369,9 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Warnings should be visible in the result bundle and linked to affected products/listings and source evidence where possible.
 - Do not add generic warnings solely to fill a UI section.
 - A blocking concern should prevent a listing from being the safe final purchase option even if the product itself ranks highly.
+- Recommendation assembly should convert material listing-trust assessments into
+  listing-level warnings or rejections. A suspicious final listing must become a
+  no-strong-buy outcome or be replaced by a safer listing for the same product.
 
 ### Conditional Why-Not Output
 
@@ -426,12 +438,30 @@ Playwright, Crawl4AI, or any other browser runtime.
 search or static page extraction. It converts selected search-result snippets
 and extracted product, retailer, or official-brand pages into a linked
 `CanonicalProduct` and `ProductListing`. Brand remains product-level data rather
-than being duplicated on the listing. Price and currency remain a single
-`Money` value, region hints become unknown-status `RegionAvailability` entries,
-and the extraction result records explicit missing-data flags plus confidence.
-Hostname-derived seller names keep partial records valid but are marked as
-missing seller/store data. Professional reviews and other non-listing pages are
-not normalized as listings by this service.
+than being duplicated on the listing, while exact product identifiers such as
+model, SKU, UPC, and EAN remain available for later matching when known. Listing
+identity may include a canonicalized listing URL and retailer product ID. Price
+and currency remain a single `Money` value, region hints become unknown-status
+`RegionAvailability` entries, and the extraction result records explicit
+missing-data flags plus confidence. Hostname-derived seller names keep partial
+records valid but are marked as missing seller/store data. Professional reviews
+and other non-listing pages are not normalized as listings by this service.
+
+`DeterministicProductDeduplicator` is the conservative product grouping layer
+for obvious duplicates. It canonicalizes listing URLs with the source URL
+policy, extracts conservative retailer product IDs such as Amazon ASINs or
+explicit product/SKU query IDs, and collapses when canonical URL, same-retailer
+retailer ID, UPC, EAN, SKU with exact retailer/brand support, or exact
+brand/model evidence matches. After exact matching, normalized title/spec
+similarity can produce `same_product`, `same_family`, `uncertain`, or
+`different_product` review outcomes. Only high-confidence `same_product`
+outcomes collapse candidates; `same_family` and `uncertain` outcomes preserve
+separate candidates for later review.
+
+The run orchestrator invokes this deduplicator immediately after extraction.
+That stage persists one canonical product per group, preserves every grouped
+listing, writes one shortlist membership per grouped product, and emits pre/post
+dedupe counts before source-intelligence and later analysis stages run.
 
 `SourceEvidenceCreator` is the deterministic evidence step for usable extracted
 page text. It converts explicit product, listing, warranty, availability, and
@@ -553,6 +583,13 @@ failed-transcript gaps, Reddit/community
 evidence gaps or recurring discussion signals, Amazon product/listing/review
 evidence, IKEA regional store evidence, and disabled-provider results without
 making live calls.
+
+The shopping workflow invokes those provider boundaries after normal extraction
+for a small scoped set of candidate products/categories. YouTube metadata is
+selected through `VideoSearchProvider`, transcripts are fetched only through the
+configured `TranscriptProvider`, Reddit remains qualitative, Amazon remains
+marketplace/listing-specific, and IKEA runs only when source relevance and
+regional official-store capability allow it.
 
 Provider runtime configuration is typed in backend settings. Search, extraction,
 optional shopping, video metadata, Amazon product-intelligence, and IKEA

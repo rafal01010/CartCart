@@ -62,7 +62,6 @@ from app.schemas.guided_intake import (
     RegionSetupStatus,
     RegionSetupSubmission,
     ShoppingGuardrailDecision,
-    ShoppingGuardrailReason,
     ShoppingGuardrailResult,
     SkippableQuestionState,
     YesNoGuidedAnswer,
@@ -117,6 +116,7 @@ from app.services.listing_trust import ListingTrustRuleContext, assess_listing_t
 from app.services.recommendation_trust import (
     integrate_trust_analysis_into_recommendation,
 )
+from app.services.shopping_guardrails import evaluate_shopping_guardrail
 
 FIRST_QUESTION_ID = "first-question"
 MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
@@ -153,7 +153,10 @@ class FakeShoppingScopeGuardrail:
     ) -> ShoppingGuardrailResult:
         if self.output is not None:
             return self.output
-        return _guardrail_for_user_input(input_data.user_input)
+        return evaluate_shopping_guardrail(
+            input_data.user_input,
+            prior_answers=input_data.prior_answers,
+        )
 
 
 @dataclass(frozen=True)
@@ -164,7 +167,10 @@ class FakeShoppingGuideAgent:
         if self.output is not None:
             return self.output
 
-        guardrail = _guardrail_for_user_input(input_data.user_input)
+        guardrail = evaluate_shopping_guardrail(
+            input_data.user_input,
+            prior_answers=input_data.prior_answers,
+        )
         if guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
             return GuidedIntakeState(
                 status=GuidedIntakeStatus.BLOCKED,
@@ -822,42 +828,6 @@ class FakeVerifierCriticAgent:
             recommendation_bundle=input_data.recommendation_bundle,
             notes=("Fixture verification approved.",),
         )
-
-
-def _guardrail_for_user_input(user_input: str) -> ShoppingGuardrailResult:
-    normalized = user_input.lower()
-    if any(term in normalized for term in ("homework", "write an essay", "poem")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.OFF_TOPIC,
-            "I can help with shopping decisions. Try asking what to buy or compare.",
-        )
-    if any(term in normalized for term in ("gun", "explosive", "weapon")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.UNSAFE_PRODUCT,
-            "I cannot help choose unsafe products. I can help with ordinary consumer purchases.",
-        )
-    if any(term in normalized for term in ("fake passport", "stolen", "illegal")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.ILLEGAL_PRODUCT,
-            "I cannot help with illegal purchases. I can help with ordinary consumer products.",
-        )
-    if any(term in normalized for term in ("porn", "explicit sexual")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.INAPPROPRIATE_PRODUCT,
-            "I cannot help with that request. I can help with ordinary consumer purchases.",
-        )
-    return ShoppingGuardrailResult(decision=ShoppingGuardrailDecision.ALLOWED)
-
-
-def _blocked_guardrail(
-    reason: ShoppingGuardrailReason,
-    message: str,
-) -> ShoppingGuardrailResult:
-    return ShoppingGuardrailResult(
-        decision=ShoppingGuardrailDecision.BLOCKED,
-        reason=reason,
-        message=message,
-    )
 
 
 def _first_followup_question_id(user_input: str) -> str:

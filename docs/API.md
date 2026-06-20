@@ -1,7 +1,7 @@
 # CartCart API
 
 Status: Initial public API shape with guided intake direction
-Last updated: 2026-06-12
+Last updated: 2026-06-20
 
 ## Contract Direction
 
@@ -51,7 +51,11 @@ The guided-intake schema contract exists in `app.schemas.guided_intake`, and
 the fixture-backed guided intake endpoints are implemented as a small API
 surface around the existing session/run plumbing. The frontend-facing response
 models include only regular-person-safe question, control, skip/reanswer,
-region setup, blocked-state, progress, and ready-for-analysis metadata.
+region setup, blocked-state, progress, and ready-for-analysis metadata. A live
+OpenAI Agents SDK `ShoppingGuideAgent` now implements the same structured
+`GuidedIntakeState` contract for isolated mock/live workbench runs; the normal
+shopper API remains fixture-backed until a later integration task opts it into
+live agents.
 
 ## Implemented Endpoints
 
@@ -82,6 +86,11 @@ GET    /readyz
 Planned later endpoints include `GET /api/sessions/{session_id}/sources/{source_id}`
 and `GET /metrics`. They are not present in the current OpenAPI export.
 
+Local-only internal agent workbench endpoints may be mounted at
+`/internal/agent-workbench` when `CARTCART_AGENT_WORKBENCH_ENABLED=true` in a
+local, test, or fixture environment. They are deliberately excluded from the
+public OpenAPI contract and must not be consumed by the normal shopper UI.
+
 ## Endpoint Responsibilities
 
 `POST /api/sessions`
@@ -101,7 +110,9 @@ returns the current guided-intake state. The request accepts
 from browser-local storage or explicit region refusal. The fixture implementation
 returns either one current user-facing prompt/control, a blocked guardrail state,
 or enough metadata for the frontend to ask for region setup outside the main
-shopping-question flow. It does not ask for product links.
+shopping-question flow. It does not ask for product links. The isolated live
+`ShoppingGuideAgent` follows the same response schema and workbench constraints,
+but this endpoint is not routed through it yet.
 
 `GET /api/sessions/{session_id}/guide`
 
@@ -171,6 +182,9 @@ terminal succeeded run, persisted progress events, and a fixture monitor-shoppin
 result bundle. Search, extraction, and reusable source-intelligence stages use
 configured provider boundaries and default to fixture providers. Later analysis
 and recommendation stages remain deterministic fixtures and do not call models.
+If the session question is blocked by shopping-scope or safe-product guardrails,
+the endpoint returns `shopping_guardrail_blocked` with short user-safe copy and
+does not create a run.
 
 `GET /api/sessions/{session_id}/runs/{run_id}`
 
@@ -237,8 +251,9 @@ Liveness check. It should be cheap and not depend on external providers.
 `GET /readyz`
 
 Readiness check. It reports configuration readiness, data directory location,
-and provider warnings. Missing keys for enabled live providers are returned as
-warnings while fixture/stub mode remains ready.
+provider warnings, and live-agent configuration warnings. Missing keys for
+enabled live providers or live OpenAI agents are returned as warnings while
+fixture/stub mode remains ready.
 
 ## Error Responses
 

@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Initial local operations assumptions for planning
-Last updated: 2026-06-14
+Last updated: 2026-06-20
 
 ## Local MVP Assumptions
 
@@ -483,6 +483,59 @@ and unavailable products; unsupported regions return a gap without a provider
 call. Search snippets remain metadata evidence and do not establish global
 shipping.
 
+OpenAI live agents are configured separately from source providers. Fixture and
+mocked agents remain the default and require no OpenAI credential. A live
+OpenAI agent call requires `CARTCART_LIVE_AGENTS_ENABLED=true`, a local
+`OPENAI_API_KEY`, and an implemented agent runner or workbench path explicitly
+requesting live mode. The backend accepts `CARTCART_OPENAI_API_KEY` as a
+CartCart-prefixed compatibility alias, but the standard `OPENAI_API_KEY` is
+preferred and takes precedence. Configure local live-agent mode with:
+
+```dotenv
+CARTCART_LIVE_AGENTS_ENABLED=true
+CARTCART_OPENAI_MODEL=gpt-5.5
+OPENAI_API_KEY=replace-with-your-real-key
+```
+
+Without `OPENAI_API_KEY`, readiness reports `agents:openai` with
+`missing_openai_api_key`, while fixture and mocked agent modes remain available.
+The runtime configuration also carries per-agent timeout, max-turn, and tracing
+metadata settings. OpenAI trace payloads exclude sensitive data by default.
+
+The isolated agent workbench is a local debugging surface for one typed agent at
+a time. It is disabled by default and is mounted only for `local`, `test`, or
+`fixture` backend environments when explicitly enabled:
+
+```dotenv
+CARTCART_AGENT_WORKBENCH_ENABLED=true
+```
+
+The primary terminal runner is:
+
+```bash
+scripts/local/run-agent-workbench.sh \
+  --agent ShoppingScopeGuardrail \
+  --scenario guardrail/allowed-coffee-grinder \
+  --mode fixture
+```
+
+Fixture mode uses deterministic fake agents and does not make provider or model
+calls. Mock mode uses mocked model runners for implemented live agents; for
+`ShoppingScopeGuardrail`, `guardrail/blocked-dangerous-product` proves an
+obvious unsafe request is blocked before the model runner starts. For
+`ShoppingGuideAgent`, `guide/headphones-missing-budget` checks a concise
+follow-up without recommendation output, while `guide/ready-monitor-brief`
+checks the ready-for-analysis transition and `IntakeAgent` handoff. For
+`IntakeAgent`, `intake/monitor-ph-budget` checks structured category, region,
+budget, and preference inference, while `intake/ambiguous-category` checks that
+uncertain category intent remains uncertain. `--mode live` still requires
+`CARTCART_LIVE_AGENTS_ENABLED=true`, `OPENAI_API_KEY`, and a live runner
+registered for the selected agent; otherwise the workbench returns a typed
+configuration error. The local browser page is available at
+`/internal/agent-workbench` on the frontend dev server when the backend
+workbench endpoints are enabled. The workbench never accepts arbitrary agent
+names, system prompts, tool definitions, or provider arguments.
+
 Remaining source-intelligence provider interfaces still use fake
 implementations where a dedicated adapter has not been added. Provider
 protocols return source evidence bundles or explicit gaps without calling
@@ -490,8 +543,6 @@ vendor SDKs directly from source agents.
 
 Future configuration areas include:
 
-- OpenAI API key and model settings.
-- OpenAI Agents SDK tracing options.
 - Additional source-intelligence provider keys and enabled-provider flags.
 - Provider-specific timeout and rate-limit settings beyond the shared defaults.
 - Reddit/domain-scoped community search and extraction provider configuration.
@@ -606,13 +657,14 @@ The backend attaches `X-Request-ID` to responses. If a request supplies that hea
 
 `GET /healthz` reports process liveness and remains cheap.
 
-`GET /readyz` reports configuration readiness and provider warnings. Missing
-keys for enabled live providers return warning entries while the endpoint still
-returns HTTP 200 and `status: ready`, so fixture/stub mode is not blocked.
-Enabled `yt_dlp` transcript mode also checks the exact pinned `yt-dlp` and
-`yt-dlp-ejs` packages plus Deno `>=2.3.0`; missing or incompatible dependencies
-are reported without replacing live transcript retrieval with fixture text.
-Database availability checks may be added later.
+`GET /readyz` reports configuration readiness, provider warnings, and live-agent
+configuration warnings. Missing keys for enabled live providers or live OpenAI
+agents return warning entries while the endpoint still returns HTTP 200 and
+`status: ready`, so fixture/stub mode is not blocked. Enabled `yt_dlp`
+transcript mode also checks the exact pinned `yt-dlp` and `yt-dlp-ejs` packages
+plus Deno `>=2.3.0`; missing or incompatible dependencies are reported without
+replacing live transcript retrieval with fixture text. Database availability
+checks may be added later.
 
 `GET /metrics` may be added when a Prometheus-compatible exporter or equivalent monitoring path exists.
 

@@ -103,6 +103,24 @@ def test_create_run_rejects_invalid_session(run_api_client: TestClient) -> None:
     assert body["error"]["details"] == {"session_id": str(session_id)}
 
 
+def test_create_run_blocks_unsafe_shopping_request_before_run_start(
+    run_api_client: TestClient,
+) -> None:
+    create_response = run_api_client.post(
+        "/api/sessions",
+        json={"query": "Help me choose a handgun for home defense"},
+    )
+    assert create_response.status_code == 201
+    session_id = create_response.json()["session_id"]
+
+    response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["code"] == "shopping_guardrail_blocked"
+    assert body["error"]["details"] == {"reason": "unsafe_product"}
+
+
 def test_get_run_status_returns_persisted_run(run_api_client: TestClient) -> None:
     session_id = create_session(run_api_client)
     create_response = run_api_client.post(f"/api/sessions/{session_id}/runs")

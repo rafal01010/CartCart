@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-06-14
+Last updated: 2026-06-20
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Reusable source intelligence means retrieving usable source-backed information, 
 - The code registry, agent tests, routing evals, and this file must be updated together whenever an implemented agent is added, removed, moved, or assigned a new fallback.
 - A proposed or required future agent can appear here before it is implemented, but its status must not be changed to `implemented` until code, tests, and eval coverage exist.
 - The 2026-06-02 required source-intelligence expansion is a design update only. The runtime catalog must be brought back into sync in the dedicated implementation backfill task before provider/live-agent work continues.
-- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. Their live OpenAI Agents SDK implementations remain later tasks.
+- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. The live OpenAI Agents SDK `ShoppingScopeGuardrail`, `IntakeAgent`, and `ShoppingGuideAgent` are now available through their typed protocol and isolated workbench paths. The normal full shopping workflow remains fixture-first until a later integration task routes it through live agents.
 
 ## Architectural Decision
 
@@ -240,7 +240,15 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates | `RecommendationBundle` | Permit explicit "no strong buy". |
 | `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle and evidence | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
 
-The current runtime invokes `QueryPlannerAgent`, executes the resulting queries
+The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent` and
+`IntakeAgent` implementations behind the typed `GuidedIntakeState` and
+`ShoppingBrief` protocols for isolated mock/live workbench runs. The live guide
+uses structured output, deterministic guardrail prechecks, mocked/live workbench
+scenarios, and an `IntakeAgent` handoff only when it reaches
+`ready_for_analysis`. The normal full shopping workflow still preserves
+fixture-first behavior unless a later integration task explicitly routes it
+through live agents. The current runtime invokes `QueryPlannerAgent`, executes
+the resulting queries
 through the configured `SearchProvider`, and persists accepted, policy-scored
 search results. Eligible result pages then pass through the configured
 `ExtractionProvider`; usable snapshots create persisted app-generated products,

@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Initial public architecture notes with guided intake direction
-Last updated: 2026-06-14
+Last updated: 2026-06-20
 
 ## Product Model
 
@@ -200,7 +200,11 @@ endpoints under `/api/sessions/guided` and `/api/sessions/{session_id}/guide`.
 They keep guide state in fixture memory, update the persisted session
 `ShoppingBrief` when the guide reaches `ready_for_analysis`, and leave the
 existing `/api/sessions/{session_id}/runs` endpoint responsible for starting the
-deterministic analysis run.
+deterministic analysis run. A live OpenAI Agents SDK `ShoppingGuideAgent` now
+implements the same `GuidedIntakeState` contract for isolated mock/live
+workbench runs, including deterministic guardrail prechecks and an `IntakeAgent`
+handoff only after enough information exists. The normal shopper API is not
+routed through the live guide yet.
 
 Region setup is outside the main shopping question flow. If no region preference
 or explicit refusal is saved locally, the frontend can show a lightweight setup
@@ -211,10 +215,13 @@ the pending guided flow after either choice. Backend defaults remain allowed for
 fixture/local operation, but must be marked as defaulted or inferred rather than
 user-confirmed.
 
-Guardrail behavior should run before costly discovery or analysis. Off-topic,
-unsafe, illegal, or inappropriate product requests should receive short
-regular-person-facing redirection copy and should not start source retrieval or
-analysis.
+Guardrail behavior runs before costly discovery or analysis. Deterministic
+prechecks block obvious off-topic, unsafe, illegal, or inappropriate product
+requests before model-backed classification or provider work starts. The live
+`ShoppingScopeGuardrail` then uses an OpenAI Agents SDK input-guardrail pattern
+for requests that need classification beyond deterministic rules. Blocked
+requests receive short regular-person-facing redirection copy and do not start
+source retrieval or analysis runs.
 
 ## Workflow Architecture
 
@@ -247,10 +254,17 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts. The live `ShoppingGuideAgent` is available through the same typed protocol in the isolated workbench and preserves the same user-facing schema and fallback constraints.
 The current fixture shopping-run workflow also calls the typed
 `SellerListingTrustAgent` contract for listing trust review, seeded by
 deterministic trust rules, before final fixture recommendations are persisted.
+The isolated agent workbench in `app.agents.workbench` is the local-only
+debugging path for invoking one catalog-allowlisted agent through its typed
+protocol without starting the full shopping workflow. It owns starter fixture
+scenarios for fake agents plus mocked/live scenarios for implemented OpenAI
+Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`, and
+`IntakeAgent`, and is disabled unless the local workbench flag is explicitly
+enabled.
 
 Required MVP agent roles include:
 

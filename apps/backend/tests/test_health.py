@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import SearchProviderName, Settings
@@ -31,6 +32,7 @@ def test_readyz_reports_configuration_readiness() -> None:
     body = response.json()
     assert body["status"] == "ready"
     assert body["checks"]["configuration"] == "ok"
+    assert body["checks"]["agents"] == "ok"
     assert body["checks"]["providers"] == "ok"
     assert body["checks"]["data_dir"]
     assert body["warnings"] == []
@@ -48,9 +50,31 @@ def test_readyz_reports_provider_configuration_warnings() -> None:
     body = response.json()
     assert body["status"] == "ready"
     assert body["checks"]["configuration"] == "warning"
+    assert body["checks"]["agents"] == "ok"
     assert body["checks"]["providers"] == "warning"
     assert body["warnings"][0]["provider"] == "search:tavily"
     assert body["warnings"][0]["missing_env_var"] == "CARTCART_TAVILY_API_KEY"
+
+
+def test_readyz_reports_agent_configuration_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CARTCART_OPENAI_API_KEY", raising=False)
+    client = make_test_client(
+        live_agents_enabled=True,
+        openai_api_key=None,
+    )
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["checks"]["configuration"] == "warning"
+    assert body["checks"]["agents"] == "warning"
+    assert body["checks"]["providers"] == "ok"
+    assert body["warnings"][0]["provider"] == "agents:openai"
+    assert body["warnings"][0]["missing_env_var"] == "OPENAI_API_KEY"
 
 
 def test_cors_allows_configured_frontend_origin() -> None:

@@ -57,8 +57,8 @@ caption retrieval fails.
 | Reserved adapter selected | A configured provider with no runtime adapter, such as live Brave search, raises a clear provider configuration error. Do not document a reserved value as usable live support. |
 
 `GET /readyz` remains HTTP 200 when optional live credentials are missing. Its
-warning entries are operational guidance, not proof that a live provider call
-was attempted.
+provider and agent warning entries are operational guidance, not proof that a
+live provider or model call was attempted.
 
 ## Environment Variables
 
@@ -85,6 +85,49 @@ Provider selection and credentials:
 | Amazon intelligence | `CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER=disabled|fixture|serpapi` and `CARTCART_AMAZON_PRODUCT_INTELLIGENCE_PROVIDER_ENABLED` | `CARTCART_SERPAPI_API_KEY`. |
 | IKEA intelligence | `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER=disabled|fixture|search` and `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER_ENABLED` | A ready general search provider. Current live setup uses Tavily and `CARTCART_TAVILY_API_KEY`. |
 | Reddit discovery | No separate variables | Uses the configured general search provider and its fixture/live behavior. |
+
+## OpenAI Agent Runtime Configuration
+
+OpenAI Agents SDK configuration is separate from source providers, but it
+follows the same fixture-first rule. Fixture and mocked agent modes require no
+OpenAI credential and must remain the default for local runs, routine tests, and
+section gates. Live model calls require all of the following:
+
+- `CARTCART_LIVE_AGENTS_ENABLED=true`
+- `OPENAI_API_KEY` set locally by the project owner
+- The implemented agent task or local workbench explicitly requesting live mode
+
+The backend also accepts `CARTCART_OPENAI_API_KEY` as a CartCart-prefixed local
+compatibility alias, but `OPENAI_API_KEY` is preferred and takes precedence.
+Neither variable is committed, logged, returned by readiness, or stored in test
+fixtures.
+
+Agent runtime settings:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CARTCART_LIVE_AGENTS_ENABLED` | `false` | Opt-in gate for live OpenAI agent calls. |
+| `OPENAI_API_KEY` | unset | Standard OpenAI API key used only for explicitly requested live-agent mode. |
+| `CARTCART_OPENAI_MODEL` | `gpt-5.4-mini` | Default model string passed to later OpenAI Agents SDK runs unless an agent task narrows it. |
+| `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS` | `45` | Per-agent run timeout budget for later live-agent runners. |
+| `CARTCART_OPENAI_AGENT_MAX_TURNS` | `8` | Upper bound for later SDK runner turns. |
+| `CARTCART_OPENAI_AGENT_TRACING_ENABLED` | `false` | Enables OpenAI Agents SDK tracing only when a live-agent runner uses it. |
+| `CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA` | `false` | Keeps inputs and outputs out of OpenAI trace payloads by default. |
+| `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME` | `cartcart-agent-run` | Trace workflow name used by later live-agent runners. |
+
+When live agents are enabled without `OPENAI_API_KEY`, readiness reports
+`agents:openai` with `missing_openai_api_key`. The fixture workflow and mocked
+agent tests remain available. Later live-agent tasks must call the runtime
+configuration helper before making a model request and must not silently fall
+through to a live call without the flag and key.
+
+### Live OpenAI Agent Example
+
+```dotenv
+CARTCART_LIVE_AGENTS_ENABLED=true
+CARTCART_OPENAI_MODEL=gpt-5.5
+OPENAI_API_KEY=replace-with-your-real-key
+```
 
 These process-only guards are intentionally separate from runtime settings:
 

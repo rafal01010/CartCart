@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.schemas.base import CartCartBaseModel
@@ -14,6 +14,7 @@ from app.schemas.regions import RegionCode
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data"
+DEFAULT_OPENAI_AGENT_MODEL = "gpt-5.4-mini"
 
 
 class EnvironmentMode(StrEnum):
@@ -73,6 +74,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_prefix="CARTCART_",
         extra="ignore",
+        populate_by_name=True,
     )
 
     environment: EnvironmentMode = EnvironmentMode.LOCAL
@@ -90,6 +92,22 @@ class Settings(BaseSettings):
     default_region_code: RegionCode = "US"
     provider_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     provider_rate_limit_per_minute: int = Field(default=60, ge=1, le=1000)
+    agent_workbench_enabled: bool = False
+    live_agents_enabled: bool = False
+    openai_model: str = Field(
+        default=DEFAULT_OPENAI_AGENT_MODEL,
+        min_length=1,
+        max_length=200,
+    )
+    openai_agent_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    openai_agent_max_turns: int = Field(default=8, ge=1, le=50)
+    openai_agent_tracing_enabled: bool = False
+    openai_agent_trace_include_sensitive_data: bool = False
+    openai_agent_trace_workflow_name: str = Field(
+        default="cartcart-agent-run",
+        min_length=1,
+        max_length=120,
+    )
     source_fetch_max_content_bytes: int = Field(
         default=2 * 1024 * 1024,
         ge=1024,
@@ -142,6 +160,11 @@ class Settings(BaseSettings):
     brave_search_api_key: SecretStr | None = Field(default=None, min_length=1)
     serpapi_api_key: SecretStr | None = Field(default=None, min_length=1)
     youtube_data_api_key: SecretStr | None = Field(default=None, min_length=1)
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "CARTCART_OPENAI_API_KEY"),
+    )
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
     database_path: Path | None = None
     artifact_dir: Path | None = None
@@ -166,6 +189,14 @@ class Settings(BaseSettings):
                 "YouTube transcript languages must be plain BCP 47 language tags."
             )
         return tuple(dict.fromkeys(value))
+
+    @field_validator("openai_model", "openai_agent_trace_workflow_name")
+    @classmethod
+    def _strip_required_openai_strings(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("OpenAI agent configuration strings must not be blank.")
+        return stripped
 
     @model_validator(mode="after")
     def _reject_cross_session_preference_profiling(self) -> "Settings":
@@ -230,6 +261,28 @@ class Settings(BaseSettings):
         if self.ikea_store_intelligence_provider_enabled:
             warnings.extend(self._warnings_for_ikea_store_intelligence_provider())
         return tuple(warnings)
+
+    def agent_readiness_warnings(self) -> tuple[ProviderReadinessWarning, ...]:
+        if not self.live_agents_enabled or self.openai_api_key is not None:
+            return ()
+
+        return (
+            ProviderReadinessWarning(
+                provider="agents:openai",
+                code="missing_openai_api_key",
+                message=(
+                    "Live OpenAI agents are enabled but OPENAI_API_KEY is not set. "
+                    "Fixture and mocked agent modes can still run; live agent "
+                    "calls are disabled."
+                ),
+                missing_env_var="OPENAI_API_KEY",
+            ),
+        )
+
+    def configuration_readiness_warnings(
+        self,
+    ) -> tuple[ProviderReadinessWarning, ...]:
+        return (*self.provider_readiness_warnings(), *self.agent_readiness_warnings())
 
     def _missing_key_warnings_for_search_provider(
         self,

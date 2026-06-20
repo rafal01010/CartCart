@@ -33,8 +33,6 @@ from app.schemas.guided_intake import (
     ReanswerableQuestion,
     RegionSetupStatus,
     RegionSetupSubmission,
-    ShoppingGuardrailDecision,
-    ShoppingGuardrailReason,
     ShoppingGuardrailResult,
     SkippableQuestionState,
     YesNoGuidedAnswer,
@@ -53,6 +51,7 @@ from app.schemas.intake import (
 from app.schemas.money import Money
 from app.schemas.products import UserAddedProduct
 from app.schemas.regions import Region
+from app.services.shopping_guardrails import blocked_guardrail_or_none
 
 
 FIRST_QUESTION_ID = "first-question"
@@ -105,7 +104,7 @@ class GuidedIntakeService:
             session_id=session.session_id,
             query=request.query,
             region_setup=request.region_setup,
-            blocked_guardrail=_guardrail_for_query(request.query),
+            blocked_guardrail=blocked_guardrail_or_none(request.query),
         )
         _fixture_sessions[session.session_id] = fixture
         return GuidedSessionResponse(
@@ -252,7 +251,7 @@ class GuidedIntakeService:
             session_id=session_id,
             query=session.original_input.query,
             region_setup=region_setup,
-            blocked_guardrail=_guardrail_for_query(session.original_input.query),
+            blocked_guardrail=blocked_guardrail_or_none(session.original_input.query),
         )
         _fixture_sessions[session_id] = fixture
         return fixture
@@ -577,38 +576,6 @@ def _region_preference_from_setup(
     return RegionPreference(
         region=region,
         source=FieldSource.USER_PROVIDED,
-    )
-
-
-def _guardrail_for_query(query: str) -> ShoppingGuardrailResult | None:
-    normalized = query.lower()
-    if any(term in normalized for term in ("homework", "write an essay", "poem")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.OFF_TOPIC,
-            "I can help with shopping decisions. Try asking what to buy or compare.",
-        )
-    if any(term in normalized for term in ("gun", "explosive", "weapon")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.UNSAFE_PRODUCT,
-            "I cannot help choose unsafe products. "
-            "I can help with ordinary consumer purchases.",
-        )
-    if any(term in normalized for term in ("fake passport", "stolen", "illegal")):
-        return _blocked_guardrail(
-            ShoppingGuardrailReason.ILLEGAL_PRODUCT,
-            "I cannot help with illegal purchases. I can help with ordinary consumer products.",
-        )
-    return None
-
-
-def _blocked_guardrail(
-    reason: ShoppingGuardrailReason,
-    message: str,
-) -> ShoppingGuardrailResult:
-    return ShoppingGuardrailResult(
-        decision=ShoppingGuardrailDecision.BLOCKED,
-        reason=reason,
-        message=message,
     )
 
 

@@ -16,10 +16,15 @@ from app.api.errors import (
     application_exception_handler,
     validation_exception_handler,
 )
+from app.api.routes.agent_workbench import router as agent_workbench_router
 from app.api.router import api_router
 from app.core.errors import ApplicationError
 from app.core.logging import bind_log_context, configure_logging, reset_log_context
-from app.core.settings import Settings, get_settings
+from app.core.settings import (
+    EnvironmentMode,
+    Settings,
+    get_settings,
+)
 from app.core.telemetry import configure_telemetry
 
 
@@ -49,6 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cast(ExceptionHandler, application_exception_handler),
     )
     app.include_router(api_router)
+    if _agent_workbench_route_enabled(app_settings):
+        app.include_router(agent_workbench_router)
 
     @app.middleware("http")
     async def add_request_context(
@@ -106,6 +113,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     return app
+
+
+def _agent_workbench_route_enabled(settings: Settings) -> bool:
+    return settings.agent_workbench_enabled and settings.environment in {
+        EnvironmentMode.LOCAL,
+        EnvironmentMode.TEST,
+        EnvironmentMode.FIXTURE,
+    }
 
 
 def _request_context_value(request: Request, key: str) -> str | None:

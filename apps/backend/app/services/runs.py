@@ -1,3 +1,4 @@
+from app.core.errors import ApplicationError
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
@@ -21,6 +22,7 @@ from app.providers import (
 from app.schemas.ids import RunId, SessionId
 from app.schemas.regions import RegionCode
 from app.schemas.runs import RunEvent, ShoppingRunRecord
+from app.services.shopping_guardrails import blocked_guardrail_or_none
 
 
 class RunService:
@@ -69,6 +71,18 @@ class RunService:
         session = await self._session_repository.get(session_id)
         if session is None:
             return None
+
+        blocked_guardrail = blocked_guardrail_or_none(
+            session.current_brief.original_query,
+        )
+        if blocked_guardrail is not None:
+            raise ApplicationError(
+                "shopping_guardrail_blocked",
+                blocked_guardrail.message
+                or "This request is outside ordinary shopping help.",
+                status_code=409,
+                details={"reason": blocked_guardrail.reason},
+            )
 
         run = await self._run_repository.create(session_id)
         if (

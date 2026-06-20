@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-06-14
+Last updated: 2026-06-20
 
 ## Evaluation Direction
 
@@ -178,10 +178,42 @@ or hidden reasoning:
 - Schema-validation, timeout, provider, guardrail, and fallback outcomes.
 
 Mocked-model and fixture scenarios remain the required repeatable acceptance
-path. Live-model runs must be explicitly enabled, credentialed, and clearly
-identified as networked/cost-incurring manual checks. Workbench runs complement
-unit tests and evals; they do not replace regression assertions, routing tests,
-or full-workflow verification.
+path. Live-model runs must be explicitly enabled with
+`CARTCART_LIVE_AGENTS_ENABLED=true`, credentialed with `OPENAI_API_KEY`, and
+clearly identified as networked/cost-incurring manual checks. Workbench runs
+complement unit tests and evals; they do not replace regression assertions,
+routing tests, or full-workflow verification.
+
+The local runner command shape is:
+
+```bash
+CARTCART_AGENT_WORKBENCH_ENABLED=true scripts/local/run-agent-workbench.sh \
+  --agent ShoppingScopeGuardrail \
+  --scenario guardrail/allowed-coffee-grinder \
+  --mode fixture
+```
+
+The browser route is `/internal/agent-workbench` on the local frontend. It is
+not linked from the shopper UI and depends on disabled-by-default backend
+endpoints under `/internal/agent-workbench`. The backend route is mounted only
+when `CARTCART_AGENT_WORKBENCH_ENABLED=true` and the backend environment is
+`local`, `test`, or `fixture`; it is excluded from the public OpenAPI schema.
+For Task 74B guardrail acceptance, pair the allowed fixture scenario with the
+mocked boundary scenario `guardrail/blocked-dangerous-product`, which should
+return blocked user-safe copy and show that the model runner did not start.
+For Task 75A guide acceptance, use `guide/headphones-missing-budget` in mocked
+or live mode to inspect one concise budget/use-case follow-up without product
+recommendation output, and pair it with `guide/ready-monitor-brief` to inspect
+the ready-for-analysis transition and `IntakeAgent` handoff when category,
+budget, region, and constraints are already present.
+For Task 75 intake acceptance, use `intake/monitor-ph-budget` in mocked or live
+mode to inspect a structured `ShoppingBrief` with monitor category, PH region,
+budget, and key preferences, and pair it with `intake/ambiguous-category` to
+confirm ambiguous requests preserve category uncertainty. Starter scenarios are
+registered in `app.agents.workbench` for the current fake and live-agent
+implementations. Later live-agent tasks should add their normal and
+boundary/failure scenarios to that registry rather than creating new debugging
+plumbing.
 
 ## Evidence And Fixture Policy
 

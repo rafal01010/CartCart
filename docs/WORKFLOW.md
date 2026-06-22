@@ -1,15 +1,16 @@
 # CartCart Workflow
 
-Status: Provider-backed discovery, extraction, and reusable source intelligence
-with fixture analysis stages
-Last updated: 2026-06-20
+Status: Fixture-first full workflow with opt-in live-agent orchestration
+Last updated: 2026-06-21
 
 ## Scope
 
 This document describes the current backend workflow shape. Search discovery,
-page extraction, and reusable source intelligence are provider-backed behind
-configuration and default to deterministic fixture mode. Trust, analysis, and
-recommendation remain fixture based and do not call OpenAI models.
+page extraction, reusable source intelligence, and agent-backed analysis are
+configured fixture-first. The normal run path can opt into live OpenAI agents
+with `CARTCART_AGENT_WORKFLOW_MODE=live`,
+`CARTCART_LIVE_AGENTS_ENABLED=true`, and a local `OPENAI_API_KEY`. Fixture mode
+remains the default and does not make live model calls.
 
 Related docs:
 
@@ -41,23 +42,32 @@ therefore returns a terminal succeeded run in the current transitional slice.
 The orchestrator:
 
 1. Loads the persisted run.
-2. Creates a run context with `run_id`, `session_id`, and a deterministic fixture
+2. Creates a run context with `run_id`, `session_id`, active brief, and a local
    trace ID.
-3. Builds and persists a search plan from the current shopping brief.
-4. Calls the configured search provider and persists policy-scored search
-   results.
-5. Sends eligible page results through the configured extraction provider,
+3. In fixture mode, records deterministic intake. In live workflow mode, runs
+   `IntakeAgent` through the typed contract and merges inferred fields without
+   overwriting existing user-provided brief fields.
+4. Builds and persists a search plan from the active shopping brief.
+5. Calls the configured search provider and persists policy-scored search
+   results. In live workflow mode, `DiscoveryAgent` selects source IDs only from
+   those supplied search results.
+6. Sends eligible selected page results through the configured extraction provider,
    persists linked snapshots, and creates normalized candidate data from usable
    extraction outcomes.
-6. Deduplicates extracted candidates, persists grouped canonical products,
+7. Deduplicates extracted candidates, persists grouped canonical products,
    listing records, and shortlist memberships, and reports pre/post grouping
    counts.
-7. Runs reusable source-intelligence checks for scoped candidate products and
-   categories where provider capability and source relevance allow it.
-8. Executes the remaining fixture stages in a fixed order.
-9. Persists one run event and one agent trace record per executable stage.
-10. Persists the downstream monitor-shopping fixture analysis output.
-11. Appends the final `complete` event.
+8. Runs reusable source-intelligence checks for scoped candidate products and
+   categories where provider capability and source relevance allow it. In live
+   workflow mode, the reusable source-intelligence agents call only their typed
+   provider/service boundaries.
+9. Runs listing trust, category routing/analysis, comparison, and verification
+   either through fixture stages or the configured live typed agents.
+10. Persists one run event and one agent trace record per executable stage.
+11. Persists the resulting analysis output, falling back to the monitor-shopping
+   fixture bundle when live agents are not enabled or a deterministic fallback is
+   selected.
+12. Appends the final `complete` event.
 
 Long-running background orchestration, retries, cancellation, and partial-result
 resumption are later milestones.
@@ -81,12 +91,19 @@ The terminal stage is:
 
 11. `complete`
 
-Each executable stage persists an `AgentRunRecord` with a deterministic local
-trace ID. Query planning and discovery use provider-backed behavior even though
-the trace prefix and later stages remain fixture-oriented:
+Each executable stage persists an `AgentRunRecord` with a local trace ID,
+runtime mode, stage timing, model name where a model-backed agent was used,
+sanitized tool activity, fallback/error outcome, and nullable token/cost fields.
+Fixture traces use:
 
 ```text
 fixture-run-{run_id}:{stage}
+```
+
+Live-agent workflow traces use:
+
+```text
+live-agent-run-{run_id}:{stage}
 ```
 
 ## Event Emission
@@ -162,8 +179,9 @@ trust assessments into the persisted recommendation bundle: suspicious or weak
 listings become listing-level warnings or avoid items, and a suspicious final
 listing becomes no-strong-buy unless a safer listing is selected.
 
-The downstream fixture analysis output remains a monitor-shopping scenario. It
-persists:
+When fixture workflow mode is selected, or when a live branch deliberately falls
+back to fixture output, the downstream fixture analysis output remains a
+monitor-shopping scenario. It persists:
 
 - Source snapshots and source evidence.
 - Fixture products and listings used by the current analysis bundle. Fixture

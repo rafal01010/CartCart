@@ -199,9 +199,22 @@ def test_agent_run_record_links_trace_and_error_envelope() -> None:
         ended_at="2026-05-30T00:00:02Z",
         trace_id="trace-123",
         source_ids=(new_id(),),
+        runtime_mode="live",
+        model_name="gpt-test",
+        duration_ms=1000.0,
+        input_tokens=12,
+        output_tokens=24,
+        total_tokens=36,
+        estimated_cost_usd="0.0001",
+        tool_activity=(
+            {"tool_name": "openai_agents_structured_output", "status": "completed"},
+        ),
+        fallback_outcome=None,
     )
 
     assert record.trace_id == "trace-123"
+    assert record.model_name == "gpt-test"
+    assert record.tool_activity[0]["status"] == "completed"
     assert record.error is None
 
     with pytest.raises(ValidationError):

@@ -336,8 +336,8 @@ _DEFAULT_AGENT_ENTRIES = {
         "CategoryRouterAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.ROUTER,
-        invocation_mode=InvocationMode.APPLICATION_CODE,
-        contract_name="AgentCatalog.route_product_analysis",
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="CategoryRouterAgent",
         output_schema="ProductAnalysisRoute",
     ),
     "GenericProductAnalystAgent": _entry(

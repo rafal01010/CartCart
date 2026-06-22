@@ -1,16 +1,46 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from app.agents import (
+    AmazonProductIntelligenceAgent,
+    AmazonProductIntelligenceAgentInput,
+    CategoryRouterAgent,
+    CategoryRouterAgentInput,
+    ComparisonDecisionAgent,
+    ComparisonDecisionAgentInput,
+    DiscoveryAgent,
+    DiscoveryAgentInput,
     FakeQueryPlannerAgent,
     FakeSellerListingTrustAgent,
+    GenericProductAnalystAgent,
+    IKEAStoreIntelligenceAgent,
+    IKEAStoreIntelligenceAgentInput,
+    IntakeAgent,
+    IntakeAgentInput,
+    LaptopSpecialistAgent,
+    MonitorSpecialistAgent,
+    ProductAnalysisAgentInput,
     QueryPlannerAgent,
     QueryPlannerAgentInput,
+    RedditCommunityIntelligenceAgent,
+    RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgent,
     SellerListingTrustAgentInput,
+    SmartphoneSpecialistAgent,
+    SmartwatchSpecialistAgent,
+    TVSpecialistAgent,
+    TechnologyDomainAnalystAgent,
+    VerificationAgentInput,
+    VerificationReport,
+    VerifierCriticAgent,
+    YouTubeReviewIntelligenceAgent,
+    YouTubeReviewIntelligenceAgentInput,
+    EarphonesHeadphonesSpecialistAgent,
 )
+from app.agents.catalog import ProductAnalysisRoute, build_default_agent_catalog
+from app.core.settings import AgentWorkflowMode
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
@@ -48,10 +78,10 @@ from app.providers import (
     VideoSearchProviderOptions,
     score_source_quality,
 )
-from app.schemas.analysis import ListingTrustAssessment
+from app.schemas.analysis import CategoryAnalysis, ListingTrustAssessment, RecommendationBundle
 from app.schemas.errors import ErrorBody, ErrorEnvelope
 from app.schemas.ids import ListingId, ProductId, RunId, SessionId, SourceId
-from app.schemas.intake import ShoppingBrief
+from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.products import (
     CanonicalProduct,
     ProductListing,
@@ -135,6 +165,15 @@ class FixtureStageOutput:
     trace_id: str
     summary: str
     payload: Mapping[str, str] = field(default_factory=dict)
+    agent_name: str | None = None
+    runtime_mode: str = AgentWorkflowMode.FIXTURE.value
+    model_name: str | None = None
+    tool_activity: tuple[dict[str, Any], ...] = ()
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    estimated_cost_usd: str | None = None
+    fallback_outcome: str | None = None
 
 
 @dataclass(frozen=True)
@@ -208,16 +247,22 @@ class ShoppingRunContext:
     run_id: RunId
     session_id: SessionId
     trace_id: str
+    active_brief: ShoppingBrief
+    original_input: CreateSessionRequest | None = None
     stage_outputs: dict[RunStage, FixtureStageOutput] = field(default_factory=dict)
     events: list[RunEvent] = field(default_factory=list)
     agent_records: list[AgentRunRecord] = field(default_factory=list)
     search_plan: SearchPlan | None = None
     search_plan_id: UUID | None = None
     search_results: tuple[SearchResult, ...] = ()
+    selected_source_ids: tuple[SourceId, ...] = ()
     source_extractions: tuple[DiscoveredSourceExtraction, ...] = ()
     deduplication: CandidateDeduplicationRunOutput | None = None
     source_intelligence: SourceIntelligenceRunOutput | None = None
     trust_assessments: tuple[ListingTrustAssessment, ...] = ()
+    category_analyses: tuple[CategoryAnalysis, ...] = ()
+    recommendation_bundle: RecommendationBundle | None = None
+    verification_report: VerificationReport | None = None
     fixture_output: MonitorFixtureRunOutput | None = None
 
 
@@ -246,8 +291,18 @@ class ShoppingRunPersistenceHooks(Protocol):
         trace_id: str,
         started_at: Timestamp,
         ended_at: Timestamp,
+        runtime_mode: str | None = None,
+        model_name: str | None = None,
+        duration_ms: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: str | None = None,
+        tool_activity: tuple[dict[str, Any], ...] = (),
+        fallback_outcome: str | None = None,
+        error: ErrorEnvelope | None = None,
     ) -> AgentRunRecord:
-        """Persist and return the trace record for a deterministic fixture stage."""
+        """Persist and return the trace record for a workflow stage."""
 
     async def persist_fixture_output(
         self,
@@ -345,6 +400,16 @@ class RepositoryShoppingRunPersistenceHooks:
         trace_id: str,
         started_at: Timestamp,
         ended_at: Timestamp,
+        runtime_mode: str | None = None,
+        model_name: str | None = None,
+        duration_ms: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: str | None = None,
+        tool_activity: tuple[dict[str, Any], ...] = (),
+        fallback_outcome: str | None = None,
+        error: ErrorEnvelope | None = None,
     ) -> AgentRunRecord:
         return await self._result_repository.add_agent_record(
             AgentRunRecord(
@@ -355,6 +420,16 @@ class RepositoryShoppingRunPersistenceHooks:
                 started_at=started_at,
                 ended_at=ended_at,
                 trace_id=trace_id,
+                runtime_mode=runtime_mode,
+                model_name=model_name,
+                duration_ms=duration_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+                tool_activity=tool_activity,
+                fallback_outcome=fallback_outcome,
+                error=error,
             )
         )
 
@@ -403,15 +478,16 @@ class RepositoryShoppingRunPersistenceHooks:
             )
 
         trust_assessments = context.trust_assessments or output.trust_assessments
+        category_analyses = context.category_analyses or output.category_analyses
         recommendation_bundle = integrate_trust_analysis_into_recommendation(
-            output.recommendation_bundle,
+            context.recommendation_bundle or output.recommendation_bundle,
             trust_assessments,
         )
 
         await self._result_repository.save_result_bundle(
             context.run_id,
             trust_assessments=trust_assessments,
-            category_analyses=output.category_analyses,
+            category_analyses=category_analyses,
             agent_records=(),
             recommendation_bundle=recommendation_bundle,
         )
@@ -666,7 +742,22 @@ class ShoppingRunOrchestrator:
         self,
         persistence_hooks: ShoppingRunPersistenceHooks,
         *,
+        agent_workflow_mode: AgentWorkflowMode = AgentWorkflowMode.FIXTURE,
+        agent_model_name: str | None = None,
+        intake_agent: IntakeAgent | None = None,
         query_planner: QueryPlannerAgent | None = None,
+        discovery_agent: DiscoveryAgent | None = None,
+        category_router_agent: CategoryRouterAgent | None = None,
+        generic_product_analyst_agent: GenericProductAnalystAgent | None = None,
+        technology_domain_analyst_agent: TechnologyDomainAnalystAgent | None = None,
+        monitor_specialist_agent: MonitorSpecialistAgent | None = None,
+        smartphone_specialist_agent: SmartphoneSpecialistAgent | None = None,
+        laptop_specialist_agent: LaptopSpecialistAgent | None = None,
+        earphones_headphones_specialist_agent: (
+            EarphonesHeadphonesSpecialistAgent | None
+        ) = None,
+        tv_specialist_agent: TVSpecialistAgent | None = None,
+        smartwatch_specialist_agent: SmartwatchSpecialistAgent | None = None,
         search_provider: SearchProvider | None = None,
         extraction_provider: ExtractionProvider | None = None,
         video_search_provider: VideoSearchProvider | None = None,
@@ -676,12 +767,35 @@ class ShoppingRunOrchestrator:
             AmazonProductIntelligenceProvider | None
         ) = None,
         ikea_store_intelligence_provider: IKEAStoreIntelligenceProvider | None = None,
+        youtube_review_intelligence_agent: YouTubeReviewIntelligenceAgent | None = None,
+        reddit_community_intelligence_agent: (
+            RedditCommunityIntelligenceAgent | None
+        ) = None,
+        amazon_product_intelligence_agent: AmazonProductIntelligenceAgent | None = None,
+        ikea_store_intelligence_agent: IKEAStoreIntelligenceAgent | None = None,
         product_deduplicator: DeterministicProductDeduplicator | None = None,
         seller_listing_trust_agent: SellerListingTrustAgent | None = None,
+        comparison_decision_agent: ComparisonDecisionAgent | None = None,
+        verifier_critic_agent: VerifierCriticAgent | None = None,
         default_region_code: RegionCode = "US",
     ) -> None:
         self._persistence_hooks = persistence_hooks
+        self._agent_workflow_mode = agent_workflow_mode
+        self._agent_model_name = agent_model_name
+        self._intake_agent = intake_agent
         self._query_planner = query_planner or FakeQueryPlannerAgent()
+        self._discovery_agent = discovery_agent
+        self._category_router_agent = category_router_agent
+        self._generic_product_analyst_agent = generic_product_analyst_agent
+        self._technology_domain_analyst_agent = technology_domain_analyst_agent
+        self._monitor_specialist_agent = monitor_specialist_agent
+        self._smartphone_specialist_agent = smartphone_specialist_agent
+        self._laptop_specialist_agent = laptop_specialist_agent
+        self._earphones_headphones_specialist_agent = (
+            earphones_headphones_specialist_agent
+        )
+        self._tv_specialist_agent = tv_specialist_agent
+        self._smartwatch_specialist_agent = smartwatch_specialist_agent
         self._search_provider = search_provider or FakeSearchProvider()
         self._extraction_provider = extraction_provider or FakeExtractionProvider()
         self._video_search_provider = video_search_provider or FakeVideoSearchProvider()
@@ -696,6 +810,10 @@ class ShoppingRunOrchestrator:
         self._ikea_store_intelligence_provider = (
             ikea_store_intelligence_provider or FakeIKEAStoreIntelligenceProvider()
         )
+        self._youtube_review_intelligence_agent = youtube_review_intelligence_agent
+        self._reddit_community_intelligence_agent = reddit_community_intelligence_agent
+        self._amazon_product_intelligence_agent = amazon_product_intelligence_agent
+        self._ikea_store_intelligence_agent = ikea_store_intelligence_agent
         self._listing_extractor = ProductListingExtractor()
         self._product_deduplicator = (
             product_deduplicator or DeterministicProductDeduplicator()
@@ -703,9 +821,12 @@ class ShoppingRunOrchestrator:
         self._seller_listing_trust_agent = (
             seller_listing_trust_agent or FakeSellerListingTrustAgent()
         )
+        self._comparison_decision_agent = comparison_decision_agent
+        self._verifier_critic_agent = verifier_critic_agent
         self._transcript_ingestor = YouTubeTranscriptIngestor()
         self._video_evidence_creator = VideoEvidenceCreator()
         self._default_region_code = default_region_code
+        self._agent_catalog = build_default_agent_catalog()
 
     @classmethod
     def stage_order(cls) -> tuple[RunStage, ...]:
@@ -719,28 +840,31 @@ class ShoppingRunOrchestrator:
         self,
         run_id: RunId,
         brief: ShoppingBrief | None = None,
+        original_input: CreateSessionRequest | None = None,
     ) -> ShoppingRunContext:
         run = await self._persistence_hooks.load_run(run_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
 
+        fixture_output = build_monitor_fixture_run_output(
+            run_id=run_id,
+            session_id=run.session_id,
+        )
+        active_brief = brief or ShoppingBrief(
+            original_query=fixture_output.search_plan.queries[0].query
+        )
         context = ShoppingRunContext(
             run_id=run_id,
             session_id=run.session_id,
             trace_id=self._run_trace_id(run_id),
-        )
-        fixture_output = build_monitor_fixture_run_output(
-            run_id=context.run_id,
-            session_id=context.session_id,
+            active_brief=active_brief,
+            original_input=original_input,
         )
         context.fixture_output = fixture_output
-        active_brief = brief or ShoppingBrief(
-            original_query=fixture_output.search_plan.queries[0].query
-        )
 
         try:
             for definition in self._STAGES:
-                await self._run_stage(context, definition, active_brief)
+                await self._run_stage(context, definition)
 
             await self._persistence_hooks.persist_fixture_output(
                 context,
@@ -751,7 +875,11 @@ class ShoppingRunOrchestrator:
                 run_id,
                 stage=RunStage.COMPLETE,
                 status=RunStatus.SUCCEEDED,
-                message="Fixture shopping run completed.",
+                message=(
+                    "Shopping run completed."
+                    if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                    else "Fixture shopping run completed."
+                ),
             )
             context.events.append(complete_event)
         except Exception as exc:
@@ -760,7 +888,7 @@ class ShoppingRunOrchestrator:
                 run_id,
                 stage=failed_stage,
                 status=RunStatus.FAILED,
-                message="Fixture shopping run failed.",
+                message="Shopping run failed.",
                 error=_orchestrator_error(context.trace_id, failed_stage, exc),
             )
             context.events.append(failed_event)
@@ -772,34 +900,76 @@ class ShoppingRunOrchestrator:
         self,
         context: ShoppingRunContext,
         definition: _StageDefinition,
-        brief: ShoppingBrief,
     ) -> None:
         started_at = utc_now()
-        if definition.stage == RunStage.QUERY_PLANNING:
-            stage_output = await self._plan_queries(context, brief)
-        elif definition.stage == RunStage.DISCOVERY:
-            stage_output = await self._discover_sources(context, brief)
-        elif definition.stage == RunStage.EXTRACTION:
-            stage_output = await self._extract_sources(context, brief)
-        elif definition.stage == RunStage.DEDUPLICATION:
-            stage_output = await self._deduplicate_candidates(context)
-        elif definition.stage == RunStage.SOURCE_INTELLIGENCE:
-            stage_output = await self._run_source_intelligence(context, brief)
-        elif definition.stage == RunStage.LISTING_TRUST:
-            stage_output = await self._run_listing_trust(context)
-        else:
-            stage_output = self._fixture_stage_output(context, definition.stage)
+        try:
+            if definition.stage == RunStage.INTAKE:
+                stage_output = await self._run_intake(context)
+            elif definition.stage == RunStage.QUERY_PLANNING:
+                stage_output = await self._plan_queries(context)
+            elif definition.stage == RunStage.DISCOVERY:
+                stage_output = await self._discover_sources(context)
+            elif definition.stage == RunStage.EXTRACTION:
+                stage_output = await self._extract_sources(context)
+            elif definition.stage == RunStage.DEDUPLICATION:
+                stage_output = await self._deduplicate_candidates(context)
+            elif definition.stage == RunStage.SOURCE_INTELLIGENCE:
+                stage_output = await self._run_source_intelligence(context)
+            elif definition.stage == RunStage.LISTING_TRUST:
+                stage_output = await self._run_listing_trust(context)
+            elif definition.stage == RunStage.CATEGORY_ANALYSIS:
+                stage_output = await self._run_category_analysis(context)
+            elif definition.stage == RunStage.COMPARISON_DECISION:
+                stage_output = await self._run_comparison_decision(context)
+            elif definition.stage == RunStage.VERIFICATION:
+                stage_output = await self._run_verification(context)
+            else:
+                stage_output = self._fixture_stage_output(context, definition.stage)
+        except Exception as exc:
+            ended_at = utc_now()
+            error = _orchestrator_error(
+                self._stage_trace_id(context.trace_id, definition.stage),
+                definition.stage,
+                exc,
+            )
+            agent_record = await self._persistence_hooks.record_stage_trace(
+                run_id=context.run_id,
+                stage=definition.stage,
+                agent_name=definition.agent_name,
+                status=RunStatus.FAILED,
+                trace_id=self._stage_trace_id(context.trace_id, definition.stage),
+                started_at=started_at,
+                ended_at=ended_at,
+                runtime_mode=self._agent_workflow_mode.value,
+                model_name=self._model_name_for_stage(definition.stage),
+                duration_ms=_duration_ms(started_at, ended_at),
+                fallback_outcome="stage_error",
+                error=error,
+            )
+            context.agent_records.append(agent_record)
+            raise
+
         ended_at = utc_now()
 
         context.stage_outputs[definition.stage] = stage_output
+        agent_name = stage_output.agent_name or definition.agent_name
         agent_record = await self._persistence_hooks.record_stage_trace(
             run_id=context.run_id,
             stage=definition.stage,
-            agent_name=definition.agent_name,
+            agent_name=agent_name,
             status=RunStatus.SUCCEEDED,
             trace_id=stage_output.trace_id,
             started_at=started_at,
             ended_at=ended_at,
+            runtime_mode=stage_output.runtime_mode,
+            model_name=stage_output.model_name,
+            duration_ms=_duration_ms(started_at, ended_at),
+            input_tokens=stage_output.input_tokens,
+            output_tokens=stage_output.output_tokens,
+            total_tokens=stage_output.total_tokens,
+            estimated_cost_usd=stage_output.estimated_cost_usd,
+            tool_activity=stage_output.tool_activity,
+            fallback_outcome=stage_output.fallback_outcome,
         )
         context.agent_records.append(agent_record)
 
@@ -809,7 +979,8 @@ class ShoppingRunOrchestrator:
             status=RunStatus.RUNNING,
             message=(
                 stage_output.summary
-                if definition.stage
+                if stage_output.runtime_mode == AgentWorkflowMode.LIVE.value
+                or definition.stage
                 in {
                     RunStage.EXTRACTION,
                     RunStage.DEDUPLICATION,
@@ -821,11 +992,43 @@ class ShoppingRunOrchestrator:
         )
         context.events.append(event)
 
+    async def _run_intake(self, context: ShoppingRunContext) -> FixtureStageOutput:
+        if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+            return self._fixture_stage_output(context, RunStage.INTAKE)
+
+        if self._intake_agent is None or context.original_input is None:
+            return self._fixture_stage_output(
+                context,
+                RunStage.INTAKE,
+                fallback_outcome="missing_live_intake_input_fallback",
+            )
+
+        brief = await self._intake_agent.run(
+            IntakeAgentInput(run_id=context.run_id, request=context.original_input)
+        )
+        context.active_brief = _merge_live_intake_brief(context.active_brief, brief)
+        activity = _agent_tool_activity(self._intake_agent)
+        return FixtureStageOutput(
+            stage=RunStage.INTAKE,
+            trace_id=self._stage_trace_id(context.trace_id, RunStage.INTAKE),
+            summary="Shopping details prepared.",
+            payload={
+                "category": context.active_brief.category or "",
+                "has_region": str(context.active_brief.region is not None),
+                "has_budget": str(context.active_brief.budget is not None),
+            },
+            agent_name="IntakeAgent",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.INTAKE),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
+        )
+
     async def _plan_queries(
         self,
         context: ShoppingRunContext,
-        brief: ShoppingBrief,
     ) -> FixtureStageOutput:
+        brief = context.active_brief
         plan = await self._query_planner.run(
             QueryPlannerAgentInput(run_id=context.run_id, brief=brief)
         )
@@ -843,21 +1046,27 @@ class ShoppingRunOrchestrator:
         plan_id = await self._persistence_hooks.persist_search_plan(context, plan)
         context.search_plan = plan
         context.search_plan_id = plan_id
+        activity = _agent_tool_activity(self._query_planner)
         return FixtureStageOutput(
             stage=RunStage.QUERY_PLANNING,
             trace_id=self._stage_trace_id(context.trace_id, RunStage.QUERY_PLANNING),
             summary="Search queries planned.",
             payload={"query_count": str(len(plan.queries))},
+            agent_name="QueryPlannerAgent",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.QUERY_PLANNING),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
         )
 
     async def _discover_sources(
         self,
         context: ShoppingRunContext,
-        brief: ShoppingBrief,
     ) -> FixtureStageOutput:
         if context.search_plan is None or context.search_plan_id is None:
             raise ValueError("search discovery requires a persisted query plan.")
 
+        brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
         options = SearchProviderOptions(
             region_code=region_code,
@@ -877,6 +1086,22 @@ class ShoppingRunOrchestrator:
             )
 
         context.search_results = tuple(discovered)
+        activity: tuple[dict[str, Any], ...] = ()
+        if (
+            self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            and self._discovery_agent is not None
+        ):
+            discovery_output = await self._discovery_agent.run(
+                DiscoveryAgentInput(
+                    run_id=context.run_id,
+                    brief=brief,
+                    search_plan=context.search_plan,
+                    seed_results=context.search_results,
+                )
+            )
+            context.selected_source_ids = discovery_output.selected_source_ids
+            activity = _agent_tool_activity(self._discovery_agent)
+
         await self._persistence_hooks.persist_search_results(
             context,
             context.search_results,
@@ -894,17 +1119,33 @@ class ShoppingRunOrchestrator:
             payload={
                 "provider": str(provider_name),
                 "result_count": str(len(context.search_results)),
+                "selected_source_count": str(len(context.selected_source_ids)),
             },
+            agent_name="DiscoveryAgent"
+            if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            else "SearchProviderDiscoveryStage",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.DISCOVERY),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
         )
 
     async def _extract_sources(
         self,
         context: ShoppingRunContext,
-        brief: ShoppingBrief,
     ) -> FixtureStageOutput:
+        brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
         extracted_sources: list[DiscoveredSourceExtraction] = []
-        for result in _selected_extraction_results(context.search_results):
+        for result in _selected_extraction_results(
+            context.search_results,
+            selected_source_ids=(
+                context.selected_source_ids
+                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                and self._discovery_agent is not None
+                else None
+            ),
+        ):
             snapshot = await self._extraction_provider.extract(
                 result.url,
                 ExtractionProviderOptions(source_type=result.source_type),
@@ -953,6 +1194,7 @@ class ShoppingRunOrchestrator:
                 "snapshot_count": str(len(context.source_extractions)),
                 "listing_count": str(listing_count),
             },
+            runtime_mode=self._agent_workflow_mode.value,
         )
 
     async def _deduplicate_candidates(
@@ -987,13 +1229,14 @@ class ShoppingRunOrchestrator:
                 "listing_count": str(output.listing_count),
                 "collapsed_count": str(output.collapsed_count),
             },
+            runtime_mode=self._agent_workflow_mode.value,
         )
 
     async def _run_source_intelligence(
         self,
         context: ShoppingRunContext,
-        brief: ShoppingBrief,
     ) -> FixtureStageOutput:
+        brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
         candidates = _source_intelligence_candidates(
             context.source_extractions,
@@ -1011,6 +1254,15 @@ class ShoppingRunOrchestrator:
             ),
             ikea_capabilities=self._ikea_store_intelligence_provider.capabilities,
         )
+
+        if self._agent_workflow_mode == AgentWorkflowMode.LIVE:
+            return await self._run_live_source_intelligence(
+                context,
+                brief,
+                region_code,
+                candidates,
+                request,
+            )
 
         video_bundles: list[VideoReviewEvidenceBundle] = []
         community_bundles: list[CommunityDiscussionEvidenceBundle] = []
@@ -1129,6 +1381,138 @@ class ShoppingRunOrchestrator:
                 "evidence_count": str(output.evidence_count),
                 "gap_count": str(output.gap_count),
             },
+            runtime_mode=self._agent_workflow_mode.value,
+        )
+
+    async def _run_live_source_intelligence(
+        self,
+        context: ShoppingRunContext,
+        brief: ShoppingBrief,
+        region_code: RegionCode,
+        candidates: SourceIntelligenceCandidates,
+        request: ReusableSourceIntelligenceRequest,
+    ) -> FixtureStageOutput:
+        video_bundles: list[VideoReviewEvidenceBundle] = []
+        community_bundles: list[CommunityDiscussionEvidenceBundle] = []
+        amazon_bundles: list[AmazonProductEvidenceBundle] = []
+        ikea_bundles: list[IKEAStoreEvidenceBundle] = []
+        activity: list[dict[str, Any]] = []
+
+        source_snapshots = tuple(item.snapshot for item in context.source_extractions)
+        query_hints = request.query_hints
+
+        if (
+            self._youtube_review_intelligence_agent is not None
+            and _capability_allowed(request, SourceIntelligenceCapability.VIDEO_REVIEW)
+        ):
+            video_bundles.append(
+                await self._youtube_review_intelligence_agent.run(
+                    YouTubeReviewIntelligenceAgentInput(
+                        run_id=context.run_id,
+                        brief=brief,
+                        products=candidates.products,
+                        listings=candidates.listings,
+                        source_snapshots=source_snapshots,
+                        video_queries=query_hints,
+                    )
+                )
+            )
+            activity.extend(_agent_tool_activity(self._youtube_review_intelligence_agent))
+
+        if (
+            self._reddit_community_intelligence_agent is not None
+            and _capability_allowed(
+                request,
+                SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
+            )
+        ):
+            community_bundles.append(
+                await self._reddit_community_intelligence_agent.run(
+                    RedditCommunityIntelligenceAgentInput(
+                        run_id=context.run_id,
+                        brief=brief,
+                        products=candidates.products,
+                        listings=candidates.listings,
+                        source_snapshots=source_snapshots,
+                        community_queries=query_hints,
+                    )
+                )
+            )
+            activity.extend(
+                _agent_tool_activity(self._reddit_community_intelligence_agent)
+            )
+
+        if (
+            self._amazon_product_intelligence_agent is not None
+            and _capability_allowed(
+                request,
+                SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+            )
+        ):
+            amazon_bundles.append(
+                await self._amazon_product_intelligence_agent.run(
+                    AmazonProductIntelligenceAgentInput(
+                        run_id=context.run_id,
+                        brief=brief,
+                        products=candidates.products,
+                        listings=candidates.listings,
+                        source_snapshots=source_snapshots,
+                        product_queries=query_hints,
+                        target_region_code=region_code,
+                    )
+                )
+            )
+            activity.extend(_agent_tool_activity(self._amazon_product_intelligence_agent))
+
+        if (
+            self._ikea_store_intelligence_agent is not None
+            and _capability_allowed(
+                request,
+                SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+            )
+            and _ikea_source_relevant(brief, candidates.products, context.search_results)
+        ):
+            ikea_bundles.append(
+                await self._ikea_store_intelligence_agent.run(
+                    IKEAStoreIntelligenceAgentInput(
+                        run_id=context.run_id,
+                        brief=brief,
+                        products=candidates.products,
+                        listings=candidates.listings,
+                        source_snapshots=source_snapshots,
+                        product_queries=query_hints,
+                        target_region_code=region_code,
+                    )
+                )
+            )
+            activity.extend(_agent_tool_activity(self._ikea_store_intelligence_agent))
+
+        output = SourceIntelligenceRunOutput(
+            request=request,
+            video_bundles=tuple(video_bundles),
+            community_bundles=tuple(community_bundles),
+            amazon_bundles=tuple(amazon_bundles),
+            ikea_bundles=tuple(ikea_bundles),
+        )
+        context.source_intelligence = output
+        await self._persistence_hooks.persist_source_intelligence(context, output)
+        activity_tuple = tuple(activity)
+        return FixtureStageOutput(
+            stage=RunStage.SOURCE_INTELLIGENCE,
+            trace_id=self._stage_trace_id(
+                context.trace_id,
+                RunStage.SOURCE_INTELLIGENCE,
+            ),
+            summary=_source_intelligence_summary(output),
+            payload={
+                "bundle_count": str(output.bundle_count),
+                "evidence_count": str(output.evidence_count),
+                "gap_count": str(output.gap_count),
+            },
+            agent_name="ReusableSourceIntelligenceAgents",
+            runtime_mode=self._agent_workflow_mode.value,
+            tool_activity=activity_tuple,
+            fallback_outcome=_fallback_outcome(activity_tuple),
         )
 
     async def _run_listing_trust(
@@ -1162,6 +1546,7 @@ class ShoppingRunOrchestrator:
         suspicious_count = sum(
             assessment.level.value == "suspicious" for assessment in assessments
         )
+        activity = _agent_tool_activity(self._seller_listing_trust_agent)
         return FixtureStageOutput(
             stage=RunStage.LISTING_TRUST,
             trace_id=self._stage_trace_id(context.trace_id, RunStage.LISTING_TRUST),
@@ -1173,12 +1558,192 @@ class ShoppingRunOrchestrator:
                 "assessment_count": str(len(assessments)),
                 "suspicious_count": str(suspicious_count),
             },
+            agent_name="SellerListingTrustAgent",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.LISTING_TRUST),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
+        )
+
+    async def _run_category_analysis(
+        self,
+        context: ShoppingRunContext,
+    ) -> FixtureStageOutput:
+        if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+            return self._fixture_stage_output(context, RunStage.CATEGORY_ANALYSIS)
+
+        products = _analysis_products(context)
+        listings = _analysis_listings(context)
+        evidence = _analysis_evidence(context)
+        if not products:
+            return self._fixture_stage_output(
+                context,
+                RunStage.CATEGORY_ANALYSIS,
+                fallback_outcome="missing_products_fixture_analysis_fallback",
+            )
+
+        route = await self._category_route(context, products, listings, evidence)
+        route_activity = _agent_tool_activity(self._category_router_agent)
+        analyses: list[CategoryAnalysis] = []
+        activity: list[dict[str, Any]] = [*route_activity]
+        for product in products:
+            agent_name = route.agent_path[-1]
+            analyst = self._analysis_agent_for(agent_name)
+            if analyst is None:
+                analyst = self._generic_product_analyst_agent
+                agent_name = "GenericProductAnalystAgent"
+            if analyst is None:
+                return self._fixture_stage_output(
+                    context,
+                    RunStage.CATEGORY_ANALYSIS,
+                    fallback_outcome="missing_live_analysis_agent_fallback",
+                )
+
+            product_listings = tuple(
+                listing for listing in listings if listing.product_id == product.product_id
+            )
+            product_evidence = _evidence_for_product(product, product_listings, evidence)
+            analyses.append(
+                await analyst.run(
+                    ProductAnalysisAgentInput(
+                        run_id=context.run_id,
+                        brief=context.active_brief,
+                        product=product,
+                        listings=product_listings,
+                        evidence=product_evidence,
+                    )
+                )
+            )
+            activity.extend(_agent_tool_activity(analyst))
+
+        context.category_analyses = tuple(analyses)
+        activity_tuple = tuple(activity)
+        return FixtureStageOutput(
+            stage=RunStage.CATEGORY_ANALYSIS,
+            trace_id=self._stage_trace_id(
+                context.trace_id,
+                RunStage.CATEGORY_ANALYSIS,
+            ),
+            summary=f"Analyzed {_counted(len(analyses), 'product candidate')}.",
+            payload={
+                "analysis_count": str(len(analyses)),
+                "route": " -> ".join(route.agent_path),
+            },
+            agent_name="CategoryRouterAgent+ProductAnalysisAgents",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.CATEGORY_ANALYSIS),
+            tool_activity=activity_tuple,
+            fallback_outcome=_fallback_outcome(activity_tuple),
+        )
+
+    async def _run_comparison_decision(
+        self,
+        context: ShoppingRunContext,
+    ) -> FixtureStageOutput:
+        if (
+            self._agent_workflow_mode != AgentWorkflowMode.LIVE
+            or self._comparison_decision_agent is None
+        ):
+            return self._fixture_stage_output(context, RunStage.COMPARISON_DECISION)
+
+        products = _analysis_products(context)
+        listings = _analysis_listings(context)
+        evidence = _analysis_evidence(context)
+        if not products:
+            return self._fixture_stage_output(
+                context,
+                RunStage.COMPARISON_DECISION,
+                fallback_outcome="missing_products_fixture_decision_fallback",
+            )
+
+        bundle = await self._comparison_decision_agent.run(
+            ComparisonDecisionAgentInput(
+                run_id=context.run_id,
+                brief=context.active_brief,
+                products=products,
+                listings=listings,
+                category_analyses=context.category_analyses,
+                trust_assessments=context.trust_assessments,
+                deduplication_decisions=_deduplication_decisions(context),
+                evidence=evidence,
+                user_added_products=_user_added_products(context),
+            )
+        )
+        context.recommendation_bundle = bundle
+        activity = _agent_tool_activity(self._comparison_decision_agent)
+        return FixtureStageOutput(
+            stage=RunStage.COMPARISON_DECISION,
+            trace_id=self._stage_trace_id(
+                context.trace_id,
+                RunStage.COMPARISON_DECISION,
+            ),
+            summary="Compared candidates and prepared the recommendation.",
+            payload={
+                "product_count": str(len(products)),
+                "no_strong_buy": str(bundle.no_strong_buy),
+            },
+            agent_name="ComparisonDecisionAgent",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.COMPARISON_DECISION),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
+        )
+
+    async def _run_verification(
+        self,
+        context: ShoppingRunContext,
+    ) -> FixtureStageOutput:
+        if (
+            self._agent_workflow_mode != AgentWorkflowMode.LIVE
+            or self._verifier_critic_agent is None
+        ):
+            return self._fixture_stage_output(context, RunStage.VERIFICATION)
+
+        bundle = context.recommendation_bundle
+        if bundle is None:
+            return self._fixture_stage_output(
+                context,
+                RunStage.VERIFICATION,
+                fallback_outcome="missing_recommendation_fixture_verification_fallback",
+            )
+
+        report = await self._verifier_critic_agent.run(
+            VerificationAgentInput(
+                run_id=context.run_id,
+                brief=context.active_brief,
+                recommendation_bundle=bundle,
+                products=_analysis_products(context),
+                listings=_analysis_listings(context),
+                evidence=_analysis_evidence(context),
+                trust_assessments=context.trust_assessments,
+                category_analyses=context.category_analyses,
+                deduplication_decisions=_deduplication_decisions(context),
+            )
+        )
+        context.verification_report = report
+        context.recommendation_bundle = report.recommendation_bundle
+        activity = _agent_tool_activity(self._verifier_critic_agent)
+        return FixtureStageOutput(
+            stage=RunStage.VERIFICATION,
+            trace_id=self._stage_trace_id(context.trace_id, RunStage.VERIFICATION),
+            summary="Checked the recommendation for source support and safety.",
+            payload={
+                "approved": str(report.approved),
+                "blocking_issue_count": str(len(report.blocking_issues)),
+            },
+            agent_name="VerifierCriticAgent",
+            runtime_mode=self._agent_workflow_mode.value,
+            model_name=self._model_name_for_stage(RunStage.VERIFICATION),
+            tool_activity=activity,
+            fallback_outcome=_fallback_outcome(activity),
         )
 
     def _fixture_stage_output(
         self,
         context: ShoppingRunContext,
         stage: RunStage,
+        *,
+        fallback_outcome: str | None = None,
     ) -> FixtureStageOutput:
         return FixtureStageOutput(
             stage=stage,
@@ -1188,6 +1753,8 @@ class ShoppingRunOrchestrator:
                 "mode": "fixture",
                 "stage": stage.value,
             },
+            runtime_mode=AgentWorkflowMode.FIXTURE.value,
+            fallback_outcome=fallback_outcome,
         )
 
     def _current_or_initial_stage(self, context: ShoppingRunContext) -> RunStage:
@@ -1195,9 +1762,74 @@ class ShoppingRunOrchestrator:
             return context.events[-1].stage
         return RunStage.INTAKE
 
-    @staticmethod
-    def _run_trace_id(run_id: RunId) -> str:
-        return f"fixture-run-{run_id}"
+    async def _category_route(
+        self,
+        context: ShoppingRunContext,
+        products: tuple[CanonicalProduct, ...],
+        listings: tuple[ProductListing, ...],
+        evidence: tuple[SourceEvidence, ...],
+    ) -> ProductAnalysisRoute:
+        if self._category_router_agent is None:
+            return self._agent_catalog.route_product_analysis(context.active_brief.category)
+        return await self._category_router_agent.run(
+            CategoryRouterAgentInput(
+                run_id=context.run_id,
+                brief=context.active_brief,
+                products=products,
+                listings=listings,
+                evidence=evidence,
+            )
+        )
+
+    def _analysis_agent_for(
+        self,
+        agent_name: str,
+    ) -> (
+        GenericProductAnalystAgent
+        | TechnologyDomainAnalystAgent
+        | MonitorSpecialistAgent
+        | SmartphoneSpecialistAgent
+        | LaptopSpecialistAgent
+        | EarphonesHeadphonesSpecialistAgent
+        | TVSpecialistAgent
+        | SmartwatchSpecialistAgent
+        | None
+    ):
+        return {
+            "GenericProductAnalystAgent": self._generic_product_analyst_agent,
+            "TechnologyDomainAnalystAgent": self._technology_domain_analyst_agent,
+            "MonitorSpecialistAgent": self._monitor_specialist_agent,
+            "SmartphoneSpecialistAgent": self._smartphone_specialist_agent,
+            "LaptopSpecialistAgent": self._laptop_specialist_agent,
+            "EarphonesHeadphonesSpecialistAgent": (
+                self._earphones_headphones_specialist_agent
+            ),
+            "TVSpecialistAgent": self._tv_specialist_agent,
+            "SmartwatchSpecialistAgent": self._smartwatch_specialist_agent,
+        }.get(agent_name)
+
+    def _model_name_for_stage(self, stage: RunStage) -> str | None:
+        if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+            return None
+        if stage in {
+            RunStage.INTAKE,
+            RunStage.QUERY_PLANNING,
+            RunStage.DISCOVERY,
+            RunStage.LISTING_TRUST,
+            RunStage.CATEGORY_ANALYSIS,
+            RunStage.COMPARISON_DECISION,
+            RunStage.VERIFICATION,
+        }:
+            return self._agent_model_name
+        return None
+
+    def _run_trace_id(self, run_id: RunId) -> str:
+        prefix = (
+            "live-agent-run"
+            if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            else "fixture-run"
+        )
+        return f"{prefix}-{run_id}"
 
     @staticmethod
     def _stage_trace_id(run_trace_id: str, stage: RunStage) -> str:
@@ -1218,6 +1850,66 @@ def _listing_trust_targets(
             if user_added.listing is not None
         )
     return _unique_listings(listings)
+
+
+def _analysis_products(context: ShoppingRunContext) -> tuple[CanonicalProduct, ...]:
+    if context.deduplication is not None:
+        return tuple(group.product for group in context.deduplication.result.groups)
+    if context.fixture_output is not None:
+        return context.fixture_output.products
+    return ()
+
+
+def _analysis_listings(context: ShoppingRunContext) -> tuple[ProductListing, ...]:
+    listings: list[ProductListing] = []
+    if context.deduplication is not None:
+        listings.extend(context.deduplication.result.listings)
+    if context.fixture_output is not None:
+        listings.extend(context.fixture_output.listings)
+        listings.extend(
+            user_added.listing
+            for user_added in context.fixture_output.user_added_products
+            if user_added.listing is not None
+        )
+    return _unique_listings(listings)
+
+
+def _analysis_evidence(context: ShoppingRunContext) -> tuple[SourceEvidence, ...]:
+    if context.fixture_output is None:
+        return ()
+    return context.fixture_output.source_evidence
+
+
+def _user_added_products(context: ShoppingRunContext):
+    if context.fixture_output is None:
+        return ()
+    return context.fixture_output.user_added_products
+
+
+def _deduplication_decisions(context: ShoppingRunContext):
+    if context.fixture_output is None:
+        return ()
+    return context.fixture_output.deduplication_decisions
+
+
+def _evidence_for_product(
+    product: CanonicalProduct,
+    listings: tuple[ProductListing, ...],
+    evidence: tuple[SourceEvidence, ...],
+) -> tuple[SourceEvidence, ...]:
+    listing_ids = {listing.listing_id for listing in listings}
+    source_ids = set(product.source_ids)
+    for listing in listings:
+        source_ids.update(listing.source_ids)
+        source_ids.update(listing.seller.source_ids)
+    selected = tuple(
+        item
+        for item in evidence
+        if item.target.product_id == product.product_id
+        or (item.target.listing_id is not None and item.target.listing_id in listing_ids)
+        or item.source_id in source_ids
+    )
+    return selected or evidence
 
 
 def _unique_listings(
@@ -1262,6 +1954,44 @@ def _orchestrator_error(
             details={"stage": stage.value},
         )
     )
+
+
+def _merge_live_intake_brief(
+    current: ShoppingBrief,
+    inferred: ShoppingBrief,
+) -> ShoppingBrief:
+    return current.model_copy(
+        update={
+            "category": current.category or inferred.category,
+            "category_source": current.category_source or inferred.category_source,
+            "region": current.region or inferred.region,
+            "budget": current.budget or inferred.budget,
+            "constraints": current.constraints or inferred.constraints,
+            "preferences": current.preferences or inferred.preferences,
+        }
+    )
+
+
+def _agent_tool_activity(agent: object | None) -> tuple[dict[str, Any], ...]:
+    if agent is None:
+        return ()
+    activity = getattr(agent, "workbench_activity", ())
+    if activity is None:
+        return ()
+    return tuple(dict(item) for item in activity)
+
+
+def _fallback_outcome(activity: tuple[dict[str, Any], ...]) -> str | None:
+    for item in reversed(activity):
+        status = str(item.get("status", ""))
+        lowered = status.casefold()
+        if any(term in lowered for term in ("fallback", "blocked", "error")):
+            return status
+    return None
+
+
+def _duration_ms(started_at: Timestamp, ended_at: Timestamp) -> float:
+    return round((ended_at - started_at).total_seconds() * 1000, 3)
 
 
 def _score_search_results(
@@ -1315,7 +2045,14 @@ def _apply_planned_source_type(
 
 def _selected_extraction_results(
     results: tuple[SearchResult, ...],
+    *,
+    selected_source_ids: tuple[SourceId, ...] | None = None,
 ) -> tuple[SearchResult, ...]:
+    if selected_source_ids is not None:
+        selected = set(selected_source_ids)
+        if not selected:
+            return ()
+        results = tuple(result for result in results if result.source_id in selected)
     return tuple(
         result
         for result in results

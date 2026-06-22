@@ -129,6 +129,7 @@ def _run_service(
         default_region_code=(
             settings.default_region_code if settings is not None else "US"
         ),
+        settings=settings,
     )
 
 

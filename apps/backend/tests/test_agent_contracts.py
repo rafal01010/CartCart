@@ -5,6 +5,8 @@ import pytest
 from app.agents import (
     AmazonProductIntelligenceAgent,
     AmazonProductIntelligenceAgentInput,
+    CategoryRouterAgent,
+    CategoryRouterAgentInput,
     ComparisonDecisionAgent,
     ComparisonDecisionAgentInput,
     DeduplicationReviewAgent,
@@ -17,6 +19,7 @@ from app.agents import (
     ExtractionReviewAgentInput,
     ExtractionReviewAgentOutput,
     FakeAmazonProductIntelligenceAgent,
+    FakeCategoryRouterAgent,
     FakeComparisonDecisionAgent,
     FakeDeduplicationReviewAgent,
     FakeDiscoveryAgent,
@@ -47,6 +50,7 @@ from app.agents import (
     LaptopSpecialistAgent,
     MonitorSpecialistAgent,
     ProductAnalysisAgentInput,
+    ProductAnalysisRoute,
     QueryPlannerAgent,
     QueryPlannerAgentInput,
     RedditCommunityIntelligenceAgent,
@@ -105,6 +109,7 @@ def test_agent_protocols_declare_typed_run_boundaries() -> None:
         ShoppingScopeGuardrail,
         QueryPlannerAgent,
         DiscoveryAgent,
+        CategoryRouterAgent,
         ExtractionReviewAgent,
         DeduplicationReviewAgent,
         GenericProductAnalystAgent,
@@ -173,6 +178,18 @@ async def test_agent_contract_fakes_return_typed_outputs_without_live_calls() ->
     )
     assert isinstance(discovery_output, DiscoveryAgentOutput)
     assert discovery_output.search_results
+
+    route_output = await FakeCategoryRouterAgent().run(
+        CategoryRouterAgentInput(
+            run_id=run_id,
+            brief=intake_output,
+        )
+    )
+    assert isinstance(route_output, ProductAnalysisRoute)
+    assert route_output.agent_path == (
+        "TechnologyDomainAnalystAgent",
+        "MonitorSpecialistAgent",
+    )
 
     extraction_output = await FakeExtractionReviewAgent().run(
         ExtractionReviewAgentInput(

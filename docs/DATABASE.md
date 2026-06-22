@@ -383,7 +383,7 @@ Stores per-agent/stage execution records, including trace linkage when present.
 | `started_at` | `String(35)` | No | Start timestamp. |
 | `ended_at` | `String(35)` | Yes | End timestamp. |
 | `trace_id` | `String(300)` | Yes | Local or provider trace ID. |
-| `record` | `JSON` | No | Full `AgentRunRecord` payload. |
+| `record` | `JSON` | No | Full `AgentRunRecord` payload, including runtime mode, model name where applicable, stage duration, nullable token usage and estimated cost, sanitized tool activity summaries, fallback/error outcome, source IDs, and error envelope when failed. |
 
 ### `comparison_matrices`
 

@@ -25,6 +25,11 @@ class EnvironmentMode(StrEnum):
     PRODUCTION = "production"
 
 
+class AgentWorkflowMode(StrEnum):
+    FIXTURE = "fixture"
+    LIVE = "live"
+
+
 class SearchProviderName(StrEnum):
     FIXTURE = "fixture"
     TAVILY = "tavily"
@@ -94,6 +99,7 @@ class Settings(BaseSettings):
     provider_rate_limit_per_minute: int = Field(default=60, ge=1, le=1000)
     agent_workbench_enabled: bool = False
     live_agents_enabled: bool = False
+    agent_workflow_mode: AgentWorkflowMode = AgentWorkflowMode.FIXTURE
     openai_model: str = Field(
         default=DEFAULT_OPENAI_AGENT_MODEL,
         min_length=1,
@@ -263,21 +269,38 @@ class Settings(BaseSettings):
         return tuple(warnings)
 
     def agent_readiness_warnings(self) -> tuple[ProviderReadinessWarning, ...]:
-        if not self.live_agents_enabled or self.openai_api_key is not None:
-            return ()
+        warnings: list[ProviderReadinessWarning] = []
+        if (
+            self.agent_workflow_mode == AgentWorkflowMode.LIVE
+            and not self.live_agents_enabled
+        ):
+            warnings.append(
+                ProviderReadinessWarning(
+                    provider="agents:workflow",
+                    code="live_agents_disabled",
+                    message=(
+                        "The normal shopping workflow is configured for live "
+                        "agents but CARTCART_LIVE_AGENTS_ENABLED is false. "
+                        "Fixture workflow mode remains available."
+                    ),
+                    missing_env_var="CARTCART_LIVE_AGENTS_ENABLED",
+                )
+            )
 
-        return (
-            ProviderReadinessWarning(
-                provider="agents:openai",
-                code="missing_openai_api_key",
-                message=(
-                    "Live OpenAI agents are enabled but OPENAI_API_KEY is not set. "
-                    "Fixture and mocked agent modes can still run; live agent "
-                    "calls are disabled."
-                ),
-                missing_env_var="OPENAI_API_KEY",
-            ),
-        )
+        if self.live_agents_enabled and self.openai_api_key is None:
+            warnings.append(
+                ProviderReadinessWarning(
+                    provider="agents:openai",
+                    code="missing_openai_api_key",
+                    message=(
+                        "Live OpenAI agents are enabled but OPENAI_API_KEY is not set. "
+                        "Fixture and mocked agent modes can still run; live agent "
+                        "calls are disabled."
+                    ),
+                    missing_env_var="OPENAI_API_KEY",
+                )
+            )
+        return tuple(warnings)
 
     def configuration_readiness_warnings(
         self,

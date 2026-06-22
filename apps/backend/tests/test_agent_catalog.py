@@ -110,6 +110,16 @@ def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:
     assert guardrail.output_schema == "ShoppingGuardrailResult"
 
 
+def test_agent_catalog_exposes_category_router_contract() -> None:
+    router = DEFAULT_AGENT_CATALOG.require("CategoryRouterAgent")
+
+    assert router.status == AgentStatus.REQUIRED_MVP
+    assert router.kind == AgentKind.ROUTER
+    assert router.invocation_mode == InvocationMode.TYPED_STEP
+    assert router.contract_name == "CategoryRouterAgent"
+    assert router.output_schema == "ProductAnalysisRoute"
+
+
 def test_agent_catalog_requires_explicit_entries_for_specialist_routes() -> None:
     with pytest.raises(ValidationError, match="unknown category route agent"):
         AgentCatalog(

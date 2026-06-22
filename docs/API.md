@@ -53,9 +53,9 @@ surface around the existing session/run plumbing. The frontend-facing response
 models include only regular-person-safe question, control, skip/reanswer,
 region setup, blocked-state, progress, and ready-for-analysis metadata. A live
 OpenAI Agents SDK `ShoppingGuideAgent` now implements the same structured
-`GuidedIntakeState` contract for isolated mock/live workbench runs; the normal
-shopper API remains fixture-backed until a later integration task opts it into
-live agents.
+`GuidedIntakeState` contract for isolated mock/live workbench runs. The normal
+guided-intake API remains fixture-backed; the normal run workflow can opt into
+live guarded intake and `IntakeAgent` processing after run start.
 
 ## Implemented Endpoints
 
@@ -177,14 +177,18 @@ them. The response returns the updated `ShoppingSession`.
 Starts a discovery/analysis run from the current session state. Runs should persist status, stage summaries, trace IDs, and result versions.
 
 Current implementation creates a persisted `ShoppingRunRecord` and runs the
-fixture `ShoppingRunOrchestrator` synchronously. The response returns the
-terminal succeeded run, persisted progress events, and a fixture monitor-shopping
-result bundle. Search, extraction, and reusable source-intelligence stages use
-configured provider boundaries and default to fixture providers. Later analysis
-and recommendation stages remain deterministic fixtures and do not call models.
-If the session question is blocked by shopping-scope or safe-product guardrails,
+`ShoppingRunOrchestrator` synchronously. The response returns the terminal run
+and persisted progress events. Fixture workflow mode remains the default and
+returns the deterministic monitor-shopping result bundle without live model
+calls. When `CARTCART_AGENT_WORKFLOW_MODE=live`,
+`CARTCART_LIVE_AGENTS_ENABLED=true`, and `OPENAI_API_KEY` are configured, the
+normal run path uses live typed agents for intake, planning, discovery
+selection, source-intelligence wrappers, trust, analysis, comparison, and
+verification while keeping provider access behind typed service boundaries. If
+the session question is blocked by shopping-scope or safe-product guardrails,
 the endpoint returns `shopping_guardrail_blocked` with short user-safe copy and
-does not create a run.
+does not create a run. If live workflow mode is requested without live-agent
+configuration, the endpoint returns `live_agents_not_configured`.
 
 `GET /api/sessions/{session_id}/runs/{run_id}`
 

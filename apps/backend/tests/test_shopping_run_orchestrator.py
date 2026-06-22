@@ -4,8 +4,20 @@ import pytest
 from pydantic import AnyHttpUrl
 
 import app.db.models  # noqa: F401
-from app.agents import SellerListingTrustAgentInput
-from app.core.settings import Settings
+from app.agents import (
+    ComparisonDecisionAgentInput,
+    DiscoveryAgentInput,
+    DiscoveryAgentOutcome,
+    DiscoveryAgentOutput,
+    IntakeAgentInput,
+    ProductAnalysisAgentInput,
+    QueryPlannerAgentInput,
+    SellerListingTrustAgentInput,
+    VerificationAgentInput,
+    VerificationReport,
+)
+from app.agents.catalog import ProductAnalysisRoute
+from app.core.settings import AgentWorkflowMode, Settings
 from app.db.base import Base
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
@@ -28,13 +40,25 @@ from app.providers import (
     TranscriptProviderOptions,
     TranscriptProviderResult,
 )
-from app.schemas.analysis import ListingTrustAssessment
+from app.schemas.analysis import (
+    CategoryAnalysis,
+    ComparisonCriterion,
+    ComparisonMatrix,
+    ComparisonRow,
+    ListingTrustAssessment,
+    RecommendationBundle,
+    RecommendationMode,
+    RecommendationModeResult,
+)
+from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.intake import CreateSessionRequest, FieldSource, ShoppingBrief
 from app.schemas.runs import RunStage, RunStatus
 from app.schemas.search_sources import (
     ExtractedPageContent,
     ExtractionStatus,
     ProviderMetadata,
+    SearchIntent,
+    SearchPlan,
     SearchQuery,
     SearchResult,
     SourceQuality,
@@ -219,6 +243,192 @@ class RecordingSellerListingTrustAgent:
                     f"Trust agent reviewed listing {input_data.listing.listing_id}."
                 )
             }
+        )
+
+
+class RecordingIntakeAgent:
+    workbench_activity = (
+        {
+            "tool_name": "openai_agents_structured_output",
+            "status": "model_intake_completed",
+            "input": {"allowed_tools": []},
+        },
+    )
+
+    async def run(self, input_data: IntakeAgentInput) -> ShoppingBrief:
+        return ShoppingBrief(
+            original_query=input_data.request.query,
+            category="monitor",
+            category_source=FieldSource.INFERRED,
+            region=input_data.request.region,
+        )
+
+
+class RecordingQueryPlannerAgent:
+    workbench_activity = (
+        {
+            "tool_name": "openai_agents_structured_output",
+            "status": "model_query_plan_completed",
+            "input": {"allowed_tools": []},
+        },
+    )
+
+    async def run(self, input_data: QueryPlannerAgentInput):
+        return SearchPlan(
+            queries=(
+                SearchQuery(
+                    query=f"{input_data.brief.original_query} official listing",
+                    intent=SearchIntent.DISCOVERY,
+                    required_source_types=(SourceType.RETAILER_LISTING,),
+                ),
+            ),
+            rationale="Recording live workflow query plan.",
+        )
+
+
+class SelectingDiscoveryAgent:
+    workbench_activity = (
+        {
+            "tool_name": "openai_agents_structured_output",
+            "status": "model_discovery_completed",
+            "input": {"allowed_tools": []},
+        },
+    )
+
+    async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        selected = input_data.seed_results[:1]
+        return DiscoveryAgentOutput(
+            search_results=input_data.seed_results,
+            selected_source_ids=tuple(result.source_id for result in selected),
+            outcome=DiscoveryAgentOutcome.SELECTED,
+        )
+
+
+class RecordingCategoryRouterAgent:
+    workbench_activity = (
+        {
+            "tool_name": "openai_agents_structured_output",
+            "status": "model_category_route_completed",
+            "input": {"allowed_tools": []},
+        },
+    )
+
+    async def run(self, input_data) -> ProductAnalysisRoute:
+        del input_data
+        return ProductAnalysisRoute(
+            category="monitor",
+            agent_path=("GenericProductAnalystAgent",),
+        )
+
+
+class RecordingGenericAnalystAgent:
+    def __init__(self) -> None:
+        self.calls: list[ProductAnalysisAgentInput] = []
+        self.workbench_activity = ()
+
+    async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
+        self.calls.append(input_data)
+        evidence_ids = tuple(item.evidence_id for item in input_data.evidence)
+        if not evidence_ids:
+            evidence_ids = input_data.product.source_ids
+        source_ids = input_data.product.source_ids or evidence_ids
+        self.workbench_activity = (
+            {
+                "tool_name": "openai_agents_structured_output",
+                "status": "model_generic_analysis_completed",
+                "input": {"allowed_tools": []},
+            },
+        )
+        return CategoryAnalysis(
+            product_id=input_data.product.product_id,
+            listing_ids=tuple(listing.listing_id for listing in input_data.listings),
+            category=input_data.product.category or "monitor",
+            fit_summary="Recording live analysis says this candidate fits.",
+            strengths=("It has enough supplied listing evidence to compare.",),
+            weaknesses=("Long-term ownership evidence still needs checking.",),
+            confidence=Confidence(
+                level=ConfidenceLevel.MEDIUM,
+                score=0.66,
+                rationale="Recording local agent output.",
+            ),
+            evidence_ids=evidence_ids,
+            source_ids=source_ids,
+        )
+
+
+class RecordingComparisonDecisionAgent:
+    def __init__(self) -> None:
+        self.workbench_activity = ()
+
+    async def run(
+        self,
+        input_data: ComparisonDecisionAgentInput,
+    ) -> RecommendationBundle:
+        product = input_data.products[0]
+        listing = next(
+            item for item in input_data.listings if item.product_id == product.product_id
+        )
+        evidence_ids = input_data.category_analyses[0].evidence_ids
+        source_ids = input_data.category_analyses[0].source_ids
+        matrix = ComparisonMatrix(
+            criteria=(ComparisonCriterion(name="Fit", weight=0.7),),
+            rows=(
+                ComparisonRow(
+                    product_id=product.product_id,
+                    listing_id=listing.listing_id,
+                    scores={"Fit": 0.7},
+                    evidence_ids=evidence_ids,
+                    summary="Recording comparison row.",
+                ),
+            ),
+        )
+        self.workbench_activity = (
+            {
+                "tool_name": "openai_agents_structured_output",
+                "status": "model_comparison_decision_completed",
+                "input": {"allowed_tools": []},
+            },
+        )
+        return RecommendationBundle(
+            final_product_id=product.product_id,
+            final_listing_id=listing.listing_id,
+            final_rationale="Recording comparison selected the supplied listing.",
+            mode_results=(
+                RecommendationModeResult(
+                    mode=RecommendationMode.BEST_OVERALL,
+                    product_id=product.product_id,
+                    listing_id=listing.listing_id,
+                    title=product.name,
+                    rationale="Best supplied candidate in the recording test.",
+                    confidence=Confidence(
+                        level=ConfidenceLevel.MEDIUM,
+                        score=0.66,
+                        rationale="Recording local agent output.",
+                    ),
+                    evidence_ids=evidence_ids,
+                    source_ids=source_ids,
+                ),
+            ),
+            comparison_matrix=matrix,
+            evidence_ids=evidence_ids,
+            source_ids=source_ids,
+        )
+
+
+class RecordingVerifierCriticAgent:
+    workbench_activity = (
+        {
+            "tool_name": "openai_agents_structured_output",
+            "status": "model_verifier_critic_completed",
+            "input": {"allowed_tools": []},
+        },
+    )
+
+    async def run(self, input_data: VerificationAgentInput) -> VerificationReport:
+        return VerificationReport(
+            approved=True,
+            recommendation_bundle=input_data.recommendation_bundle,
+            notes=("Recording verifier approved the bundle.",),
         )
 
 
@@ -880,6 +1090,108 @@ async def test_source_intelligence_stage_persists_required_fixture_bundles(
         assert source_intelligence_event.message.startswith(
             "Checked review videos, community discussions, Amazon listings"
         )
+
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-live-agents.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    analyst = RecordingGenericAnalystAgent()
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            create_request = CreateSessionRequest(query="Need a USB-C monitor")
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=create_request,
+                current_brief=ShoppingBrief(original_query=create_request.query),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                agent_model_name="gpt-recording",
+                intake_agent=RecordingIntakeAgent(),
+                query_planner=RecordingQueryPlannerAgent(),
+                discovery_agent=SelectingDiscoveryAgent(),
+                category_router_agent=RecordingCategoryRouterAgent(),
+                generic_product_analyst_agent=analyst,
+                seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
+                comparison_decision_agent=RecordingComparisonDecisionAgent(),
+                verifier_critic_agent=RecordingVerifierCriticAgent(),
+                search_provider=ListingSearchProvider(),
+                extraction_provider=RecordingExtractionProvider(),
+                default_region_code="US",
+            )
+
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+                original_input=shopping_session.original_input,
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            result_repository = ResultRepository(db_session)
+            agent_records = await result_repository.list_agent_records(run.run_id)
+            result = await result_repository.load_latest_result_bundle(run.run_id)
+
+        assert context.trace_id == f"live-agent-run-{run.run_id}"
+        assert context.active_brief.category == "monitor"
+        assert len(context.selected_source_ids) == 1
+        assert len(analyst.calls) == 1
+        assert context.category_analyses
+        assert context.recommendation_bundle is not None
+        assert context.verification_report is not None
+        assert context.verification_report.approved is True
+        assert result is not None
+        assert result.recommendation_bundle.final_product_id == (
+            context.recommendation_bundle.final_product_id
+        )
+
+        records_by_stage = {record.stage: record for record in agent_records}
+        assert records_by_stage[RunStage.INTAKE].runtime_mode == "live"
+        assert records_by_stage[RunStage.INTAKE].model_name == "gpt-recording"
+        assert records_by_stage[RunStage.QUERY_PLANNING].tool_activity[0][
+            "status"
+        ] == "model_query_plan_completed"
+        assert records_by_stage[RunStage.DISCOVERY].agent_name == "DiscoveryAgent"
+        assert records_by_stage[RunStage.DISCOVERY].tool_activity[0]["input"][
+            "allowed_tools"
+        ] == []
+        assert records_by_stage[RunStage.CATEGORY_ANALYSIS].agent_name == (
+            "CategoryRouterAgent+ProductAnalysisAgents"
+        )
+        assert records_by_stage[RunStage.CATEGORY_ANALYSIS].duration_ms is not None
+        assert records_by_stage[RunStage.COMPARISON_DECISION].model_name == (
+            "gpt-recording"
+        )
+        assert records_by_stage[RunStage.VERIFICATION].tool_activity[0][
+            "status"
+        ] == "model_verifier_critic_completed"
 
     finally:
         await engine.dispose()

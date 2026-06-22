@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.providers.youtube_transcript import TranscriptRuntimeIssue
 from app.core.settings import (
+    AgentWorkflowMode,
     AmazonProductIntelligenceProviderName,
     DEFAULT_OPENAI_AGENT_MODEL,
     EnvironmentMode,
@@ -42,6 +43,7 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
     assert settings.provider_timeout_seconds == 10.0
     assert settings.provider_rate_limit_per_minute == 60
     assert settings.live_agents_enabled is False
+    assert settings.agent_workflow_mode == AgentWorkflowMode.FIXTURE
     assert settings.openai_model == DEFAULT_OPENAI_AGENT_MODEL
     assert settings.openai_agent_timeout_seconds == 45.0
     assert settings.openai_agent_max_turns == 8
@@ -135,6 +137,7 @@ def test_settings_read_prefixed_environment_overrides(
     monkeypatch.setenv("CARTCART_PROVIDER_TIMEOUT_SECONDS", "7.5")
     monkeypatch.setenv("CARTCART_PROVIDER_RATE_LIMIT_PER_MINUTE", "30")
     monkeypatch.setenv("CARTCART_LIVE_AGENTS_ENABLED", "true")
+    monkeypatch.setenv("CARTCART_AGENT_WORKFLOW_MODE", "live")
     monkeypatch.setenv("CARTCART_OPENAI_MODEL", "gpt-5.5")
     monkeypatch.setenv("CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS", "55")
     monkeypatch.setenv("CARTCART_OPENAI_AGENT_MAX_TURNS", "12")
@@ -197,6 +200,7 @@ def test_settings_read_prefixed_environment_overrides(
     assert settings.provider_timeout_seconds == 7.5
     assert settings.provider_rate_limit_per_minute == 30
     assert settings.live_agents_enabled is True
+    assert settings.agent_workflow_mode == AgentWorkflowMode.LIVE
     assert settings.openai_model == "gpt-5.5"
     assert settings.openai_agent_timeout_seconds == 55
     assert settings.openai_agent_max_turns == 12
@@ -424,6 +428,21 @@ def test_openai_key_accepts_standard_env_file(
     assert settings.openai_api_key is not None
     assert settings.openai_api_key.get_secret_value() == "env-file-openai-key"
     assert settings.agent_readiness_warnings() == ()
+
+
+def test_live_agent_workflow_warns_when_live_agent_gate_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CARTCART_AGENT_WORKFLOW_MODE", "live")
+    monkeypatch.setenv("CARTCART_LIVE_AGENTS_ENABLED", "false")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CARTCART_OPENAI_API_KEY", raising=False)
+
+    warnings = make_settings().agent_readiness_warnings()
+
+    assert len(warnings) == 1
+    assert warnings[0].provider == "agents:workflow"
+    assert warnings[0].code == "live_agents_disabled"
 
 
 def test_settings_reject_cross_session_preference_profiling(

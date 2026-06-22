@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Evaluation Direction
 
@@ -40,6 +40,21 @@ The first local eval dataset should contain roughly 15 to 25 shopping scenarios 
 - Refinement loop.
 
 The dataset should cover broad category fallback, technology-domain routing, and MVP technology specialist routing. CartCart should not fail normal shopping requests just because a deep specialist does not exist.
+
+## Product Analysis Routing Eval Cases
+
+Fixture-backed routing eval cases live in
+`apps/backend/app/evals/routing.py` and are exercised by
+`apps/backend/tests/test_live_product_analysis_routing.py`. They cover:
+
+- broad non-technology fallback to `GenericProductAnalystAgent`
+- non-specialist technology routing to `TechnologyDomainAnalystAgent`
+- every MVP specialist route through `TechnologyDomainAnalystAgent`
+- fallback availability from each MVP specialist to technology-domain analysis
+  and then generic analysis
+
+These are cheap mocked/local regression checks. Live model routing evals remain
+opt-in and are deferred to the Section N live-agents gate.
 
 ## Evaluation Dimensions
 
@@ -184,6 +199,10 @@ clearly identified as networked/cost-incurring manual checks. Workbench runs
 complement unit tests and evals; they do not replace regression assertions,
 routing tests, or full-workflow verification.
 
+Normal shopping-run live-agent smokes are also opt-in. They require
+`CARTCART_AGENT_WORKFLOW_MODE=live` in addition to the live-agent flag and
+OpenAI key, and should be run only after fixture and mocked scenarios pass.
+
 The local runner command shape is:
 
 ```bash
@@ -209,11 +228,93 @@ budget, region, and constraints are already present.
 For Task 75 intake acceptance, use `intake/monitor-ph-budget` in mocked or live
 mode to inspect a structured `ShoppingBrief` with monitor category, PH region,
 budget, and key preferences, and pair it with `intake/ambiguous-category` to
-confirm ambiguous requests preserve category uncertainty. Starter scenarios are
-registered in `app.agents.workbench` for the current fake and live-agent
-implementations. Later live-agent tasks should add their normal and
-boundary/failure scenarios to that registry rather than creating new debugging
-plumbing.
+confirm ambiguous requests preserve category uncertainty.
+For Task 76 query-planner acceptance, use `query-planner/coffee-grinder-us` in
+mocked or live mode to inspect region-aware shopping and review queries for a
+non-specialist category, and pair it with
+`query-planner/unknown-category-generic` to confirm generic fallback planning
+without artificial category blocking. For Task 77 discovery acceptance, use
+`discovery/select-valid-sources` in mocked or live mode to confirm eligible
+retailer and review source IDs are selected while weak proxy sources are not,
+and pair it with `discovery/no-good-results` to confirm an
+`insufficient_candidates` outcome without product-detail fabrication. For Task
+78 category-router acceptance, use `router/monitor-to-specialist` in mocked or
+live mode to inspect the `TechnologyDomainAnalystAgent` to
+`MonitorSpecialistAgent` route, and pair it with `router/office-chair-generic`
+to confirm `GenericProductAnalystAgent` fallback without an unsupported-category
+error. For Task 79 generic analyst acceptance, use
+`generic/office-chair-analysis` in mocked or live mode to inspect an
+office-chair `CategoryAnalysis` with fit tradeoffs, evidence gaps, and
+preserved evidence/source IDs, and pair it with `generic/weak-evidence` to
+confirm weak inputs produce limitations rather than category refusal. For Task
+79A technology-domain acceptance, use `technology/router-monitor` in mocked or
+live mode to inspect the declared `MonitorSpecialistAgent` route in internal
+tool activity, and pair it with `technology/router-keyboard-domain` to confirm
+broad technology-domain analysis for a technology category without an MVP
+specialist. For Task 79B monitor-specialist acceptance, use
+`monitor/coding-movies-1440p` in mocked or live mode to inspect a source-backed
+monitor `CategoryAnalysis` covering panel type, resolution, refresh rate,
+ergonomics, ports, tradeoffs, and source IDs, and pair it with
+`monitor/non-monitor-reject` to confirm non-monitor input falls back instead of
+being forced through monitor analysis. For Task 79C smartphone-specialist
+acceptance, use `smartphone/midrange-camera-battery` in mocked or live mode to
+inspect a source-backed smartphone `CategoryAnalysis` covering camera, battery,
+update support, performance, region/model caveats, and source IDs, and pair it
+with `smartphone/non-phone-reject` to confirm non-phone input falls back instead
+of being forced through smartphone analysis. For Task 79D laptop-specialist
+acceptance, use `laptop/student-portable` in mocked or live mode to inspect a
+source-backed laptop `CategoryAnalysis` covering CPU, RAM, storage, battery,
+display, ports, weight, upgradeability, and source IDs, and pair it with
+`laptop/non-laptop-reject` to confirm non-laptop input falls back instead of
+being forced through laptop analysis. For Task 79E
+earphones/headphones-specialist acceptance, use
+`headphones/noise-cancelling-commute` in mocked or live mode to inspect a
+source-backed headphone `CategoryAnalysis` covering ANC, comfort/fit,
+microphone, battery, codec/device fit, and source IDs, and pair it with
+`headphones/non-audio-reject` to confirm non-audio input falls back instead of
+being forced through headphone analysis. For Task 79F TV-specialist
+acceptance, use `tv/55-inch-movies-gaming` in mocked or live mode to inspect a
+source-backed TV `CategoryAnalysis` covering panel/backlight, HDR, motion,
+gaming inputs, room brightness, size fit, and source IDs, and pair it with
+`tv/non-tv-reject` to confirm non-TV input falls back instead of being forced
+through TV analysis. For Task 79G smartwatch-specialist acceptance, use
+`smartwatch/fitness-android` in mocked or live mode to inspect a source-backed
+smartwatch `CategoryAnalysis` covering phone compatibility, health sensors,
+battery, durability, app ecosystem, and source IDs, and pair it with
+`smartwatch/non-watch-reject` to confirm non-watch input falls back instead of
+being forced through smartwatch analysis. For Task 81 seller/listing trust
+acceptance, use `trust/unknown-marketplace-cheap` in mocked or live mode to
+inspect a weak or suspicious `ListingTrustAssessment` for an unknown
+marketplace seller with a far-below-comparable price and unclear return policy,
+and pair it with `trust/established-retailer` to confirm reasonable trust when
+evidence supports the seller and source. The hard suspicious-flag tests should
+prove deterministic price or contradiction flags cannot be silently overridden.
+For Task 81A YouTube review intelligence acceptance, use
+`youtube/monitor-review-transcript` in mocked mode to inspect timestamped
+pros/cons/concerns tied to the fixture video/source IDs, sponsorship and
+affiliate-bias signals, and no final recommendation fields; pair it with
+`youtube/no-transcript-gap` to confirm metadata-only evidence gaps are preserved
+without fabricated video claims.
+For Task 81B Reddit community intelligence acceptance, use
+`reddit/headphones-recurring-complaint` in mocked mode to inspect recurring
+qualitative signals tied to subreddit/thread/comment/source IDs plus anecdotal
+and manipulation warnings; pair it with `reddit/inaccessible-gap` to confirm
+inaccessible public content remains an explicit evidence gap without fabricated
+community claims.
+For Task 82 comparison decision acceptance, use
+`comparison/monitor-shortlist` in mocked or live mode to inspect a
+source-backed three-monitor `RecommendationBundle` with best overall, best
+value, within-budget, stretch, and runner-up modes; pair it with
+`comparison/no-strong-buy` to confirm weak or suspicious candidate sets produce
+an explicit no-strong-buy outcome instead of a forced pick.
+For Task 83 verifier acceptance, use `verifier/unsupported-claim-block` to
+confirm uncited product/spec claims block output, and
+`verifier/suspicious-listing-warning` to confirm suspicious final listings are
+rejected or made visibly unsafe for display unless a trust caveat is present.
+Starter scenarios are registered in
+`app.agents.workbench` for the current fake and live-agent implementations.
+Later live-agent tasks should add their normal and boundary/failure scenarios to
+that registry rather than creating new debugging plumbing.
 
 ## Evidence And Fixture Policy
 

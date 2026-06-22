@@ -1,7 +1,9 @@
-from typing import Protocol
+from enum import StrEnum
+from typing import Any, Protocol
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
+from app.agents.catalog import ProductAnalysisRoute
 from app.schemas.analysis import (
     CategoryAnalysis,
     DeduplicationDecision,
@@ -64,9 +66,66 @@ class DiscoveryAgentInput(VersionedSchema):
     seed_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
 
 
+class DiscoveryAgentOutcome(StrEnum):
+    SELECTED = "selected"
+    INSUFFICIENT_CANDIDATES = "insufficient_candidates"
+
+
 class DiscoveryAgentOutput(VersionedSchema):
     search_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
     selected_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    outcome: DiscoveryAgentOutcome = DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    notes: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_legacy_outcome(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "outcome" not in data:
+            selected_ids = data.get("selected_source_ids") or ()
+            data = {**data}
+            data["outcome"] = (
+                DiscoveryAgentOutcome.SELECTED
+                if selected_ids
+                else DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+            )
+        return data
+
+    @model_validator(mode="after")
+    def _validate_selected_ids(self) -> "DiscoveryAgentOutput":
+        if len(set(self.selected_source_ids)) != len(self.selected_source_ids):
+            raise ValueError("selected source IDs must be unique.")
+
+        result_source_ids = {item.source_id for item in self.search_results}
+        if result_source_ids:
+            missing_source_ids = tuple(
+                source_id
+                for source_id in self.selected_source_ids
+                if source_id not in result_source_ids
+            )
+            if missing_source_ids:
+                raise ValueError("selected source IDs must exist in search_results.")
+
+        if (
+            self.outcome == DiscoveryAgentOutcome.SELECTED
+            and not self.selected_source_ids
+        ):
+            raise ValueError("selected discovery output requires selected_source_ids.")
+        if (
+            self.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+            and self.selected_source_ids
+        ):
+            raise ValueError(
+                "insufficient discovery output cannot include selected_source_ids."
+            )
+        return self
+
+
+class CategoryRouterAgentInput(VersionedSchema):
+    run_id: RunId
+    brief: ShoppingBrief
+    products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
+    listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
+    evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
 
 
 class ExtractionReviewAgentInput(VersionedSchema):
@@ -154,9 +213,14 @@ class VerificationAgentInput(VersionedSchema):
     run_id: RunId
     brief: ShoppingBrief
     recommendation_bundle: RecommendationBundle
+    products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
+    listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
     trust_assessments: tuple[ListingTrustAssessment, ...] = Field(default_factory=tuple)
     category_analyses: tuple[CategoryAnalysis, ...] = Field(default_factory=tuple)
+    deduplication_decisions: tuple[DeduplicationDecision, ...] = Field(
+        default_factory=tuple
+    )
 
 
 class VerificationReport(VersionedSchema):
@@ -192,6 +256,11 @@ class QueryPlannerAgent(Protocol):
 class DiscoveryAgent(Protocol):
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         """Produce fixture discovery selections without provider calls."""
+
+
+class CategoryRouterAgent(Protocol):
+    async def run(self, input_data: CategoryRouterAgentInput) -> ProductAnalysisRoute:
+        """Declare the product-analysis route with generic fallback."""
 
 
 class ExtractionReviewAgent(Protocol):

@@ -1,7 +1,7 @@
 # CartCart Provider Setup And Fixture Replay
 
 Status: Provider setup and safety reference
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Scope And Defaults
 
@@ -93,9 +93,11 @@ follows the same fixture-first rule. Fixture and mocked agent modes require no
 OpenAI credential and must remain the default for local runs, routine tests, and
 section gates. Live model calls require all of the following:
 
+- `CARTCART_AGENT_WORKFLOW_MODE=live` for normal shopping runs, or an explicit
+  local workbench `--mode live`
 - `CARTCART_LIVE_AGENTS_ENABLED=true`
 - `OPENAI_API_KEY` set locally by the project owner
-- The implemented agent task or local workbench explicitly requesting live mode
+- The implemented agent path explicitly requesting live mode
 
 The backend also accepts `CARTCART_OPENAI_API_KEY` as a CartCart-prefixed local
 compatibility alias, but `OPENAI_API_KEY` is preferred and takes precedence.
@@ -106,24 +108,84 @@ Agent runtime settings:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `CARTCART_AGENT_WORKFLOW_MODE` | `fixture` | Selects fixture or live-agent mode for normal shopping runs. |
 | `CARTCART_LIVE_AGENTS_ENABLED` | `false` | Opt-in gate for live OpenAI agent calls. |
 | `OPENAI_API_KEY` | unset | Standard OpenAI API key used only for explicitly requested live-agent mode. |
-| `CARTCART_OPENAI_MODEL` | `gpt-5.4-mini` | Default model string passed to later OpenAI Agents SDK runs unless an agent task narrows it. |
-| `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS` | `45` | Per-agent run timeout budget for later live-agent runners. |
+| `CARTCART_OPENAI_MODEL` | `gpt-5.4-mini` | Default model string passed to implemented OpenAI Agents SDK runs unless an agent task narrows it. |
+| `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS` | `45` | Per-agent run timeout budget for live-agent runners. |
 | `CARTCART_OPENAI_AGENT_MAX_TURNS` | `8` | Upper bound for later SDK runner turns. |
 | `CARTCART_OPENAI_AGENT_TRACING_ENABLED` | `false` | Enables OpenAI Agents SDK tracing only when a live-agent runner uses it. |
 | `CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA` | `false` | Keeps inputs and outputs out of OpenAI trace payloads by default. |
-| `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME` | `cartcart-agent-run` | Trace workflow name used by later live-agent runners. |
+| `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME` | `cartcart-agent-run` | Trace workflow name used by live-agent runners. |
 
-When live agents are enabled without `OPENAI_API_KEY`, readiness reports
-`agents:openai` with `missing_openai_api_key`. The fixture workflow and mocked
-agent tests remain available. Later live-agent tasks must call the runtime
-configuration helper before making a model request and must not silently fall
-through to a live call without the flag and key.
+The current live-agent implementations cover shopping guardrails,
+guided intake, intake parsing, query planning, discovery source selection,
+category routing, generic product analysis, technology-domain analysis,
+monitor-specialist analysis, smartphone-specialist analysis,
+laptop-specialist analysis, earphones/headphones-specialist analysis,
+TV-specialist analysis, smartwatch-specialist analysis, seller/listing trust,
+comparison decision, verifier/critic output checks, provider-backed YouTube
+review intelligence, provider-backed Reddit community intelligence,
+provider-backed Amazon product intelligence, and provider-backed IKEA regional
+store intelligence. The normal shopping-run orchestrator can call these typed
+agents when `CARTCART_AGENT_WORKFLOW_MODE=live`; fixture mode remains default.
+Discovery mode selects only source IDs from supplied search results and returns
+`insufficient_candidates` when no credible source remains. Generic product
+analysis consumes only supplied product/listing/evidence bundles, uses no direct
+tools, and returns evidence limitations for weak inputs instead of blocking
+ordinary categories. Technology-domain analysis also uses no direct tools,
+consumes only supplied product/listing/evidence bundles and executable catalog
+route context, and falls back to generic analysis for non-technology input or
+domain failure. YouTube review intelligence uses only typed
+`VideoSearchProvider`, `TranscriptProvider`, `YouTubeTranscriptIngestor`, and
+`VideoEvidenceCreator` boundaries; it does not call `yt-dlp` directly, parse
+WebVTT, build caption-provider command arguments, or create final purchase
+recommendations. Monitor-specialist analysis uses no direct tools, consumes only
+supplied monitor product/listing/evidence bundles, preserves source IDs for
+monitor-specific claims, and falls back to technology-domain or generic analysis
+when input is outside monitor scope or specialist output fails validation.
+Smartphone-specialist analysis uses no direct tools, consumes only supplied
+smartphone product/listing/evidence bundles, preserves source IDs for camera,
+battery, update-support, performance, and region/model caveat claims, and falls
+back to technology-domain or generic analysis when input is outside phone scope
+or specialist output fails validation. Laptop-specialist analysis uses no direct
+tools, consumes only supplied laptop product/listing/evidence bundles,
+preserves source IDs for CPU, RAM, storage, battery, display, port, weight, and
+upgradeability claims, and falls back to technology-domain or generic analysis
+when input is outside laptop scope or specialist output fails validation.
+Earphones/headphones-specialist analysis uses no direct tools, consumes only
+supplied earphone, headphone, earbud, or headset product/listing/evidence
+bundles, preserves source IDs for ANC, comfort/fit, microphone, battery, and
+codec/device-fit claims, and falls back to technology-domain or generic
+analysis when input is outside audio scope or specialist output fails
+validation. TV-specialist analysis uses no direct tools, consumes only supplied
+TV product/listing/evidence bundles, preserves source IDs for panel/backlight,
+HDR, motion, gaming-input, room-brightness, and size-fit claims, and falls back
+to technology-domain or generic analysis when input is outside TV scope or
+specialist output fails validation. Smartwatch-specialist analysis uses no
+direct tools, consumes only supplied smartwatch product/listing/evidence
+bundles, preserves source IDs for phone-compatibility, health-sensor, battery,
+durability, and app-ecosystem claims, and falls back to technology-domain or
+generic analysis when input is outside watch scope or specialist output fails
+validation. Comparison decision uses no direct tools, consumes only supplied
+brief, analysis, trust, dedupe, and evidence context, and preserves source IDs
+while producing recommendation modes or explicit no-strong-buy output. Verifier
+critic uses no direct tools, consumes the draft recommendation bundle plus
+supplied products, listings, evidence, trust, analyses, and dedupe context, and
+blocks unsafe, uncited, suspicious-listing, hard-budget, duplicate, or
+developer-facing output through deterministic output guardrails. When live
+workflow mode is selected while `CARTCART_LIVE_AGENTS_ENABLED=false`, readiness
+reports `agents:workflow` with `live_agents_disabled`. When live agents are
+enabled without `OPENAI_API_KEY`, readiness reports `agents:openai` with
+`missing_openai_api_key`. The fixture workflow and mocked agent tests remain
+available. Runtime callers must call the configuration helper before making a
+model request and must not silently fall through to a live call without the flag
+and key.
 
 ### Live OpenAI Agent Example
 
 ```dotenv
+CARTCART_AGENT_WORKFLOW_MODE=live
 CARTCART_LIVE_AGENTS_ENABLED=true
 CARTCART_OPENAI_MODEL=gpt-5.5
 OPENAI_API_KEY=replace-with-your-real-key

@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Initial local operations assumptions for planning
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Local MVP Assumptions
 
@@ -319,6 +319,17 @@ Current backend variables:
 - `CARTCART_DEFAULT_REGION_CODE`: default provider region code. Defaults to `US`.
 - `CARTCART_PROVIDER_TIMEOUT_SECONDS`: default provider call timeout. Defaults to `10`.
 - `CARTCART_PROVIDER_RATE_LIMIT_PER_MINUTE`: default local provider rate-limit budget. Defaults to `60`.
+- `CARTCART_AGENT_WORKBENCH_ENABLED`: enables the local-only isolated agent workbench when `true`. Defaults to `false`.
+- `CARTCART_AGENT_WORKFLOW_MODE`: normal shopping-run agent mode. Allowed values are `fixture` and `live`. Defaults to `fixture`.
+- `CARTCART_LIVE_AGENTS_ENABLED`: opt-in gate for live OpenAI agent calls. Defaults to `false`.
+- `CARTCART_OPENAI_MODEL`: model string for implemented OpenAI Agents SDK runners. Defaults to `gpt-5.4-mini`.
+- `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS`: per-agent timeout for live runners. Defaults to `45`.
+- `CARTCART_OPENAI_AGENT_MAX_TURNS`: max SDK runner turns. Defaults to `8`.
+- `CARTCART_OPENAI_AGENT_TRACING_ENABLED`: enables OpenAI Agents SDK tracing when live runners use it. Defaults to `false`.
+- `CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA`: controls whether OpenAI trace payloads may include inputs/outputs. Defaults to `false`.
+- `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME`: OpenAI trace workflow name. Defaults to `cartcart-agent-run`.
+- `OPENAI_API_KEY`: local OpenAI API key. Required only for explicitly enabled live-agent mode.
+- `CARTCART_OPENAI_API_KEY`: compatibility alias for local OpenAI API key; `OPENAI_API_KEY` is preferred.
 - `CARTCART_SEARCH_PROVIDER`: general web search provider. Allowed values are `fixture`, `tavily`, and `brave`. Defaults to `fixture`.
 - `CARTCART_SEARCH_PROVIDER_ENABLED`: enables live general web search provider use when `true`. Defaults to `false`.
 - `CARTCART_EXTRACTION_PROVIDER`: source extraction provider. Allowed values are `disabled`, `fixture`, and `http_static`. Defaults to `fixture`.
@@ -487,11 +498,15 @@ OpenAI live agents are configured separately from source providers. Fixture and
 mocked agents remain the default and require no OpenAI credential. A live
 OpenAI agent call requires `CARTCART_LIVE_AGENTS_ENABLED=true`, a local
 `OPENAI_API_KEY`, and an implemented agent runner or workbench path explicitly
-requesting live mode. The backend accepts `CARTCART_OPENAI_API_KEY` as a
-CartCart-prefixed compatibility alias, but the standard `OPENAI_API_KEY` is
-preferred and takes precedence. Configure local live-agent mode with:
+requesting live mode. To route normal shopping runs through live agents, also
+set `CARTCART_AGENT_WORKFLOW_MODE=live`; otherwise the normal workflow remains
+fixture-first even when the workbench can request live mode. The backend accepts
+`CARTCART_OPENAI_API_KEY` as a CartCart-prefixed compatibility alias, but the
+standard `OPENAI_API_KEY` is preferred and takes precedence. Configure local
+live-agent workflow mode with:
 
 ```dotenv
+CARTCART_AGENT_WORKFLOW_MODE=live
 CARTCART_LIVE_AGENTS_ENABLED=true
 CARTCART_OPENAI_MODEL=gpt-5.5
 OPENAI_API_KEY=replace-with-your-real-key
@@ -528,7 +543,78 @@ follow-up without recommendation output, while `guide/ready-monitor-brief`
 checks the ready-for-analysis transition and `IntakeAgent` handoff. For
 `IntakeAgent`, `intake/monitor-ph-budget` checks structured category, region,
 budget, and preference inference, while `intake/ambiguous-category` checks that
-uncertain category intent remains uncertain. `--mode live` still requires
+uncertain category intent remains uncertain. For `QueryPlannerAgent`,
+`query-planner/coffee-grinder-us` checks region-aware shopping and review
+queries for a non-specialist category, while
+`query-planner/unknown-category-generic` checks generic fallback strategy
+without artificial category blocking. For `DiscoveryAgent`,
+`discovery/select-valid-sources` checks that eligible retailer and review source
+IDs are selected while weak proxy sources are rejected, while
+`discovery/no-good-results` checks the `insufficient_candidates` fallback
+without product-detail fabrication. For `CategoryRouterAgent`,
+`router/monitor-to-specialist` checks the route path
+`TechnologyDomainAnalystAgent` to `MonitorSpecialistAgent`, while
+`router/office-chair-generic` checks direct `GenericProductAnalystAgent`
+fallback with no unsupported-category error. For `GenericProductAnalystAgent`,
+`generic/office-chair-analysis` checks a non-tech office-chair
+`CategoryAnalysis` with fit tradeoffs, evidence gaps, and preserved
+evidence/source IDs, while `generic/weak-evidence` checks low-confidence
+limitations instead of category refusal. For `TechnologyDomainAnalystAgent`,
+`technology/router-monitor` checks the declared `MonitorSpecialistAgent` route
+in internal tool activity, while `technology/router-keyboard-domain` checks
+broad technology-domain analysis for a technology category without an MVP
+specialist. For `MonitorSpecialistAgent`,
+`monitor/coding-movies-1440p` checks source-backed monitor analysis covering
+panel type, resolution, refresh rate, ergonomics, ports, tradeoffs, and source
+IDs, while `monitor/non-monitor-reject` checks fallback instead of forced
+monitor analysis for non-monitor input. For `SmartphoneSpecialistAgent`,
+`smartphone/midrange-camera-battery` checks source-backed smartphone analysis
+covering camera, battery, update support, performance, region/model caveats,
+and source IDs, while `smartphone/non-phone-reject` checks fallback instead of
+forced smartphone analysis for non-phone input. For `LaptopSpecialistAgent`,
+`laptop/student-portable`
+checks source-backed laptop analysis covering CPU, RAM, storage, battery,
+display, ports, weight, upgradeability, and source IDs, while
+`laptop/non-laptop-reject` checks fallback instead of forced laptop analysis
+for non-laptop input. For `EarphonesHeadphonesSpecialistAgent`,
+`headphones/noise-cancelling-commute` checks source-backed headphone analysis
+covering ANC, comfort/fit, microphone, battery, codec/device fit, and source
+IDs, while `headphones/non-audio-reject` checks fallback instead of forced
+headphone analysis for non-audio input. For `TVSpecialistAgent`,
+`tv/55-inch-movies-gaming` checks source-backed TV analysis covering
+panel/backlight, HDR, motion, gaming inputs, room brightness, size fit, and
+source IDs, while `tv/non-tv-reject` checks fallback instead of forced TV
+analysis for non-TV input. For `SmartwatchSpecialistAgent`,
+`smartwatch/fitness-android` checks source-backed smartwatch analysis covering
+phone compatibility, health sensors, battery, durability, app ecosystem, and
+source IDs, while `smartwatch/non-watch-reject` checks fallback instead of
+forced smartwatch analysis for non-watch input. For `SellerListingTrustAgent`,
+`trust/unknown-marketplace-cheap` checks that an unknown marketplace seller with
+a far-below-comparable price and unclear return policy is weak or suspicious,
+while `trust/established-retailer` checks reasonable trust when seller/source
+evidence supports it. Hard deterministic suspicious flags remain visible in the
+final `ListingTrustAssessment` instead of being silently overridden. For
+`YouTubeReviewIntelligenceAgent`, `youtube/monitor-review-transcript` checks
+timestamped transcript evidence while `youtube/no-transcript-gap` checks
+metadata-only gaps. For `RedditCommunityIntelligenceAgent`,
+`reddit/headphones-recurring-complaint` checks recurring qualitative community
+signals with subreddit/thread/source context and anecdotal/manipulation
+warnings, while `reddit/inaccessible-gap` checks explicit inaccessible-content
+gaps. For `AmazonProductIntelligenceAgent`,
+`amazon/third-party-seller-region-gap` checks marketplace/listing, seller,
+review, and regional shipping-gap context. For `IKEAStoreIntelligenceAgent`,
+`ikea/available-regional-product` checks official regional price/currency,
+availability, and source IDs, while `ikea/no-regional-presence` checks an
+explicit unsupported-region gap without global-shipping inference. For
+`ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
+source-backed three-monitor shortlist with best overall, best value,
+within-budget, stretch, and runner-up modes, while
+`comparison/no-strong-buy` checks an explicit no-strong-buy outcome when trust
+and evidence do not support a safe recommendation. For `VerifierCriticAgent`,
+`verifier/unsupported-claim-block` checks that an uncited product/spec claim
+blocks output, while `verifier/suspicious-listing-warning` checks that a
+suspicious final listing without a trust caveat is rejected or made visibly
+unsafe for display. `--mode live` still requires
 `CARTCART_LIVE_AGENTS_ENABLED=true`, `OPENAI_API_KEY`, and a live runner
 registered for the selected agent; otherwise the workbench returns a typed
 configuration error. The local browser page is available at
@@ -536,10 +622,10 @@ configuration error. The local browser page is available at
 workbench endpoints are enabled. The workbench never accepts arbitrary agent
 names, system prompts, tool definitions, or provider arguments.
 
-Remaining source-intelligence provider interfaces still use fake
-implementations where a dedicated adapter has not been added. Provider
-protocols return source evidence bundles or explicit gaps without calling
-vendor SDKs directly from source agents.
+Source-intelligence provider interfaces use fake implementations where a
+dedicated adapter has not been added or local live configuration is unavailable.
+Provider protocols return source evidence bundles or explicit gaps without
+calling vendor SDKs directly from source agents.
 
 Future configuration areas include:
 
@@ -635,7 +721,12 @@ CARTCART_TELEMETRY_EXPORTER=otlp
 CARTCART_TELEMETRY_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces
 ```
 
-The current baseline instruments FastAPI requests only. OpenAI Agents SDK traces, workflow-stage spans, provider spans, database spans, metrics, and Logfire wiring are later observability work.
+The current OpenTelemetry baseline instruments FastAPI requests only. Workflow
+stages also persist local `AgentRunRecord` rows with trace IDs, runtime mode,
+stage timing, model name when applicable, sanitized allowed-tool activity,
+fallback/error outcome, and nullable token/cost fields. Hosted observability
+backends such as Logfire or OTLP collectors require project-owner configuration;
+do not add hosted exporter secrets to committed files.
 
 Minimum operational signals:
 

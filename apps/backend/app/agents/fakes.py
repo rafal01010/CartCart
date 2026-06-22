@@ -1,10 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 import re
 
 from pydantic import AnyHttpUrl
 
+from app.agents.catalog import (
+    AgentCatalog,
+    ProductAnalysisRoute,
+    build_default_agent_catalog,
+)
 from app.agents.contracts import (
+    CategoryRouterAgentInput,
     ComparisonDecisionAgentInput,
     DeduplicationReviewAgentInput,
     DiscoveryAgentInput,
@@ -265,6 +271,17 @@ class FakeDiscoveryAgent:
             search_results=search_results,
             selected_source_ids=tuple(result.source_id for result in search_results),
         )
+
+
+@dataclass(frozen=True)
+class FakeCategoryRouterAgent:
+    catalog: AgentCatalog = field(default_factory=build_default_agent_catalog)
+    output: ProductAnalysisRoute | None = None
+
+    async def run(self, input_data: CategoryRouterAgentInput) -> ProductAnalysisRoute:
+        if self.output is not None:
+            return self.output
+        return self.catalog.route_product_analysis(_routing_category(input_data))
 
 
 @dataclass(frozen=True)
@@ -1076,6 +1093,19 @@ def _search_result(query: SearchQuery) -> SearchResult:
         provider=ProviderMetadata(provider_name="fixture"),
         quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
     )
+
+
+def _routing_category(input_data: CategoryRouterAgentInput) -> str | None:
+    if input_data.brief.category:
+        return input_data.brief.category
+
+    product_categories = tuple(
+        product.category for product in input_data.products if product.category
+    )
+    if len(set(product_categories)) == 1:
+        return product_categories[0]
+
+    return input_data.brief.original_query
 
 
 def _source_snapshot() -> SourceSnapshot:

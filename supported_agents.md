@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Purpose
 
@@ -20,9 +20,10 @@ Reusable source intelligence means retrieving usable source-backed information, 
 - The application must not parse this Markdown file at runtime.
 - Runtime configuration lives in the validated code registry at `apps/backend/app/agents/catalog.py`.
 - The code registry, agent tests, routing evals, and this file must be updated together whenever an implemented agent is added, removed, moved, or assigned a new fallback.
+- The agent tool matrix below must be updated whenever an agent gains, loses, or changes SDK tools, typed sub-runs, provider/service boundaries, or forbidden direct actions.
 - A proposed or required future agent can appear here before it is implemented, but its status must not be changed to `implemented` until code, tests, and eval coverage exist.
 - The 2026-06-02 required source-intelligence expansion is a design update only. The runtime catalog must be brought back into sync in the dedicated implementation backfill task before provider/live-agent work continues.
-- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. The live OpenAI Agents SDK `ShoppingScopeGuardrail`, `IntakeAgent`, and `ShoppingGuideAgent` are now available through their typed protocol and isolated workbench paths. The normal full shopping workflow remains fixture-first until a later integration task routes it through live agents.
+- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. The live OpenAI Agents SDK `ShoppingScopeGuardrail`, `IntakeAgent`, `ShoppingGuideAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` are available through their typed protocols in the isolated workbench and, when explicitly configured, the normal shopping-run workflow. The 2026-06-21 reusable source-intelligence implementations for YouTube, Reddit, Amazon, and IKEA are provider-backed through typed provider/service and evidence-creation boundaries in the isolated workbench and opt-in normal workflow. The normal full shopping workflow remains fixture-first by default; live-agent workflow mode requires explicit configuration and credentials.
 
 ## Architectural Decision
 
@@ -167,6 +168,12 @@ search excerpts or approved upstream extracted text, optional recency and
 engagement metadata, deterministic source quality, anecdotal-evidence warnings,
 and explicit gaps for removed, inaccessible, unextracted, or missing content.
 It does not call Reddit directly or claim public-page extraction support.
+The current source-intelligence agent selects relevant supplied or
+provider-discovered discussions, summarizes recurring qualitative owner signals
+only when they are grounded in cited public summaries, preserves subreddit,
+thread, comment, and source IDs, adds anecdotal/manipulation/low-context/stale
+warnings, and returns `CommunityDiscussionEvidenceBundle` output rather than
+recommendations or authoritative product facts.
 
 ### Amazon Product Intelligence
 
@@ -182,6 +189,14 @@ rating/review-summary signals, third-party seller and variant-review warnings,
 and explicit gaps. All returned Amazon product links are neutral and contain no
 affiliate parameters. Marketplace reviews remain unverified source signals, and
 seller/listing trust remains a separate downstream concern.
+
+The current source-intelligence agent selects relevant supplied products and
+listings, calls only the typed `AmazonProductIntelligenceProvider`, preserves
+the provider-created `AmazonProductEvidenceBundle`, records disabled or empty
+provider output as explicit gaps, and exposes fixture/mock workbench scenarios
+for third-party seller regional-shipping gaps and variant-review ambiguity. It
+does not add affiliate behavior or collapse seller/listing trust concerns into
+product desirability.
 
 ### IKEA Store Intelligence
 
@@ -238,16 +253,89 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `ProfessionalReviewSourceAgent` | `proposed-later` | Gather structured evidence from reputable written review sites and lab-test sources where available. | Reusable source agent/tool | Product/category and region | Review evidence | Generic source extraction fallback. |
 | `CommunityDiscussionSignalAgent` | `proposed-later` | Summarize recurring owner complaints/praise from community discussions when allowed and source quality is adequate. | Reusable source agent/tool | Product/category and source set | Community signal evidence | Treat as lower-confidence qualitative signal, not definitive truth. |
 | `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates | `RecommendationBundle` | Permit explicit "no strong buy". |
-| `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle and evidence | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
+| `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle, products, listings, evidence, trust, analyses, and dedupe context | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
 
-The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent` and
-`IntakeAgent` implementations behind the typed `GuidedIntakeState` and
-`ShoppingBrief` protocols for isolated mock/live workbench runs. The live guide
-uses structured output, deterministic guardrail prechecks, mocked/live workbench
-scenarios, and an `IntakeAgent` handoff only when it reaches
-`ready_for_analysis`. The normal full shopping workflow still preserves
-fixture-first behavior unless a later integration task explicitly routes it
-through live agents. The current runtime invokes `QueryPlannerAgent`, executes
+The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent`,
+`IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`,
+`GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
+`MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
+`LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
+`TVSpecialistAgent`, `SmartwatchSpecialistAgent`,
+`SellerListingTrustAgent`, `ComparisonDecisionAgent`, and
+`VerifierCriticAgent` implementations
+behind the typed `GuidedIntakeState`, `ShoppingBrief`,
+`SearchPlan`, `DiscoveryAgentOutput`, `ProductAnalysisRoute`,
+`CategoryAnalysis`, `ListingTrustAssessment`, `RecommendationBundle`, and
+`VerificationReport`
+protocols for isolated
+mock/live workbench runs. The live
+guide uses structured output, deterministic guardrail prechecks, mocked/live
+workbench scenarios, and an `IntakeAgent` handoff only when it reaches
+`ready_for_analysis`. The live query planner uses structured output with no
+tools and falls back to a generic region-aware search plan rather than blocking
+categories without specialists. The live discovery agent uses structured output
+with no tools, selects only source IDs from supplied search results, rejects
+weak/proxy-like selections, and returns an insufficient-candidates outcome when
+no credible source remains. The live category router uses structured output with
+no tools, normalizes route decisions through the executable catalog, sends MVP
+technology specialist categories through `TechnologyDomainAnalystAgent`, and
+falls back to `GenericProductAnalystAgent` for unsupported or uncertain
+categories. The live generic product analyst uses structured output with no
+tools, analyzes supplied product/listing/evidence bundles for any normal
+consumer category, preserves source and evidence IDs, and returns explicit
+limitations instead of category refusal when evidence is weak. The live
+technology domain analyst uses structured output with no tools, consumes only
+supplied product/listing/evidence bundles plus the executable catalog route,
+declares the MVP specialist route internally when one applies, analyzes broad
+technology categories without a specialist, and falls back to generic analysis
+for non-technology input or domain failure. The live monitor specialist uses
+structured output with no tools, consumes only supplied monitor
+product/listing/evidence bundles, covers monitor-specific panel, resolution,
+refresh-rate, ergonomics, port, and tradeoff checks with source IDs, and falls
+back to technology-domain or generic analysis for non-monitor input or
+specialist failure. The live smartphone specialist uses structured output with
+no tools, consumes only supplied smartphone product/listing/evidence bundles,
+covers smartphone-specific camera, battery, update-support, performance, and
+region/model caveat checks with source IDs, and falls back to technology-domain
+or generic analysis for non-phone input or specialist failure. The live laptop
+specialist uses structured output with no tools, consumes only supplied
+laptop product/listing/evidence bundles, covers
+laptop-specific CPU, RAM, storage, battery, display, port, weight, and
+upgradeability checks with source IDs, and falls back to technology-domain or
+generic analysis for non-laptop input or specialist failure. The live
+earphones/headphones specialist uses structured output with no tools, consumes
+only supplied earphone, headphone, earbud, or headset product/listing/evidence
+bundles, covers ANC, comfort/fit, microphone, battery, codec/device fit, and
+source IDs, and falls back to technology-domain or generic analysis for
+non-audio input or specialist failure. The live TV specialist uses structured
+output with no tools, consumes only supplied TV product/listing/evidence
+bundles, covers panel/backlight, HDR, motion, gaming inputs, room brightness,
+size fit, and source IDs, and falls back to technology-domain or generic
+analysis for non-TV input or specialist failure. The live smartwatch specialist
+uses structured output with no tools, consumes only supplied smartwatch
+product/listing/evidence bundles, covers phone compatibility, health sensors,
+battery, durability, app ecosystem, and source IDs, and falls back to
+technology-domain or generic analysis for non-watch input or specialist
+failure. The live seller/listing trust agent uses structured output with no
+tools, consumes only the supplied listing, evidence, and deterministic
+rule-based assessment, and preserves hard suspicious deterministic signals such
+as implausibly low price or contradictory listing data rather than silently
+overriding them. The live comparison decision agent uses structured output with
+no tools, consumes only supplied assessed candidates, evidence, trust, and
+dedupe inputs, returns a `RecommendationBundle`, and falls back to an explicit
+no-strong-buy bundle when model output is invalid, times out, or cannot support
+a safe best pick. The live Reddit community intelligence agent is
+provider-backed through typed community-discussion results and
+`CommunityEvidenceCreator`; it selects relevant public Reddit contexts,
+summarizes recurring qualitative signals, keeps source/thread/comment IDs, and
+returns explicit gaps for inaccessible content without making recommendations
+or authoritative product claims. The normal full shopping workflow preserves
+fixture-first behavior by default and can route through live agents only when
+explicitly configured. Local routing eval cases now cover broad generic fallback,
+technology-domain routing, every MVP technology specialist route, and
+specialist fallback availability to technology-domain and generic analysis
+without live model calls. The current runtime
+invokes `QueryPlannerAgent`, executes
 the resulting queries
 through the configured `SearchProvider`, and persists accepted, policy-scored
 search results. Eligible result pages then pass through the configured
@@ -256,9 +344,9 @@ listings, and shortlist memberships. Reusable source-intelligence providers run
 after deduplication. The seller/listing trust stage now calls the typed
 `SellerListingTrustAgent` contract in fixture mode, seeded by deterministic
 trust rules, and persists `ListingTrustAssessment` rows through result
-persistence. Later category analysis and recommendation stages remain
-fixture-backed. Fixture mode stays the default when live providers are disabled
-or configured credentials are unavailable.
+persistence. The full-workflow category analysis and recommendation stages
+remain fixture-backed. Fixture mode stays the default when live providers are
+disabled or configured credentials are unavailable.
 
 ## Required Routing Rules
 
@@ -285,6 +373,42 @@ or configured credentials are unavailable.
 - Reusable source agents should receive scoped source requests and return evidence bundles, not recommendations.
 - Handoffs are not the normal MVP routing mechanism. Use a handoff only in a future task where a specialist must own a conversational turn and the implementation still preserves persistence, traceability, fallback, and evaluation.
 - Agent failures, timeouts, and low-confidence outputs must be persisted and routed through defined fallback behavior.
+
+## Agent Tool Matrix
+
+This table is the public tool/provider intent for each agent. Runtime code still
+owns the executable allowlist, and this Markdown file must not be parsed at
+runtime. `None` means the OpenAI Agents SDK agent should run with `tools=[]` for
+that role. `Orchestrated provider/service boundary` means application code or a
+typed wrapper may call the provider/service with fixed schemas, compliance
+checks, timeouts, and persisted outputs; the model must not construct arbitrary
+provider arguments or call vendor SDKs directly.
+
+| Agent | Current SDK tools exposed directly to agent | Allowed typed sub-runs / agents-as-tools | Allowed provider/service boundaries | Forbidden direct actions |
+| --- | --- | --- | --- | --- |
+| `ShoppingScopeGuardrail` | None. Uses deterministic prechecks plus structured guardrail output. | None. | Shopping/safe-product deterministic guardrail service before model classification. | Starting search, extraction, analysis, or provider calls for blocked requests. |
+| `ShoppingGuideAgent` | None. | `IntakeAgent` only after enough information exists. | Guided-intake state service and deterministic guardrail precheck. | Product recommendations, source retrieval, product links as normal intake, raw provider/tool controls. |
+| `IntakeAgent` | None. | None. | None beyond supplied user/session input. | Search, extraction, source intelligence, recommendation generation, invented region/budget certainty. |
+| `QueryPlannerAgent` | None. | None. | None directly. The workflow calls `SearchProvider` adapters after a validated `SearchPlan` is returned. | Direct web search, browsing, provider SDK calls, category blocking because no specialist exists. |
+| `DiscoveryAgent` | None. | None. | None directly. It selects IDs only from supplied `SearchResult` records produced by workflow search providers. | Fabricating products/listings/source IDs, fetching pages, browsing, provider SDK calls. |
+| `ExtractionReviewAgent` | Not implemented live yet. | May be a typed sub-run only for ambiguous or incomplete extraction. | Supplied `SourceSnapshot`, extracted fields, and deterministic extraction outputs. | Fetching new pages, scraping, inventing missing facts, bypassing extraction provider policy. |
+| `DeduplicationReviewAgent` | Not implemented live yet. | May be a typed sub-run only for uncertain duplicate pairs. | Supplied product/listing/evidence records and deterministic dedupe signals. | Collapsing uncertain products without evidence, fetching new source data. |
+| `CategoryRouterAgent` | None. | None. | Executable agent catalog for allowed route normalization and fallback. | Calling analysts directly, inventing specialists, unsupported-category refusal for normal products. |
+| `GenericProductAnalystAgent` | None. | May receive orchestrated source-intelligence outputs; may later request approved source-intelligence sub-runs only if explicitly implemented. | Supplied product/listing/evidence bundles and trust context. | Raw search, scraping, vendor SDK calls, unsupported-category refusal for normal products. |
+| `TechnologyDomainAnalystAgent` | None. | May route to declared MVP technology specialists through typed orchestration; current live workbench activity exposes the declared route while `CategoryAnalysis` remains the output contract. | Supplied product/listing/evidence bundles and executable catalog. | Routing non-technology products into technology specialists, inventing undeclared specialists, raw provider access, exposing internal agent names to shoppers. |
+| `MonitorSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied monitor product/listing/evidence bundle. | Analyzing non-monitor products as monitor-scoped, raw provider access, unsupported factual claims. |
+| `SmartphoneSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied smartphone product/listing/evidence bundle. | Analyzing non-phone products as phone-scoped, raw provider access, unsupported factual claims. |
+| `LaptopSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied laptop product/listing/evidence bundle. | Analyzing non-laptop products as laptop-scoped, raw provider access, unsupported factual claims. |
+| `EarphonesHeadphonesSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied earphone/headphone product/listing/evidence bundle. | Analyzing non-audio products as headphone-scoped, raw provider access, unsupported factual claims. |
+| `TVSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied TV product/listing/evidence bundle. | Analyzing non-TV products as TV-scoped, raw provider access, unsupported factual claims. |
+| `SmartwatchSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied smartwatch product/listing/evidence bundle. | Analyzing non-watch products as smartwatch-scoped, raw provider access, unsupported factual claims. |
+| `SellerListingTrustAgent` | None. | None. | Supplied listing, evidence, deterministic trust-rule assessment, and price-plausibility signals. | Silently overriding hard suspicious flags, fetching seller pages directly, treating product quality as listing trust. |
+| `YouTubeReviewIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `VideoSearchProvider`, `TranscriptProvider`, `YouTubeTranscriptIngestor`, `VideoReviewEvidenceCreator`, and supplied video/source metadata. | Direct `yt-dlp`, WebVTT parsing, Deno/EJS management, cookies, media downloads, arbitrary YouTube/API args, fabricated transcript claims, final purchase recommendations. |
+| `RedditCommunityIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `CommunityDiscussionProvider`, approved public discussion summaries, `CommunityEvidenceCreator`, and source-quality warnings. | Direct Reddit API/page scraping unless approved, private/deleted/logged-in content, treating anecdotes as authoritative facts, final purchase recommendations. |
+| `AmazonProductIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `AmazonProductIntelligenceProvider`, marketplace/listing identity context, regional ship-to evidence, review signals, and `AmazonProductEvidenceCreator` output. | Affiliate links, raw marketplace scraping outside approved providers, collapsing seller/listing risk into product quality. |
+| `IKEAStoreIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | IKEA regional official-store provider, official-source search adapter, regional availability/price evidence creator. | Global shipping inference, non-official IKEA source substitution, arbitrary scraping outside approved provider paths. |
+| `ComparisonDecisionAgent` | None. | None. | Supplied brief, category analyses, trust assessments, dedupe decisions, and evidence. | New search/extraction, unsupported product claims, recommending suspicious listings without blocking warning. |
+| `VerifierCriticAgent` | Isolated live workbench implementation with deterministic output guardrails. | None. | Supplied draft recommendation bundle, products, listings, source evidence, trust assessments, category analyses, and dedupe decisions. | New provider calls, hidden rewriting without blocking issues, approving uncited factual claims or shopper-visible internal process language. |
 
 ## Schema Boundaries
 

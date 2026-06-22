@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Initial public architecture notes with guided intake direction
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Product Model
 
@@ -206,6 +206,64 @@ workbench runs, including deterministic guardrail prechecks and an `IntakeAgent`
 handoff only after enough information exists. The normal shopper API is not
 routed through the live guide yet.
 
+The isolated workbench also exposes live OpenAI Agents SDK `QueryPlannerAgent`,
+`DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`,
+`TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`,
+`SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`,
+`EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`,
+`SmartwatchSpecialistAgent`, `ComparisonDecisionAgent`, and
+`VerifierCriticAgent` implementations behind the existing `SearchPlan`,
+`DiscoveryAgentOutput`, `ProductAnalysisRoute`, `CategoryAnalysis`,
+`RecommendationBundle`, and `VerificationReport` protocols.
+Query planning produces region-aware shopping, review, official-source, price,
+and video-review query strategy without tools, and falls back to a generic
+search plan instead of blocking product categories that lack specialists.
+Discovery selects only supplied search-result source IDs for extraction, rejects
+weak/proxy-like selections, and returns `insufficient_candidates` when no
+credible source remains. Category routing uses no tools, normalizes model output
+through the executable catalog, sends MVP technology specialist categories
+through `TechnologyDomainAnalystAgent`, and keeps
+`GenericProductAnalystAgent` as the fallback for unknown or unsupported
+categories. Generic product analysis uses no tools, consumes only supplied
+product/listing/evidence bundles, preserves evidence and source IDs, covers
+fit tradeoffs and gaps, and returns limitations instead of category refusal
+when evidence is weak. Technology-domain analysis uses no tools, consumes only
+supplied product/listing/evidence bundles plus the executable catalog route,
+declares MVP specialist routing internally for workbench inspection, analyzes
+broad technology categories without an MVP specialist, and falls back to
+generic analysis for non-technology input or domain failure. Monitor specialist
+analysis uses no tools, runs only for monitor-scoped products, covers
+monitor-specific panel, resolution, refresh-rate, ergonomics, port, and tradeoff
+checks from supplied evidence, and falls back to technology-domain or generic
+analysis instead of forcing non-monitor input through monitor logic.
+Smartphone specialist analysis uses no tools, runs only for smartphone-scoped
+products, covers camera, battery, update-support, performance, and region/model
+caveats from supplied evidence, and falls back to technology-domain or generic
+analysis instead of forcing non-phone input through smartphone logic.
+Laptop specialist analysis uses no tools, runs only for laptop-scoped products,
+covers CPU, RAM, storage, battery, display, ports, weight, and upgradeability
+from supplied evidence, and falls back to technology-domain or generic analysis
+instead of forcing non-laptop input through laptop logic.
+Earphones/headphones specialist analysis uses no tools, runs only for
+earphone/headphone-scoped products, covers ANC, comfort/fit, microphone,
+battery, codec/device fit, and source IDs from supplied evidence, and falls
+back to technology-domain or generic analysis instead of forcing non-audio
+input through headphone logic.
+TV specialist analysis uses no tools, runs only for TV-scoped products, covers
+panel/backlight, HDR, motion, gaming inputs, room brightness, size fit, and
+source IDs from supplied evidence, and falls back to technology-domain or
+generic analysis instead of forcing non-TV input through TV logic.
+Smartwatch specialist analysis uses no tools, runs only for smartwatch-scoped
+products, covers phone compatibility, health sensors, battery, durability, app
+ecosystem, and source IDs from supplied evidence, and falls back to
+technology-domain or generic analysis instead of forcing non-watch input
+through smartwatch logic.
+Seller/listing trust analysis uses no tools, consumes only supplied listing
+records, evidence, and deterministic trust-rule assessments, and keeps product
+quality separate from listing trust. Hard deterministic suspicious signals such
+as implausibly low price or contradictory listing data cannot be silently
+overridden by model output.
+
 Region setup is outside the main shopping question flow. If no region preference
 or explicit refusal is saved locally, the frontend can show a lightweight setup
 prompt explaining that location helps show products the user can actually buy.
@@ -225,7 +283,7 @@ source retrieval or analysis runs.
 
 ## Workflow Architecture
 
-CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the current fixture monitor-shopping analysis bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, usable extraction output creates normalized app-generated candidates, deterministic deduplication persists grouped products/listings/shortlist memberships, reusable source-intelligence providers can add source-specific evidence bundles for grouped candidates, and listing trust runs through the fake typed trust-agent contract seeded by deterministic rules. Later analysis, recommendation, and verification stages remain deterministic fixtures and do not call models.
+CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the fixture monitor-shopping fallback bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, usable extraction output creates normalized app-generated candidates, deterministic deduplication persists grouped products/listings/shortlist memberships, reusable source-intelligence providers can add source-specific evidence bundles for grouped candidates, and listing trust runs through the typed trust-agent contract seeded by deterministic rules. The normal run path remains fixture-first by default, but can opt into live typed agents with `CARTCART_AGENT_WORKFLOW_MODE=live`, `CARTCART_LIVE_AGENTS_ENABLED=true`, and a local `OPENAI_API_KEY`. In live workflow mode, the orchestrator can call live guarded intake/intake, query planning, discovery selection, category routing, generic/domain/specialist product analysis, reusable source-intelligence agents, seller/listing trust, comparison decision, and verifier steps through their typed protocols while preserving deterministic fallbacks.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -254,7 +312,7 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts. The live `ShoppingGuideAgent` is available through the same typed protocol in the isolated workbench and preserves the same user-facing schema and fallback constraints.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` implementations are available through the same typed protocols in the isolated workbench and, when explicitly configured, the normal shopping-run orchestrator. The verifier consumes the draft recommendation bundle plus products, listings, source evidence, trust assessments, category analyses, and dedupe decisions; it uses no tools and adds deterministic output guardrails for unsupported claims, suspicious-listing caveats, hard-budget violations, duplicate/result conflicts, overconfident or unsafe wording, and internal process language. `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are provider-backed reusable source-intelligence agents available to the workbench and opt-in normal workflow through typed provider/service boundaries only. They return source-specific evidence bundles rather than final recommendations.
 The current fixture shopping-run workflow also calls the typed
 `SellerListingTrustAgent` contract for listing trust review, seeded by
 deterministic trust rules, before final fixture recommendations are persisted.
@@ -262,9 +320,16 @@ The isolated agent workbench in `app.agents.workbench` is the local-only
 debugging path for invoking one catalog-allowlisted agent through its typed
 protocol without starting the full shopping workflow. It owns starter fixture
 scenarios for fake agents plus mocked/live scenarios for implemented OpenAI
-Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`, and
-`IntakeAgent`, and is disabled unless the local workbench flag is explicitly
-enabled.
+Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`,
+`IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`,
+`GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
+`MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
+`LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
+`TVSpecialistAgent`, provider-backed `YouTubeReviewIntelligenceAgent`,
+`RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and
+`IKEAStoreIntelligenceAgent` scenarios. It is disabled
+unless the local workbench flag is
+explicitly enabled.
 
 Required MVP agent roles include:
 

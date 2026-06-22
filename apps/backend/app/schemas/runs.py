@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Any
 
 from pydantic import Field, model_validator
 
@@ -80,6 +81,15 @@ class AgentRunRecord(VersionedSchema):
     ended_at: Timestamp | None = None
     trace_id: str | None = Field(default=None, min_length=1, max_length=300)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    runtime_mode: str | None = Field(default=None, min_length=1, max_length=40)
+    model_name: str | None = Field(default=None, min_length=1, max_length=200)
+    duration_ms: float | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    estimated_cost_usd: str | None = Field(default=None, min_length=1, max_length=80)
+    tool_activity: tuple[dict[str, Any], ...] = Field(default_factory=tuple)
+    fallback_outcome: str | None = Field(default=None, min_length=1, max_length=120)
     error: ErrorEnvelope | None = None
 
     @model_validator(mode="after")

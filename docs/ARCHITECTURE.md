@@ -428,7 +428,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 
 - User-added products must enter the same deduplication, extraction, trust, analysis, and decision pipeline as app-generated candidates.
 - Normal guided intake should ask for product names or descriptions, not product URLs.
-- URL-based user-added products can exist later as an advanced or corrective path and should fetch and extract through the normal source/listing pipeline when that capability exists.
+- URL-based user-added products are an advanced or corrective path; the run workflow fetches and extracts them through the normal source/listing pipeline before deduplication, then marks the deduped product/listing as user-supplied.
 - Manual user-added products must preserve missing evidence rather than inventing specs, price, seller, or review claims.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.
 - User-added products should be marked as user-supplied in stored state and result output so the UI can distinguish them from discovered candidates.
@@ -455,7 +455,8 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 ### Conditional Why-Not Output
 
 - Rejected-item or "why not" output should appear only when there is a meaningful negative reason.
-- Meaningful reasons include suspicious listing, poor fit for stated constraints, hard-budget violation, overpaying, missing critical feature, materially weak evidence, duplicate/near-duplicate inferior listing, region unavailability, or better equivalent alternative.
+- Meaningful reasons must be explicit in structured output. MVP avoid reason codes cover suspicious listing, poor fit for stated constraints, overpaying or hard-budget violation, missing critical feature, and materially weak evidence.
+- Duplicate/near-duplicate inferior listings, region unavailability, or better equivalent alternatives may be represented only when they map to one of the explicit avoid reason codes or a later schema expansion adds a specific code.
 - Ordinary non-winning candidates do not need forced negative explanations.
 - The result schema should allow rejected items to be absent or empty.
 - Tests should cover both cases: a result with meaningful rejected items and a normal result where no artificial why-not section is emitted.
@@ -709,7 +710,7 @@ CartCart should distinguish product quality from listing trust. A good product s
 
 Recommendations should support:
 
-- One best pick or an explicit no-strong-buy outcome.
+- One best pick or an explicit no-strong-buy outcome with next-step guidance.
 - Runner-ups.
 - Best value, within-budget, and stretch modes when supported by the same analysis pass.
 - Budget semantics that distinguish hard caps from preferences.

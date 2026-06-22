@@ -16,6 +16,7 @@ from app.schemas.analysis import (
     RecommendationMode,
     RecommendationModeResult,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
 )
 from app.schemas.base import VersionedSchema
@@ -686,6 +687,29 @@ def _recommendation(
                 source_ids=asus.source_ids,
             ),
             RecommendationModeResult(
+                mode=RecommendationMode.WITHIN_BUDGET,
+                product_id=asus.product_id,
+                listing_id=asus_listing.listing_id,
+                title="Best within budget",
+                rationale="Best fixture option that stays within the stated budget.",
+                confidence=_confidence(0.78),
+                evidence_ids=(asus_evidence.evidence_id,),
+                source_ids=asus.source_ids,
+            ),
+            RecommendationModeResult(
+                mode=RecommendationMode.STRETCH_PICK,
+                product_id=lg.product_id,
+                listing_id=lg_listing.listing_id,
+                title="Stretch upgrade",
+                rationale=(
+                    "Worth considering only if the budget is flexible and the "
+                    "4K resolution tradeoff matters more than staying lower cost."
+                ),
+                confidence=_confidence(0.76),
+                evidence_ids=(lg_evidence.evidence_id,),
+                source_ids=lg.source_ids,
+            ),
+            RecommendationModeResult(
                 mode=RecommendationMode.RUNNER_UP,
                 product_id=lg.product_id,
                 listing_id=lg_listing.listing_id,
@@ -701,6 +725,7 @@ def _recommendation(
             RejectedItem(
                 product_id=viewpro.product_id,
                 listing_id=viewpro_listing.listing_id,
+                reason_code=RejectionReason.SUSPICIOUS_LISTING,
                 reason=(
                     "Rejected because the user-added listing combines sparse "
                     "product evidence with suspicious seller signals."

@@ -847,7 +847,11 @@ def _build_workbench_definitions(
             ComparisonDecisionAgentInput,
             "RecommendationBundle",
             FakeComparisonDecisionAgent,
-            (_scenario_comparison_monitor_shortlist, _scenario_comparison_no_strong_buy),
+            (
+                _scenario_comparison_monitor_shortlist,
+                _scenario_comparison_no_strong_buy,
+                _scenario_comparison_weak_candidates,
+            ),
             mock_agent_factory=_mock_comparison_decision_agent,
             live_agent_factory=LiveComparisonDecisionAgent,
         ),
@@ -3765,6 +3769,53 @@ def _scenario_comparison_no_strong_buy() -> AgentWorkbenchScenario:
     )
 
 
+def _scenario_comparison_weak_candidates() -> AgentWorkbenchScenario:
+    brief = _brief(
+        "monitor",
+        "Need a 27-inch monitor under $300, but only sparse sources are available.",
+    )
+    specmaybe = _comparison_candidate(
+        name="SpecMaybe SM27",
+        brand="SpecMaybe",
+        model="SM27",
+        price="229.99",
+        fit_score=0.52,
+        evidence_score=0.22,
+        claim="Only a sparse product page is available for this monitor.",
+        quality=SourceQualityLevel.WEAK,
+    )
+    panellite = _comparison_candidate(
+        name="PanelLite PL27",
+        brand="PanelLite",
+        model="PL27",
+        price="249.99",
+        fit_score=0.5,
+        evidence_score=0.24,
+        claim="Only limited seller-provided information is available for this monitor.",
+        quality=SourceQualityLevel.WEAK,
+    )
+    return _scenario(
+        "comparison/weak-candidates",
+        "Boundary comparison input where weak evidence prevents a strong recommendation.",
+        ComparisonDecisionAgentInput(
+            run_id=new_id(),
+            brief=brief,
+            products=(specmaybe[0], panellite[0]),
+            listings=(specmaybe[1], panellite[1]),
+            category_analyses=(
+                _comparison_analysis(*specmaybe, fit_score=0.52),
+                _comparison_analysis(*panellite, fit_score=0.5),
+            ),
+            trust_assessments=(
+                _trust_assessment(specmaybe[1], specmaybe[2]),
+                _trust_assessment(panellite[1], panellite[2]),
+            ),
+            evidence=(specmaybe[2], panellite[2]),
+        ),
+        boundary=True,
+    )
+
+
 def _comparison_candidate(
     *,
     name: str,
@@ -3774,8 +3825,10 @@ def _comparison_candidate(
     fit_score: float,
     claim: str,
     quality: SourceQualityLevel = SourceQualityLevel.ADEQUATE,
+    evidence_score: float | None = None,
 ) -> tuple[CanonicalProduct, ProductListing, SourceEvidence]:
     source_id = new_id()
+    evidence_score = fit_score if evidence_score is None else evidence_score
     product = CanonicalProduct(
         name=name,
         brand=brand,
@@ -3794,7 +3847,7 @@ def _comparison_candidate(
         ),
         price=Money(amount=price, currency="USD"),
         source_ids=(source_id,),
-        source_quality=SourceQuality(level=quality, score=fit_score),
+        source_quality=SourceQuality(level=quality, score=evidence_score),
     )
     product = product.model_copy(update={"listing_ids": (listing.listing_id,)})
     evidence = SourceEvidence(
@@ -3805,8 +3858,8 @@ def _comparison_candidate(
         ),
         evidence_type=EvidenceType.PRODUCT_SPEC,
         claim=claim,
-        confidence=_confidence(fit_score),
-        source_quality=SourceQuality(level=quality, score=fit_score),
+        confidence=_confidence(evidence_score),
+        source_quality=SourceQuality(level=quality, score=evidence_score),
     )
     return product, listing, evidence
 

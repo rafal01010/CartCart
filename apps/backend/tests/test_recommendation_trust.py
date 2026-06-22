@@ -8,6 +8,7 @@ from app.schemas.analysis import (
     RecommendationMode,
     RecommendationModeResult,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
@@ -125,6 +126,7 @@ def test_suspicious_duplicate_listing_is_rejected_without_rejecting_product() ->
     assert any(
         item.listing_id == suspicious_listing_id
         and item.product_id is None
+        and item.reason_code == RejectionReason.SUSPICIOUS_LISTING
         and item.severity == RejectionSeverity.BLOCKING
         for item in updated.rejected_items
     )
@@ -161,7 +163,9 @@ def test_suspicious_final_listing_becomes_no_strong_buy() -> None:
     assert updated.final_product_id is None
     assert updated.final_listing_id is None
     assert updated.no_strong_buy_reason is not None
+    assert "no candidate is a strong buy" in updated.no_strong_buy_reason.casefold()
     assert "selected listing" in updated.no_strong_buy_reason
+    assert "Next" in updated.no_strong_buy_reason
     assert updated.rejected_items[0].listing_id == listing_id
     assert updated.rejected_items[0].severity == RejectionSeverity.BLOCKING
 
@@ -193,6 +197,7 @@ def test_weak_listing_is_penalized_as_listing_risk() -> None:
         item for item in updated.rejected_items if item.listing_id == weak_listing_id
     )
     assert weak_rejection.severity == RejectionSeverity.HIGH
+    assert weak_rejection.reason_code == RejectionReason.SUSPICIOUS_LISTING
     assert "seller/listing checks are weak" in weak_rejection.reason
     assert any(
         "Treat the product and this seller separately" in warning
@@ -242,6 +247,7 @@ def test_existing_listing_rejection_is_not_duplicated() -> None:
                 RejectedItem(
                     product_id=product_id,
                     listing_id=suspicious_listing_id,
+                    reason_code=RejectionReason.SUSPICIOUS_LISTING,
                     reason="Already rejected as a risky listing.",
                     severity=RejectionSeverity.BLOCKING,
                     evidence_ids=(evidence_id,),

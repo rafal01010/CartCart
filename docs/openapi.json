@@ -2870,6 +2870,9 @@
             "title": "Reason",
             "type": "string"
           },
+          "reason_code": {
+            "$ref": "#/components/schemas/RejectionReason"
+          },
           "severity": {
             "$ref": "#/components/schemas/RejectionSeverity",
             "default": "medium"
@@ -2884,11 +2887,23 @@
           }
         },
         "required": [
+          "reason_code",
           "reason",
           "evidence_ids"
         ],
         "title": "RejectedItem",
         "type": "object"
+      },
+      "RejectionReason": {
+        "enum": [
+          "suspicious_listing",
+          "poor_fit",
+          "overpaying",
+          "missing_critical_feature",
+          "weak_evidence"
+        ],
+        "title": "RejectionReason",
+        "type": "string"
       },
       "RejectionSeverity": {
         "enum": [

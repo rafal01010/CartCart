@@ -138,6 +138,24 @@ class ProductRepository:
         await self._session.flush()
         return record.to_schema()
 
+    async def update_user_added_product_for_run(
+        self,
+        session_id: SessionId,
+        user_added: UserAddedProduct,
+        *,
+        run_id: RunId,
+    ) -> UserAddedProduct | None:
+        record = await self._session.get(
+            UserAddedProductRecord,
+            str(user_added.candidate_id),
+        )
+        if record is None or record.session_id != str(session_id):
+            return None
+
+        record.update_from_schema(user_added=user_added, run_id=run_id)
+        await self._session.flush()
+        return record.to_schema()
+
     async def list_user_added_products(
         self,
         session_id: SessionId,

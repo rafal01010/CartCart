@@ -3,6 +3,7 @@ from app.schemas.analysis import (
     ListingTrustLevel,
     RecommendationBundle,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
 )
 from app.schemas.ids import ListingId
@@ -109,6 +110,7 @@ def _rejection_for_assessment(assessment: ListingTrustAssessment) -> RejectedIte
 
     return RejectedItem(
         listing_id=assessment.listing_id,
+        reason_code=RejectionReason.SUSPICIOUS_LISTING,
         reason=reason,
         severity=severity,
         evidence_ids=assessment.evidence_ids,
@@ -118,9 +120,10 @@ def _rejection_for_assessment(assessment: ListingTrustAssessment) -> RejectedIte
 
 def _no_strong_buy_reason(assessment: ListingTrustAssessment) -> str:
     return (
-        "The strongest match is not a responsible buy from the selected listing "
-        f"because seller/listing checks found: {assessment.summary} Look for the "
-        "same product from a safer seller or use a runner-up with clearer trust signals."
+        "No candidate is a strong buy from the selected listing because "
+        f"seller/listing checks found: {assessment.summary} Next, look for the "
+        "same product from a safer seller or use a runner-up with clearer trust "
+        "signals."
     )
 
 

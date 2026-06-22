@@ -217,3 +217,25 @@ class UserAddedProductRecord(Base):
 
     def to_schema(self) -> UserAddedProduct:
         return UserAddedProduct.model_validate(self.user_added)
+
+    def update_from_schema(
+        self,
+        *,
+        user_added: UserAddedProduct,
+        run_id: UUID | None = None,
+    ) -> None:
+        self.run_id = str(run_id) if run_id is not None else None
+        self.product_id = (
+            str(user_added.product.product_id)
+            if user_added.product and run_id is not None
+            else None
+        )
+        self.listing_id = (
+            str(user_added.listing.listing_id)
+            if user_added.listing and run_id is not None
+            else None
+        )
+        self.input_text = user_added.input_text
+        self.url = str(user_added.url) if user_added.url is not None else None
+        self.created_at = user_added.created_at.isoformat()
+        self.user_added = _dump_json(user_added)

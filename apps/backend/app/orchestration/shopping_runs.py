@@ -80,12 +80,13 @@ from app.providers import (
 )
 from app.schemas.analysis import CategoryAnalysis, ListingTrustAssessment, RecommendationBundle
 from app.schemas.errors import ErrorBody, ErrorEnvelope
-from app.schemas.ids import ListingId, ProductId, RunId, SessionId, SourceId
+from app.schemas.ids import CandidateId, ListingId, ProductId, RunId, SessionId, SourceId
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.products import (
     CanonicalProduct,
     ProductListing,
     ProductListingExtraction,
+    UserAddedProduct,
 )
 from app.schemas.regions import RegionCode
 from app.schemas.runs import (
@@ -103,6 +104,7 @@ from app.schemas.search_sources import (
     ProviderMetadata,
     ReusableSourceIntelligenceRequest,
     SearchPlan,
+    SearchIntent,
     SearchQuery,
     SearchResult,
     SourceEvidence,
@@ -181,6 +183,7 @@ class DiscoveredSourceExtraction:
     search_result: SearchResult
     snapshot: SourceSnapshot
     listing_extraction: ProductListingExtraction | None = None
+    user_added_candidate_id: CandidateId | None = None
 
 
 @dataclass(frozen=True)
@@ -257,6 +260,7 @@ class ShoppingRunContext:
     search_results: tuple[SearchResult, ...] = ()
     selected_source_ids: tuple[SourceId, ...] = ()
     source_extractions: tuple[DiscoveredSourceExtraction, ...] = ()
+    user_added_products: tuple[UserAddedProduct, ...] = ()
     deduplication: CandidateDeduplicationRunOutput | None = None
     source_intelligence: SourceIntelligenceRunOutput | None = None
     trust_assessments: tuple[ListingTrustAssessment, ...] = ()
@@ -333,6 +337,12 @@ class ShoppingRunPersistenceHooks(Protocol):
         extractions: tuple[DiscoveredSourceExtraction, ...],
     ) -> None:
         """Persist extracted snapshots before candidate grouping."""
+
+    async def load_user_added_products(
+        self,
+        session_id: SessionId,
+    ) -> tuple[UserAddedProduct, ...]:
+        """Load products the user added to the session before this run."""
 
     async def persist_candidate_deduplication(
         self,
@@ -532,8 +542,20 @@ class RepositoryShoppingRunPersistenceHooks:
             await self._search_source_repository.add_source_snapshot(
                 context.run_id,
                 item.snapshot,
-                search_result_id=item.search_result.source_id,
+                search_result_id=(
+                    None
+                    if item.user_added_candidate_id is not None
+                    else item.search_result.source_id
+                ),
             )
+
+    async def load_user_added_products(
+        self,
+        session_id: SessionId,
+    ) -> tuple[UserAddedProduct, ...]:
+        if self._product_repository is None:
+            return ()
+        return await self._product_repository.list_user_added_products(session_id)
 
     async def persist_candidate_deduplication(
         self,
@@ -546,6 +568,9 @@ class RepositoryShoppingRunPersistenceHooks:
             )
 
         shortlist_position = 1
+        user_added_candidate_by_listing_id = _user_added_candidate_ids_by_listing_id(
+            context.user_added_products
+        )
         for group in output.result.groups:
             await self._product_repository.add_canonical_product(
                 context.run_id,
@@ -563,9 +588,22 @@ class RepositoryShoppingRunPersistenceHooks:
                 context.run_id,
                 product_id=group.product.product_id,
                 listing_id=primary_listing_id,
+                candidate_id=_candidate_id_for_group(
+                    group.listings,
+                    user_added_candidate_by_listing_id,
+                ),
                 position=shortlist_position,
             )
             shortlist_position += 1
+
+        for user_added in context.user_added_products:
+            if user_added.product is None or user_added.listing is None:
+                continue
+            await self._product_repository.update_user_added_product_for_run(
+                context.session_id,
+                user_added,
+                run_id=context.run_id,
+            )
 
     async def persist_source_intelligence(
         self,
@@ -1136,6 +1174,9 @@ class ShoppingRunOrchestrator:
     ) -> FixtureStageOutput:
         brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
+        context.user_added_products = (
+            await self._persistence_hooks.load_user_added_products(context.session_id)
+        )
         extracted_sources: list[DiscoveredSourceExtraction] = []
         for result in _selected_extraction_results(
             context.search_results,
@@ -1169,6 +1210,14 @@ class ShoppingRunOrchestrator:
                 )
             )
 
+        extracted_sources.extend(
+            await self._extract_user_added_url_products(
+                context.user_added_products,
+                brief=brief,
+                region_code=region_code,
+            )
+        )
+
         context.source_extractions = tuple(extracted_sources)
         await self._persistence_hooks.persist_source_extractions(
             context,
@@ -1197,6 +1246,49 @@ class ShoppingRunOrchestrator:
             runtime_mode=self._agent_workflow_mode.value,
         )
 
+    async def _extract_user_added_url_products(
+        self,
+        user_added_products: tuple[UserAddedProduct, ...],
+        *,
+        brief: ShoppingBrief,
+        region_code: RegionCode,
+    ) -> tuple[DiscoveredSourceExtraction, ...]:
+        extracted_sources: list[DiscoveredSourceExtraction] = []
+        for user_added in user_added_products:
+            if user_added.url is None:
+                continue
+
+            snapshot = await self._extraction_provider.extract(
+                user_added.url,
+                ExtractionProviderOptions(source_type=SourceType.RETAILER_LISTING),
+            )
+            snapshot = _link_snapshot_to_user_added_product(
+                snapshot,
+                user_added,
+                region_code=region_code,
+            )
+            result = _user_added_search_result(
+                user_added,
+                snapshot=snapshot,
+                region_code=region_code,
+            )
+            listing_extraction = _listing_from_extracted_source(
+                self._listing_extractor,
+                result=result,
+                snapshot=snapshot,
+                category=brief.category,
+            )
+            extracted_sources.append(
+                DiscoveredSourceExtraction(
+                    search_result=result,
+                    snapshot=snapshot,
+                    listing_extraction=listing_extraction,
+                    user_added_candidate_id=user_added.candidate_id,
+                )
+            )
+
+        return tuple(extracted_sources)
+
     async def _deduplicate_candidates(
         self,
         context: ShoppingRunContext,
@@ -1215,6 +1307,10 @@ class ShoppingRunOrchestrator:
         context.source_extractions = _deduplicated_source_extractions(
             context.source_extractions,
             result,
+        )
+        context.user_added_products = _deduplicated_user_added_products(
+            context.user_added_products,
+            context.source_extractions,
         )
         context.deduplication = output
         await self._persistence_hooks.persist_candidate_deduplication(context, output)
@@ -1881,6 +1977,8 @@ def _analysis_evidence(context: ShoppingRunContext) -> tuple[SourceEvidence, ...
 
 
 def _user_added_products(context: ShoppingRunContext):
+    if context.user_added_products:
+        return context.user_added_products
     if context.fixture_output is None:
         return ()
     return context.fixture_output.user_added_products
@@ -2087,6 +2185,78 @@ def _link_snapshot_to_search_result(
     )
 
 
+def _link_snapshot_to_user_added_product(
+    snapshot: SourceSnapshot,
+    user_added: UserAddedProduct,
+    *,
+    region_code: RegionCode,
+) -> SourceSnapshot:
+    provider = snapshot.provider.model_copy(
+        update={
+            "raw": {
+                **snapshot.provider.raw,
+                "target_region_code": region_code,
+                "user_added_candidate_id": str(user_added.candidate_id),
+                "user_supplied_url": str(user_added.url),
+            }
+        }
+    )
+    return snapshot.model_copy(
+        update={
+            "source_type": SourceType.RETAILER_LISTING,
+            "title": snapshot.title or _user_added_title(user_added, snapshot),
+            "provider": provider,
+        }
+    )
+
+
+def _user_added_search_result(
+    user_added: UserAddedProduct,
+    *,
+    snapshot: SourceSnapshot,
+    region_code: RegionCode,
+) -> SearchResult:
+    return SearchResult(
+        source_id=user_added.candidate_id,
+        query=SearchQuery(
+            query=_user_added_title(user_added, snapshot),
+            intent=SearchIntent.DISCOVERY,
+            region_code=region_code,
+            required_source_types=(SourceType.RETAILER_LISTING,),
+        ),
+        url=snapshot.url,
+        title=_user_added_title(user_added, snapshot),
+        snippet=user_added.notes or user_added.input_text,
+        source_type=SourceType.RETAILER_LISTING,
+        provider=ProviderMetadata(
+            provider_name="user-added-url",
+            provider_result_id=str(user_added.candidate_id),
+            raw={"user_added_candidate_id": str(user_added.candidate_id)},
+        ),
+        quality=snapshot.quality,
+    )
+
+
+def _user_added_title(
+    user_added: UserAddedProduct,
+    snapshot: SourceSnapshot,
+) -> str:
+    candidates = (
+        user_added.product.name if user_added.product is not None else None,
+        snapshot.title,
+        user_added.input_text,
+        str(user_added.url) if user_added.url is not None else None,
+        "User-added product URL",
+    )
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        title = " ".join(candidate.split())
+        if title:
+            return title[:300]
+    return "User-added product URL"
+
+
 def _listing_from_extracted_source(
     extractor: ProductListingExtractor,
     *,
@@ -2149,9 +2319,58 @@ def _deduplicated_source_extractions(
                         "listing": listing,
                     }
                 ),
+                user_added_candidate_id=item.user_added_candidate_id,
             )
         )
     return tuple(grouped_extractions)
+
+
+def _deduplicated_user_added_products(
+    user_added_products: tuple[UserAddedProduct, ...],
+    extractions: tuple[DiscoveredSourceExtraction, ...],
+) -> tuple[UserAddedProduct, ...]:
+    extraction_by_candidate_id = {
+        item.user_added_candidate_id: item.listing_extraction
+        for item in extractions
+        if item.user_added_candidate_id is not None
+        and item.listing_extraction is not None
+    }
+    updated: list[UserAddedProduct] = []
+    for user_added in user_added_products:
+        extraction = extraction_by_candidate_id.get(user_added.candidate_id)
+        if extraction is None:
+            updated.append(user_added)
+            continue
+        updated.append(
+            user_added.model_copy(
+                update={
+                    "product": extraction.product,
+                    "listing": extraction.listing,
+                }
+            )
+        )
+    return tuple(updated)
+
+
+def _user_added_candidate_ids_by_listing_id(
+    user_added_products: tuple[UserAddedProduct, ...],
+) -> dict[ListingId, CandidateId]:
+    return {
+        user_added.listing.listing_id: user_added.candidate_id
+        for user_added in user_added_products
+        if user_added.listing is not None
+    }
+
+
+def _candidate_id_for_group(
+    listings: tuple[ProductListing, ...],
+    user_added_candidate_by_listing_id: Mapping[ListingId, CandidateId],
+) -> CandidateId | None:
+    for listing in listings:
+        candidate_id = user_added_candidate_by_listing_id.get(listing.listing_id)
+        if candidate_id is not None:
+            return candidate_id
+    return None
 
 
 def _source_intelligence_candidates(
@@ -2164,7 +2383,9 @@ def _source_intelligence_candidates(
     source_ids: list[SourceId] = []
 
     for item in extractions:
-        source_ids.extend((item.search_result.source_id, item.snapshot.source_id))
+        if item.user_added_candidate_id is None:
+            source_ids.append(item.search_result.source_id)
+        source_ids.append(item.snapshot.source_id)
         if item.listing_extraction is None:
             continue
         product = item.listing_extraction.product

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionResultsResponse } from '$lib/api/types.js';
-import { buildResultView } from './result-view.js';
+import { buildResultView, neutralOutboundUrl, selectModeView } from './result-view.js';
 
 const baseResult: SessionResultsResponse = {
 	result_version: {
@@ -68,6 +68,26 @@ const baseResult: SessionResultsResponse = {
 				evidence_ids: ['evidence-asus'],
 				source_ids: ['source-asus'],
 			},
+			{
+				mode: 'within_budget',
+				product_id: 'product-asus',
+				listing_id: 'listing-asus',
+				title: 'Best within budget',
+				rationale: 'Stays inside the stated budget with credible evidence.',
+				confidence: { level: 'medium', score: 0.72 },
+				evidence_ids: ['evidence-asus'],
+				source_ids: ['source-asus'],
+			},
+			{
+				mode: 'stretch_pick',
+				product_id: 'product-lg',
+				listing_id: 'listing-lg',
+				title: 'Stretch upgrade',
+				rationale: 'Costs more, so it only works if the budget tradeoff is acceptable.',
+				confidence: { level: 'medium', score: 0.7 },
+				evidence_ids: ['evidence-lg'],
+				source_ids: ['source-lg'],
+			},
 		],
 		comparison_matrix: {
 			schema_version: 1,
@@ -76,8 +96,8 @@ const baseResult: SessionResultsResponse = {
 		},
 		rejected_items: [],
 		warnings: [],
-		evidence_ids: ['evidence-dell', 'evidence-asus'],
-		source_ids: ['source-dell', 'source-asus'],
+		evidence_ids: ['evidence-dell', 'evidence-asus', 'evidence-lg'],
+		source_ids: ['source-dell', 'source-asus', 'source-lg'],
 	},
 	source_snapshots: [
 		{
@@ -102,6 +122,17 @@ const baseResult: SessionResultsResponse = {
 			quality: { level: 'adequate', score: 0.75 },
 			captured_at: '2026-05-31T00:00:00Z',
 		},
+		{
+			schema_version: 1,
+			source_id: 'source-lg',
+			url: 'https://example.test/lg',
+			source_type: 'retailer_listing',
+			provider: { provider_name: 'fixture' },
+			title: 'LG source',
+			extraction_status: 'succeeded',
+			quality: { level: 'adequate', score: 0.73 },
+			captured_at: '2026-05-31T00:00:00Z',
+		},
 	],
 	source_evidence: [
 		{
@@ -122,6 +153,15 @@ const baseResult: SessionResultsResponse = {
 			confidence: { level: 'medium', score: 0.72 },
 			source_quality: { level: 'adequate', score: 0.75 },
 		},
+		{
+			evidence_id: 'evidence-lg',
+			source_id: 'source-lg',
+			target: { target_type: 'product', product_id: 'product-lg' },
+			evidence_type: 'review_claim',
+			claim: 'LG is a credible stretch pick.',
+			confidence: { level: 'medium', score: 0.7 },
+			source_quality: { level: 'adequate', score: 0.73 },
+		},
 	],
 };
 
@@ -135,7 +175,26 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.label).toBe('Best value');
 		expect(view.finalMode?.sources[0]?.url).toBe('https://example.test/dell');
 		expect(view.finalMode?.evidence[0]?.claim).toBe('Dell has USB-C support.');
+		expect(view.finalMode?.evidence[0]?.typeLabel).toBe('Product Spec');
+		expect(view.finalMode?.evidence[0]?.targetLabel).toBe('Product detail');
 		expect(view.finalMode?.listingTrust?.levelLabel).toBe('Reasonable listing');
+	});
+
+	it('switches recommendation modes locally while preserving best-overall reasoning', () => {
+		const view = buildResultView(baseResult);
+		const stretchMode = view.decisionModes.find((mode) => mode.mode === 'stretch_pick');
+		const selectedMode = selectModeView(view, stretchMode?.key ?? null);
+
+		expect(view.decisionModes.map((mode) => mode.mode)).toEqual([
+			'best_overall',
+			'best_value',
+			'within_budget',
+			'stretch_pick',
+		]);
+		expect(selectedMode?.mode).toBe('stretch_pick');
+		expect(selectedMode?.label).toBe('Stretch upgrade');
+		expect(view.finalMode?.mode).toBe('best_overall');
+		expect(view.whyItWins).toBe('Best balance of fit and seller trust.');
 	});
 
 	it('attaches listing safety to modes separately from product fit', () => {
@@ -167,8 +226,14 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.label).toBe('Best value');
 		expect(view.runnerUps[0]?.listingTrust?.isBlocking).toBe(true);
 		expect(view.runnerUps[0]?.listingTrust?.summary).toContain('product may fit');
-		expect(view.warnings).toContain('Seller details do not line up.');
-		expect(view.warnings.some((warning) => warning.includes('safer seller'))).toBe(true);
+		expect(view.warnings.map((warning) => warning.text)).toContain(
+			'Seller details do not line up.',
+		);
+		expect(view.warnings.some((warning) => warning.text.includes('safer seller'))).toBe(true);
+		expect(
+			view.warnings.find((warning) => warning.text === 'Seller details do not line up.')?.evidence[0]
+				?.id,
+		).toBe('evidence-asus');
 	});
 
 	it('does not expose a best-pick card for no-strong-buy results', () => {
@@ -193,7 +258,37 @@ describe('result view helpers', () => {
 			...baseResult,
 			recommendation_bundle: {
 				...baseResult.recommendation_bundle,
-				rejected_items: [{ reason: '   ', severity: 'low', evidence_ids: [], source_ids: [] }],
+				rejected_items: [
+					{
+						reason_code: 'weak_evidence',
+						reason: '   ',
+						severity: 'low',
+						evidence_ids: [],
+						source_ids: [],
+					},
+				],
+			},
+		});
+
+		expect(view.rejectedItems).toHaveLength(0);
+	});
+
+	it('omits low-severity rejected items from the shopper avoid section', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				rejected_items: [
+					{
+						product_id: 'product-asus',
+						listing_id: 'listing-asus',
+						reason_code: 'poor_fit',
+						reason: 'Not the strongest overall winner.',
+						severity: 'low',
+						evidence_ids: ['evidence-asus'],
+						source_ids: ['source-asus'],
+					},
+				],
 			},
 		});
 
@@ -209,6 +304,7 @@ describe('result view helpers', () => {
 					{
 						product_id: 'product-asus',
 						listing_id: 'listing-asus',
+						reason_code: 'suspicious_listing',
 						reason: 'Seller trust is too weak for this listing.',
 						severity: 'blocking',
 						evidence_ids: ['evidence-asus'],
@@ -219,8 +315,100 @@ describe('result view helpers', () => {
 		});
 
 		expect(view.rejectedItems).toHaveLength(1);
+		expect(view.rejectedItems[0]?.reasonLabel).toBe('Risky listing');
 		expect(view.rejectedItems[0]?.reason).toContain('Seller trust');
 		expect(view.rejectedItems[0]?.sources[0]?.url).toBe('https://example.test/asus');
+	});
+
+	it('keeps warning claims traceable to supporting evidence and sources', () => {
+		const view = buildResultView({
+			...baseResult,
+			category_analyses: [
+				{
+					schema_version: 1,
+					product_id: 'product-asus',
+					listing_ids: ['listing-asus'],
+					category: 'monitor',
+					fit_summary: 'Good enough for the price.',
+					strengths: [],
+					weaknesses: [],
+					warnings: ['Availability evidence is weaker for this option.'],
+					confidence: { level: 'medium', score: 0.7 },
+					evidence_ids: ['evidence-asus'],
+					source_ids: [],
+				},
+			],
+		});
+
+		const warning = view.warnings.find((item) => item.text.includes('Availability evidence'));
+
+		expect(warning?.evidence[0]?.claim).toBe('ASUS is a credible value pick.');
+		expect(warning?.sources[0]?.id).toBe('source-asus');
+	});
+
+	it('neutralizes outbound source links and strips affiliate or tracking parameters', () => {
+		const view = buildResultView({
+			...baseResult,
+			source_snapshots: [
+				{
+					...baseResult.source_snapshots[0],
+					url: 'https://www.amazon.com/dp/B012345678?tag=affiliate-20&utm_source=fixture&color=black#reviews',
+				},
+				...baseResult.source_snapshots.slice(1),
+			],
+		});
+
+		expect(view.sourceViews[0]?.url).toBe('https://www.amazon.com/dp/B012345678?color=black');
+		expect(view.sourceViews[0]?.displayUrl).toBe('amazon.com');
+		expect(view.finalMode?.evidence[0]?.sourceUrl).toBe(
+			'https://www.amazon.com/dp/B012345678?color=black',
+		);
+		expect(neutralOutboundUrl('javascript:alert(1)')).toBeNull();
+	});
+
+	it('exposes video timestamps and source metadata for inspection', () => {
+		const view = buildResultView({
+			...baseResult,
+			source_snapshots: [
+				{
+					...baseResult.source_snapshots[0],
+					source_type: 'video',
+					video: {
+						video_id: 'video-1',
+						url: 'https://www.youtube.com/watch?v=video-1&utm_campaign=tracking',
+						title: 'Dell monitor review',
+						channel_name: 'Helpful Reviews',
+						transcript_availability: 'available',
+						affiliate_links_disclosed: true,
+						affiliate_bias_risk: { level: 'medium', score: 0.62 },
+					},
+				},
+				...baseResult.source_snapshots.slice(1),
+			],
+			source_evidence: [
+				{
+					...baseResult.source_evidence[0],
+					evidence_type: 'video_claim',
+					timestamp_references: [{ start_seconds: 75, end_seconds: 91 }],
+					video: {
+						video_id: 'video-1',
+						url: 'https://www.youtube.com/watch?v=video-1&utm_campaign=tracking',
+						title: 'Dell monitor review',
+						channel_name: 'Helpful Reviews',
+						transcript_availability: 'available',
+						affiliate_links_disclosed: true,
+						affiliate_bias_risk: { level: 'medium', score: 0.62 },
+					},
+				},
+				...baseResult.source_evidence.slice(1),
+			],
+		});
+
+		expect(view.finalMode?.evidence[0]?.timestampLabels).toEqual(['1:15-1:31']);
+		expect(view.finalMode?.evidence[0]?.metadata).toContain('Transcript: Available');
+		expect(view.finalMode?.evidence[0]?.metadata).toContain('Channel: Helpful Reviews');
+		expect(view.finalMode?.evidence[0]?.metadata).toContain('Affiliate links disclosed by source');
+		expect(view.sourceViews[0]?.typeLabel).toBe('Video');
 	});
 
 	it('scrubs fixture-only wording from shopper-facing result text', () => {
@@ -243,6 +431,6 @@ describe('result view helpers', () => {
 		expect(view.whyItWins).toBe('best pick because the official listing is safer.');
 		expect(view.finalMode?.label).toBe('best overall');
 		expect(view.finalMode?.rationale).toBe('rationale.');
-		expect(view.warnings).toEqual(['Avoid this seller.']);
+		expect(view.warnings.map((warning) => warning.text)).toEqual(['Avoid this seller.']);
 	});
 });

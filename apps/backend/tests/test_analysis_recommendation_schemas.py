@@ -18,6 +18,7 @@ from app.schemas import (
     RecommendationMode,
     RecommendationModeResult,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
     new_id,
 )
@@ -75,6 +76,7 @@ def test_recommendation_bundle_accepts_one_final_best_pick() -> None:
         rejected_items=(
             RejectedItem(
                 product_id=new_id(),
+                reason_code=RejectionReason.SUSPICIOUS_LISTING,
                 reason="Suspicious marketplace listing with weak seller signals.",
                 severity=RejectionSeverity.BLOCKING,
                 evidence_ids=(evidence_id,),
@@ -213,10 +215,22 @@ def test_comparison_matrix_rejects_scores_for_undeclared_criteria() -> None:
 def test_rejected_item_requires_product_or_listing_target() -> None:
     with pytest.raises(ValidationError):
         RejectedItem(
+            reason_code=RejectionReason.POOR_FIT,
             reason="A rejected item must identify what was rejected.",
             severity=RejectionSeverity.MEDIUM,
             evidence_ids=(new_id(),),
         )
+
+
+def test_rejected_item_infers_legacy_reason_code() -> None:
+    item = RejectedItem(
+        product_id=new_id(),
+        reason="Sparse product evidence is not enough for a confident recommendation.",
+        severity=RejectionSeverity.MEDIUM,
+        evidence_ids=(new_id(),),
+    )
+
+    assert item.reason_code == RejectionReason.WEAK_EVIDENCE
 
 
 def test_source_backed_recommendation_claims_require_evidence_ids() -> None:

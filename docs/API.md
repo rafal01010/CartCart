@@ -223,9 +223,11 @@ recommendation bundle, plus the run's source snapshots and source evidence so
 the frontend can render inspectable source links for result claims. The persisted
 recommendation bundle is trust-aware: weak or suspicious listing assessments are
 surfaced as listing-level warnings or rejections, and a suspicious final listing
-is blocked instead of being returned as an unqualified best buy. If the session
-exists but no result has been saved yet, the API returns `404` with
-`result_not_ready`.
+is blocked instead of being returned as an unqualified best buy. When
+`no_strong_buy=true`, `no_strong_buy_reason` should explain what blocked a
+responsible recommendation and include a plain-language next step for the
+shopper. If the session exists but no result has been saved yet, the API
+returns `404` with `result_not_ready`.
 
 `POST /api/sessions/{session_id}/products`
 
@@ -234,9 +236,13 @@ products should participate in later analysis alongside app-generated
 candidates. Normal guided intake should ask users for product names or
 descriptions instead of asking them to paste product links.
 
-Current implementation accepts URL placeholders and lightweight manual product
+Current implementation accepts URL entries and lightweight manual product
 details, persists them as session-local `UserAddedProduct` records, and returns
-the updated session state. It does not fetch URLs or extract listing details yet.
+the updated session state. On the next shopping run, URL entries are fetched
+through the configured source extraction provider, normalized as product/listing
+candidates, deduplicated with app-generated candidates, and written back onto
+the user-added record when extraction succeeds. Manual product-only details
+remain lower-evidence placeholders until manual-entry support is expanded.
 
 `POST /api/sessions/{session_id}/refinements`
 
@@ -284,7 +290,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Intake and session schemas in `app.schemas`: `CreateSessionRequest`, `ShoppingSession`, `ShoppingBrief`, `BudgetConstraint`, `RegionPreference`, and `PreferenceConstraint`.
 - Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `RawSourceSnapshotArtifact`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, `ReusableSourceIntelligenceRequest`, `SourceIntelligenceCapabilityDescriptor`, `SourceEvidenceGap`, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, sponsorship/affiliate-bias signals, Reddit/community discussion evidence, Amazon product/listing/review evidence, and IKEA regional official-store evidence.
 - Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `ProductListingExtraction`, `ListingExtractionMissingField`, `SellerProfile`, `UserAddedProduct`, product/listing identity fields such as model, SKU, UPC, EAN, canonical listing URL, and retailer product ID, price money fields, region availability, listing source quality, deterministic extraction confidence, explicit extraction gaps, and extracted seller trust signals that remain separate from later listing trust assessments.
-- Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, structured listing trust signals, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`.
+- Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, structured listing trust signals, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`. `RejectedItem` includes an explicit `reason_code` for meaningful avoid reasons: suspicious listing, poor fit, overpaying, missing critical feature, or weak evidence.
 - Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
 - Guided intake schemas in `app.schemas.guided_intake` cover current
   user-facing question state, natural-language answer submission, yes/no and

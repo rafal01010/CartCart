@@ -35,7 +35,8 @@
 		shopperProgressHeadline,
 		type ShopperProgressItem,
 	} from '$lib/run-progress/run-progress.js';
-	import { buildResultView, type ResultView } from '$lib/results/result-view.js';
+	import EvidenceDetails from '$lib/results/EvidenceDetails.svelte';
+	import { buildResultView, selectModeView, type ResultView } from '$lib/results/result-view.js';
 	import { REGION_OPTIONS, regionByCode } from '$lib/session/session-form.js';
 
 	type HomeState =
@@ -61,6 +62,7 @@
 	let isGuidedRequestPending = $state(false);
 	let shopperProgress = $state<ShopperProgressItem[]>(createInitialShopperProgress());
 	let resultView = $state<ResultView | null>(null);
+	let selectedModeKey = $state<string | null>(null);
 	let showSupportingDetails = $state(false);
 	let showSourceDetails = $state(false);
 	let starterIndex = $state(0);
@@ -78,10 +80,8 @@
 	);
 	const isAtFirstGuidedQuestion = $derived(!guidedState?.navigation.can_go_back);
 	const progressHeadline = $derived(shopperProgressHeadline(shopperProgress));
-	const supportingModeViews = $derived(
-		resultView
-			? resultView.modeViews.filter((mode) => mode.key !== resultView?.finalMode?.key)
-			: [],
+	const selectedModeView = $derived(
+		resultView ? selectModeView(resultView, selectedModeKey) : null,
 	);
 
 	onMount(() => {
@@ -157,6 +157,7 @@
 		answerDraft = { ...EMPTY_GUIDED_DRAFT };
 		guideError = null;
 		resultView = null;
+		selectedModeKey = null;
 		showSupportingDetails = false;
 		showSourceDetails = false;
 		shopperProgress = createInitialShopperProgress();
@@ -285,6 +286,7 @@
 		isGuidedRequestPending = true;
 		guideError = null;
 		resultView = null;
+		selectedModeKey = null;
 		showSupportingDetails = false;
 		showSourceDetails = false;
 		shopperProgress = createInitialShopperProgress();
@@ -356,11 +358,17 @@
 		if (!sessionId) return;
 		try {
 			const results = await api.getResults(sessionId);
-			resultView = buildResultView(results);
+			const nextResultView = buildResultView(results);
+			resultView = nextResultView;
+			selectedModeKey = nextResultView.finalMode?.key ?? nextResultView.decisionModes[0]?.key ?? null;
 			homeState = 'result';
 		} catch (error) {
 			guideError = userFacingErrorMessage(error);
 		}
+	}
+
+	function selectRecommendationMode(modeKey: string) {
+		selectedModeKey = modeKey;
 	}
 
 	function closeRunEventSubscription() {
@@ -695,58 +703,105 @@
 					<h1
 						class="mx-auto max-w-2xl text-balance text-4xl font-light tracking-normal text-foreground sm:text-5xl"
 					>
-						{resultView.noStrongBuyReason ? 'No strong buy yet.' : 'Here is the best pick.'}
+						{resultView.noStrongBuyReason ? 'None are strong buys yet.' : 'Here is the best pick.'}
 					</h1>
 					<p class="mx-auto mt-4 max-w-xl text-pretty text-base leading-7 text-muted-foreground">
 						{resultView.noStrongBuyReason ?? resultView.whyItWins ?? resultView.finalMode?.rationale}
 					</p>
 				</div>
 
+				{#if !resultView.noStrongBuyReason && resultView.decisionModes.length > 1}
+					<div
+						class="mx-auto mt-8 flex max-w-3xl flex-wrap items-center gap-2"
+						role="group"
+						aria-label="Recommendation mode"
+					>
+						{#each resultView.decisionModes as mode}
+							<Button
+								type="button"
+								size="sm"
+								variant={selectedModeView?.key === mode.key ? 'secondary' : 'outline'}
+								aria-pressed={selectedModeView?.key === mode.key}
+								onclick={() => selectRecommendationMode(mode.key)}
+							>
+								{mode.label}
+							</Button>
+						{/each}
+					</div>
+				{/if}
+
 				<div class="bg-card shadow-subtle mx-auto mt-8 max-w-3xl rounded-xl p-4 sm:p-5">
-					{#if resultView.finalMode}
+					{#if selectedModeView && !resultView.noStrongBuyReason}
 						<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 							<div>
-								<p class="text-sm font-medium text-muted-foreground">Best pick</p>
+								<p class="text-sm font-medium text-muted-foreground">Recommendation mode</p>
 								<h2 class="mt-2 text-2xl font-light tracking-normal text-foreground">
-									{resultView.finalMode.label}
+									{selectedModeView.label}
 								</h2>
 								<p class="mt-3 text-sm leading-6 text-muted-foreground">
-									{resultView.finalMode.rationale}
+									{selectedModeView.rationale}
 								</p>
 							</div>
 							<div class="rounded-md bg-secondary px-3 py-2 text-sm text-muted-foreground">
-								Confidence: {resultView.finalMode.confidence}
+								Confidence: {selectedModeView.confidence}
 							</div>
 						</div>
-						{#if resultView.finalMode.listingTrust}
+						<div class="mt-4">
+							<EvidenceDetails
+								evidence={selectedModeView.evidence}
+								sources={selectedModeView.sources}
+								label="Inspect recommendation evidence"
+							/>
+						</div>
+						{#if selectedModeView.listingTrust}
 							<div class="mt-4 grid gap-3 sm:grid-cols-2">
 								<div class="rounded-md border border-border bg-secondary/60 p-3">
 									<p class="text-sm font-medium text-foreground">Product fit</p>
 									<p class="mt-1 text-sm leading-6 text-muted-foreground">
-										{resultView.finalMode.rationale}
+										{selectedModeView.rationale}
 									</p>
+									<div class="mt-3">
+										<EvidenceDetails
+											evidence={selectedModeView.evidence}
+											sources={selectedModeView.sources}
+											label="Inspect fit evidence"
+										/>
+									</div>
 								</div>
 								<div
 									class={`rounded-md border p-3 ${
-										resultView.finalMode.listingTrust.isBlocking
+										selectedModeView.listingTrust.isBlocking
 											? 'border-destructive/45 bg-destructive/10'
 											: 'border-border bg-secondary/60'
 									}`}
 								>
 									<p class="text-sm font-medium text-foreground">
-										Listing safety: {resultView.finalMode.listingTrust.levelLabel}
+										Listing safety: {selectedModeView.listingTrust.levelLabel}
 									</p>
 									<p class="mt-1 text-sm leading-6 text-muted-foreground">
-										{resultView.finalMode.listingTrust.summary}
+										{selectedModeView.listingTrust.summary}
 									</p>
-									{#if resultView.finalMode.listingTrust.redFlags.length}
+									{#if selectedModeView.listingTrust.redFlags.length}
 										<p class="mt-1 text-sm leading-6 text-destructive">
-											{resultView.finalMode.listingTrust.redFlags.join(' ')}
+											{selectedModeView.listingTrust.redFlags.join(' ')}
 										</p>
 									{/if}
+									<div class="mt-3">
+										<EvidenceDetails
+											evidence={selectedModeView.listingTrust.evidence}
+											sources={selectedModeView.listingTrust.sources}
+											label="Inspect listing evidence"
+										/>
+									</div>
 								</div>
 							</div>
 						{/if}
+					{:else if resultView.noStrongBuyReason}
+						<EvidenceDetails
+							evidence={resultView.resultEvidence}
+							sources={resultView.resultSources}
+							label="Inspect decision evidence"
+						/>
 					{/if}
 
 					{#if resultView.warnings.length}
@@ -754,7 +809,16 @@
 							<p class="text-sm font-medium text-foreground">Watch-outs</p>
 							<ul class="mt-2 grid gap-2 text-sm leading-6 text-muted-foreground">
 								{#each resultView.warnings.slice(0, 3) as warning}
-									<li>{warning}</li>
+									<li>
+										<p>{warning.text}</p>
+										<div class="mt-2">
+											<EvidenceDetails
+												evidence={warning.evidence}
+												sources={warning.sources}
+												label="Inspect warning evidence"
+											/>
+										</div>
+									</li>
 								{/each}
 							</ul>
 						</div>
@@ -808,31 +872,13 @@
 														Listing safety: {runner.listingTrust.levelLabel}
 													</p>
 												{/if}
-											</div>
-										{/each}
-									</div>
-								</section>
-							{/if}
-
-							{#if supportingModeViews.length}
-								<section>
-									<h3 class="text-sm font-medium text-foreground">Other ways to choose</h3>
-									<div class="mt-2 grid gap-2">
-										{#each supportingModeViews as mode}
-											<div class="rounded-md border border-border bg-secondary/60 p-3">
-												<p class="text-sm font-medium text-foreground">{mode.label}</p>
-												<p class="mt-1 text-sm leading-6 text-muted-foreground">
-													{mode.rationale}
-												</p>
-												{#if mode.listingTrust?.isRisky}
-													<p class="mt-2 text-sm leading-6 text-destructive">
-														Listing safety: {mode.listingTrust.levelLabel}. {mode.listingTrust.summary}
-													</p>
-												{:else if mode.listingTrust}
-													<p class="mt-2 text-sm leading-6 text-muted-foreground">
-														Listing safety: {mode.listingTrust.levelLabel}
-													</p>
-												{/if}
+												<div class="mt-3">
+													<EvidenceDetails
+														evidence={runner.evidence}
+														sources={runner.sources}
+														label="Inspect runner-up evidence"
+													/>
+												</div>
 											</div>
 										{/each}
 									</div>
@@ -859,6 +905,13 @@
 														{trust.positiveSignals.join(' ')}
 													</p>
 												{/if}
+												<div class="mt-3">
+													<EvidenceDetails
+														evidence={trust.evidence}
+														sources={trust.sources}
+														label="Inspect trust evidence"
+													/>
+												</div>
 											</div>
 										{/each}
 									</div>
@@ -871,7 +924,15 @@
 									<div class="mt-2 grid gap-2">
 										{#each resultView.rejectedItems as item}
 											<div class="rounded-md border border-destructive/45 bg-destructive/10 p-3">
+												<p class="text-xs font-medium text-destructive">{item.reasonLabel}</p>
 												<p class="text-sm leading-6 text-muted-foreground">{item.reason}</p>
+												<div class="mt-3">
+													<EvidenceDetails
+														evidence={item.evidence}
+														sources={item.sources}
+														label="Inspect avoid evidence"
+													/>
+												</div>
 											</div>
 										{/each}
 									</div>
@@ -885,17 +946,39 @@
 							<h3 class="text-sm font-medium text-foreground">Sources checked</h3>
 							<div class="mt-2 grid gap-2">
 								{#each resultView.sourceViews as source}
-									<a
-										href={source.url}
-										target="_blank"
-										rel="noreferrer"
-										class="rounded-md border border-border bg-secondary/60 p-3 text-sm transition-colors hover:text-foreground"
-									>
-										<span class="block font-medium text-foreground">{source.title}</span>
-										<span class="mt-1 block text-muted-foreground"
-											>{source.type.replaceAll('_', ' ')} · quality: {source.quality}</span
-										>
-									</a>
+									<div class="rounded-md border border-border bg-secondary/60 p-3">
+										<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+											<div>
+												<p class="text-sm font-medium text-foreground">{source.title}</p>
+												<p class="mt-1 text-sm leading-6 text-muted-foreground">
+													{source.typeLabel} · {source.extractionStatus} · quality:
+													{source.qualityLabel}
+												</p>
+												<p class="text-xs text-muted-foreground">
+													{source.displayUrl} · captured {source.capturedLabel}
+												</p>
+											</div>
+											{#if source.url}
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													href={source.url}
+													target="_blank"
+													rel="noreferrer noopener"
+												>
+													Open source
+												</Button>
+											{/if}
+										</div>
+										<div class="mt-3">
+											<EvidenceDetails
+												evidence={source.evidence}
+												sources={[]}
+												label="Inspect source evidence"
+											/>
+										</div>
+									</div>
 								{/each}
 							</div>
 						</section>

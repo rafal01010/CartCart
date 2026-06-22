@@ -3,6 +3,7 @@ import type {
 	RecommendationMode,
 	RecommendationModeResult,
 	RejectedItem,
+	RejectionReason,
 	SessionResultsResponse,
 	SourceEvidence,
 	SourceSnapshot,
@@ -10,20 +11,31 @@ import type {
 
 export interface EvidenceView {
 	id: EntityId;
+	sourceId: EntityId;
 	claim: string;
 	type: string;
+	typeLabel: string;
+	targetLabel: string;
 	confidence: string;
+	sourceQuality: string;
 	sourceTitle: string;
 	sourceUrl: string | null;
+	timestampLabels: string[];
+	metadata: string[];
 }
 
 export interface SourceView {
 	id: EntityId;
 	title: string;
-	url: string;
+	url: string | null;
+	displayUrl: string;
 	type: string;
+	typeLabel: string;
 	provider: string;
 	quality: string;
+	qualityLabel: string;
+	extractionStatus: string;
+	capturedLabel: string;
 	evidence: EvidenceView[];
 }
 
@@ -57,8 +69,17 @@ export interface TrustView {
 export interface RejectedView {
 	key: string;
 	label: string;
+	reasonCode: RejectionReason;
+	reasonLabel: string;
 	severity: string;
 	reason: string;
+	evidence: EvidenceView[];
+	sources: SourceView[];
+}
+
+export interface WarningView {
+	key: string;
+	text: string;
 	evidence: EvidenceView[];
 	sources: SourceView[];
 }
@@ -66,12 +87,15 @@ export interface RejectedView {
 export interface ResultView {
 	versionLabel: string;
 	finalMode: ModeView | null;
+	decisionModes: ModeView[];
+	resultEvidence: EvidenceView[];
+	resultSources: SourceView[];
 	noStrongBuyReason: string | null;
 	whyItWins: string | null;
 	modeViews: ModeView[];
 	runnerUps: ModeView[];
 	trustViews: TrustView[];
-	warnings: string[];
+	warnings: WarningView[];
 	rejectedItems: RejectedView[];
 	sourceViews: SourceView[];
 	evidenceViews: EvidenceView[];
@@ -80,10 +104,23 @@ export interface ResultView {
 const MODE_LABELS: Record<RecommendationMode, string> = {
 	best_overall: 'Best overall',
 	best_value: 'Best value',
-	within_budget: 'Within budget',
-	stretch_pick: 'Stretch pick',
+	within_budget: 'Best within budget',
+	stretch_pick: 'Stretch upgrade',
 	runner_up: 'Runner-up',
 };
+
+const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
+	suspicious_listing: 'Risky listing',
+	poor_fit: 'Poor fit',
+	overpaying: 'Overpaying',
+	missing_critical_feature: 'Missing requirement',
+	weak_evidence: 'Weak evidence',
+};
+
+const MEANINGFUL_REJECTION_REASONS = new Set<RejectionReason>(
+	Object.keys(REJECTION_REASON_LABELS) as RejectionReason[],
+);
+const MEANINGFUL_REJECTION_SEVERITIES = new Set(['medium', 'high', 'blocking']);
 
 export function buildResultView(result: SessionResultsResponse): ResultView {
 	const sourceById = new Map(result.source_snapshots.map((source) => [source.source_id, source]));
@@ -106,13 +143,24 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 	const trustViewByListingId = new Map(trustViews.map((trust) => [trust.listingId, trust]));
 
 	const modeViews = result.recommendation_bundle.mode_results.map((mode) =>
-		toModeView(mode, evidenceById, sourceViewById, trustViewByListingId),
+		toModeView(mode, evidenceById, sourceById, sourceViewById, trustViewByListingId),
 	);
 	const finalMode = findFinalMode(result, modeViews);
+	const resultEvidence = mapEvidence(result.recommendation_bundle.evidence_ids, evidenceById, sourceById);
+	const resultSources = mapSources(
+		[
+			...result.recommendation_bundle.source_ids,
+			...resultEvidence.map((evidence) => evidence.sourceId),
+		],
+		sourceViewById,
+	);
 
 	return {
 		versionLabel: `v${result.result_version.version}`,
 		finalMode,
+		decisionModes: findDecisionModes(modeViews),
+		resultEvidence,
+		resultSources,
 		noStrongBuyReason: result.recommendation_bundle.no_strong_buy
 			? shopperSafeText(
 					result.recommendation_bundle.no_strong_buy_reason ?? 'No strong buy is available.',
@@ -124,11 +172,7 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		modeViews,
 		runnerUps: findRunnerUps(result, modeViews, finalMode),
 		trustViews,
-		warnings: uniqueText([
-			...result.recommendation_bundle.warnings,
-			...result.category_analyses.flatMap((analysis) => analysis.warnings),
-			...result.trust_assessments.flatMap((trust) => trust.red_flags),
-		].map(shopperSafeText).filter(hasText)),
+		warnings: buildWarningViews(result, trustViews, evidenceById, sourceById, sourceViewById),
 		rejectedItems: result.recommendation_bundle.rejected_items
 			.filter(hasMeaningfulRejection)
 			.map((item) => toRejectedView(item, evidenceById, sourceById, sourceViewById)),
@@ -139,6 +183,16 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 
 export function modeLabel(mode: RecommendationMode): string {
 	return MODE_LABELS[mode];
+}
+
+export function selectModeView(view: ResultView, selectedKey: string | null): ModeView | null {
+	if (!selectedKey) return view.finalMode ?? view.decisionModes[0] ?? null;
+	return (
+		view.decisionModes.find((mode) => mode.key === selectedKey) ??
+		view.finalMode ??
+		view.decisionModes[0] ??
+		null
+	);
 }
 
 export function shortEntityId(id: EntityId | null | undefined): string {
@@ -154,13 +208,20 @@ export function scoreLabel(score: number | null | undefined): string {
 function findFinalMode(result: SessionResultsResponse, modes: ModeView[]): ModeView | null {
 	const bundle = result.recommendation_bundle;
 	if (bundle.no_strong_buy) return null;
+	const matchingBestOverall = modes.find(
+		(mode) =>
+			mode.mode === 'best_overall' &&
+			mode.productId === bundle.final_product_id &&
+			(!bundle.final_listing_id || mode.listingId === bundle.final_listing_id),
+	);
 	return (
+		matchingBestOverall ??
+		modes.find((mode) => mode.mode === 'best_overall') ??
 		modes.find(
 			(mode) =>
 				mode.productId === bundle.final_product_id &&
 				(!bundle.final_listing_id || mode.listingId === bundle.final_listing_id),
 		) ??
-		modes.find((mode) => mode.mode === 'best_overall') ??
 		modes[0] ??
 		null
 	);
@@ -181,6 +242,10 @@ function findRunnerUps(
 	return dedupeModes(runnerModes);
 }
 
+function findDecisionModes(modes: ModeView[]): ModeView[] {
+	return modes.filter((mode) => mode.mode !== 'runner_up');
+}
+
 function dedupeModes(modes: ModeView[]): ModeView[] {
 	const seen = new Set<string>();
 	return modes.filter((mode) => {
@@ -194,10 +259,15 @@ function dedupeModes(modes: ModeView[]): ModeView[] {
 function toModeView(
 	mode: RecommendationModeResult,
 	evidenceById: Map<EntityId, SourceEvidence>,
+	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
 	trustViewByListingId: Map<EntityId, TrustView>,
 ): ModeView {
-	const sources = mapSources(mode.source_ids, sourceViewById);
+	const evidence = mapEvidence(mode.evidence_ids, evidenceById, sourceById);
+	const sources = mapSources(
+		[...mode.source_ids, ...evidence.map((item) => item.sourceId)],
+		sourceViewById,
+	);
 	const listingTrust = mode.listing_id ? trustViewByListingId.get(mode.listing_id) ?? null : null;
 	return {
 		key: `${mode.mode}:${resultKey(mode.product_id, mode.listing_id ?? null)}`,
@@ -208,10 +278,7 @@ function toModeView(
 		rationale: shopperSafeText(mode.rationale),
 		confidence: confidenceLabel(mode.confidence.level, mode.confidence.score),
 		listingTrust,
-		evidence: mode.evidence_ids
-			.map((id) => evidenceById.get(id))
-			.filter((evidence): evidence is SourceEvidence => Boolean(evidence))
-			.map((evidence) => toEvidenceView(evidence, sources.find((source) => source.id === evidence.source_id))),
+		evidence,
 		sources,
 	};
 }
@@ -231,6 +298,7 @@ function toTrustView(
 	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
 ): TrustView {
+	const evidence = mapEvidence(trust.evidence_ids, evidenceById, sourceById);
 	return {
 		listingId: trust.listing_id,
 		level: trust.level,
@@ -241,8 +309,8 @@ function toTrustView(
 		redFlags: trust.red_flags.map(shopperSafeText),
 		isBlocking: trust.level === 'suspicious',
 		isRisky: trust.level === 'suspicious' || trust.level === 'weak',
-		evidence: mapEvidence(trust.evidence_ids, evidenceById, sourceById),
-		sources: mapSources(trust.source_ids, sourceViewById),
+		evidence,
+		sources: mapSources([...trust.source_ids, ...evidence.map((item) => item.sourceId)], sourceViewById),
 	};
 }
 
@@ -252,38 +320,54 @@ function toRejectedView(
 	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
 ): RejectedView {
+	const evidence = mapEvidence(item.evidence_ids, evidenceById, sourceById);
 	return {
 		key: resultKey(item.product_id ?? null, item.listing_id ?? null),
 		label: item.listing_id
 			? `Listing ${shortEntityId(item.listing_id)}`
 			: `Product ${shortEntityId(item.product_id)}`,
+		reasonCode: item.reason_code,
+		reasonLabel: rejectionReasonLabel(item.reason_code),
 		severity: item.severity,
 		reason: shopperSafeText(item.reason),
-		evidence: mapEvidence(item.evidence_ids, evidenceById, sourceById),
-		sources: mapSources(item.source_ids, sourceViewById),
+		evidence,
+		sources: mapSources([...item.source_ids, ...evidence.map((record) => record.sourceId)], sourceViewById),
 	};
 }
 
 function toSourceView(source: SourceSnapshot, evidence: EvidenceView[]): SourceView {
+	const neutralUrl = neutralOutboundUrl(source.url);
 	return {
 		id: source.source_id,
 		title: shopperSafeText(source.title || source.url),
-		url: source.url,
+		url: neutralUrl,
+		displayUrl: displayUrl(neutralUrl ?? source.url),
 		type: source.source_type,
+		typeLabel: readableLabel(source.source_type),
 		provider: providerName(source.provider),
 		quality: source.quality.level,
+		qualityLabel: sourceQualityLabel(source.quality.level, source.quality.score),
+		extractionStatus: extractionStatusLabel(source.extraction_status),
+		capturedLabel: dateLabel(source.captured_at),
 		evidence,
 	};
 }
 
 function toEvidenceView(evidence: SourceEvidence, source: SourceSnapshot | SourceView | undefined): EvidenceView {
+	const sourceUrl = source && 'url' in source ? source.url : null;
 	return {
 		id: evidence.evidence_id,
+		sourceId: evidence.source_id,
 		claim: shopperSafeText(evidence.claim),
 		type: evidence.evidence_type,
+		typeLabel: readableLabel(evidence.evidence_type),
+		targetLabel: evidenceTargetLabel(evidence.target),
 		confidence: confidenceLabel(evidence.confidence.level, evidence.confidence.score),
-		sourceTitle: source?.title ?? 'Source not attached',
-		sourceUrl: source && 'url' in source ? source.url : null,
+		sourceQuality: sourceQualityLabel(evidence.source_quality.level, evidence.source_quality.score),
+		sourceTitle: source?.title ? shopperSafeText(source.title) : 'Source not attached',
+		sourceUrl: typeof sourceUrl === 'string' ? neutralOutboundUrl(sourceUrl) : sourceUrl,
+		timestampLabels: (evidence.timestamp_references ?? []).map(timestampLabel),
+		metadata: evidenceMetadata(evidence),
 	};
 }
 
@@ -299,26 +383,174 @@ function mapEvidence(
 }
 
 function mapSources(ids: EntityId[], sourceViewById: Map<EntityId, SourceView>): SourceView[] {
+	const seen = new Set<EntityId>();
 	return ids
+		.filter((id) => {
+			if (seen.has(id)) return false;
+			seen.add(id);
+			return true;
+		})
 		.map((id) => sourceViewById.get(id))
 		.filter((source): source is SourceView => Boolean(source));
 }
 
+function buildWarningViews(
+	result: SessionResultsResponse,
+	trustViews: TrustView[],
+	evidenceById: Map<EntityId, SourceEvidence>,
+	sourceById: Map<EntityId, SourceSnapshot>,
+	sourceViewById: Map<EntityId, SourceView>,
+): WarningView[] {
+	const warnings = new Map<string, WarningView>();
+	const appendWarning = (
+		key: string,
+		text: string,
+		evidenceIds: EntityId[],
+		sourceIds: EntityId[],
+	) => {
+		const safeText = shopperSafeText(text);
+		if (!hasText(safeText)) return;
+		const evidence = mapEvidence(evidenceIds, evidenceById, sourceById);
+		const sources = mapSources([...sourceIds, ...evidence.map((item) => item.sourceId)], sourceViewById);
+		const existing = warnings.get(safeText);
+		if (existing) {
+			existing.evidence = dedupeEvidence([...existing.evidence, ...evidence]);
+			existing.sources = dedupeSources([...existing.sources, ...sources]);
+			return;
+		}
+		warnings.set(safeText, {
+			key,
+			text: safeText,
+			evidence,
+			sources,
+		});
+	};
+
+	result.recommendation_bundle.warnings.forEach((warning, index) => {
+		appendWarning(
+			`bundle:${index}`,
+			warning,
+			result.recommendation_bundle.evidence_ids,
+			result.recommendation_bundle.source_ids,
+		);
+	});
+	result.category_analyses.forEach((analysis) => {
+		analysis.warnings.forEach((warning, index) => {
+			appendWarning(
+				`analysis:${analysis.product_id}:${index}`,
+				warning,
+				analysis.evidence_ids,
+				analysis.source_ids,
+			);
+		});
+	});
+	trustViews.forEach((trust) => {
+		trust.redFlags.forEach((warning, index) => {
+			appendWarning(`trust:${trust.listingId}:${index}`, warning, [], []);
+			const existing = warnings.get(warning);
+			if (existing) {
+				existing.evidence = dedupeEvidence([...existing.evidence, ...trust.evidence]);
+				existing.sources = dedupeSources([...existing.sources, ...trust.sources]);
+			}
+		});
+	});
+
+	return [...warnings.values()];
+}
+
 function hasMeaningfulRejection(item: RejectedItem): boolean {
-	return hasText(item.reason);
+	return (
+		hasText(item.reason) &&
+		MEANINGFUL_REJECTION_REASONS.has(item.reason_code) &&
+		MEANINGFUL_REJECTION_SEVERITIES.has(item.severity)
+	);
 }
 
 function hasText(value: string | null | undefined): value is string {
 	return Boolean(value?.trim());
 }
 
-function uniqueText(values: string[]): string[] {
-	return [...new Set(values)];
-}
-
 function confidenceLabel(level: string, score: number | null | undefined): string {
 	const scoreText = typeof score === 'number' ? ` ${Math.round(score * 100)}%` : '';
 	return `${level}${scoreText}`;
+}
+
+function sourceQualityLabel(level: string, score: number | null | undefined): string {
+	const scoreText = typeof score === 'number' ? ` ${Math.round(score * 100)}%` : '';
+	return `${readableLabel(level)}${scoreText}`;
+}
+
+function extractionStatusLabel(status: string): string {
+	return readableLabel(status || 'unknown');
+}
+
+function readableLabel(value: string): string {
+	return value
+		.replaceAll('_', ' ')
+		.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function evidenceTargetLabel(target: Record<string, unknown>): string {
+	const targetType = target.target_type;
+	if (targetType === 'product') return 'Product detail';
+	if (targetType === 'listing') return 'Listing detail';
+	if (targetType === 'seller') return 'Seller signal';
+	if (targetType === 'review') return 'Review signal';
+	if (targetType === 'region') return 'Regional detail';
+	if (targetType === 'source_metadata') return 'Source context';
+	if (targetType === 'candidate') return 'Candidate detail';
+	return 'Supporting detail';
+}
+
+function evidenceMetadata(evidence: SourceEvidence): string[] {
+	const metadata: string[] = [];
+	if (evidence.video?.transcript_availability) {
+		metadata.push(`Transcript: ${readableLabel(evidence.video.transcript_availability)}`);
+	}
+	if (evidence.video?.channel_name) {
+		metadata.push(`Channel: ${shopperSafeText(evidence.video.channel_name)}`);
+	}
+	if (evidence.video?.sponsorship_disclosed) {
+		metadata.push('Sponsorship disclosed');
+	}
+	if (evidence.video?.affiliate_links_disclosed) {
+		metadata.push('Affiliate links disclosed by source');
+	}
+	if (evidence.video?.affiliate_bias_risk) {
+		metadata.push(`Bias risk: ${confidenceLabel(
+			evidence.video.affiliate_bias_risk.level,
+			evidence.video.affiliate_bias_risk.score,
+		)}`);
+	}
+	return metadata;
+}
+
+function timestampLabel(timestamp: {
+	start_seconds: number;
+	end_seconds?: number | null;
+	label?: string | null;
+}): string {
+	if (timestamp.label) return shopperSafeText(timestamp.label);
+	const start = durationLabel(timestamp.start_seconds);
+	const end = typeof timestamp.end_seconds === 'number' ? durationLabel(timestamp.end_seconds) : null;
+	return end ? `${start}-${end}` : start;
+}
+
+function durationLabel(seconds: number): string {
+	const rounded = Math.max(0, Math.floor(seconds));
+	const minutes = Math.floor(rounded / 60);
+	const remainingSeconds = String(rounded % 60).padStart(2, '0');
+	return `${minutes}:${remainingSeconds}`;
+}
+
+function dateLabel(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return 'Date unavailable';
+	return new Intl.DateTimeFormat('en', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+	}).format(date);
 }
 
 function trustLevelLabel(level: string): string {
@@ -331,6 +563,10 @@ function trustLevelLabel(level: string): string {
 		unknown: 'Unknown listing',
 	};
 	return labels[level] ?? 'Listing check';
+}
+
+function rejectionReasonLabel(reason: RejectionReason): string {
+	return REJECTION_REASON_LABELS[reason];
 }
 
 export function shopperSafeText(value: string): string {
@@ -347,6 +583,79 @@ function shopperSafeOptionalText(value: string | null): string | null {
 function providerName(provider: Record<string, unknown>): string {
 	const value = provider.provider_name;
 	return typeof value === 'string' && value.trim() ? value : 'unknown';
+}
+
+function dedupeEvidence(evidence: EvidenceView[]): EvidenceView[] {
+	const seen = new Set<EntityId>();
+	return evidence.filter((item) => {
+		if (seen.has(item.id)) return false;
+		seen.add(item.id);
+		return true;
+	});
+}
+
+function dedupeSources(sources: SourceView[]): SourceView[] {
+	const seen = new Set<EntityId>();
+	return sources.filter((source) => {
+		if (seen.has(source.id)) return false;
+		seen.add(source.id);
+		return true;
+	});
+}
+
+export function neutralOutboundUrl(value: string | null | undefined): string | null {
+	if (!value) return null;
+	try {
+		const url = new URL(value);
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+		for (const key of [...url.searchParams.keys()]) {
+			if (isTrackingQueryKey(key)) {
+				url.searchParams.delete(key);
+			}
+		}
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return null;
+	}
+}
+
+function displayUrl(value: string): string {
+	try {
+		const url = new URL(value);
+		return url.hostname.replace(/^www\./, '');
+	} catch {
+		return value;
+	}
+}
+
+const TRACKING_QUERY_KEYS = new Set([
+	'affiliate',
+	'affiliate_id',
+	'asc_source',
+	'ascsubtag',
+	'camp',
+	'creative',
+	'fbclid',
+	'gclid',
+	'linkcode',
+	'msclkid',
+	'ref',
+	'ref_',
+	'referrer',
+	'smclid',
+	'source',
+	'tag',
+]);
+
+function isTrackingQueryKey(key: string): boolean {
+	const normalized = key.toLowerCase();
+	return (
+		normalized.startsWith('utm_') ||
+		normalized.startsWith('aff_') ||
+		normalized.includes('affiliate') ||
+		TRACKING_QUERY_KEYS.has(normalized)
+	);
 }
 
 function resultKey(productId: EntityId | null, listingId: EntityId | null): string {

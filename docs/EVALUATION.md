@@ -307,6 +307,9 @@ source-backed three-monitor `RecommendationBundle` with best overall, best
 value, within-budget, stretch, and runner-up modes; pair it with
 `comparison/no-strong-buy` to confirm weak or suspicious candidate sets produce
 an explicit no-strong-buy outcome instead of a forced pick.
+For Task 88 no-strong-buy acceptance, also use
+`comparison/weak-candidates` in mocked mode to confirm weak evidence sets explain
+why none are strong buys and include a concrete next step for the shopper.
 For Task 83 verifier acceptance, use `verifier/unsupported-claim-block` to
 confirm uncited product/spec claims block output, and
 `verifier/suspicious-listing-warning` to confirm suspicious final listings are

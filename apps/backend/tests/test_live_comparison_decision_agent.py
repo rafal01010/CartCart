@@ -23,6 +23,7 @@ from app.schemas.analysis import (
     RecommendationBundle,
     RecommendationMode,
     RecommendationModeResult,
+    RejectionReason,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import new_id
@@ -157,6 +158,38 @@ def _weak_shortlist_input() -> ComparisonDecisionAgentInput:
     )
 
 
+def _weak_evidence_shortlist_input() -> ComparisonDecisionAgentInput:
+    brief = _brief(budget_mode=BudgetMode.HARD_CAP)
+    first = _candidate(
+        name="SpecMaybe SM27",
+        brand="SpecMaybe",
+        model="SM27",
+        price="229.99",
+        fit_score=0.52,
+        evidence_score=0.22,
+        quality=SourceQualityLevel.WEAK,
+    )
+    second = _candidate(
+        name="PanelLite PL27",
+        brand="PanelLite",
+        model="PL27",
+        price="249.99",
+        fit_score=0.5,
+        evidence_score=0.24,
+        quality=SourceQualityLevel.WEAK,
+    )
+    candidates = (first, second)
+    return ComparisonDecisionAgentInput(
+        run_id=new_id(),
+        brief=brief,
+        products=tuple(item[0] for item in candidates),
+        listings=tuple(item[1] for item in candidates),
+        category_analyses=tuple(item[3] for item in candidates),
+        trust_assessments=tuple(item[4] for item in candidates),
+        evidence=tuple(item[2] for item in candidates),
+    )
+
+
 def _preferred_budget_all_stretch_input() -> ComparisonDecisionAgentInput:
     brief = _brief(budget_mode=BudgetMode.PREFERRED)
     dell = _candidate(
@@ -174,6 +207,60 @@ def _preferred_budget_all_stretch_input() -> ComparisonDecisionAgentInput:
         fit_score=0.78,
     )
     candidates = (dell, lg)
+    return ComparisonDecisionAgentInput(
+        run_id=new_id(),
+        brief=brief,
+        products=tuple(item[0] for item in candidates),
+        listings=tuple(item[1] for item in candidates),
+        category_analyses=tuple(item[3] for item in candidates),
+        trust_assessments=tuple(item[4] for item in candidates),
+        evidence=tuple(item[2] for item in candidates),
+    )
+
+
+def _conditional_rejection_input() -> ComparisonDecisionAgentInput:
+    brief = _brief(budget_mode=BudgetMode.PREFERRED)
+    good = _candidate(
+        name="Dell UltraSharp U2724DE",
+        brand="Dell",
+        model="U2724DE",
+        price="289.99",
+        fit_score=0.82,
+    )
+    poor_fit = _candidate(
+        name="SmallDesk SD24",
+        brand="SmallDesk",
+        model="SD24",
+        price="189.99",
+        fit_score=0.35,
+        evidence_score=0.7,
+        weaknesses=("Too small for the requested 27-inch monitor use case.",),
+    )
+    missing_required = _candidate(
+        name="NoHub NH27",
+        brand="NoHub",
+        model="NH27",
+        price="249.99",
+        fit_score=0.66,
+        weaknesses=("Missing required USB-C hub support from the hard requirement.",),
+    )
+    overpaying = _candidate(
+        name="PriceyPanel PP27",
+        brand="PriceyPanel",
+        model="PP27",
+        price="720.00",
+        fit_score=0.8,
+    )
+    weak_evidence = _candidate(
+        name="SpecMaybe SM27",
+        brand="SpecMaybe",
+        model="SM27",
+        price="229.99",
+        fit_score=0.72,
+        evidence_score=0.25,
+        quality=SourceQualityLevel.WEAK,
+    )
+    candidates = (good, poor_fit, missing_required, overpaying, weak_evidence)
     return ComparisonDecisionAgentInput(
         run_id=new_id(),
         brief=brief,
@@ -323,6 +410,47 @@ async def test_live_comparison_decision_accepts_valid_monitor_bundle() -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_comparison_decision_completes_missing_modes_from_same_analysis() -> None:
+    input_data = _monitor_shortlist_input()
+    partial_output = _valid_bundle(input_data).model_dump(mode="json")
+    partial_output["final_rationale"] = "Model best-overall reasoning stays visible."
+    partial_output["mode_results"] = [
+        mode for mode in partial_output["mode_results"] if mode["mode"] == "best_value"
+    ]
+    runner = RecordingComparisonDecisionRunner(output=partial_output)
+    agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    primary_modes = [
+        mode.mode
+        for mode in result.mode_results
+        if mode.mode != RecommendationMode.RUNNER_UP
+    ]
+    best_overall = next(
+        mode
+        for mode in result.mode_results
+        if mode.mode == RecommendationMode.BEST_OVERALL
+    )
+    stretch = next(
+        mode
+        for mode in result.mode_results
+        if mode.mode == RecommendationMode.STRETCH_PICK
+    )
+    assert runner.calls == 1
+    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    assert set(primary_modes) >= {
+        RecommendationMode.BEST_OVERALL,
+        RecommendationMode.BEST_VALUE,
+        RecommendationMode.WITHIN_BUDGET,
+        RecommendationMode.STRETCH_PICK,
+    }
+    assert len(primary_modes) == len(set(primary_modes))
+    assert best_overall.rationale == "Model best-overall reasoning stays visible."
+    assert stretch.title == "Stretch upgrade"
+
+
+@pytest.mark.asyncio
 async def test_live_comparison_decision_mock_generates_modes_without_forced_rejections() -> None:
     input_data = _monitor_shortlist_input()
     runner = MockComparisonDecisionModelRunner()
@@ -342,6 +470,53 @@ async def test_live_comparison_decision_mock_generates_modes_without_forced_reje
     assert result.runner_up_product_ids
     assert result.rejected_items == ()
     assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+
+
+@pytest.mark.asyncio
+async def test_live_comparison_decision_filters_low_severity_forced_rejections() -> None:
+    input_data = _monitor_shortlist_input()
+    output = _valid_bundle(input_data).model_dump(mode="json")
+    output["rejected_items"] = [
+        {
+            "product_id": str(input_data.products[1].product_id),
+            "listing_id": str(input_data.listings[1].listing_id),
+            "reason_code": "poor_fit",
+            "reason": "Not the strongest overall winner.",
+            "severity": "low",
+            "evidence_ids": [str(input_data.evidence[1].evidence_id)],
+            "source_ids": [str(input_data.evidence[1].source_id)],
+        }
+    ]
+    runner = RecordingComparisonDecisionRunner(output=output)
+    agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    assert runner.calls == 1
+    assert result.rejected_items == ()
+    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+
+
+@pytest.mark.asyncio
+async def test_live_comparison_decision_mock_uses_conditional_avoid_reasons() -> None:
+    input_data = _conditional_rejection_input()
+    runner = MockComparisonDecisionModelRunner()
+    agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    assert result.final_product_id == input_data.products[0].product_id
+    assert result.rejected_items
+    assert {item.reason_code for item in result.rejected_items} == {
+        RejectionReason.POOR_FIT,
+        RejectionReason.MISSING_CRITICAL_FEATURE,
+        RejectionReason.OVERPAYING,
+        RejectionReason.WEAK_EVIDENCE,
+    }
+    assert all(item.evidence_ids for item in result.rejected_items)
+    assert any("required feature" in warning for warning in result.warnings)
+    assert any("poor fit" in warning for warning in result.warnings)
+    assert any("weak evidence" in warning for warning in result.warnings)
 
 
 @pytest.mark.asyncio
@@ -378,6 +553,9 @@ async def test_live_comparison_decision_rejects_hard_cap_over_budget_pick() -> N
         for mode in result.mode_results
     )
     assert any("hard budget" in item.reason.casefold() for item in result.rejected_items)
+    assert any(
+        item.reason_code == RejectionReason.OVERPAYING for item in result.rejected_items
+    )
 
 
 @pytest.mark.asyncio
@@ -446,6 +624,7 @@ async def test_live_comparison_decision_soft_stretch_without_alternative_no_stro
     assert result.final_product_id is None
     assert result.no_strong_buy_reason is not None
     assert "preferred budget" in result.no_strong_buy_reason.casefold()
+    assert "next" in result.no_strong_buy_reason.casefold()
 
 
 @pytest.mark.asyncio
@@ -461,7 +640,34 @@ async def test_live_comparison_decision_mock_returns_explicit_no_strong_buy() ->
     assert result.final_product_id is None
     assert result.no_strong_buy_reason is not None
     assert "suspicious" in result.no_strong_buy_reason.casefold()
+    assert "safer" in result.no_strong_buy_reason.casefold()
+    assert "next" in result.no_strong_buy_reason.casefold()
     assert any(item.severity == "blocking" for item in result.rejected_items)
+    assert any(
+        item.reason_code == RejectionReason.SUSPICIOUS_LISTING
+        for item in result.rejected_items
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_comparison_decision_no_strong_buy_for_weak_evidence_set() -> None:
+    input_data = _weak_evidence_shortlist_input()
+    runner = MockComparisonDecisionModelRunner()
+    agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    assert runner.calls == 1
+    assert result.no_strong_buy is True
+    assert result.final_product_id is None
+    assert result.no_strong_buy_reason is not None
+    reason = result.no_strong_buy_reason.casefold()
+    assert "no candidate is a strong buy" in reason
+    assert "clearer product evidence" in reason
+    assert "next" in reason
+    assert {item.reason_code for item in result.rejected_items} == {
+        RejectionReason.WEAK_EVIDENCE
+    }
 
 
 @pytest.mark.asyncio
@@ -555,6 +761,10 @@ def _candidate(
     fit_score: float,
     trust_level: ListingTrustLevel = ListingTrustLevel.REASONABLE,
     quality: SourceQualityLevel = SourceQualityLevel.ADEQUATE,
+    evidence_score: float | None = None,
+    weaknesses: tuple[str, ...] = (
+        "Tradeoffs remain around price, trust, or evidence depth.",
+    ),
 ) -> tuple[
     CanonicalProduct,
     ProductListing,
@@ -563,6 +773,7 @@ def _candidate(
     ListingTrustAssessment,
 ]:
     source_id = new_id()
+    evidence_score = fit_score if evidence_score is None else evidence_score
     product = CanonicalProduct(
         name=name,
         brand=brand,
@@ -581,7 +792,7 @@ def _candidate(
         ),
         price=Money(amount=price, currency="USD"),
         source_ids=(source_id,),
-        source_quality=SourceQuality(level=quality, score=fit_score),
+        source_quality=SourceQuality(level=quality, score=evidence_score),
     )
     product = product.model_copy(update={"listing_ids": (listing.listing_id,)})
     evidence = SourceEvidence(
@@ -592,8 +803,8 @@ def _candidate(
         ),
         evidence_type=EvidenceType.PRODUCT_SPEC,
         claim=f"{name} has source-backed monitor facts for the shortlist.",
-        confidence=_confidence(fit_score),
-        source_quality=SourceQuality(level=quality, score=fit_score),
+        confidence=_confidence(evidence_score),
+        source_quality=SourceQuality(level=quality, score=evidence_score),
     )
     analysis = CategoryAnalysis(
         product_id=product.product_id,
@@ -601,7 +812,7 @@ def _candidate(
         category="monitor",
         fit_summary=f"{name} was analyzed for the monitor brief.",
         strengths=("Source-backed monitor fit signals are available.",),
-        weaknesses=("Tradeoffs remain around price, trust, or evidence depth.",),
+        weaknesses=weaknesses,
         warnings=(
             ("Evidence is limited.",)
             if quality in {SourceQualityLevel.WEAK, SourceQualityLevel.MIXED}

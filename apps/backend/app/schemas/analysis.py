@@ -57,6 +57,14 @@ class RecommendationMode(StrEnum):
     RUNNER_UP = "runner_up"
 
 
+class RejectionReason(StrEnum):
+    SUSPICIOUS_LISTING = "suspicious_listing"
+    POOR_FIT = "poor_fit"
+    OVERPAYING = "overpaying"
+    MISSING_CRITICAL_FEATURE = "missing_critical_feature"
+    WEAK_EVIDENCE = "weak_evidence"
+
+
 class RejectionSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -154,10 +162,23 @@ class RecommendationModeResult(CartCartBaseModel):
 class RejectedItem(CartCartBaseModel):
     product_id: ProductId | None = None
     listing_id: ListingId | None = None
+    reason_code: RejectionReason
     reason: str = Field(min_length=1, max_length=1000)
     severity: RejectionSeverity = RejectionSeverity.MEDIUM
     evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_legacy_reason_code(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if data.get("reason_code"):
+            return data
+        reason = data.get("reason")
+        if not isinstance(reason, str):
+            return data
+        return {**data, "reason_code": _infer_rejection_reason_code(reason)}
 
     @model_validator(mode="after")
     def _requires_rejected_target(self) -> "RejectedItem":
@@ -207,3 +228,38 @@ class RecommendationBundle(VersionedSchema):
                 "no_strong_buy_reason is only valid when no_strong_buy is true."
             )
         return self
+
+
+def _infer_rejection_reason_code(reason: str) -> RejectionReason:
+    normalized = reason.casefold()
+    if any(
+        marker in normalized
+        for marker in (
+            "suspicious",
+            "unsafe",
+            "seller",
+            "listing trust",
+            "risky listing",
+            "marketplace",
+        )
+    ):
+        return RejectionReason.SUSPICIOUS_LISTING
+    if any(marker in normalized for marker in ("budget", "price", "overpay")):
+        return RejectionReason.OVERPAYING
+    if any(
+        marker in normalized
+        for marker in ("missing", "lacks", "without", "required", "critical")
+    ):
+        return RejectionReason.MISSING_CRITICAL_FEATURE
+    if any(
+        marker in normalized
+        for marker in (
+            "weak evidence",
+            "sparse evidence",
+            "sparse product evidence",
+            "not enough evidence",
+            "source evidence",
+        )
+    ):
+        return RejectionReason.WEAK_EVIDENCE
+    return RejectionReason.POOR_FIT

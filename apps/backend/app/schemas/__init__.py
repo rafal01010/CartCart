@@ -14,6 +14,7 @@ from app.schemas.analysis import (
     RecommendationMode,
     RecommendationModeResult,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
 )
 from app.schemas.base import CartCartBaseModel, SchemaVersion, VersionedSchema
@@ -232,6 +233,7 @@ __all__ = [
     "RecommendationMode",
     "RecommendationModeResult",
     "RejectedItem",
+    "RejectionReason",
     "RejectionSeverity",
     "ReusableSourceIntelligenceRequest",
     "RunId",

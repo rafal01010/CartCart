@@ -51,12 +51,16 @@ The orchestrator:
 5. Calls the configured search provider and persists policy-scored search
    results. In live workflow mode, `DiscoveryAgent` selects source IDs only from
    those supplied search results.
-6. Sends eligible selected page results through the configured extraction provider,
-   persists linked snapshots, and creates normalized candidate data from usable
-   extraction outcomes.
-7. Deduplicates extracted candidates, persists grouped canonical products,
+6. Sends eligible selected page results and session user-added product URLs
+   through the configured extraction provider, persists linked snapshots, and
+   creates normalized candidate data from usable extraction outcomes. User-added
+   URL snapshots are tied directly to the user-supplied candidate rather than to
+   a search-result record.
+7. Deduplicates extracted generated and user-added URL candidates together,
+   persists grouped canonical products,
    listing records, and shortlist memberships, and reports pre/post grouping
-   counts.
+   counts. When a user-added URL extracts successfully, the session's
+   `UserAddedProduct` record is updated with the deduped product/listing.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
    workflow mode, the reusable source-intelligence agents call only their typed
@@ -190,14 +194,20 @@ monitor-shopping scenario. It persists:
 - Duplicate Dell listings that preserve listing identity.
 - Suspicious seller/listing trust assessments.
 - Category analyses for generated and user-added candidates.
-- A trust-aware best pick, runner-ups, rejected listing items, warnings,
-  comparison matrix, and recommendation bundle.
+- A trust-aware best pick, best-value, within-budget, stretch-upgrade, runner-up,
+  rejected listing items, warnings, comparison matrix, and recommendation bundle.
+- No-strong-buy output when no candidate clears the fit, budget, evidence, and
+  listing-trust bar, with plain next-step guidance for the shopper.
 
 The fixture best pick is the Dell UltraSharp U2724DE official listing. The
 fixture includes a suspicious duplicate marketplace listing for the same Dell
 monitor and rejects that duplicate as a bad listing rather than a bad product.
 It also rejects the user-added ViewPro listing because seller/source signals are
 weak.
+
+Recommendation modes are stored inside the persisted `RecommendationBundle`.
+Switching between best overall, best value, within-budget, and stretch-upgrade
+views on the frontend reads that stored bundle and does not create a new run.
 
 ## Result Versioning
 

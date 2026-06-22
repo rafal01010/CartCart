@@ -228,6 +228,9 @@ Required result surfaces when available:
 - One final best pick or an explicit no-strong-buy outcome.
 - Runner-ups.
 - Recommendation modes from the same analysis pass.
+- Switching between result modes should be a local view change over the stored
+  result bundle. The best-overall summary remains visible and the UI must not
+  imply that another search or analysis run has started.
 - Meaningful comparison details.
 - Seller/listing trust notes.
 - Warnings and red flags.
@@ -237,12 +240,19 @@ Required result surfaces when available:
   listing safety as separate ideas so a good product from a bad listing is not
   mistaken for a bad product.
 
-No-strong-buy is a valid outcome, not an error. It should explain what blocked a
-responsible recommendation and what the user can do next.
+No-strong-buy is a valid outcome, not an error. It should say that none of the
+candidates are strong buys, explain what blocked a responsible recommendation,
+and give the user a concrete next step such as checking safer sellers, looking
+for stronger evidence, adjusting budget, or asking for more candidates.
 
 ## Source And Trust Details
 
 Source evidence should support inspection without becoming the main interface.
+The frontend keeps source inspection collapsed by default. Recommendation
+rationales, warnings/red flags, trust notes, avoid reasons, and source cards
+should each open the evidence snippets and source metadata that support the
+displayed claim, using neutral outbound links and omitting provider/debug
+payloads.
 
 Acceptance checklist:
 

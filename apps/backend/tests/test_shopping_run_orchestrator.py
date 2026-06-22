@@ -69,6 +69,7 @@ from app.schemas.search_sources import (
     VideoSource,
     VideoTranscriptSegment,
 )
+from app.schemas.products import UserAddedProduct
 
 
 class RecordingSearchProvider:
@@ -359,11 +360,13 @@ class RecordingGenericAnalystAgent:
 class RecordingComparisonDecisionAgent:
     def __init__(self) -> None:
         self.workbench_activity = ()
+        self.calls: list[ComparisonDecisionAgentInput] = []
 
     async def run(
         self,
         input_data: ComparisonDecisionAgentInput,
     ) -> RecommendationBundle:
+        self.calls.append(input_data)
         product = input_data.products[0]
         listing = next(
             item for item in input_data.listings if item.product_id == product.product_id
@@ -617,6 +620,14 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         assert result.recommendation_bundle.final_product_id == (
             fixture.recommendation_bundle.final_product_id
         )
+        assert {
+            mode.mode for mode in result.recommendation_bundle.mode_results
+        } >= {
+            RecommendationMode.BEST_OVERALL,
+            RecommendationMode.BEST_VALUE,
+            RecommendationMode.WITHIN_BUDGET,
+            RecommendationMode.STRETCH_PICK,
+        }
         assert len(result.recommendation_bundle.runner_up_product_ids) == 2
         assert result.recommendation_bundle.rejected_items[0].listing_id == (
             user_added[0].listing.listing_id
@@ -986,6 +997,123 @@ async def test_deduplication_stage_groups_extracted_candidates_before_later_stag
         assert set(context.source_intelligence.request.listing_ids) == {
             listing.listing_id for listing in listings
         }
+
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_added_url_product_enters_deduplication_and_live_analysis(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-user-added-url.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    extraction_provider = RecordingExtractionProvider()
+    analyst = RecordingGenericAnalystAgent()
+    comparison_agent = RecordingComparisonDecisionAgent()
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            create_request = CreateSessionRequest(query="Need a USB-C monitor")
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=create_request,
+                current_brief=ShoppingBrief(
+                    original_query=create_request.query,
+                    category="monitor",
+                    category_source=FieldSource.USER_PROVIDED,
+                ),
+            )
+            user_added = await ProductRepository(db_session).add_user_added_product(
+                shopping_session.session_id,
+                UserAddedProduct(
+                    url=AnyHttpUrl(
+                        "https://shop.example/northstar-arc-27?utm_source=user"
+                    ),
+                    notes="User pasted this listing.",
+                ),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                agent_model_name="gpt-recording",
+                intake_agent=RecordingIntakeAgent(),
+                query_planner=RecordingQueryPlannerAgent(),
+                discovery_agent=SelectingDiscoveryAgent(),
+                category_router_agent=RecordingCategoryRouterAgent(),
+                generic_product_analyst_agent=analyst,
+                seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
+                comparison_decision_agent=comparison_agent,
+                verifier_critic_agent=RecordingVerifierCriticAgent(),
+                search_provider=ListingSearchProvider(),
+                extraction_provider=extraction_provider,
+                default_region_code="US",
+            )
+
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+                original_input=shopping_session.original_input,
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            product_repository = ProductRepository(db_session)
+            search_repository = SearchSourceRepository(db_session)
+            saved_user_added = await product_repository.list_user_added_products(
+                shopping_session.session_id
+            )
+            shortlist = await product_repository.list_shortlist_memberships(run.run_id)
+            snapshots = await search_repository.list_source_snapshots(run.run_id)
+
+        assert len(extraction_provider.calls) == 2
+        assert context.deduplication is not None
+        assert context.deduplication.pre_dedupe_count == 2
+        assert context.deduplication.post_dedupe_count == 1
+        assert len(context.user_added_products) == 1
+        assert context.user_added_products[0].listing is not None
+        assert saved_user_added[0].listing is not None
+        assert saved_user_added[0].product is not None
+        assert saved_user_added[0].product.product_id == (
+            context.deduplication.result.groups[0].product.product_id
+        )
+        assert shortlist[0].candidate_id == user_added.candidate_id
+
+        user_added_snapshot = next(
+            snapshot
+            for snapshot in snapshots
+            if snapshot.provider.raw.get("user_added_candidate_id")
+            == str(user_added.candidate_id)
+        )
+        assert user_added_snapshot.provider.raw["user_supplied_url"] == str(
+            user_added.url
+        )
+        assert len(analyst.calls) == 1
+        assert user_added_snapshot.source_id in analyst.calls[0].product.source_ids
+        assert len(comparison_agent.calls) == 1
+        assert comparison_agent.calls[0].user_added_products[0].candidate_id == (
+            user_added.candidate_id
+        )
+        assert comparison_agent.calls[0].user_added_products[0].listing is not None
 
     finally:
         await engine.dispose()

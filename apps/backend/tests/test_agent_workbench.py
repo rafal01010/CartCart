@@ -253,6 +253,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in comparison["scenarios"]} >= {
         "comparison/monitor-shortlist",
         "comparison/no-strong-buy",
+        "comparison/weak-candidates",
     }
     assert comparison["modes"] == ["fixture", "mock", "live"]
     verifier = next(
@@ -454,7 +455,30 @@ def test_workbench_mock_comparison_no_strong_buy_returns_explicit_outcome() -> N
     assert body["output"]["no_strong_buy"] is True
     assert body["output"]["final_product_id"] is None
     assert body["output"]["no_strong_buy_reason"]
+    assert "next" in body["output"]["no_strong_buy_reason"].casefold()
     assert body["output"]["rejected_items"]
+
+
+def test_workbench_mock_comparison_weak_candidates_returns_next_steps() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "ComparisonDecisionAgent",
+            "scenario_name": "comparison/weak-candidates",
+            "mode": "mock",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output"]["no_strong_buy"] is True
+    assert body["output"]["final_product_id"] is None
+    reason = body["output"]["no_strong_buy_reason"].casefold()
+    assert "no candidate is a strong buy" in reason
+    assert "clearer product evidence" in reason
+    assert "next" in reason
 
 
 def test_workbench_mock_intake_preserves_ambiguous_category() -> None:

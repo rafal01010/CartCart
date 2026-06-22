@@ -56,6 +56,12 @@ export type RecommendationMode =
 	| 'stretch_pick'
 	| 'runner_up';
 export type RejectionSeverity = 'low' | 'medium' | 'high' | 'blocking';
+export type RejectionReason =
+	| 'suspicious_listing'
+	| 'poor_fit'
+	| 'overpaying'
+	| 'missing_critical_feature'
+	| 'weak_evidence';
 
 export interface Money {
 	amount: string | number;
@@ -378,6 +384,26 @@ export interface SourceQuality {
 	rationale?: string | null;
 }
 
+export interface TimestampReference {
+	start_seconds: number;
+	end_seconds?: number | null;
+	label?: string | null;
+}
+
+export interface VideoSource {
+	video_id: string;
+	url: string;
+	title?: string | null;
+	channel_name?: string | null;
+	published_at?: Timestamp | null;
+	duration_seconds?: number | null;
+	transcript_availability: string;
+	sponsorship_disclosed?: boolean | null;
+	affiliate_links_disclosed?: boolean | null;
+	affiliate_bias_risk?: Confidence | null;
+	bias_notes?: string | null;
+}
+
 export interface SourceSnapshot {
 	schema_version: number;
 	source_id: EntityId;
@@ -386,8 +412,10 @@ export interface SourceSnapshot {
 	provider: JsonObject;
 	title?: string | null;
 	extraction_status: string;
+	http_status_code?: number | null;
 	quality: SourceQuality;
 	captured_at: Timestamp;
+	video?: VideoSource | null;
 }
 
 export interface SourceEvidence {
@@ -398,6 +426,8 @@ export interface SourceEvidence {
 	claim: string;
 	confidence: Confidence;
 	source_quality: SourceQuality;
+	timestamp_references?: TimestampReference[];
+	video?: VideoSource | null;
 }
 
 export interface ListingTrustAssessment {
@@ -461,6 +491,7 @@ export interface RecommendationModeResult {
 export interface RejectedItem {
 	product_id?: EntityId | null;
 	listing_id?: EntityId | null;
+	reason_code: RejectionReason;
 	reason: string;
 	severity: RejectionSeverity;
 	evidence_ids: EntityId[];

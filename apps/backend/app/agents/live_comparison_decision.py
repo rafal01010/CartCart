@@ -22,6 +22,7 @@ from app.schemas.analysis import (
     RecommendationMode,
     RecommendationModeResult,
     RejectedItem,
+    RejectionReason,
     RejectionSeverity,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
@@ -37,12 +38,54 @@ _REQUIRED_PICK_MODES = frozenset(
         RecommendationMode.BEST_VALUE,
     }
 )
+_PRIMARY_MODE_ORDER = (
+    RecommendationMode.BEST_OVERALL,
+    RecommendationMode.BEST_VALUE,
+    RecommendationMode.WITHIN_BUDGET,
+    RecommendationMode.STRETCH_PICK,
+)
 _BLOCKING_TRUST_LEVELS = frozenset({ListingTrustLevel.SUSPICIOUS})
 _WEAK_TRUST_LEVELS = frozenset(
     {
         ListingTrustLevel.WEAK,
         ListingTrustLevel.UNKNOWN,
     }
+)
+_MEANINGFUL_REJECTION_SEVERITIES = frozenset(
+    {
+        RejectionSeverity.MEDIUM,
+        RejectionSeverity.HIGH,
+        RejectionSeverity.BLOCKING,
+    }
+)
+_POOR_FIT_THRESHOLD = 0.45
+_WEAK_EVIDENCE_THRESHOLD = 0.35
+_SOFT_OVERPAYING_VALUE_THRESHOLD = 0.32
+_MISSING_FEATURE_MARKERS = (
+    "missing",
+    "lacks",
+    "without",
+    "does not include",
+    "doesn't include",
+)
+_CRITICAL_REQUIREMENT_MARKERS = (
+    "critical",
+    "required",
+    "must-have",
+    "must have",
+    "hard requirement",
+    "hard constraint",
+)
+_NO_STRONG_BUY_NEXT_STEP_MARKERS = (
+    "next,",
+    "next step",
+    "try ",
+    "look for ",
+    "ask cartcart",
+    "wait for ",
+    "raise the budget",
+    "add clearer",
+    "use a runner-up",
 )
 
 
@@ -326,8 +369,22 @@ def _normalize_recommendation_bundle(
     mode_results = tuple(
         _normalize_mode_result(result, input_data) for result in bundle.mode_results
     )
+    no_strong_buy_reason = bundle.no_strong_buy_reason
+    if bundle.no_strong_buy:
+        decisions = _candidate_decisions(input_data)
+        no_strong_buy_reason = _with_no_strong_buy_next_steps(
+            no_strong_buy_reason or _no_strong_buy_reason(decisions, input_data),
+            _no_strong_buy_next_step(decisions, input_data),
+        )
+    if not bundle.no_strong_buy:
+        mode_results = _complete_mode_results(bundle, mode_results, input_data)
     rejected_items = tuple(
-        _normalize_rejected_item(item, input_data) for item in bundle.rejected_items
+        item
+        for item in (
+            _normalize_rejected_item(item, input_data)
+            for item in bundle.rejected_items
+        )
+        if _is_meaningful_rejected_item(item)
     )
     for product_id in bundle.runner_up_product_ids:
         _validate_known_product_id(product_id, input_data)
@@ -343,6 +400,7 @@ def _normalize_recommendation_bundle(
             "mode_results": mode_results,
             "comparison_matrix": matrix,
             "rejected_items": rejected_items,
+            "no_strong_buy_reason": no_strong_buy_reason,
             "evidence_ids": evidence_ids,
             "source_ids": source_ids,
         }
@@ -388,6 +446,127 @@ def _normalize_rejected_item(
     _validate_known_evidence_ids(item.evidence_ids, input_data)
     source_ids = _normalize_source_ids(item.source_ids, item.evidence_ids, input_data)
     return item.model_copy(update={"source_ids": source_ids})
+
+
+def _is_meaningful_rejected_item(item: RejectedItem) -> bool:
+    return bool(item.reason.strip()) and item.severity in _MEANINGFUL_REJECTION_SEVERITIES
+
+
+def _complete_mode_results(
+    bundle: RecommendationBundle,
+    mode_results: tuple[RecommendationModeResult, ...],
+    input_data: ComparisonDecisionAgentInput,
+) -> tuple[RecommendationModeResult, ...]:
+    decisions = _candidate_decisions(input_data)
+    generated_results = _generated_mode_results(bundle, decisions, input_data)
+    primary_by_mode: dict[RecommendationMode, RecommendationModeResult] = {}
+    runner_ups: list[RecommendationModeResult] = []
+
+    for result in (*mode_results, *generated_results):
+        if result.mode == RecommendationMode.RUNNER_UP:
+            runner_ups.append(result)
+            continue
+        primary_by_mode.setdefault(result.mode, result)
+
+    ordered_results = tuple(
+        primary_by_mode[mode] for mode in _PRIMARY_MODE_ORDER if mode in primary_by_mode
+    )
+    return (*ordered_results, *_dedupe_runner_up_modes(runner_ups))
+
+
+def _generated_mode_results(
+    bundle: RecommendationBundle,
+    decisions: tuple[_CandidateDecision, ...],
+    input_data: ComparisonDecisionAgentInput,
+) -> tuple[RecommendationModeResult, ...]:
+    best = _decision_for_bundle_pick(bundle, decisions)
+    if best is None:
+        recommendable_by_score = _recommendable_decisions(decisions)
+        best = recommendable_by_score[0] if recommendable_by_score else None
+    if best is None:
+        return ()
+
+    recommendable = _recommendable_decisions(decisions)
+    mode_pool = recommendable or (best,)
+    runner_ups = _runner_up_decisions(bundle, mode_pool, best)
+    return _mode_results(
+        best,
+        runner_ups,
+        mode_pool,
+        decisions,
+        input_data,
+        best_rationale=bundle.final_rationale,
+    )
+
+
+def _decision_for_bundle_pick(
+    bundle: RecommendationBundle,
+    decisions: tuple[_CandidateDecision, ...],
+) -> _CandidateDecision | None:
+    if bundle.final_product_id is None:
+        return None
+    matching_product = tuple(
+        decision
+        for decision in decisions
+        if decision.product.product_id == bundle.final_product_id
+    )
+    if not matching_product:
+        return None
+    if bundle.final_listing_id is None:
+        return max(matching_product, key=lambda item: item.total_score)
+    return next(
+        (
+            decision
+            for decision in matching_product
+            if decision.listing_id == bundle.final_listing_id
+        ),
+        None,
+    )
+
+
+def _recommendable_decisions(
+    decisions: tuple[_CandidateDecision, ...],
+) -> tuple[_CandidateDecision, ...]:
+    return tuple(
+        decision
+        for decision in sorted(decisions, key=lambda item: item.total_score, reverse=True)
+        if _is_recommendable(decision)
+    )
+
+
+def _runner_up_decisions(
+    bundle: RecommendationBundle,
+    recommendable: tuple[_CandidateDecision, ...],
+    best: _CandidateDecision,
+) -> tuple[_CandidateDecision, ...]:
+    by_product_id = {decision.product.product_id: decision for decision in recommendable}
+    ordered: list[_CandidateDecision] = []
+    for product_id in bundle.runner_up_product_ids:
+        decision = by_product_id.get(product_id)
+        if decision is not None and decision.product.product_id != best.product.product_id:
+            ordered.append(decision)
+    for decision in recommendable:
+        if len(ordered) >= 2:
+            break
+        if decision.product.product_id == best.product.product_id:
+            continue
+        if all(item.product.product_id != decision.product.product_id for item in ordered):
+            ordered.append(decision)
+    return tuple(ordered[:2])
+
+
+def _dedupe_runner_up_modes(
+    runner_ups: Iterable[RecommendationModeResult],
+) -> tuple[RecommendationModeResult, ...]:
+    seen: set[tuple[ProductId, ListingId | None]] = set()
+    deduped = []
+    for result in runner_ups:
+        key = (result.product_id, result.listing_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(result)
+    return tuple(deduped)
 
 
 def _validate_recommendation_policy(
@@ -579,11 +758,7 @@ def _fallback_recommendation_bundle(
     decisions = _candidate_decisions(input_data)
     matrix = _comparison_matrix(decisions)
     rejected_items = _rejected_items(decisions)
-    recommendable = tuple(
-        decision
-        for decision in sorted(decisions, key=lambda item: item.total_score, reverse=True)
-        if _is_recommendable(decision)
-    )
+    recommendable = _recommendable_decisions(decisions)
 
     if not recommendable or _soft_budget_needs_no_strong_buy(decisions, input_data):
         evidence_ids = _bundle_evidence_ids(decisions, input_data)
@@ -827,17 +1002,22 @@ def _mode_results(
     recommendable: tuple[_CandidateDecision, ...],
     decisions: tuple[_CandidateDecision, ...],
     input_data: ComparisonDecisionAgentInput,
+    *,
+    best_rationale: str | None = None,
 ) -> tuple[RecommendationModeResult, ...]:
     results = [
         _mode_result(
             RecommendationMode.BEST_OVERALL,
             best,
             "Best overall",
-            _final_rationale(best),
+            best_rationale or _final_rationale(best),
         )
     ]
 
-    best_value = max(recommendable, key=lambda item: (item.value_score, item.total_score))
+    best_value = max(
+        recommendable or (best,),
+        key=lambda item: (item.value_score, item.total_score),
+    )
     results.append(
         _mode_result(
             RecommendationMode.BEST_VALUE,
@@ -866,7 +1046,9 @@ def _mode_results(
     stretch_candidates = tuple(
         decision
         for decision in decisions
-        if decision.over_budget and _is_soft_budget_stretch(decision, input_data)
+        if decision.over_budget
+        and _is_soft_budget_stretch(decision, input_data)
+        and _is_recommendable(decision)
     )
     if stretch_candidates:
         pick = max(stretch_candidates, key=lambda item: item.total_score)
@@ -874,7 +1056,7 @@ def _mode_results(
             _mode_result(
                 RecommendationMode.STRETCH_PICK,
                 pick,
-                "Stretch pick",
+                "Stretch upgrade",
                 "Worth considering only if the budget is flexible and the tradeoff is acceptable.",
             )
         )
@@ -905,7 +1087,10 @@ def _mode_result(
         rationale=rationale,
         confidence=_confidence(
             min(0.9, max(0.42, decision.total_score)),
-            "Confidence combines supplied fit analysis, price/budget fit, listing trust, and evidence quality.",
+            (
+                "Confidence combines supplied fit analysis, price/budget fit, "
+                "listing trust, and evidence quality."
+            ),
         ),
         evidence_ids=decision.evidence_ids,
         source_ids=decision.source_ids,
@@ -920,28 +1105,64 @@ def _rejected_items(decisions: tuple[_CandidateDecision, ...]) -> tuple[Rejected
                 RejectedItem(
                     product_id=decision.product.product_id,
                     listing_id=decision.listing_id,
-                    reason="Listing trust is suspicious, so it should not be treated as a safe buy.",
+                    reason_code=RejectionReason.SUSPICIOUS_LISTING,
+                    reason=(
+                        "Listing trust is suspicious, so it should not be treated "
+                        "as a safe buy."
+                    ),
                     severity=RejectionSeverity.BLOCKING,
                     evidence_ids=decision.evidence_ids,
                     source_ids=decision.source_ids,
                 )
             )
-        elif decision.hard_over_budget:
+        elif _has_missing_critical_feature(decision.analysis):
             items.append(
                 RejectedItem(
                     product_id=decision.product.product_id,
                     listing_id=decision.listing_id,
+                    reason_code=RejectionReason.MISSING_CRITICAL_FEATURE,
+                    reason=(
+                        "Missing a required feature or hard requirement from the "
+                        "shopping brief."
+                    ),
+                    severity=RejectionSeverity.HIGH,
+                    evidence_ids=decision.evidence_ids,
+                    source_ids=decision.source_ids,
+                )
+            )
+        elif _is_overpaying_rejection(decision):
+            items.append(
+                RejectedItem(
+                    product_id=decision.product.product_id,
+                    listing_id=decision.listing_id,
+                    reason_code=RejectionReason.OVERPAYING,
                     reason="Price is above the hard budget cap.",
                     severity=RejectionSeverity.HIGH,
                     evidence_ids=decision.evidence_ids,
                     source_ids=decision.source_ids,
                 )
             )
-        elif decision.evidence_score < 0.28:
+        elif _is_poor_fit_rejection(decision):
             items.append(
                 RejectedItem(
                     product_id=decision.product.product_id,
                     listing_id=decision.listing_id,
+                    reason_code=RejectionReason.POOR_FIT,
+                    reason=(
+                        "Poor fit for the stated shopping needs compared with the "
+                        "stronger options."
+                    ),
+                    severity=RejectionSeverity.MEDIUM,
+                    evidence_ids=decision.evidence_ids,
+                    source_ids=decision.source_ids,
+                )
+            )
+        elif _is_weak_evidence_rejection(decision):
+            items.append(
+                RejectedItem(
+                    product_id=decision.product.product_id,
+                    listing_id=decision.listing_id,
+                    reason_code=RejectionReason.WEAK_EVIDENCE,
                     reason="Source evidence is too weak to support a recommendation.",
                     severity=RejectionSeverity.MEDIUM,
                     evidence_ids=decision.evidence_ids,
@@ -954,9 +1175,16 @@ def _rejected_items(decisions: tuple[_CandidateDecision, ...]) -> tuple[Rejected
 def _is_recommendable(decision: _CandidateDecision) -> bool:
     if decision.unsafe_listing or decision.hard_over_budget:
         return False
+    if _has_missing_critical_feature(decision.analysis):
+        return False
+    if _is_poor_fit_rejection(decision) or _is_overpaying_rejection(decision):
+        return False
     if decision.trust is not None and decision.trust.level in _WEAK_TRUST_LEVELS:
         return False
-    return decision.total_score >= 0.56 and decision.evidence_score >= 0.35
+    return (
+        decision.total_score >= 0.56
+        and not _is_weak_evidence_rejection(decision)
+    )
 
 
 def _is_soft_budget_stretch(
@@ -1249,10 +1477,16 @@ def _evidence_ids_from_modes(
 def _row_summary(decision: _CandidateDecision) -> str:
     if decision.unsafe_listing:
         return "Rejected as a risky listing despite any product fit signals."
+    if _has_missing_critical_feature(decision.analysis):
+        return "Missing a required feature or hard requirement."
     if decision.hard_over_budget:
         return "Above the hard budget cap."
     if decision.trust is not None and decision.trust.level in _WEAK_TRUST_LEVELS:
         return "Listing trust is too weak for a confident recommendation."
+    if _is_poor_fit_rejection(decision):
+        return "Poor fit for the stated shopping needs."
+    if _is_weak_evidence_rejection(decision):
+        return "Evidence is too weak for a confident recommendation."
     return "Compared on fit, value, listing trust, and evidence quality."
 
 
@@ -1267,6 +1501,18 @@ def _bundle_warnings(decisions: tuple[_CandidateDecision, ...]) -> tuple[str, ..
     warnings = []
     if any(decision.over_budget for decision in decisions):
         warnings.append("At least one candidate is over the stated budget.")
+    if any(_has_missing_critical_feature(decision.analysis) for decision in decisions):
+        warnings.append(
+            "At least one candidate misses a required feature or hard requirement."
+        )
+    if any(_is_poor_fit_rejection(decision) for decision in decisions):
+        warnings.append(
+            "At least one candidate is a poor fit for the stated shopping needs."
+        )
+    if any(_is_weak_evidence_rejection(decision) for decision in decisions):
+        warnings.append(
+            "At least one candidate has weak evidence for a confident recommendation."
+        )
     if any(
         decision.trust is not None and decision.trust.level in _WEAK_TRUST_LEVELS
         for decision in decisions
@@ -1277,26 +1523,99 @@ def _bundle_warnings(decisions: tuple[_CandidateDecision, ...]) -> tuple[str, ..
     return tuple(warnings)
 
 
+def _has_missing_critical_feature(analysis: CategoryAnalysis | None) -> bool:
+    if analysis is None:
+        return False
+    text = " ".join((analysis.fit_summary, *analysis.weaknesses, *analysis.warnings))
+    normalized = text.casefold()
+    return any(marker in normalized for marker in _MISSING_FEATURE_MARKERS) and any(
+        marker in normalized for marker in _CRITICAL_REQUIREMENT_MARKERS
+    )
+
+
+def _is_overpaying_rejection(decision: _CandidateDecision) -> bool:
+    if decision.hard_over_budget:
+        return True
+    return (
+        decision.over_budget
+        and decision.value_score < _SOFT_OVERPAYING_VALUE_THRESHOLD
+    )
+
+
+def _is_poor_fit_rejection(decision: _CandidateDecision) -> bool:
+    return decision.fit_score < _POOR_FIT_THRESHOLD
+
+
+def _is_weak_evidence_rejection(decision: _CandidateDecision) -> bool:
+    return decision.evidence_score < _WEAK_EVIDENCE_THRESHOLD
+
+
 def _no_strong_buy_reason(
     decisions: tuple[_CandidateDecision, ...],
     input_data: ComparisonDecisionAgentInput,
 ) -> str:
     if any(decision.unsafe_listing for decision in decisions):
-        return (
+        reason = (
             "No candidate is a strong buy because the viable-looking options have "
             "suspicious listing trust or unsafe seller signals."
         )
-    if any(decision.hard_over_budget for decision in decisions):
-        return "No candidate is a strong buy within the hard budget cap."
-    if _soft_budget_needs_no_strong_buy(decisions, input_data):
-        return (
+    elif any(decision.hard_over_budget for decision in decisions):
+        reason = "No candidate is a strong buy within the hard budget cap."
+    elif _soft_budget_needs_no_strong_buy(decisions, input_data):
+        reason = (
             "No candidate is a strong buy because the credible options are stretch "
             "buys above the preferred budget without a solid within-budget alternative."
         )
-    return (
-        "No candidate has enough combined fit, value, evidence quality, and "
-        "listing trust to recommend confidently."
+    else:
+        reason = (
+            "No candidate is a strong buy because none has enough combined fit, "
+            "value, evidence quality, and listing trust to recommend confidently."
+        )
+    return _with_no_strong_buy_next_steps(
+        reason,
+        _no_strong_buy_next_step(decisions, input_data),
     )
+
+
+def _no_strong_buy_next_step(
+    decisions: tuple[_CandidateDecision, ...],
+    input_data: ComparisonDecisionAgentInput,
+) -> str:
+    if any(decision.unsafe_listing for decision in decisions):
+        return (
+            "Next, look for the same product from an established seller or compare "
+            "safer alternatives before buying."
+        )
+    if any(decision.hard_over_budget for decision in decisions):
+        return (
+            "Next, wait for a sale, raise the hard budget, or relax a "
+            "non-critical requirement before choosing one."
+        )
+    if _soft_budget_needs_no_strong_buy(decisions, input_data):
+        return (
+            "Next, raise the preferred budget or ask CartCart to look for more "
+            "options under the current budget."
+        )
+    if any(
+        _is_weak_evidence_rejection(decision)
+        or (decision.trust is not None and decision.trust.level in _WEAK_TRUST_LEVELS)
+        for decision in decisions
+    ):
+        return (
+            "Next, look for candidates with clearer product evidence, safer "
+            "seller information, or better fit before buying."
+        )
+    return (
+        "Next, add clearer must-haves or ask CartCart to look for more candidates "
+        "before buying."
+    )
+
+
+def _with_no_strong_buy_next_steps(reason: str, next_step: str) -> str:
+    normalized = reason.casefold()
+    if any(marker in normalized for marker in _NO_STRONG_BUY_NEXT_STEP_MARKERS):
+        return reason
+    return f"{reason.rstrip()} {next_step}"
 
 
 def _confidence(score: float, rationale: str) -> Confidence:

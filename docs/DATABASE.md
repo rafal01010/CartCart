@@ -326,7 +326,10 @@ Constraint: unique `(run_id, candidate_id)`.
 
 ### `user_added_products`
 
-Stores products or product URLs manually supplied by the user.
+Stores products or product URLs manually supplied by the user. URL entries start
+as session-local candidates and are updated with `run_id`, `product_id`, and
+`listing_id` when a run successfully extracts, deduplicates, and persists the
+user-supplied listing.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |

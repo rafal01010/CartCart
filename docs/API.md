@@ -236,13 +236,18 @@ products should participate in later analysis alongside app-generated
 candidates. Normal guided intake should ask users for product names or
 descriptions instead of asking them to paste product links.
 
-Current implementation accepts URL entries and lightweight manual product
-details, persists them as session-local `UserAddedProduct` records, and returns
-the updated session state. On the next shopping run, URL entries are fetched
-through the configured source extraction provider, normalized as product/listing
-candidates, deduplicated with app-generated candidates, and written back onto
-the user-added record when extraction succeeds. Manual product-only details
-remain lower-evidence placeholders until manual-entry support is expanded.
+Current implementation accepts URL entries, text-only product names/descriptions,
+and lightweight manual product details, persists them as session-local
+`UserAddedProduct` records, and returns the updated session state. On the next
+shopping run, text-only user-added products add scoped lookup queries to the
+query plan, matching provider results are selected by source ID during discovery,
+and selected listing/product sources are extracted through the same source
+pipeline as generated candidates. URL entries are fetched through the configured
+source extraction provider directly. Successful user-added matches are normalized
+as product/listing candidates, deduplicated with app-generated candidates, and
+written back onto the user-added record when extraction succeeds. Manual
+product-only details remain lower-evidence placeholders until manual-entry
+support is expanded.
 
 `POST /api/sessions/{session_id}/refinements`
 

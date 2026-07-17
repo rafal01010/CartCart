@@ -122,18 +122,28 @@ class LiveQueryPlannerAgent:
                 input_data.brief,
             )
         except TimeoutError:
-            plan = _fallback_search_plan(input_data.brief)
+            plan = _with_user_added_lookup_queries(
+                _fallback_search_plan(input_data.brief),
+                input_data,
+            )
             self._set_activity("timeout_fallback", input_data, plan)
             return plan
         except (ValidationError, ValueError, TypeError):
-            plan = _fallback_search_plan(input_data.brief)
+            plan = _with_user_added_lookup_queries(
+                _fallback_search_plan(input_data.brief),
+                input_data,
+            )
             self._set_activity("schema_invalid_fallback", input_data, plan)
             return plan
         except Exception:
-            plan = _fallback_search_plan(input_data.brief)
+            plan = _with_user_added_lookup_queries(
+                _fallback_search_plan(input_data.brief),
+                input_data,
+            )
             self._set_activity("error_fallback", input_data, plan)
             return plan
 
+        plan = _with_user_added_lookup_queries(plan, input_data)
         self._set_activity("model_query_plan_completed", input_data, plan)
         return plan
 
@@ -184,13 +194,16 @@ def _build_query_planner_agent(model: str) -> Agent[Any]:
             "shopping/listing, price or availability, official-source, and "
             "review queries when useful. Include video-review search when a "
             "normal shopper would benefit from demos, comparisons, durability, "
-            "or setup evidence. Every ordinary consumer product category must "
-            "receive a generic shopping plan; never refuse or block only "
-            "because no category specialist exists. Use the brief's region code "
-            "on every query when present, and do not invent a region when the "
-            "brief has none. Do not recommend products, browse, call tools, "
-            "mention internal process, or expose agents, providers, prompts, "
-            "traces, policies, or schemas."
+            "or setup evidence. If the input contains user_added_products with "
+            "product names or short descriptions, include scoped shopping or "
+            "official-source lookup queries for those products so CartCart can "
+            "find matching listings without asking for links. Every ordinary "
+            "consumer product category must receive a generic shopping plan; "
+            "never refuse or block only because no category specialist exists. "
+            "Use the brief's region code on every query when present, and do "
+            "not invent a region when the brief has none. Do not recommend "
+            "products, browse, call tools, mention internal process, or expose "
+            "agents, providers, prompts, traces, policies, or schemas."
         ),
         tools=[],
         output_type=SearchPlan,
@@ -202,6 +215,19 @@ def _model_input(input_data: QueryPlannerAgentInput) -> str:
         {
             "run_id": str(input_data.run_id),
             "brief": input_data.brief.model_dump(mode="json"),
+            "user_added_products": tuple(
+                {
+                    "candidate_id": str(user_added.candidate_id),
+                    "input_text": user_added.input_text,
+                    "product_name": (
+                        user_added.product.name
+                        if user_added.product is not None
+                        else None
+                    ),
+                    "has_url": user_added.url is not None,
+                }
+                for user_added in input_data.user_added_products
+            ),
         },
         sort_keys=True,
     )
@@ -405,7 +431,70 @@ def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
 def _mock_plan_from_model_input(model_input: str) -> SearchPlan:
     payload = json.loads(model_input)
     brief = ShoppingBrief.model_validate(payload["brief"])
-    return _fallback_search_plan(brief)
+    plan = _fallback_search_plan(brief)
+    user_added_queries = tuple(
+        query
+        for query in (
+            _user_added_lookup_query(item, _region_code_from_brief(brief))
+            for item in payload.get("user_added_products", ())
+        )
+        if query is not None
+    )
+    if not user_added_queries:
+        return plan
+    return plan.model_copy(
+        update={"queries": _dedupe_queries((*plan.queries, *user_added_queries))}
+    )
+
+
+def _with_user_added_lookup_queries(
+    plan: SearchPlan,
+    input_data: QueryPlannerAgentInput,
+) -> SearchPlan:
+    region_code = _region_code_from_brief(input_data.brief)
+    user_added_queries = tuple(
+        query
+        for query in (
+            _user_added_lookup_query(
+                {
+                    "input_text": item.input_text,
+                    "product_name": item.product.name if item.product else None,
+                    "has_url": item.url is not None,
+                },
+                region_code,
+            )
+            for item in input_data.user_added_products
+        )
+        if query is not None
+    )
+    if not user_added_queries:
+        return plan
+    return plan.model_copy(
+        update={"queries": _dedupe_queries((*plan.queries, *user_added_queries))}
+    )
+
+
+def _user_added_lookup_query(
+    item: dict[str, Any],
+    region_code: RegionCode | None,
+) -> SearchQuery | None:
+    if item.get("has_url"):
+        return None
+    lookup_text = _clean_query(
+        str(item.get("product_name") or item.get("input_text") or "")
+    )
+    if not lookup_text:
+        return None
+    return SearchQuery(
+        query=_clean_query(f"{lookup_text} official retailer listing"),
+        intent=SearchIntent.DISCOVERY,
+        region_code=region_code,
+        required_source_types=(
+            SourceType.RETAILER_LISTING,
+            SourceType.PRODUCT_PAGE,
+            SourceType.OFFICIAL_BRAND_PAGE,
+        ),
+    )
 
 
 def _query_descriptor(brief: ShoppingBrief) -> str:

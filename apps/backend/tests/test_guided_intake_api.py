@@ -113,6 +113,9 @@ def test_submit_followup_answer_captures_budget_and_known_product_without_links(
     assert budget_response.status_code == 200
     assert budget_response.json()["status"] == "collecting"
     assert budget_response.json()["current_question"]["question_id"] == "considered-products"
+    considered_question_text = budget_response.json()["current_question"]["text"]
+    assert "link" not in considered_question_text.casefold()
+    assert "url" not in considered_question_text.casefold()
 
     response = guided_api_client.post(
         f"/api/sessions/{session_id}/answers",

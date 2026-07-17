@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
 import re
+from typing import Any
 
 from pydantic import AnyHttpUrl
 
@@ -245,6 +246,19 @@ class FakeQueryPlannerAgent:
     async def run(self, input_data: QueryPlannerAgentInput) -> SearchPlan:
         if self.output is not None:
             return self.output
+        user_added_queries = tuple(
+            SearchQuery(
+                query=f"{_user_added_lookup_text(user_added)} official listing",
+                intent=SearchIntent.DISCOVERY,
+                required_source_types=(
+                    SourceType.RETAILER_LISTING,
+                    SourceType.PRODUCT_PAGE,
+                    SourceType.OFFICIAL_BRAND_PAGE,
+                ),
+            )
+            for user_added in input_data.user_added_products
+            if _user_added_lookup_text(user_added)
+        )
         return SearchPlan(
             queries=(
                 SearchQuery(
@@ -252,6 +266,7 @@ class FakeQueryPlannerAgent:
                     intent=SearchIntent.REVIEW,
                     required_source_types=(SourceType.PROFESSIONAL_REVIEW,),
                 ),
+                *user_added_queries,
             ),
             rationale="Fixture query plan.",
         )
@@ -1106,6 +1121,23 @@ def _routing_category(input_data: CategoryRouterAgentInput) -> str | None:
         return product_categories[0]
 
     return input_data.brief.original_query
+
+
+def _user_added_lookup_text(user_added: Any) -> str | None:
+    if getattr(user_added, "url", None) is not None:
+        return None
+    product = getattr(user_added, "product", None)
+    candidates = (
+        product.name if product is not None else None,
+        getattr(user_added, "input_text", None),
+    )
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        text = " ".join(candidate.split())
+        if text:
+            return text[:360]
+    return None
 
 
 def _source_snapshot() -> SourceSnapshot:

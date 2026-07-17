@@ -544,7 +544,7 @@ class RepositoryShoppingRunPersistenceHooks:
                 item.snapshot,
                 search_result_id=(
                     None
-                    if item.user_added_candidate_id is not None
+                    if _is_direct_user_added_url_extraction(item)
                     else item.search_result.source_id
                 ),
             )
@@ -1067,17 +1067,32 @@ class ShoppingRunOrchestrator:
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
         brief = context.active_brief
+        context.user_added_products = (
+            await self._persistence_hooks.load_user_added_products(context.session_id)
+        )
         plan = await self._query_planner.run(
-            QueryPlannerAgentInput(run_id=context.run_id, brief=brief)
+            QueryPlannerAgentInput(
+                run_id=context.run_id,
+                brief=brief,
+                user_added_products=context.user_added_products,
+            )
         )
         region_code = _effective_region_code(brief, self._default_region_code)
         plan = plan.model_copy(
             update={
-                "queries": tuple(
-                    query
-                    if query.region_code is not None
-                    else query.model_copy(update={"region_code": region_code})
-                    for query in plan.queries
+                "queries": _dedupe_search_queries(
+                    tuple(
+                        query
+                        if query.region_code is not None
+                        else query.model_copy(update={"region_code": region_code})
+                        for query in (
+                            *plan.queries,
+                            *_user_added_lookup_queries(
+                                context.user_added_products,
+                                region_code=region_code,
+                            ),
+                        )
+                    )
                 )
             }
         )
@@ -1113,10 +1128,17 @@ class ShoppingRunOrchestrator:
         discovered: list[SearchResult] = []
         for query in context.search_plan.queries:
             provider_results = await self._search_provider.search(query, options)
+            user_added = _user_added_product_for_lookup_query(
+                query,
+                context.user_added_products,
+            )
             discovered.extend(
                 _score_search_results(
                     tuple(
-                        _apply_planned_source_type(result, query)
+                        _mark_user_added_lookup_result(
+                            _apply_planned_source_type(result, query),
+                            user_added,
+                        )
                         for result in provider_results
                     ),
                     region_code=region_code,
@@ -1196,6 +1218,13 @@ class ShoppingRunOrchestrator:
                 result,
                 region_code=region_code,
             )
+            user_added_candidate_id = _user_added_candidate_id_from_search_result(result)
+            if user_added_candidate_id is not None:
+                snapshot = _link_snapshot_to_user_added_lookup(
+                    snapshot,
+                    result,
+                    user_added_candidate_id=user_added_candidate_id,
+                )
             listing_extraction = _listing_from_extracted_source(
                 self._listing_extractor,
                 result=result,
@@ -1207,6 +1236,7 @@ class ShoppingRunOrchestrator:
                     search_result=result,
                     snapshot=snapshot,
                     listing_extraction=listing_extraction,
+                    user_added_candidate_id=user_added_candidate_id,
                 )
             )
 
@@ -2141,6 +2171,108 @@ def _apply_planned_source_type(
     return result
 
 
+def _dedupe_search_queries(queries: tuple[SearchQuery, ...]) -> tuple[SearchQuery, ...]:
+    deduped: list[SearchQuery] = []
+    seen: set[tuple[str, str, tuple[str, ...], str | None]] = set()
+    for query in queries:
+        key = (
+            query.intent.value,
+            query.query.casefold(),
+            tuple(source_type.value for source_type in query.required_source_types),
+            query.region_code,
+        )
+        if key in seen:
+            continue
+        deduped.append(query)
+        seen.add(key)
+    return tuple(deduped)
+
+
+def _user_added_lookup_queries(
+    user_added_products: tuple[UserAddedProduct, ...],
+    *,
+    region_code: RegionCode,
+) -> tuple[SearchQuery, ...]:
+    return tuple(
+        SearchQuery(
+            query=f"{lookup_text} official retailer listing"[:500],
+            intent=SearchIntent.DISCOVERY,
+            region_code=region_code,
+            required_source_types=(
+                SourceType.RETAILER_LISTING,
+                SourceType.PRODUCT_PAGE,
+                SourceType.OFFICIAL_BRAND_PAGE,
+            ),
+        )
+        for lookup_text in (
+            _user_added_lookup_text(user_added) for user_added in user_added_products
+        )
+        if lookup_text is not None
+    )
+
+
+def _user_added_lookup_text(user_added: UserAddedProduct) -> str | None:
+    if user_added.url is not None:
+        return None
+    candidates = (
+        user_added.product.name if user_added.product is not None else None,
+        user_added.input_text,
+    )
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        text = " ".join(candidate.split())
+        if text:
+            return text[:360]
+    return None
+
+
+def _user_added_product_for_lookup_query(
+    query: SearchQuery,
+    user_added_products: tuple[UserAddedProduct, ...],
+) -> UserAddedProduct | None:
+    normalized_query = query.query.casefold()
+    for user_added in user_added_products:
+        lookup_text = _user_added_lookup_text(user_added)
+        if lookup_text is None:
+            continue
+        if lookup_text.casefold() in normalized_query:
+            return user_added
+    return None
+
+
+def _mark_user_added_lookup_result(
+    result: SearchResult,
+    user_added: UserAddedProduct | None,
+) -> SearchResult:
+    if user_added is None:
+        return result
+    provider = result.provider.model_copy(
+        update={
+            "raw": {
+                **result.provider.raw,
+                "user_added_candidate_id": str(user_added.candidate_id),
+                "user_supplied_query": user_added.input_text
+                or (
+                    user_added.product.name
+                    if user_added.product is not None
+                    else None
+                ),
+            }
+        }
+    )
+    return result.model_copy(update={"provider": provider})
+
+
+def _user_added_candidate_id_from_search_result(
+    result: SearchResult,
+) -> CandidateId | None:
+    candidate_id = result.provider.raw.get("user_added_candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        return None
+    return CandidateId(candidate_id)
+
+
 def _selected_extraction_results(
     results: tuple[SearchResult, ...],
     *,
@@ -2208,6 +2340,25 @@ def _link_snapshot_to_user_added_product(
             "provider": provider,
         }
     )
+
+
+def _link_snapshot_to_user_added_lookup(
+    snapshot: SourceSnapshot,
+    result: SearchResult,
+    *,
+    user_added_candidate_id: CandidateId,
+) -> SourceSnapshot:
+    provider = snapshot.provider.model_copy(
+        update={
+            "raw": {
+                **snapshot.provider.raw,
+                "user_added_candidate_id": str(user_added_candidate_id),
+                "user_supplied_query": result.provider.raw.get("user_supplied_query"),
+                "user_added_match_source_id": str(result.source_id),
+            }
+        }
+    )
+    return snapshot.model_copy(update={"provider": provider})
 
 
 def _user_added_search_result(
@@ -2350,6 +2501,10 @@ def _deduplicated_user_added_products(
             )
         )
     return tuple(updated)
+
+
+def _is_direct_user_added_url_extraction(item: DiscoveredSourceExtraction) -> bool:
+    return item.search_result.provider.provider_name == "user-added-url"
 
 
 def _user_added_candidate_ids_by_listing_id(

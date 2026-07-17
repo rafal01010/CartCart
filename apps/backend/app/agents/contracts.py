@@ -57,6 +57,7 @@ class ShoppingGuideAgentInput(VersionedSchema):
 class QueryPlannerAgentInput(VersionedSchema):
     run_id: RunId
     brief: ShoppingBrief
+    user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
 
 
 class DiscoveryAgentInput(VersionedSchema):

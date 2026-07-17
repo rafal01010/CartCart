@@ -428,6 +428,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 
 - User-added products must enter the same deduplication, extraction, trust, analysis, and decision pipeline as app-generated candidates.
 - Normal guided intake should ask for product names or descriptions, not product URLs.
+- Name- or description-based user-added products are translated into scoped lookup queries, resolved through provider search and discovery-selected source IDs, then extracted and normalized through the standard source/listing pipeline.
 - URL-based user-added products are an advanced or corrective path; the run workflow fetches and extracts them through the normal source/listing pipeline before deduplication, then marks the deduped product/listing as user-supplied.
 - Manual user-added products must preserve missing evidence rather than inventing specs, price, seller, or review claims.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.

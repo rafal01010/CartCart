@@ -47,20 +47,25 @@ The orchestrator:
 3. In fixture mode, records deterministic intake. In live workflow mode, runs
    `IntakeAgent` through the typed contract and merges inferred fields without
    overwriting existing user-provided brief fields.
-4. Builds and persists a search plan from the active shopping brief.
+4. Builds and persists a search plan from the active shopping brief. Text-only
+   user-added product names/descriptions are added as scoped lookup queries so
+   they can be found without asking the shopper for links.
 5. Calls the configured search provider and persists policy-scored search
    results. In live workflow mode, `DiscoveryAgent` selects source IDs only from
-   those supplied search results.
-6. Sends eligible selected page results and session user-added product URLs
-   through the configured extraction provider, persists linked snapshots, and
-   creates normalized candidate data from usable extraction outcomes. User-added
-   URL snapshots are tied directly to the user-supplied candidate rather than to
-   a search-result record.
-7. Deduplicates extracted generated and user-added URL candidates together,
+   those supplied search results, including search results that match a
+   user-added name/description.
+6. Sends eligible selected page results, selected user-added name/description
+   matches, and session user-added product URLs through the configured extraction
+   provider, persists linked snapshots, and creates normalized candidate data
+   from usable extraction outcomes. User-added URL snapshots are tied directly
+   to the user-supplied candidate rather than to a search-result record;
+   name/description matches retain their provider search-result link.
+7. Deduplicates extracted generated and user-added candidates together,
    persists grouped canonical products,
    listing records, and shortlist memberships, and reports pre/post grouping
-   counts. When a user-added URL extracts successfully, the session's
-   `UserAddedProduct` record is updated with the deduped product/listing.
+   counts. When a user-added URL or name/description match extracts
+   successfully, the session's `UserAddedProduct` record is updated with the
+   deduped product/listing.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
    workflow mode, the reusable source-intelligence agents call only their typed

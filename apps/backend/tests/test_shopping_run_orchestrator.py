@@ -156,6 +156,41 @@ class DuplicateListingSearchProvider:
         )
 
 
+class UserAddedNameSearchProvider:
+    provider_name = "fixture-user-added-name-search"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[SearchQuery, SearchProviderOptions | None]] = []
+
+    async def search(
+        self,
+        query: SearchQuery,
+        options: SearchProviderOptions | None = None,
+    ) -> tuple[SearchResult, ...]:
+        self.calls.append((query, options))
+        if "northstar arc 27" in query.query.casefold():
+            return (
+                SearchResult(
+                    query=query,
+                    url=AnyHttpUrl("https://shop.example/northstar-arc-27-user"),
+                    title="Northstar Arc 27 USB-C Monitor",
+                    snippet="Retail listing matching the user's named product.",
+                    source_type=SourceType.RETAILER_LISTING,
+                    provider=ProviderMetadata(provider_name=self.provider_name),
+                ),
+            )
+        return (
+            SearchResult(
+                query=query,
+                url=AnyHttpUrl("https://shop.example/northstar-arc-27"),
+                title="Northstar Arc 27 USB-C Monitor",
+                snippet="Generated retailer candidate.",
+                source_type=SourceType.RETAILER_LISTING,
+                provider=ProviderMetadata(provider_name=self.provider_name),
+            ),
+        )
+
+
 class RecordingExtractionProvider:
     provider_name = "recording-extraction"
 
@@ -168,8 +203,13 @@ class RecordingExtractionProvider:
         options: ExtractionProviderOptions | None = None,
     ) -> SourceSnapshot:
         self.calls.append((url, options))
+        seller = (
+            "FlashDealz Outlet"
+            if "northstar-arc-27-user" in str(url)
+            else "Metro Office"
+        )
         text = (
-            "Brand: Northstar\nPrice: USD 329.99\nSeller: Metro Office\n"
+            f"Brand: Northstar\nPrice: USD 329.99\nSeller: {seller}\n"
             "Region: US\nA 27 inch USB-C monitor for office work."
         )
         return SourceSnapshot(
@@ -298,6 +338,20 @@ class SelectingDiscoveryAgent:
 
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         selected = input_data.seed_results[:1]
+        return DiscoveryAgentOutput(
+            search_results=input_data.seed_results,
+            selected_source_ids=tuple(result.source_id for result in selected),
+            outcome=DiscoveryAgentOutcome.SELECTED,
+        )
+
+
+class SelectingGeneratedAndUserAddedDiscoveryAgent(SelectingDiscoveryAgent):
+    async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        selected = [
+            result
+            for index, result in enumerate(input_data.seed_results)
+            if index == 0 or "user_added_candidate_id" in result.provider.raw
+        ]
         return DiscoveryAgentOutput(
             search_results=input_data.seed_results,
             selected_source_ids=tuple(result.source_id for result in selected),
@@ -1113,6 +1167,133 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
         assert comparison_agent.calls[0].user_added_products[0].candidate_id == (
             user_added.candidate_id
         )
+        assert comparison_agent.calls[0].user_added_products[0].listing is not None
+
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-user-added-name.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    search_provider = UserAddedNameSearchProvider()
+    extraction_provider = RecordingExtractionProvider()
+    analyst = RecordingGenericAnalystAgent()
+    trust_agent = RecordingSellerListingTrustAgent()
+    comparison_agent = RecordingComparisonDecisionAgent()
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            create_request = CreateSessionRequest(query="Need a USB-C monitor")
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=create_request,
+                current_brief=ShoppingBrief(
+                    original_query=create_request.query,
+                    category="monitor",
+                    category_source=FieldSource.USER_PROVIDED,
+                ),
+            )
+            user_added = await ProductRepository(db_session).add_user_added_product(
+                shopping_session.session_id,
+                UserAddedProduct(input_text="Northstar Arc 27"),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                agent_model_name="gpt-recording",
+                intake_agent=RecordingIntakeAgent(),
+                query_planner=RecordingQueryPlannerAgent(),
+                discovery_agent=SelectingGeneratedAndUserAddedDiscoveryAgent(),
+                category_router_agent=RecordingCategoryRouterAgent(),
+                generic_product_analyst_agent=analyst,
+                seller_listing_trust_agent=trust_agent,
+                comparison_decision_agent=comparison_agent,
+                verifier_critic_agent=RecordingVerifierCriticAgent(),
+                search_provider=search_provider,
+                extraction_provider=extraction_provider,
+                default_region_code="US",
+            )
+
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+                original_input=shopping_session.original_input,
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            product_repository = ProductRepository(db_session)
+            search_repository = SearchSourceRepository(db_session)
+            saved_user_added = await product_repository.list_user_added_products(
+                shopping_session.session_id
+            )
+            shortlist = await product_repository.list_shortlist_memberships(run.run_id)
+            listings = await product_repository.list_listings_for_product(
+                shortlist[0].product_id
+            )
+            snapshots = await search_repository.list_source_snapshots(run.run_id)
+
+        assert [call[0].query for call in search_provider.calls] == [
+            "Need a USB-C monitor official listing",
+            "Northstar Arc 27 official retailer listing",
+        ]
+        assert len(extraction_provider.calls) == 2
+        assert context.deduplication is not None
+        assert context.deduplication.pre_dedupe_count == 2
+        assert context.deduplication.post_dedupe_count == 1
+        assert context.deduplication.collapsed_count == 1
+        assert shortlist[0].candidate_id == user_added.candidate_id
+        assert len(listings) == 2
+        assert {listing.seller.seller_name for listing in listings} == {
+            "Metro Office",
+            "FlashDealz Outlet",
+        }
+        assert {
+            call.listing.seller.seller_name
+            for call in trust_agent.calls
+            if call.listing.url.host == "shop.example"
+        } == {"Metro Office", "FlashDealz Outlet"}
+
+        assert saved_user_added[0].url is None
+        assert saved_user_added[0].listing is not None
+        assert saved_user_added[0].listing.seller.seller_name == "FlashDealz Outlet"
+        assert saved_user_added[0].product is not None
+        assert saved_user_added[0].product.product_id == shortlist[0].product_id
+
+        user_added_snapshot = next(
+            snapshot
+            for snapshot in snapshots
+            if snapshot.provider.raw.get("user_added_candidate_id")
+            == str(user_added.candidate_id)
+        )
+        assert user_added_snapshot.provider.raw["user_supplied_query"] == (
+            "Northstar Arc 27"
+        )
+        assert user_added_snapshot.provider.raw["user_added_match_source_id"]
+        assert user_added_snapshot.source_id in analyst.calls[0].product.source_ids
         assert comparison_agent.calls[0].user_added_products[0].listing is not None
 
     finally:

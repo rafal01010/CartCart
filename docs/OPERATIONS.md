@@ -349,6 +349,10 @@ Current backend variables:
 - `CARTCART_ARTIFACT_DIR`: local artifact directory. Defaults to `data/artifacts`.
 - `CARTCART_SOURCE_FETCH_MAX_CONTENT_BYTES`: maximum decoded HTML response body stored by the source fetcher. Defaults to `2097152` bytes.
 - `CARTCART_SOURCE_FETCH_USER_AGENT`: explicit user agent sent by the source fetcher. Defaults to `CartCart/0.1 source-fetcher`; do not configure browser impersonation or access-control bypass behavior.
+- `CARTCART_SOURCE_FETCH_MAX_ATTEMPTS`: bounded attempts for retryable source failures. Defaults to `2`; HTTP 401/403/407/451 and policy exclusions are not retried.
+- `CARTCART_SOURCE_FETCH_RETRY_BACKOFF_SECONDS`: initial exponential retry backoff. Defaults to `0.25` seconds and honors bounded numeric `Retry-After` values.
+- `CARTCART_SOURCE_FETCH_MAX_REDIRECTS`: maximum validated redirects per source. Defaults to `10`.
+- `CARTCART_SOURCE_EXTRACTION_MINIMUM_WORD_COUNT`: static text threshold below which a snapshot is marked partial. Defaults to `50` words.
 - `CARTCART_RAW_SOURCE_SNAPSHOT_RETENTION_DAYS`: retention window for raw source snapshots. Defaults to `30`.
 - `CARTCART_EXTRACTED_CONTENT_RETENTION_DAYS`: retention window for extracted text/Markdown. Defaults to `30`.
 - `CARTCART_SCREENSHOT_RETENTION_DAYS`: retention window for optional screenshots. Defaults to `7`.
@@ -390,7 +394,11 @@ behind `ExtractionProvider`. It requires no provider credential. `fixture`
 returns deterministic snapshots, and `disabled` returns an excluded snapshot
 without making a request. The removed Tavily extraction and generic SerpApi
 shopping settings must not be used; SerpApi remains available only for the
-Amazon intelligence adapter.
+Amazon intelligence adapter. Expected blocked, unavailable, oversized, or
+non-HTML sources are recorded as individual failed snapshots and do not fail the
+entire run. The fetcher rejects non-public destinations, including redirect
+targets, and must not be configured to impersonate browsers or bypass access
+controls.
 
 For local Tavily credentials, copy `apps/backend/.env.example` to
 `apps/backend/.env` and set:

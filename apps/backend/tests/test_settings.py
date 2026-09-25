@@ -52,6 +52,10 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
     assert settings.openai_agent_trace_workflow_name == "cartcart-agent-run"
     assert settings.source_fetch_max_content_bytes == 2 * 1024 * 1024
     assert settings.source_fetch_user_agent == "CartCart/0.1 source-fetcher"
+    assert settings.source_fetch_max_attempts == 2
+    assert settings.source_fetch_retry_backoff_seconds == 0.25
+    assert settings.source_fetch_max_redirects == 10
+    assert settings.source_extraction_minimum_word_count == 50
     assert settings.search_provider == SearchProviderName.FIXTURE
     assert settings.search_provider_enabled is False
     assert settings.extraction_provider == ExtractionProviderName.FIXTURE

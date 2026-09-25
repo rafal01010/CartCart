@@ -124,6 +124,10 @@ class Settings(BaseSettings):
         min_length=1,
         max_length=300,
     )
+    source_fetch_max_attempts: int = Field(default=2, ge=1, le=5)
+    source_fetch_retry_backoff_seconds: float = Field(default=0.25, ge=0, le=10)
+    source_fetch_max_redirects: int = Field(default=10, ge=0, le=20)
+    source_extraction_minimum_word_count: int = Field(default=50, ge=1, le=1000)
     search_provider: SearchProviderName = SearchProviderName.FIXTURE
     search_provider_enabled: bool = False
     extraction_provider: ExtractionProviderName = ExtractionProviderName.FIXTURE

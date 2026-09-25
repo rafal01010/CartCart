@@ -42,6 +42,7 @@ export type RunStage =
 	| 'discovery'
 	| 'extraction'
 	| 'deduplication'
+	| 'source_intelligence'
 	| 'listing_trust'
 	| 'category_analysis'
 	| 'comparison_decision'
@@ -127,9 +128,50 @@ export interface CanonicalProduct {
 	name: string;
 	brand?: string | null;
 	model?: string | null;
+	sku?: string | null;
+	upc?: string | null;
+	ean?: string | null;
 	category?: string | null;
 	source_ids: EntityId[];
 	listing_ids: EntityId[];
+}
+
+export interface SellerProfile {
+	seller_name: string;
+	seller_url?: string | null;
+	marketplace_name?: string | null;
+	is_marketplace_seller?: boolean | null;
+	trust_signal: ListingTrustLevel;
+	trust_confidence?: Confidence | null;
+	trust_notes?: string | null;
+	source_ids: EntityId[];
+}
+
+export interface RegionAvailability {
+	region_code: string;
+	status: string;
+	source_ids: EntityId[];
+	checked_at?: Timestamp | null;
+	notes?: string | null;
+}
+
+export interface ProductListing {
+	schema_version: number;
+	listing_id: EntityId;
+	product_id: EntityId;
+	title: string;
+	url: string;
+	canonical_url?: string | null;
+	retailer_id?: string | null;
+	sku?: string | null;
+	upc?: string | null;
+	ean?: string | null;
+	seller: SellerProfile;
+	price?: Money | null;
+	region_availability: RegionAvailability[];
+	source_quality: SourceQuality;
+	source_ids: EntityId[];
+	captured_at: Timestamp;
 }
 
 export interface UserAddedProduct {
@@ -522,6 +564,8 @@ export interface SessionResultsResponse {
 	agent_records: JsonObject[];
 	comparison_matrix: ComparisonMatrix;
 	recommendation_bundle: RecommendationBundle;
+	products: CanonicalProduct[];
+	listings: ProductListing[];
 	source_snapshots: SourceSnapshot[];
 	source_evidence: SourceEvidence[];
 }

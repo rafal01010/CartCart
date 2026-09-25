@@ -1,3 +1,4 @@
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
@@ -36,13 +37,12 @@
 		0 1px 1px rgb(0 0 0 / 0.07), 0 0 1px rgb(0 0 0 / 0.08);
 	--shadow-elevated: 0 4px 32px rgb(8 9 10 / 0.6);
 	--text-prompt: clamp(2.5rem, 8vw, 4.5rem);
+	--text-display: clamp(2.75rem, 6vw, 5.25rem);
 }
 
 :root {
 	color-scheme: dark;
-	--font-inter-variable:
-		Inter, "Inter Variable", "General Sans", ui-sans-serif, system-ui, -apple-system,
-		BlinkMacSystemFont, "Segoe UI", sans-serif;
+	--font-inter-variable: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 	--font-berkeley-mono:
 		"Berkeley Mono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo,
 		Monaco, Consolas, monospace;
@@ -114,6 +114,21 @@
 		min-width: 320px;
 		min-height: 100vh;
 		background: var(--background);
+		overflow-x: hidden;
+	}
+
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	button,
+	a,
+	input,
+	textarea,
+	select,
+	summary {
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	button,
@@ -147,8 +162,72 @@
 	}
 }
 
+@keyframes progress-dot {
+	0%,
+	70%,
+	100% {
+		opacity: 0.28;
+		transform: translateY(0) scale(0.82);
+	}
+	35% {
+		opacity: 1;
+		transform: translateY(-3px) scale(1);
+	}
+}
+
+@keyframes surface-enter {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 @layer utilities {
 	.starter-question {
 		animation: starter-question-enter 420ms ease-out;
+	}
+
+	.surface-enter {
+		animation: surface-enter 360ms ease-out both;
+	}
+
+	.progress-dot {
+		animation: progress-dot 1.05s ease-in-out infinite;
+	}
+
+	.progress-dot:nth-child(2) {
+		animation-delay: 140ms;
+	}
+
+	.progress-dot:nth-child(3) {
+		animation-delay: 280ms;
+	}
+
+	.text-balance {
+		text-wrap: balance;
+	}
+
+	.text-pretty {
+		text-wrap: pretty;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+
+	.progress-dot {
+		opacity: 1 !important;
+		transform: none !important;
 	}
 }

@@ -1,7 +1,7 @@
 # Frontend Replacement Note
 
-Status: Task 53J guided-flow UX correction complete
-Last updated: 2026-06-12
+Status: Guided shopping flow rebuild complete
+Last updated: 2026-07-17
 
 ## Purpose
 
@@ -14,9 +14,12 @@ It now connects that guided intake surface to the backend fixture guided API: th
 frontend submits the first shopping question, renders the current backend prompt
 or inline control, submits answers, supports Back/reanswer, visible `Skip` and
 `Skip all` buttons, handles provided/refused region setup, and shows
-short user-safe guardrail blocks. Future frontend work should build on this
-session, guided-intake, run, result, source, and refinement plumbing without
-restoring the all-in-one workspace.
+short user-safe guardrail blocks. The same route now continues through calm
+shopper-facing progress and a decision-first recommendation with real product,
+price, seller, listing, trust, warning, alternative, and source data from the
+stored fixture result. Future frontend work should build on this session,
+guided-intake, run, result, source, and refinement plumbing without restoring
+the all-in-one workspace.
 
 ## Visual And Interaction References
 
@@ -67,8 +70,11 @@ than a frontend-only reducer:
 8. The normal flow uses Back navigation rather than ready/result shortcut edit
    buttons for changing budget, region, or category.
 
-The old 1,248-line workspace was removed. Its useful API, progress, and result
-projection helpers remain under `src/lib` for later guided-flow wiring.
+The old 1,248-line workspace was removed. The root route now acts as the flow
+controller while focused components under `src/lib/guided`,
+`src/lib/run-progress`, and `src/lib/results` render each shopper-facing state.
+Existing API, SSE, local-region, progress, and result-projection helpers remain
+the shared plumbing rather than being duplicated in the components.
 
 ## Preserve
 
@@ -97,7 +103,7 @@ reinforces the old all-in-one workspace:
 | Contextual refinement prompt state | `src/lib/refinements/contextual-refinement-prompt.ts` and tests | Budget, region, category, and preference changes are one-prompt contextual edits, not a permanent refinement form. |
 | Workspace notices | `src/lib/workspace-states/workspace-states.ts` and tests | Replace with guided empty, blocked, region setup, current-question, ready, processing, and result states. |
 | Card primitive | `src/lib/components/ui/card/*` | Restyled for the dark foundation. Avoid card-heavy page sections and nested cards. Use cards only for repeated result/source items or focused tools. |
-| E2E smoke path | `tests/e2e/visual-foundation-smoke.spec.ts` | Covers the prompt-first guided fixture flow until the broader Task 53H smoke replaces it. |
+| E2E smoke path | `tests/e2e/guided-flow-smoke.spec.ts` | Covers the complete prompt-first fixture flow, responsive behavior, keyboard focus, guardrails, progress, recommendation details, and source disclosure. |
 
 ## Delete Or Replace
 
@@ -174,7 +180,7 @@ Keep internally but do not expose as the user's mental model:
 - Result versions.
 - Source IDs.
 
-## Planned Frontend Module Shape
+## Frontend Module Shape
 
 The replacement can keep the existing `src/lib/api` and add guided modules:
 

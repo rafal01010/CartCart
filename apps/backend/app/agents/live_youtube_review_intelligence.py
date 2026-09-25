@@ -679,7 +679,7 @@ def _region_code(
 ) -> RegionCode | None:
     if input_data.brief.region is None:
         return None
-    return input_data.brief.region.region.code
+    return input_data.brief.region.region.country_code
 
 
 def _video_metadata_text(video: VideoSource) -> str:

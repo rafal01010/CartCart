@@ -497,23 +497,29 @@ Search and extraction should be adapter-based. Initial provider interfaces shoul
 - Reusable source-intelligence providers such as video search, transcripts, Reddit/community retrieval, Amazon product/listing/review retrieval, IKEA regional store lookup, marketplace product intelligence, and official store lookup.
 
 Static source retrieval uses `HttpSourceFetcher`: it sends an explicit CartCart user
-agent and HTML accept policy, follows redirects, enforces the configured timeout and
-decoded-body limit while streaming, and rejects non-HTML or unsuccessful responses.
+agent and HTML accept policy, validates that the initial URL and every redirect resolve
+only to public network addresses, follows a bounded number of redirects, enforces the
+configured timeout and decoded-body limit while streaming, and rejects non-HTML or
+unsuccessful responses. Retryable timeouts, rate limits, and server failures use bounded
+attempts and backoff; access-control responses such as HTTP 403 are never bypassed.
 Completed bodies are written atomically beneath `data/artifacts/raw-sources/`; the
 structured `SourceSnapshot` stores the relative artifact path, content metadata, and
 hash. Fetching does not perform text extraction, which remains a separate stage.
 `StaticPageTextExtractor` reads that stored artifact without another network request
 and uses Trafilatura to add main text, title, author, description, site name,
 publication date, language when available, and word count to the same
-`SourceSnapshot`. Pages with no usable static text retain the raw artifact and are
-marked as failed extraction so later policy can consider an optional dynamic path.
+`SourceSnapshot`. Expected per-source failures return a failed or excluded snapshot
+with a safe failure code instead of aborting the shopping run. Pages with no usable
+static text retain the raw artifact and are marked as failed extraction so later policy
+can consider an optional dynamic path.
 `DynamicExtractionPolicy` is the decision point for that path. It always requests
 static extraction first, accepts usable static output, and considers dynamic
 extraction only after static output is failed, partial, or below the configured
 minimum word count. Excluded sources, search-result records, and video records do
 not enter browser extraction. Dynamic fallback is disabled by default and remains
 optional even when enabled; the policy returns a decision but does not launch
-Playwright, Crawl4AI, or any other browser runtime.
+Playwright, Crawl4AI, or any other browser runtime. Sparse static results are marked
+partial and retain the policy decision metadata.
 
 `ProductListingExtractor` is the deterministic v1 normalization step after
 search or static page extraction. It converts selected search-result snippets

@@ -29,6 +29,11 @@ class RunRepository:
         await self._session.flush()
         return record.to_schema()
 
+    async def checkpoint(self) -> None:
+        """Commit run state and related workflow records at a durable boundary."""
+
+        await self._session.commit()
+
     async def get(self, run_id: RunId) -> ShoppingRunRecord | None:
         record = await self._session.get(ShoppingRunRecordModel, str(run_id))
         if record is None:

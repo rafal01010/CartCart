@@ -74,6 +74,12 @@ def build_extraction_provider(settings: Settings) -> ExtractionProvider:
             timeout_seconds=settings.provider_timeout_seconds,
             max_content_bytes=settings.source_fetch_max_content_bytes,
             user_agent=settings.source_fetch_user_agent,
+            max_attempts=settings.source_fetch_max_attempts,
+            retry_backoff_seconds=settings.source_fetch_retry_backoff_seconds,
+            max_redirects=settings.source_fetch_max_redirects,
+            minimum_static_word_count=(
+                settings.source_extraction_minimum_word_count
+            ),
         )
 
     raise AssertionError(f"Unhandled extraction provider: {provider_name.value}")

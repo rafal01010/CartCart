@@ -9,7 +9,7 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 	await page.goto('/');
 
 	await expect(page).toHaveTitle(/CartCart/);
-	await expect(page.getByRole('heading', { name: /Send your question/ })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /What are you looking for/ })).toBeVisible();
 	await expect(page.locator('.starter-question')).toContainText('Which phone should I buy?');
 	await expect(page.locator('.starter-question')).not.toContainText('Which phone should I buy?', {
 		timeout: 4_500,
@@ -23,20 +23,20 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 
 	await startQuestion(page, 'Which monitor should I buy for coding?');
 
-	await expect(page.getByRole('heading', { name: 'Where should CartCart look first?' })).toBeVisible();
-	await expect(page.getByText(/products you can actually buy/)).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toBeVisible();
+	await expect(page.getByText(/realistic availability/)).toBeVisible();
 	await page.getByLabel('Country or region').selectOption('PH');
 	await page.getByRole('button', { name: 'Use this region' }).click();
-	await expect(page.getByRole('heading', { name: 'Where should CartCart look first?' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toHaveCount(0);
 	await expect(page.getByRole('heading', { name: 'Would one-cable setup be useful for this monitor?' })).toBeVisible();
 	await page.getByRole('button', { name: 'Back' }).click();
-	await expect(page.getByRole('heading', { name: /Send your question/ })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /What are you looking for/ })).toBeVisible();
 	await expect(page.getByLabel('Shopping question')).toHaveValue('Which monitor should I buy for coding?');
 	const savedRegion = await page.evaluate((key) => window.localStorage.getItem(key), REGION_STORAGE_KEY);
 	expect(savedRegion).toBe(JSON.stringify({ status: 'provided', code: 'PH' }));
 
 	await startQuestion(page, 'Which monitor should I buy for coding?');
-	await expect(page.getByRole('heading', { name: 'Where should CartCart look first?' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toHaveCount(0);
 	await expect(page.getByRole('heading', { name: 'Would one-cable setup be useful for this monitor?' })).toBeVisible();
 	await expect(page.locator('main textarea')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
@@ -57,9 +57,9 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 	await expect(page.getByRole('heading', { name: 'Would one-cable setup be useful for this monitor?' })).toBeVisible();
 
 	await page.goto('/');
-	await expect(page.getByRole('heading', { name: /Send your question/ })).toBeVisible();
+	await expect(page.getByRole('heading', { name: /What are you looking for/ })).toBeVisible();
 	await startQuestion(page, 'Which monitor should I buy for coding?');
-	await expect(page.getByRole('heading', { name: 'Where should CartCart look first?' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toHaveCount(0);
 	await page.getByRole('button', { name: 'Yes' }).click();
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await expect(page.getByRole('heading', { name: 'What budget should we stay near?' })).toBeVisible();
@@ -69,11 +69,18 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 	).toBeVisible();
 	await page.getByRole('button', { name: 'Skip all', exact: true }).click();
 
-	await expect(page.getByRole('heading', { name: 'Here is the best pick.' })).toBeVisible();
-	await expect(page.getByText(/Dell UltraSharp U2724DE/)).toBeVisible();
+	await expect(
+		page.getByRole('heading', { level: 2, name: 'Dell UltraSharp U2724DE' }),
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'View listing' })).toBeVisible();
+	await expect(page.getByText('Dell Official', { exact: true })).toBeVisible();
+	await page.getByRole('tab', { name: 'Best value' }).click();
+	await expect(
+		page.getByRole('heading', { level: 2, name: 'ASUS ProArt Display PA278CV' }),
+	).toBeVisible();
 	await expect(
 		page.getByRole('button', {
-			name: /Change budget|Change region|Correct category|Start checking options/,
+			name: /Change budget|Correct category|Start checking options/,
 		}),
 	).toHaveCount(0);
 	await expect(page.getByText('Sources checked')).toHaveCount(0);
@@ -82,6 +89,8 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 	await expect(page.getByRole('heading', { name: 'Avoid' })).toBeVisible();
 	await page.getByRole('button', { name: 'Source details' }).click();
 	await expect(page.getByText('Sources checked')).toBeVisible();
+	await page.getByRole('button', { name: /Buying region: Philippines/ }).click();
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toBeVisible();
 	await expectOldWorkspaceToBeGone(page);
 	await expect(page.getByText(/fixture|trace|provider|agent/i)).toHaveCount(0);
 });
@@ -141,20 +150,20 @@ test('supports comparison custom answers and shopping-scope guardrails', async (
 	await page.getByRole('button', { name: 'Type my answer' }).click();
 	await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
 	await page.getByLabel('Your answer').fill('Camera quality and battery life.');
-	await page.getByRole('button', { name: 'Continue' }).click();
+	await page.getByLabel('Your answer').press('Enter');
 	await expect(page.getByRole('heading', { name: 'What budget should we stay near?' })).toBeVisible();
 
 	await page.goto('/');
 	await startQuestion(page, 'Write my homework essay');
 	await expect(
-		page.getByRole('heading', { name: 'CartCart can help with shopping decisions.' }),
+		page.getByRole('heading', { name: 'CartCart can help with what to buy.' }),
 	).toBeVisible();
 	await expect(page.getByText(/Try asking what to buy or compare/)).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Back' })).toBeVisible();
 
 	await page.goto('/');
 	await startQuestion(page, 'Which weapon should I buy?');
-	await expect(page.getByRole('heading', { name: 'CartCart can help with shopping decisions.' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'CartCart can help with what to buy.' })).toBeVisible();
 	await expect(page.getByText(/ordinary consumer purchases/)).toBeVisible();
 });
 
@@ -170,7 +179,7 @@ for (const { label, viewport } of [
 		await page.setViewportSize(viewport);
 		await page.goto('/');
 
-		await expect(page.getByRole('heading', { name: /Send your question/ })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /What are you looking for/ })).toBeVisible();
 		await startQuestion(page, 'Which desk should I buy?');
 		await expect(page.getByRole('heading', { name: 'What budget should we stay near?' })).toBeVisible();
 		await expect(page.getByLabel('Your answer')).toHaveAttribute('placeholder', 'Type your answer.');
@@ -179,10 +188,73 @@ for (const { label, viewport } of [
 		await expect(page.getByRole('button', { name: 'Skip all', exact: true })).toBeVisible();
 		await expect(page.getByText(/Useful details|One sentence is enough|You do not need links/)).toHaveCount(0);
 		await expectOldWorkspaceToBeGone(page);
+		await expectNoHorizontalOverflow(page);
 	});
 }
 
+test('supports visible keyboard focus on the primary question action', async ({ page }) => {
+	await page.goto('/');
+	const input = page.getByLabel('Shopping question');
+	await input.focus();
+	await expect(input).toBeFocused();
+	await input.fill('Which laptop should I buy?');
+	const send = page.getByRole('button', { name: 'Send question' });
+	await send.focus();
+	await expect(send).toBeFocused();
+	await expect(send).toBeEnabled();
+});
+
+test('sends the main question with Enter and keeps Shift+Enter for a new line', async ({
+	page,
+}) => {
+	await page.goto('/');
+	await waitForPromptReady(page);
+	const question = page.getByLabel('Shopping question');
+	const compactComposer = await page.locator('.question-composer').boundingBox();
+	expect(compactComposer).not.toBeNull();
+	expect(compactComposer!.height).toBeLessThanOrEqual(72);
+
+	await question.fill('A monitor');
+	await question.press('Shift+Enter');
+	await question.type('for coding');
+	await expect(question).toHaveValue('A monitor\nfor coding');
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Send question' })).toBeEnabled();
+
+	await question.press('Enter');
+	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toBeVisible();
+});
+
+test('sends guided text answers with Enter and keeps Shift+Enter for a new line', async ({
+	page,
+}) => {
+	await page.addInitScript(
+		({ key }) => window.localStorage.setItem(key, JSON.stringify({ status: 'refused' })),
+		{ key: REGION_STORAGE_KEY },
+	);
+	await page.goto('/');
+	await waitForPromptReady(page);
+
+	await page.getByLabel('Shopping question').fill('Which desk should I buy?');
+	await page.getByLabel('Shopping question').press('Enter');
+	await expect(page.getByRole('heading', { name: 'What budget should we stay near?' })).toBeVisible();
+
+	const answer = page.getByLabel('Your answer');
+	const compactComposer = await page.locator('.guided-composer').boundingBox();
+	expect(compactComposer).not.toBeNull();
+	expect(compactComposer!.height).toBeLessThanOrEqual(72);
+	await answer.fill('Around $300');
+	await answer.press('Shift+Enter');
+	await answer.type('including delivery');
+	await expect(answer).toHaveValue('Around $300\nincluding delivery');
+	await answer.press('Enter');
+	await expect(
+		page.getByRole('heading', { name: 'Are there any products you want CartCart to check?' }),
+	).toBeVisible();
+});
+
 async function startQuestion(page: Page, question: string) {
+	await waitForPromptReady(page);
 	await page.getByLabel('Shopping question').fill(question);
 	const responsePromise = page.waitForResponse(
 		(response) => response.url().endsWith('/api/sessions/guided') && response.request().method() === 'POST',
@@ -195,6 +267,10 @@ async function startQuestion(page: Page, question: string) {
 		apiOrigin: new URL(response.url()).origin,
 		sessionId: payload.session_id as string,
 	};
+}
+
+async function waitForPromptReady(page: Page) {
+	await expect(page.locator('main')).toHaveAttribute('data-client-ready', 'true');
 }
 
 async function expectNavigationButtons(page: Page) {
@@ -220,4 +296,11 @@ async function expectOldWorkspaceToBeGone(page: Page) {
 	await expect(page.getByText('Start run')).toHaveCount(0);
 	await expect(page.getByText('Run progress')).toHaveCount(0);
 	await expect(page.getByText('Source evidence')).toHaveCount(0);
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+	const hasOverflow = await page.evaluate(
+		() => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+	);
+	expect(hasOverflow).toBe(false);
 }

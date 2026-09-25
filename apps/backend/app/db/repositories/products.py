@@ -48,6 +48,18 @@ class ProductRepository:
             return None
         return record.to_schema()
 
+    async def list_canonical_products_for_run(
+        self,
+        run_id: RunId,
+    ) -> tuple[CanonicalProduct, ...]:
+        statement: Select[tuple[CanonicalProductRecord]] = (
+            select(CanonicalProductRecord)
+            .where(CanonicalProductRecord.run_id == str(run_id))
+            .order_by(CanonicalProductRecord.name, CanonicalProductRecord.product_id)
+        )
+        records = (await self._session.scalars(statement)).all()
+        return tuple(record.to_schema() for record in records)
+
     async def add_product_listing(
         self,
         run_id: RunId,
@@ -81,6 +93,18 @@ class ProductRepository:
             select(ProductListingRecord)
             .where(ProductListingRecord.product_id == str(product_id))
             .order_by(ProductListingRecord.seller_name, ProductListingRecord.url)
+        )
+        records = (await self._session.scalars(statement)).all()
+        return tuple(record.to_schema() for record in records)
+
+    async def list_product_listings_for_run(
+        self,
+        run_id: RunId,
+    ) -> tuple[ProductListing, ...]:
+        statement: Select[tuple[ProductListingRecord]] = (
+            select(ProductListingRecord)
+            .where(ProductListingRecord.run_id == str(run_id))
+            .order_by(ProductListingRecord.title, ProductListingRecord.listing_id)
         )
         records = (await self._session.scalars(statement)).all()
         return tuple(record.to_schema() for record in records)

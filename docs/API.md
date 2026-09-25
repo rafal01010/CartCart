@@ -178,7 +178,10 @@ Starts a discovery/analysis run from the current session state. Runs should pers
 
 Current implementation creates a persisted `ShoppingRunRecord` and runs the
 `ShoppingRunOrchestrator` synchronously. The response returns the terminal run
-and persisted progress events. Fixture workflow mode remains the default and
+and persisted progress events. Workflow stages are checkpointed so a fatal
+stage failure remains queryable as a terminal failed run rather than being
+rolled back with the request. Expected individual source-access failures do not
+fail the run. Fixture workflow mode remains the default and
 returns the deterministic monitor-shopping result bundle without live model
 calls. When `CARTCART_AGENT_WORKFLOW_MODE=live`,
 `CARTCART_LIVE_AGENTS_ENABLED=true`, and `OPENAI_API_KEY` are configured, the
@@ -219,7 +222,8 @@ Returns the latest recommendation bundle for the session, including final pick o
 Current implementation returns the latest persisted fixture result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
-recommendation bundle, plus the run's source snapshots and source evidence so
+recommendation bundle, plus the run's canonical products, preserved listings,
+source snapshots, and source evidence so
 the frontend can render inspectable source links for result claims. The persisted
 recommendation bundle is trust-aware: weak or suspicious listing assessments are
 surfaced as listing-level warnings or rejections, and a suspicious final listing

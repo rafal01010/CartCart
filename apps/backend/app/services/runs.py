@@ -48,7 +48,7 @@ from app.providers import (
 from app.schemas.ids import RunId, SessionId
 from app.schemas.guided_intake import ShoppingGuardrailDecision
 from app.schemas.regions import RegionCode
-from app.schemas.runs import RunEvent, ShoppingRunRecord
+from app.schemas.runs import RunEvent, RunStatus, ShoppingRunRecord
 from app.services.shopping_guardrails import blocked_guardrail_or_none
 
 
@@ -151,11 +151,17 @@ class RunService:
             ikea_store_intelligence_provider=self._ikea_store_intelligence_provider,
             default_region_code=self._default_region_code,
         )
-        await orchestrator.run(
-            run.run_id,
-            session.current_brief,
-            original_input=session.original_input,
-        )
+        try:
+            await orchestrator.run(
+                run.run_id,
+                session.current_brief,
+                original_input=session.original_input,
+            )
+        except Exception:
+            failed_run = await self._run_repository.get(run.run_id)
+            if failed_run is not None and failed_run.status == RunStatus.FAILED:
+                return failed_run
+            raise
         return await self._run_repository.get(run.run_id)
 
     async def get_run_status(

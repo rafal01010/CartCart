@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ApplicationError
 from app.db.repositories.results import ResultRepository, SavedResultBundle
+from app.db.repositories.products import ProductRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.session import get_db_session
@@ -17,6 +18,7 @@ from app.schemas.analysis import (
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import CandidateId, RunId, SessionId
 from app.schemas.runs import AgentRunRecord
+from app.schemas.products import CanonicalProduct, ProductListing
 from app.schemas.search_sources import SourceEvidence, SourceSnapshot
 
 
@@ -40,6 +42,8 @@ class SessionResultsResponse(CartCartBaseModel):
     agent_records: tuple[AgentRunRecord, ...]
     comparison_matrix: ComparisonMatrix
     recommendation_bundle: RecommendationBundle
+    products: tuple[CanonicalProduct, ...]
+    listings: tuple[ProductListing, ...]
     source_snapshots: tuple[SourceSnapshot, ...]
     source_evidence: tuple[SourceEvidence, ...]
 
@@ -68,12 +72,21 @@ async def get_session_results(
     source_evidence = await source_repository.list_source_evidence(
         saved_result.result_version.run_id,
     )
+    product_repository = ProductRepository(db_session)
+    products = await product_repository.list_canonical_products_for_run(
+        saved_result.result_version.run_id,
+    )
+    listings = await product_repository.list_product_listings_for_run(
+        saved_result.result_version.run_id,
+    )
 
-    return _to_response(saved_result, source_snapshots, source_evidence)
+    return _to_response(saved_result, products, listings, source_snapshots, source_evidence)
 
 
 def _to_response(
     saved_result: SavedResultBundle,
+    products: tuple[CanonicalProduct, ...],
+    listings: tuple[ProductListing, ...],
     source_snapshots: tuple[SourceSnapshot, ...],
     source_evidence: tuple[SourceEvidence, ...],
 ) -> SessionResultsResponse:
@@ -90,6 +103,8 @@ def _to_response(
         agent_records=saved_result.agent_records,
         comparison_matrix=saved_result.comparison_matrix,
         recommendation_bundle=saved_result.recommendation_bundle,
+        products=products,
+        listings=listings,
         source_snapshots=source_snapshots,
         source_evidence=source_evidence,
     )

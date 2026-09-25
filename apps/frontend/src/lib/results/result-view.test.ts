@@ -99,6 +99,43 @@ const baseResult: SessionResultsResponse = {
 		evidence_ids: ['evidence-dell', 'evidence-asus', 'evidence-lg'],
 		source_ids: ['source-dell', 'source-asus', 'source-lg'],
 	},
+	products: [
+		{
+			schema_version: 1,
+			product_id: 'product-dell',
+			name: 'Dell UltraSharp U2724DE',
+			brand: 'Dell',
+			model: 'U2724DE',
+			category: 'monitor',
+			source_ids: ['source-dell'],
+			listing_ids: ['listing-dell'],
+		},
+		{
+			schema_version: 1,
+			product_id: 'product-asus',
+			name: 'ASUS ProArt PA278CV',
+			brand: 'ASUS',
+			model: 'PA278CV',
+			category: 'monitor',
+			source_ids: ['source-asus'],
+			listing_ids: ['listing-asus'],
+		},
+		{
+			schema_version: 1,
+			product_id: 'product-lg',
+			name: 'LG 27UP850',
+			brand: 'LG',
+			model: '27UP850',
+			category: 'monitor',
+			source_ids: ['source-lg'],
+			listing_ids: ['listing-lg'],
+		},
+	],
+	listings: [
+		listing('listing-dell', 'product-dell', 'Dell UltraSharp U2724DE — Official', 'Dell Official', 499, 'source-dell'),
+		listing('listing-asus', 'product-asus', 'ASUS ProArt PA278CV', 'ASUS Store', 349, 'source-asus'),
+		listing('listing-lg', 'product-lg', 'LG 27UP850', 'LG Store', 579, 'source-lg'),
+	],
 	source_snapshots: [
 		{
 			schema_version: 1,
@@ -165,6 +202,34 @@ const baseResult: SessionResultsResponse = {
 	],
 };
 
+function listing(
+	listingId: string,
+	productId: string,
+	title: string,
+	sellerName: string,
+	price: number,
+	sourceId: string,
+) {
+	return {
+		schema_version: 1,
+		listing_id: listingId,
+		product_id: productId,
+		title,
+		url: `https://example.test/${listingId}`,
+		canonical_url: `https://example.test/${listingId}`,
+		seller: {
+			seller_name: sellerName,
+			trust_signal: 'reasonable' as const,
+			source_ids: [sourceId],
+		},
+		price: { amount: price, currency: 'USD' },
+		region_availability: [],
+		source_quality: { level: 'strong', score: 0.9 },
+		source_ids: [sourceId],
+		captured_at: '2026-05-31T00:00:00Z',
+	};
+}
+
 describe('result view helpers', () => {
 	it('derives final pick, runner-ups, and source references from one stored result', () => {
 		const view = buildResultView(baseResult);
@@ -178,6 +243,10 @@ describe('result view helpers', () => {
 		expect(view.finalMode?.evidence[0]?.typeLabel).toBe('Product Spec');
 		expect(view.finalMode?.evidence[0]?.targetLabel).toBe('Product detail');
 		expect(view.finalMode?.listingTrust?.levelLabel).toBe('Reasonable listing');
+		expect(view.finalMode?.productName).toBe('Dell UltraSharp U2724DE');
+		expect(view.finalMode?.sellerName).toBe('Dell Official');
+		expect(view.finalMode?.priceLabel).toBe('$499');
+		expect(view.finalMode?.purchaseUrl).toBe('https://example.test/listing-dell');
 	});
 
 	it('switches recommendation modes locally while preserving best-overall reasoning', () => {
@@ -193,8 +262,32 @@ describe('result view helpers', () => {
 		]);
 		expect(selectedMode?.mode).toBe('stretch_pick');
 		expect(selectedMode?.label).toBe('Stretch upgrade');
+		expect(selectedMode?.productName).toBe('LG 27UP850');
 		expect(view.finalMode?.mode).toBe('best_overall');
 		expect(view.whyItWins).toBe('Best balance of fit and seller trust.');
+	});
+
+	it('surfaces weak, conflicting, and partial evidence states without changing the decision', () => {
+		const view = buildResultView({
+			...baseResult,
+			source_snapshots: baseResult.source_snapshots.map((source, index) =>
+				index === 0 ? { ...source, extraction_status: 'partial' } : source,
+			),
+			source_evidence: baseResult.source_evidence.map((evidence, index) =>
+				index === 0
+					? {
+							...evidence,
+							claim: 'Sources conflict on USB-C charging power.',
+							confidence: { level: 'low', score: 0.4 },
+						}
+					: evidence,
+			),
+		});
+
+		expect(view.finalMode?.productName).toBe('Dell UltraSharp U2724DE');
+		expect(view.hasWeakEvidence).toBe(true);
+		expect(view.hasConflictingEvidence).toBe(true);
+		expect(view.hasPartialSources).toBe(true);
 	});
 
 	it('attaches listing safety to modes separately from product fit', () => {

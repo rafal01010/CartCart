@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
+from pydantic import AnyHttpUrl
+
 from app.agents import (
     AmazonProductIntelligenceAgent,
     AmazonProductIntelligenceAgentInput,
@@ -136,6 +138,7 @@ from app.services.recommendation_trust import (
 
 _MAX_SOURCE_INTELLIGENCE_PRODUCTS = 3
 _MAX_REVIEW_VIDEOS = 3
+_MAX_EXTRACTION_SOURCES = 12
 _IKEA_RELEVANCE_TERMS = (
     "armchair",
     "bed",
@@ -268,11 +271,15 @@ class ShoppingRunContext:
     recommendation_bundle: RecommendationBundle | None = None
     verification_report: VerificationReport | None = None
     fixture_output: MonitorFixtureRunOutput | None = None
+    active_stage: RunStage | None = None
 
 
 class ShoppingRunPersistenceHooks(Protocol):
     async def load_run(self, run_id: RunId) -> ShoppingRunRecord | None:
         """Load the persisted run before orchestration starts."""
+
+    async def checkpoint(self) -> None:
+        """Commit durable run progress at a workflow boundary."""
 
     async def emit_event(
         self,
@@ -379,6 +386,9 @@ class RepositoryShoppingRunPersistenceHooks:
 
     async def load_run(self, run_id: RunId) -> ShoppingRunRecord | None:
         return await self._run_repository.get(run_id)
+
+    async def checkpoint(self) -> None:
+        await self._run_repository.checkpoint()
 
     async def emit_event(
         self,
@@ -899,9 +909,11 @@ class ShoppingRunOrchestrator:
             original_input=original_input,
         )
         context.fixture_output = fixture_output
+        await self._persistence_hooks.checkpoint()
 
         try:
             for definition in self._STAGES:
+                context.active_stage = definition.stage
                 await self._run_stage(context, definition)
 
             await self._persistence_hooks.persist_fixture_output(
@@ -920,6 +932,7 @@ class ShoppingRunOrchestrator:
                 ),
             )
             context.events.append(complete_event)
+            await self._persistence_hooks.checkpoint()
         except Exception as exc:
             failed_stage = self._current_or_initial_stage(context)
             failed_event = await self._persistence_hooks.emit_event(
@@ -930,6 +943,7 @@ class ShoppingRunOrchestrator:
                 error=_orchestrator_error(context.trace_id, failed_stage, exc),
             )
             context.events.append(failed_event)
+            await self._persistence_hooks.checkpoint()
             raise
 
         return context
@@ -1029,6 +1043,7 @@ class ShoppingRunOrchestrator:
             ),
         )
         context.events.append(event)
+        await self._persistence_hooks.checkpoint()
 
     async def _run_intake(self, context: ShoppingRunContext) -> FixtureStageOutput:
         if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
@@ -1209,9 +1224,9 @@ class ShoppingRunOrchestrator:
                 else None
             ),
         ):
-            snapshot = await self._extraction_provider.extract(
+            snapshot = await self._extract_source_or_failure(
                 result.url,
-                ExtractionProviderOptions(source_type=result.source_type),
+                source_type=result.source_type,
             )
             snapshot = _link_snapshot_to_search_result(
                 snapshot,
@@ -1256,6 +1271,14 @@ class ShoppingRunOrchestrator:
         listing_count = sum(
             item.listing_extraction is not None for item in context.source_extractions
         )
+        failed_count = sum(
+            item.snapshot.extraction_status == ExtractionStatus.FAILED
+            for item in context.source_extractions
+        )
+        excluded_count = sum(
+            item.snapshot.extraction_status == ExtractionStatus.EXCLUDED
+            for item in context.source_extractions
+        )
         provider_name = getattr(
             self._extraction_provider,
             "provider_name",
@@ -1267,11 +1290,19 @@ class ShoppingRunOrchestrator:
             summary=(
                 f"Checked {_counted(len(context.source_extractions), 'shopping source')} "
                 f"and added {_counted(listing_count, 'product')} to compare."
+                + (
+                    f" {_counted(failed_count + excluded_count, 'source')} "
+                    "could not be read."
+                    if failed_count or excluded_count
+                    else ""
+                )
             ),
             payload={
                 "provider": str(provider_name),
                 "snapshot_count": str(len(context.source_extractions)),
                 "listing_count": str(listing_count),
+                "failed_count": str(failed_count),
+                "excluded_count": str(excluded_count),
             },
             runtime_mode=self._agent_workflow_mode.value,
         )
@@ -1288,9 +1319,9 @@ class ShoppingRunOrchestrator:
             if user_added.url is None:
                 continue
 
-            snapshot = await self._extraction_provider.extract(
+            snapshot = await self._extract_source_or_failure(
                 user_added.url,
-                ExtractionProviderOptions(source_type=SourceType.RETAILER_LISTING),
+                source_type=SourceType.RETAILER_LISTING,
             )
             snapshot = _link_snapshot_to_user_added_product(
                 snapshot,
@@ -1318,6 +1349,39 @@ class ShoppingRunOrchestrator:
             )
 
         return tuple(extracted_sources)
+
+    async def _extract_source_or_failure(
+        self,
+        url: AnyHttpUrl,
+        *,
+        source_type: SourceType,
+    ) -> SourceSnapshot:
+        try:
+            return await self._extraction_provider.extract(
+                url,
+                ExtractionProviderOptions(source_type=source_type),
+            )
+        except Exception as exc:
+            return SourceSnapshot(
+                url=url,
+                source_type=source_type,
+                provider=ProviderMetadata(
+                    provider_name=getattr(
+                        self._extraction_provider,
+                        "provider_name",
+                        self._extraction_provider.__class__.__name__,
+                    ),
+                    raw={
+                        "requested_url": str(url),
+                        "extraction_failure_code": "provider_exception",
+                        "extraction_failure_message": (
+                            str(exc) or exc.__class__.__name__
+                        )[:500],
+                        "extraction_failure_retryable": False,
+                    },
+                ),
+                extraction_status=ExtractionStatus.FAILED,
+            )
 
     async def _deduplicate_candidates(
         self,
@@ -1368,6 +1432,27 @@ class ShoppingRunOrchestrator:
             context.source_extractions,
             limit=_MAX_SOURCE_INTELLIGENCE_PRODUCTS,
         )
+        if (
+            not candidates.products
+            and self._agent_workflow_mode == AgentWorkflowMode.FIXTURE
+            and context.fixture_output is not None
+        ):
+            fixture_products = context.fixture_output.products[
+                :_MAX_SOURCE_INTELLIGENCE_PRODUCTS
+            ]
+            fixture_product_ids = {product.product_id for product in fixture_products}
+            candidates = SourceIntelligenceCandidates(
+                products=fixture_products,
+                listings=tuple(
+                    listing
+                    for listing in context.fixture_output.listings
+                    if listing.product_id in fixture_product_ids
+                ),
+                source_ids=tuple(
+                    snapshot.source_id
+                    for snapshot in context.fixture_output.source_snapshots
+                ),
+            )
         request = _source_intelligence_request(
             brief,
             region_code,
@@ -1884,6 +1969,8 @@ class ShoppingRunOrchestrator:
         )
 
     def _current_or_initial_stage(self, context: ShoppingRunContext) -> RunStage:
+        if context.active_stage is not None:
+            return context.active_stage
         if context.events:
             return context.events[-1].stage
         return RunStage.INTAKE
@@ -2283,11 +2370,19 @@ def _selected_extraction_results(
         if not selected:
             return ()
         results = tuple(result for result in results if result.source_id in selected)
-    return tuple(
-        result
-        for result in results
-        if result.source_type not in {SourceType.SEARCH_RESULT, SourceType.VIDEO}
-    )
+    selected_results: list[SearchResult] = []
+    seen_urls: set[str] = set()
+    for result in results:
+        if result.source_type in {SourceType.SEARCH_RESULT, SourceType.VIDEO}:
+            continue
+        normalized_url = str(result.url).casefold().rstrip("/")
+        if normalized_url in seen_urls:
+            continue
+        selected_results.append(result)
+        seen_urls.add(normalized_url)
+        if len(selected_results) >= _MAX_EXTRACTION_SOURCES:
+            break
+    return tuple(selected_results)
 
 
 def _link_snapshot_to_search_result(
@@ -2421,15 +2516,14 @@ def _listing_from_extracted_source(
     }:
         return None
 
-    if (
-        snapshot.source_type
-        in {
-            SourceType.PRODUCT_PAGE,
-            SourceType.RETAILER_LISTING,
-            SourceType.OFFICIAL_BRAND_PAGE,
-        }
-        and snapshot.extracted_content is not None
-    ):
+    if snapshot.source_type not in {
+        SourceType.PRODUCT_PAGE,
+        SourceType.RETAILER_LISTING,
+        SourceType.OFFICIAL_BRAND_PAGE,
+    }:
+        return None
+
+    if snapshot.extracted_content is not None:
         extracted = extractor.extract_source_snapshot(snapshot)
     else:
         extracted = extractor.extract_search_result(result)
@@ -2823,7 +2917,7 @@ def _effective_region_code(
     default_region_code: RegionCode,
 ) -> RegionCode:
     if brief.region is not None:
-        return brief.region.region.code
+        return brief.region.region.country_code
     return default_region_code
 
 

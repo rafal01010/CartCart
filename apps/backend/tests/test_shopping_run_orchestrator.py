@@ -31,6 +31,7 @@ from app.orchestration import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunOrchestrator,
 )
+from app.orchestration.shopping_runs import _listing_from_extracted_source
 from app.providers import (
     ExtractionProviderOptions,
     ProviderCapabilityFlags,
@@ -70,6 +71,7 @@ from app.schemas.search_sources import (
     VideoTranscriptSegment,
 )
 from app.schemas.products import UserAddedProduct
+from app.services.product_listing_extraction import ProductListingExtractor
 
 
 class RecordingSearchProvider:
@@ -156,6 +158,40 @@ class DuplicateListingSearchProvider:
         )
 
 
+class MixedListingSearchProvider:
+    provider_name = "fixture-mixed-listing-search"
+
+    async def search(
+        self,
+        query: SearchQuery,
+        options: SearchProviderOptions | None = None,
+    ) -> tuple[SearchResult, ...]:
+        del options
+        return tuple(
+            SearchResult(
+                query=query,
+                url=AnyHttpUrl(f"https://shop.example/product-{index}"),
+                title=f"Fixture Product {index}",
+                snippet="Fixture retailer result.",
+                source_type=SourceType.RETAILER_LISTING,
+                provider=ProviderMetadata(provider_name=self.provider_name),
+            )
+            for index in (1, 2)
+        )
+
+
+class FailingSearchProvider:
+    provider_name = "fixture-failing-search"
+
+    async def search(
+        self,
+        query: SearchQuery,
+        options: SearchProviderOptions | None = None,
+    ) -> tuple[SearchResult, ...]:
+        del query, options
+        raise RuntimeError("Fixture discovery failed.")
+
+
 class UserAddedNameSearchProvider:
     provider_name = "fixture-user-added-name-search"
 
@@ -225,6 +261,17 @@ class RecordingExtractionProvider:
                 word_count=len(text.split()),
             ),
         )
+
+
+class PartiallyFailingExtractionProvider(RecordingExtractionProvider):
+    async def extract(
+        self,
+        url: AnyHttpUrl,
+        options: ExtractionProviderOptions | None = None,
+    ) -> SourceSnapshot:
+        if str(url).endswith("product-2"):
+            raise RuntimeError("Fixture source blocked.")
+        return await super().extract(url, options)
 
 
 class RecordingTranscriptProvider:
@@ -489,6 +536,44 @@ class RecordingVerifierCriticAgent:
         )
 
 
+def test_professional_review_snapshot_is_not_normalized_as_store_listing() -> None:
+    query = SearchQuery(
+        query="monitor reviews",
+        intent=SearchIntent.REVIEW,
+        required_source_types=(SourceType.PROFESSIONAL_REVIEW,),
+    )
+    result = SearchResult(
+        query=query,
+        url=AnyHttpUrl("https://reviews.example/best-monitors"),
+        title="The best monitors",
+        snippet="A roundup of tested monitors.",
+        source_type=SourceType.PROFESSIONAL_REVIEW,
+        provider=ProviderMetadata(provider_name="fixture-search"),
+    )
+    snapshot = SourceSnapshot(
+        url=result.url,
+        source_type=SourceType.PROFESSIONAL_REVIEW,
+        provider=ProviderMetadata(provider_name="fixture-extraction"),
+        title=result.title,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        extracted_content=ExtractedPageContent(
+            text="Review evidence about several products.",
+            extractor="fixture",
+            word_count=5,
+        ),
+    )
+
+    assert (
+        _listing_from_extracted_source(
+            ProductListingExtractor(),
+            result=result,
+            snapshot=snapshot,
+            category="monitor",
+        )
+        is None
+    )
+
+
 @pytest.mark.asyncio
 async def test_shopping_run_orchestrator_records_all_expected_fixture_stages(
     tmp_path: Path,
@@ -661,9 +746,9 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         assert video_sources
         assert community_evidence
         assert amazon_evidence
-        assert len(shortlist) == len(context.source_extractions)
+        assert len(shortlist) == len(fixture.shortlist_items)
         assert all(
-            item.listing_extraction is not None for item in context.source_extractions
+            item.listing_extraction is None for item in context.source_extractions
         )
         assert len(user_added) == 1
         assert user_added[0].listing is not None
@@ -957,7 +1042,128 @@ async def test_extraction_provider_creates_persisted_generated_shortlist(
 
 
 @pytest.mark.asyncio
-async def test_deduplication_stage_groups_extracted_candidates_before_later_stages(
+async def test_extraction_continues_and_persists_failed_source_snapshot(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-partial-extraction.sqlite3",
+    )
+    engine = create_database_engine(settings)
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a USB-C monitor"),
+                current_brief=ShoppingBrief(
+                    original_query="Need a USB-C monitor",
+                    category="monitor",
+                    category_source=FieldSource.USER_PROVIDED,
+                ),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            context = await ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                search_provider=MixedListingSearchProvider(),
+                extraction_provider=PartiallyFailingExtractionProvider(),
+            ).run(run.run_id, shopping_session.current_brief)
+
+        async with session_factory() as db_session:
+            snapshots = await SearchSourceRepository(
+                db_session
+            ).list_source_snapshots(run.run_id)
+            loaded_run = await RunRepository(db_session).get(run.run_id)
+
+        assert loaded_run is not None
+        assert loaded_run.status == RunStatus.SUCCEEDED
+        assert len(context.source_extractions) == 2
+        assert len(snapshots) >= 2
+        failed = next(
+            snapshot
+            for snapshot in snapshots
+            if snapshot.extraction_status == ExtractionStatus.FAILED
+        )
+        assert str(failed.url).endswith("product-2")
+        assert failed.provider.raw["extraction_failure_code"] == "provider_exception"
+        assert context.stage_outputs[RunStage.EXTRACTION].payload["failed_count"] == "1"
+        assert context.deduplication is not None
+        assert context.deduplication.pre_dedupe_count == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_failed_run_state_is_checkpointed_before_exception_escapes(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "orchestrator-durable-failure.sqlite3",
+    )
+    engine = create_database_engine(settings)
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a USB-C monitor"),
+                current_brief=ShoppingBrief(original_query="Need a USB-C monitor"),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                search_provider=FailingSearchProvider(),
+            )
+            with pytest.raises(RuntimeError, match="Fixture discovery failed"):
+                await orchestrator.run(run.run_id, shopping_session.current_brief)
+
+        async with session_factory() as db_session:
+            run_repository = RunRepository(db_session)
+            loaded_run = await run_repository.get(run.run_id)
+            events = await run_repository.list_events(run.run_id)
+
+        assert loaded_run is not None
+        assert loaded_run.status == RunStatus.FAILED
+        assert loaded_run.current_stage == RunStage.DISCOVERY
+        assert events[-1].status == RunStatus.FAILED
+        assert events[-1].error is not None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_extraction_deduplicates_urls_before_candidate_grouping(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -1014,16 +1220,16 @@ async def test_deduplication_stage_groups_extracted_candidates_before_later_stag
                 shortlist[0].product_id
             )
 
-        assert len(extraction_provider.calls) == 2
+        assert len(extraction_provider.calls) == 1
         assert context.deduplication is not None
-        assert context.deduplication.pre_dedupe_count == 2
+        assert context.deduplication.pre_dedupe_count == 1
         assert context.deduplication.post_dedupe_count == 1
-        assert context.deduplication.collapsed_count == 1
+        assert context.deduplication.collapsed_count == 0
         assert context.stage_outputs[RunStage.DEDUPLICATION].payload == {
-            "pre_dedupe_count": "2",
+            "pre_dedupe_count": "1",
             "post_dedupe_count": "1",
-            "listing_count": "2",
-            "collapsed_count": "1",
+            "listing_count": "1",
+            "collapsed_count": "0",
         }
 
         event_stages = [event.stage for event in events]
@@ -1037,12 +1243,12 @@ async def test_deduplication_stage_groups_extracted_candidates_before_later_stag
             event for event in events if event.stage == RunStage.DEDUPLICATION
         )
         assert deduplication_event.message == (
-            "Grouped 2 extracted products into 1 product group and kept "
-            "2 listings; 1 duplicate collapsed."
+            "Grouped 1 extracted product into 1 product group and kept "
+            "1 listing; 0 duplicates collapsed."
         )
 
         assert len(shortlist) == 1
-        assert len(listings) == 2
+        assert len(listings) == 1
         assert {listing.product_id for listing in listings} == {shortlist[0].product_id}
         assert context.source_intelligence is not None
         assert context.source_intelligence.request.product_ids == (

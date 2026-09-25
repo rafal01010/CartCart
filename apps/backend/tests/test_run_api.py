@@ -92,6 +92,33 @@ def test_create_run_runs_stub_orchestrator_synchronously(
     assert body["error"] is None
 
 
+def test_create_run_uses_user_provided_region_without_failing(
+    run_api_client: TestClient,
+) -> None:
+    create_response = run_api_client.post(
+        "/api/sessions",
+        json={
+            "query": "Need a monitor for coding",
+            "region": {
+                "region": {
+                    "country_code": "PH",
+                    "currency": "PHP",
+                    "locale": "en-PH",
+                },
+                "source": "user_provided",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+
+    response = run_api_client.post(
+        f"/api/sessions/{create_response.json()['session_id']}/runs"
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "succeeded"
+
+
 def test_create_run_rejects_invalid_session(run_api_client: TestClient) -> None:
     session_id = uuid4()
 
@@ -217,6 +244,17 @@ def test_create_run_streams_events_and_fetches_fixture_results(
     assert result_body["result_version"]["run_id"] == run_id
     bundle = result_body["recommendation_bundle"]
     assert bundle["final_rationale"].startswith("Dell UltraSharp U2724DE")
+    assert any(
+        product["name"] == "Dell UltraSharp U2724DE"
+        for product in result_body["products"]
+    )
+    final_listing = next(
+        listing
+        for listing in result_body["listings"]
+        if listing["listing_id"] == bundle["final_listing_id"]
+    )
+    assert final_listing["seller"]["seller_name"] == "Dell Official"
+    assert final_listing["price"]["currency"] == "USD"
     assert len(bundle["runner_up_product_ids"]) == 2
     assert bundle["rejected_items"][0]["reason"].startswith("Rejected because")
     assert any(

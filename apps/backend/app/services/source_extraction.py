@@ -121,14 +121,19 @@ class StaticPageTextExtractor:
                 "Stored source artifact could not be read."
             ) from exc
 
-        document = bare_extraction(
-            html,
-            url=str(snapshot.url),
-            with_metadata=True,
-            include_comments=False,
-            include_tables=True,
-            favor_precision=True,
-        )
+        try:
+            document = bare_extraction(
+                html,
+                url=str(snapshot.url),
+                with_metadata=True,
+                include_comments=False,
+                include_tables=True,
+                favor_precision=True,
+            )
+        except Exception as exc:
+            raise StaticPageExtractionError(
+                "Stored source artifact could not be parsed."
+            ) from exc
         extracted = snapshot.model_copy(deep=True)
         if document is None:
             extracted.extraction_status = ExtractionStatus.FAILED

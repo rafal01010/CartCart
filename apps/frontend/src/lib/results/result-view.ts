@@ -43,6 +43,11 @@ export interface ModeView {
 	key: string;
 	mode: RecommendationMode;
 	label: string;
+	productName: string;
+	listingTitle: string | null;
+	sellerName: string | null;
+	priceLabel: string | null;
+	purchaseUrl: string | null;
 	productId: EntityId;
 	listingId: EntityId | null;
 	rationale: string;
@@ -99,6 +104,9 @@ export interface ResultView {
 	rejectedItems: RejectedView[];
 	sourceViews: SourceView[];
 	evidenceViews: EvidenceView[];
+	hasWeakEvidence: boolean;
+	hasConflictingEvidence: boolean;
+	hasPartialSources: boolean;
 }
 
 const MODE_LABELS: Record<RecommendationMode, string> = {
@@ -123,6 +131,8 @@ const MEANINGFUL_REJECTION_REASONS = new Set<RejectionReason>(
 const MEANINGFUL_REJECTION_SEVERITIES = new Set(['medium', 'high', 'blocking']);
 
 export function buildResultView(result: SessionResultsResponse): ResultView {
+	const productById = new Map(result.products.map((product) => [product.product_id, product]));
+	const listingById = new Map(result.listings.map((listing) => [listing.listing_id, listing]));
 	const sourceById = new Map(result.source_snapshots.map((source) => [source.source_id, source]));
 	const evidenceById = new Map(result.source_evidence.map((evidence) => [evidence.evidence_id, evidence]));
 	const evidenceViews = result.source_evidence.map((evidence) =>
@@ -143,7 +153,15 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 	const trustViewByListingId = new Map(trustViews.map((trust) => [trust.listingId, trust]));
 
 	const modeViews = result.recommendation_bundle.mode_results.map((mode) =>
-		toModeView(mode, evidenceById, sourceById, sourceViewById, trustViewByListingId),
+		toModeView(
+			mode,
+			productById.get(mode.product_id),
+			mode.listing_id ? listingById.get(mode.listing_id) : undefined,
+			evidenceById,
+			sourceById,
+			sourceViewById,
+			trustViewByListingId,
+		),
 	);
 	const finalMode = findFinalMode(result, modeViews);
 	const resultEvidence = mapEvidence(result.recommendation_bundle.evidence_ids, evidenceById, sourceById);
@@ -175,9 +193,18 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		warnings: buildWarningViews(result, trustViews, evidenceById, sourceById, sourceViewById),
 		rejectedItems: result.recommendation_bundle.rejected_items
 			.filter(hasMeaningfulRejection)
-			.map((item) => toRejectedView(item, evidenceById, sourceById, sourceViewById)),
+			.map((item) =>
+				toRejectedView(item, productById, listingById, evidenceById, sourceById, sourceViewById),
+			),
 		sourceViews,
 		evidenceViews,
+		hasWeakEvidence: evidenceViews.some((item) => /low|unknown/i.test(item.confidence)),
+		hasConflictingEvidence: result.source_evidence.some((item) =>
+			/conflict|contradict/i.test(`${item.evidence_type} ${item.claim}`),
+		),
+		hasPartialSources: result.source_snapshots.some(
+			(source) => !['succeeded', 'success', 'complete', 'completed'].includes(source.extraction_status),
+		),
 	};
 }
 
@@ -258,6 +285,8 @@ function dedupeModes(modes: ModeView[]): ModeView[] {
 
 function toModeView(
 	mode: RecommendationModeResult,
+	product: SessionResultsResponse['products'][number] | undefined,
+	listing: SessionResultsResponse['listings'][number] | undefined,
 	evidenceById: Map<EntityId, SourceEvidence>,
 	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
@@ -273,6 +302,11 @@ function toModeView(
 		key: `${mode.mode}:${resultKey(mode.product_id, mode.listing_id ?? null)}`,
 		mode: mode.mode,
 		label: shopperSafeText(mode.title || modeLabel(mode.mode)),
+		productName: shopperSafeText(product?.name ?? mode.title ?? modeLabel(mode.mode)),
+		listingTitle: listing ? shopperSafeText(listing.title) : null,
+		sellerName: listing ? shopperSafeText(listing.seller.seller_name) : null,
+		priceLabel: listing?.price ? moneyLabel(listing.price.amount, listing.price.currency) : null,
+		purchaseUrl: neutralOutboundUrl(listing?.canonical_url ?? listing?.url),
 		productId: mode.product_id,
 		listingId: mode.listing_id ?? null,
 		rationale: shopperSafeText(mode.rationale),
@@ -316,6 +350,8 @@ function toTrustView(
 
 function toRejectedView(
 	item: RejectedItem,
+	productById: Map<EntityId, SessionResultsResponse['products'][number]>,
+	listingById: Map<EntityId, SessionResultsResponse['listings'][number]>,
 	evidenceById: Map<EntityId, SourceEvidence>,
 	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
@@ -323,9 +359,10 @@ function toRejectedView(
 	const evidence = mapEvidence(item.evidence_ids, evidenceById, sourceById);
 	return {
 		key: resultKey(item.product_id ?? null, item.listing_id ?? null),
-		label: item.listing_id
-			? `Listing ${shortEntityId(item.listing_id)}`
-			: `Product ${shortEntityId(item.product_id)}`,
+		label:
+			(item.product_id ? productById.get(item.product_id)?.name : null) ??
+			(item.listing_id ? listingById.get(item.listing_id)?.title : null) ??
+			'Candidate',
 		reasonCode: item.reason_code,
 		reasonLabel: rejectionReasonLabel(item.reason_code),
 		severity: item.severity,
@@ -333,6 +370,20 @@ function toRejectedView(
 		evidence,
 		sources: mapSources([...item.source_ids, ...evidence.map((record) => record.sourceId)], sourceViewById),
 	};
+}
+
+function moneyLabel(amount: string | number, currency: string): string {
+	const numericAmount = typeof amount === 'number' ? amount : Number(amount);
+	if (!Number.isFinite(numericAmount)) return `${currency} ${amount}`;
+	try {
+		return new Intl.NumberFormat('en', {
+			style: 'currency',
+			currency,
+			maximumFractionDigits: Number.isInteger(numericAmount) ? 0 : 2,
+		}).format(numericAmount);
+	} catch {
+		return `${currency} ${numericAmount}`;
+	}
 }
 
 function toSourceView(source: SourceSnapshot, evidence: EvidenceView[]): SourceView {

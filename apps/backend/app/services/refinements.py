@@ -21,7 +21,7 @@ from app.providers import (
 )
 from app.schemas.ids import SessionId
 from app.schemas.regions import RegionCode
-from app.schemas.runs import RefinementRequest, ShoppingRunRecord
+from app.schemas.runs import RefinementRequest, RunStatus, ShoppingRunRecord
 
 
 class RefinementService:
@@ -109,6 +109,12 @@ class RefinementService:
             ikea_store_intelligence_provider=self._ikea_store_intelligence_provider,
             default_region_code=self._default_region_code,
         )
-        await orchestrator.run(run.run_id, session.current_brief)
+        try:
+            await orchestrator.run(run.run_id, session.current_brief)
+        except Exception:
+            failed_run = await self._run_repository.get(run.run_id)
+            if failed_run is not None and failed_run.status == RunStatus.FAILED:
+                return stored_refinement, failed_run
+            raise
         updated_run = await self._run_repository.get(run.run_id)
         return stored_refinement, updated_run or run

@@ -11,6 +11,11 @@ from app.providers import (
     HttpStaticExtractionProvider,
     build_extraction_provider,
 )
+from app.providers.contracts import (
+    SourceAllowAvoidPolicy,
+    SourcePolicyAction,
+    SourcePolicyRule,
+)
 from app.schemas.search_sources import ExtractionStatus, SourceType
 
 
@@ -93,10 +98,55 @@ async def test_http_static_adapter_fetches_and_extracts_through_one_boundary(
         )
 
     assert snapshot.source_type == SourceType.RETAILER_LISTING
-    assert snapshot.extraction_status == ExtractionStatus.SUCCEEDED
+    assert snapshot.extraction_status == ExtractionStatus.PARTIAL
     assert snapshot.extracted_content is not None
     assert "Fixture product details" in snapshot.extracted_content.text
     assert snapshot.provider.provider_name == "http-static-extraction"
     assert snapshot.provider.raw["fetch_provider"] == "http-fetch"
+    assert snapshot.provider.raw["extraction_decision_reason"] == "static_too_sparse"
     assert snapshot.raw_artifact is not None
     assert (snapshot_dir / snapshot.raw_artifact.path).is_file()
+
+
+@pytest.mark.asyncio
+async def test_http_static_adapter_returns_failed_snapshot_for_blocked_source(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        snapshot = await HttpStaticExtractionProvider(
+            snapshot_dir=tmp_path,
+            client=client,
+        ).extract(AnyHttpUrl("https://example.com/blocked"))
+
+    assert snapshot.extraction_status == ExtractionStatus.FAILED
+    assert snapshot.http_status_code == 403
+    assert snapshot.provider.raw["extraction_failure_code"] == "blocked"
+    assert snapshot.provider.raw["extraction_failure_retryable"] is False
+    assert list(tmp_path.rglob("*")) == []
+
+
+@pytest.mark.asyncio
+async def test_http_static_adapter_enforces_extraction_source_policy(
+    tmp_path: Path,
+) -> None:
+    policy = SourceAllowAvoidPolicy(
+        avoid=(
+            SourcePolicyRule(
+                action=SourcePolicyAction.AVOID,
+                domain="blocked.example",
+                reason="Blocked by fixture policy.",
+            ),
+        )
+    )
+    snapshot = await HttpStaticExtractionProvider(snapshot_dir=tmp_path).extract(
+        AnyHttpUrl("https://blocked.example/product"),
+        ExtractionProviderOptions(source_policy=policy),
+    )
+
+    assert snapshot.extraction_status == ExtractionStatus.EXCLUDED
+    assert snapshot.provider.raw["extraction_failure_code"] == (
+        "source_policy_excluded"
+    )

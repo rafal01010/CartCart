@@ -155,7 +155,11 @@ intended adapters, planned queries receive region/category options, accepted
 results are policy-scored and persisted, explicitly excluded domains are
 dropped, tracking parameters are normalized away, eligible pages pass through
 the extraction boundary, linked snapshots are persisted, and usable outcomes
-create app-generated shortlist memberships.
+create app-generated shortlist memberships. Mixed-success cases must prove that
+one blocked, timed-out, oversized, or non-HTML source is persisted as a failed
+snapshot while other sources and the run continue. Security cases must reject
+loopback, private, link-local, and redirect-to-private targets before a request,
+and professional-review pages must never be normalized as store listings.
 
 The focused Section J fixture-mode gate command and its live-provider exclusions
 are documented in `docs/PROVIDERS.md`. Keep live calls, full backend/frontend

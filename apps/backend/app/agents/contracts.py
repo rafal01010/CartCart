@@ -11,7 +11,7 @@ from app.schemas.analysis import (
     RecommendationBundle,
 )
 from app.schemas.base import VersionedSchema
-from app.schemas.ids import RunId, SourceId
+from app.schemas.ids import ProductId, RunId, SourceId
 from app.schemas.guided_intake import (
     GuidedAnswerSubmission,
     GuidedIntakeState,
@@ -60,11 +60,22 @@ class QueryPlannerAgentInput(VersionedSchema):
     user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
 
 
+class ExtractedProductMention(VersionedSchema):
+    source_id: SourceId
+    name: str = Field(min_length=1, max_length=300)
+    brand: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+
+
 class DiscoveryAgentInput(VersionedSchema):
     run_id: RunId
     brief: ShoppingBrief
     search_plan: SearchPlan
     seed_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
+    product_leads: tuple[ExtractedProductMention, ...] = Field(
+        default_factory=tuple, max_length=12
+    )
 
 
 class DiscoveryAgentOutcome(StrEnum):
@@ -177,14 +188,6 @@ class ExtractionReviewAgentOutput(VersionedSchema):
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
 
 
-class ExtractedProductMention(VersionedSchema):
-    source_id: SourceId
-    name: str = Field(min_length=1, max_length=300)
-    brand: str | None = Field(default=None, max_length=200)
-    model: str | None = Field(default=None, max_length=200)
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
-
-
 class ExtractionEvidenceGap(VersionedSchema):
     source_id: SourceId
     summary: str = Field(min_length=1, max_length=1000)
@@ -195,14 +198,48 @@ class ExtractionAgentInput(VersionedSchema):
     snapshot_ids: tuple[SourceId, ...] = Field(min_length=1, max_length=8)
     category: str | None = None
     workbench_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
+    editorial_snapshot_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    collection_snapshot_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    research_leads: tuple["ExtractionResearchLead", ...] = Field(
+        default_factory=tuple, max_length=12
+    )
+
+
+class ExtractionResearchLead(VersionedSchema):
+    mention: ExtractedProductMention
+    source_evidence: tuple[SourceEvidence, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _evidence_matches_mention(self) -> "ExtractionResearchLead":
+        if set(self.mention.evidence_ids) != {
+            item.evidence_id for item in self.source_evidence
+        } or any(
+            item.source_id != self.mention.source_id for item in self.source_evidence
+        ):
+            raise ValueError("research lead evidence must cite its mention source")
+        return self
+
+
+class ExtractionLeadMatch(VersionedSchema):
+    product_id: ProductId
+    lead_evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
 
 
 class ExtractionAgentOutput(VersionedSchema):
-    products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
-    listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
-    source_evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
-    product_mentions: tuple[ExtractedProductMention, ...] = Field(default_factory=tuple)
-    evidence_gaps: tuple[ExtractionEvidenceGap, ...] = Field(default_factory=tuple)
+    products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple, max_length=8)
+    listings: tuple[ProductListing, ...] = Field(default_factory=tuple, max_length=8)
+    source_evidence: tuple[SourceEvidence, ...] = Field(
+        default_factory=tuple, max_length=32
+    )
+    product_mentions: tuple[ExtractedProductMention, ...] = Field(
+        default_factory=tuple, max_length=8
+    )
+    evidence_gaps: tuple[ExtractionEvidenceGap, ...] = Field(
+        default_factory=tuple, max_length=8
+    )
+    lead_matches: tuple[ExtractionLeadMatch, ...] = Field(
+        default_factory=tuple, max_length=8
+    )
 
     @model_validator(mode="after")
     def _validate_entity_links(self) -> "ExtractionAgentOutput":
@@ -236,6 +273,16 @@ class ExtractionAgentOutput(VersionedSchema):
                 if evidence.evidence_id in mention.evidence_ids
             ):
                 raise ValueError("product mention evidence must cite its source")
+        for match in self.lead_matches:
+            if match.product_id not in products:
+                raise ValueError("lead match references unknown extracted product")
+        matched_lead_ids = tuple(
+            evidence_id
+            for match in self.lead_matches
+            for evidence_id in match.lead_evidence_ids
+        )
+        if len(set(matched_lead_ids)) != len(matched_lead_ids):
+            raise ValueError("lead evidence may match only one extracted product")
         return self
 
 

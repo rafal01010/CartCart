@@ -17,6 +17,7 @@ from app.agents.contracts import (
     DiscoveryAgentInput,
     ExtractionAgentInput,
     ExtractionAgentOutput,
+    ExtractedProductMention,
     ExtractionEvidenceGap,
     ExtractionReviewAgentInput,
     IKEAStoreIntelligenceAgentInput,
@@ -879,6 +880,8 @@ def _build_workbench_definitions(
                 _scenario_extraction_ambiguous_page,
                 _scenario_extraction_malformed_output,
                 _scenario_extraction_multiple_products,
+                _scenario_extraction_collection_without_item_urls,
+                _scenario_extraction_review_roundup,
             ),
             live_agent_factory=LiveExtractionAgent,
         ),
@@ -2505,9 +2508,57 @@ def _scenario_extraction_malformed_output() -> AgentWorkbenchScenario:
 
 
 def _scenario_extraction_multiple_products() -> AgentWorkbenchScenario:
-    return _extraction_scenario(
+    snapshot = _extraction_snapshot(
         "multiple-products",
         "Acme Vision A1 television $499.00 USD https://example.com/shop/a1. Acme Vision B2 television $699.00 USD https://example.com/shop/b2. Official Acme Store.",
+    )
+    return _scenario(
+        "extraction-agent/multiple-products",
+        "Collection page with two distinct item URLs, prices, and cited listings.",
+        ExtractionAgentInput(
+            run_id=new_id(),
+            snapshot_ids=(snapshot.source_id,),
+            collection_snapshot_ids=(snapshot.source_id,),
+            category="tv",
+            workbench_snapshots=(snapshot,),
+        ),
+    )
+
+
+def _scenario_extraction_review_roundup() -> AgentWorkbenchScenario:
+    snapshot = _extraction_snapshot(
+        "review-roundup",
+        "Best TVs: Aurora A55 offers strong contrast; Northstar N65 has better motion; Cedar C75 is a value pick.",
+    ).model_copy(update={"source_type": SourceType.PROFESSIONAL_REVIEW})
+    return _scenario(
+        "extraction-agent/review-roundup",
+        "Editorial roundup yields several cited model leads and review claims, not store offers.",
+        ExtractionAgentInput(
+            run_id=new_id(),
+            snapshot_ids=(snapshot.source_id,),
+            editorial_snapshot_ids=(snapshot.source_id,),
+            category="tv",
+            workbench_snapshots=(snapshot,),
+        ),
+    )
+
+
+def _scenario_extraction_collection_without_item_urls() -> AgentWorkbenchScenario:
+    snapshot = _extraction_snapshot(
+        "collection-without-item-urls",
+        "TV collection: Aurora A55 $499 and Northstar N65 $699. Individual item links are not provided.",
+    )
+    return _scenario(
+        "extraction-agent/collection-without-item-urls",
+        "Collection names two products but lacks direct offer URLs, so listings stay uncertain.",
+        ExtractionAgentInput(
+            run_id=new_id(),
+            snapshot_ids=(snapshot.source_id,),
+            collection_snapshot_ids=(snapshot.source_id,),
+            category="tv",
+            workbench_snapshots=(snapshot,),
+        ),
+        boundary=True,
     )
 
 
@@ -2526,6 +2577,68 @@ def _mock_extraction_output(
                     source_id=source_id, summary="No identifiable product or listing."
                 ),
             )
+        )
+    if title == "review-roundup":
+        names = ("Aurora A55", "Northstar N65", "Cedar C75")
+        evidence = tuple(
+            SourceEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.SOURCE_METADATA,
+                    source_id=source_id,
+                ),
+                evidence_type=EvidenceType.REVIEW_CLAIM,
+                claim=f"Editorial page names {name} as a TV pick.",
+                confidence=_confidence(),
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+            )
+            for name in names
+        )
+        return ExtractionAgentOutput(
+            source_evidence=evidence,
+            product_mentions=tuple(
+                ExtractedProductMention(
+                    source_id=source_id,
+                    name=name,
+                    model=name.split()[-1],
+                    evidence_ids=(record.evidence_id,),
+                )
+                for name, record in zip(names, evidence)
+            ),
+        )
+    if title == "collection-without-item-urls":
+        names = ("Aurora A55", "Northstar N65")
+        evidence = tuple(
+            SourceEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.SOURCE_METADATA,
+                    source_id=source_id,
+                ),
+                evidence_type=EvidenceType.OTHER,
+                claim=f"Collection names {name}, without a direct item URL.",
+                confidence=_confidence(),
+                source_quality=SourceQuality(level=SourceQualityLevel.MIXED),
+            )
+            for name in names
+        )
+        return ExtractionAgentOutput(
+            source_evidence=evidence,
+            product_mentions=tuple(
+                ExtractedProductMention(
+                    source_id=source_id,
+                    name=name,
+                    model=name.split()[-1],
+                    evidence_ids=(record.evidence_id,),
+                )
+                for name, record in zip(names, evidence)
+            ),
+            evidence_gaps=(
+                ExtractionEvidenceGap(
+                    source_id=source_id,
+                    summary="No direct item-level offer URLs are present.",
+                ),
+            ),
         )
     names = (
         ("Acme Vision A1", "Acme Vision B2")

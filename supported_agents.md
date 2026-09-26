@@ -45,13 +45,17 @@ agent's semantic source/product decision.
 This is partly implemented. Live `DiscoveryAgent` receives pre-fetched results,
 can call bounded search/fetch SDK tools, and returns a decision for each
 inspected source, including generic results. Live `ExtractionAgent` now
-interprets persisted snapshots and can return multiple listings; the fixture
-path still uses the one-listing `ProductListingExtractor`. The fixture-only
+interprets persisted snapshots and can return multiple listings. One bounded
+extraction-to-discovery handoff now sends up to twelve cited leads still
+needing direct offers; Discovery chooses targeted official/retailer searches within
+its four-call budget. The run inspects up to four new pages, and extraction
+explicitly matches review evidence to found products. The fixture path still
+uses the one-listing `ProductListingExtractor`. The fixture-only
 `ExtractionReviewAgent` is transitional compatibility, superseded by
 `ExtractionAgent`; it is not the target extraction architecture. The catalog's
 `planned_tool_boundaries` are design declarations; `approved_sdk_tools` is the
-active allowlist. The bounded review-to-listing loop and category-safe fixture
-behavior remain implementation work.
+active allowlist. A general repeat-until-sufficient research loop and
+category-safe fixture behavior remain implementation work.
 
 The executable catalog now also assigns `fast`, `strong`, or `default` run
 profiles. Strong is assigned to complex research/analysis, listing trust,
@@ -276,7 +280,7 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `IntakeAgent` | `required-mvp` | Interpret user goal, inferred category, region, budget, hard constraints, soft preferences, and clarification needs. | Typed step | Query and explicit controls | `ShoppingBrief` | Ask for correction or preserve uncertainty when critical intent is ambiguous. |
 | `QueryPlannerAgent` | `required-mvp` | Plan region-aware searches and source strategy, including scoped lookup queries for user-considered product names/descriptions and when video-review search is useful. | Typed step | `ShoppingBrief` plus user-added product hints | `SearchPlan` | Generic shopping query plan. |
 | `DiscoveryAgent` | `required-mvp` | Own semantic source classification/relevance, product leads from reviews, and bounded follow-up search/fetch decisions, including user-considered products. | Typed agent step with approved search/retrieval tools | Brief, plan, persisted provider results and cited leads | Per-source kind, confidence, reasons, treatment, candidate/model hints, next action, and selected IDs | Keep generic search results available for judgment; return explicit insufficient evidence if classification fails. |
-| `ExtractionAgent` | `required-mvp` | Primarily interpret each persisted page, including review roundups and multi-product collection pages; separate product, listing, seller, and review facts. | Live typed agent step over approved persisted-snapshot reader | Assigned snapshot IDs and bounded page text | Zero/one/many cited products/listings, review mentions/evidence, and gaps | Preserve unknowns; invalid citations/schema become explicit gaps. Review mentions are not yet fed into follow-up research. |
+| `ExtractionAgent` | `required-mvp` | Primarily interpret each persisted page, including review roundups and multi-product collection pages; separate product, listing, seller, and review facts. | Live typed agent step over approved persisted-snapshot reader | Assigned snapshot IDs, bounded page text, and cited leads on targeted follow-up pages | Zero/one/many cited products/listings, review mentions/evidence, lead matches, and gaps | Preserve unknowns; invalid citations/schema become explicit gaps. A bounded one-hop handoff feeds review/collection mentions to DiscoveryAgent before shortlist construction. |
 | `ExtractionReviewAgent` | `transitional` | Existing fixture/workbench compatibility contract only; superseded by `ExtractionAgent`. | Fixture sub-run only; not the target live path | Existing snapshot/extracted fields | Legacy `ExtractionReviewAgentOutput` | Do not promote its fixture monitor output into an unrelated category. |
 | `DeduplicationReviewAgent` | `required-mvp` | Review ambiguous duplicate candidates after deterministic matching. | Tool/sub-run only for uncertain pairs | Listings and match evidence | `DeduplicationDecision` | Preserve candidates as distinct when confidence is insufficient. |
 | `CategoryRouterAgent` | `required-mvp` | Select implemented specialist or generic fallback. | Deterministic catalog plus typed routing decision where needed | Brief and candidates | Declared route | Always route unsupported/uncertain categories to generic fallback. |
@@ -438,7 +442,7 @@ provider arguments or call vendor SDKs directly.
 | `IntakeAgent` | None. | None. | None beyond supplied user/session input. | Search, extraction, source intelligence, recommendation generation, invented region/budget certainty. |
 | `QueryPlannerAgent` | None. | None. | None directly. The workflow calls `SearchProvider` adapters after a validated `SearchPlan` is returned and may provide user-added product hints for scoped lookup queries. | Direct web search, browsing, provider SDK calls, category blocking because no specialist exists, asking users for product links. |
 | `DiscoveryAgent` | `search_sources` and `fetch_source` are attached as bounded SDK function tools in the live shopping run. | None today. | Supplied persisted `SearchResult` IDs plus run-scoped typed `SearchProvider`/`ExtractionProvider` calls, with backend-owned credentials, source policy, URL validation, result/snapshot persistence, and stable IDs. | Arbitrary URLs/provider arguments, vendor SDKs, unbounded browsing, fabricated source IDs, discarding generic results solely for their provider type. |
-| `ExtractionAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None today. | Typed output with valid source/evidence IDs and zero/one/many products/listings; backend validates entity links, neutral listing URLs, and cited price text. | Direct scraping/vendor SDKs, invented facts/IDs, treating review articles as stores, collapsing multiple products into one page title. |
+| `ExtractionAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None today. | Typed output with valid source/evidence IDs and zero/one/many products/listings; backend validates entity links, neutral listing URLs, cited price text, editorial-page listing exclusion, item-level URLs on collection pages, and review-evidence matches to follow-up products. | Direct scraping/vendor SDKs, invented facts/IDs, treating review articles as stores, collapsing multiple products into one page title. |
 | `ExtractionReviewAgent` | Fixture/workbench compatibility only; no live SDK tools. | None in target architecture. | Existing legacy snapshot/extraction contract until replacement. | Being treated as the primary semantic interpreter or injecting monitor fixtures for unrelated requests. |
 | `DeduplicationReviewAgent` | Not implemented live yet. | May be a typed sub-run only for uncertain duplicate pairs. | Supplied product/listing/evidence records and deterministic dedupe signals. | Collapsing uncertain products without evidence, fetching new source data. |
 | `CategoryRouterAgent` | None. | None. | Executable agent catalog for allowed route normalization and fallback. | Calling analysts directly, inventing specialists, unsupported-category refusal for normal products. |

@@ -310,8 +310,15 @@ orchestration, live `DiscoveryAgent` can conduct bounded follow-up searches and
 select generic results for inspection. Live `ExtractionAgent` reads selected
 persisted snapshots through a bounded same-run tool and returns validated
 zero/one/many products, listings, evidence, mentions, and gaps. Its listings feed
-the current shortlist path, but review mentions do not yet trigger follow-up
-discovery. Fixture runs still contain monitor data. These are
+the current shortlist path. Cited mentions needing an offer lookup can
+trigger one bounded DiscoveryAgent search pass before the shortlist: at most
+twelve leads, four search calls, and four newly selected pages. ExtractionAgent
+must explicitly match
+prior review evidence to a found product; otherwise the claim remains
+source-scoped. Editorial snapshots cannot produce retailer listings, and a
+collection URL cannot be reused as each item's direct offer URL. The full
+repeat-until-sufficient research loop is not yet integrated. Fixture runs still
+contain monitor data. These are
 transitional limitations, not the intended agent ownership. The normal run
 path remains fixture-first; live typed agents require explicit configuration.
 

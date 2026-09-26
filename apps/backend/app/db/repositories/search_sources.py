@@ -149,6 +149,22 @@ class SearchSourceRepository:
         await self._session.flush()
         return record.to_schema()
 
+    async def save_source_evidence(
+        self, run_id: RunId, evidence: SourceEvidence
+    ) -> SourceEvidence:
+        """Insert or refresh a same-run evidence target after canonical grouping."""
+        record = await self._session.get(
+            SourceEvidenceRecord, str(evidence.evidence_id)
+        )
+        if record is None:
+            return await self.add_source_evidence(run_id, evidence)
+        if record.run_id != str(run_id) or record.source_id != str(evidence.source_id):
+            raise ValueError("evidence ID belongs to a different run or source")
+        record.evidence = evidence.model_dump(mode="json")
+        record.evidence_type = evidence.evidence_type.value
+        await self._session.flush()
+        return record.to_schema()
+
     async def list_source_evidence(self, run_id: RunId) -> tuple[SourceEvidence, ...]:
         statement: Select[tuple[SourceEvidenceRecord]] = (
             select(SourceEvidenceRecord)

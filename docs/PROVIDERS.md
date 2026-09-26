@@ -56,7 +56,11 @@ and classify every observed source; the downstream agent-led extraction loop
 is subsequent work.
 `ExtractionAgent` now has a separately approved, read-only, run-scoped
 snapshot-reader boundary. Generic `SearchResult` records remain available to
-agents, not grounds for automatic rejection.
+agents, not grounds for automatic rejection. In live mode, cited product leads
+from extracted pages without offers can initiate one bounded follow-up
+DiscoveryAgent search pass. The same approved search/fetch tools, source
+policy, neutral URLs, and persisted IDs apply; neither agent gets raw provider
+credentials or an arbitrary-URL fetch path.
 
 Shopping runs invoke reusable source-intelligence providers after normal
 discovery and extraction have produced candidate products/listings. The workflow

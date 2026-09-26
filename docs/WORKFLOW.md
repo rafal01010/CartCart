@@ -32,9 +32,14 @@ Live `ExtractionAgent` has a separate read-only `read_source_snapshot` SDK tool.
 It can read only assigned same-run persisted snapshots, with a bounded text
 excerpt and read budget. Invalid structured output becomes an explicit gap.
 
-The full cycle is **not yet implemented** in the current run path. Live
-extraction now uses the agent as the primary interpreter, but review mentions
-are not yet routed back into targeted discovery. Fixture normalization remains
+The full repeat-until-sufficient cycle is **not yet implemented** in the current
+run path. Live extraction now uses the agent as the primary interpreter and
+passes up to twelve cited leads still needing direct offers back to
+DiscoveryAgent for one targeted search pass with at most four search-tool calls.
+Up to four new selected pages are extracted before
+shortlist construction. ExtractionAgent can explicitly link earlier review
+evidence to a found product; unmatched review claims stay source-scoped, never
+becoming store offers. Fixture normalization remains
 single-listing oriented and fixture fallback can be category-incompatible.
 The following run lifecycle describes the current transitional behavior.
 
@@ -173,8 +178,8 @@ the deterministic one-listing normalizer. In live mode, selected generic results
 and other source types are persisted before `ExtractionAgent` reads their
 snapshots. Its validated listings feed the current shortlist path, including
 multiple listings from one page; its evidence is persisted and passed to later
-analysis. Mentions and gaps remain in run context, but review-to-listing
-follow-up and durable mention/gap records await the bounded research loop.
+analysis. Review/collection mentions can trigger a bounded one-hop offer lookup;
+durable mention/gap records and a general research loop remain later work.
 Fixture and disabled provider modes remain network-free.
 
 The deduplication stage then groups those normalized candidates before source

@@ -112,12 +112,27 @@ class LiveExtractionAgent:
                 "facts. Return zero, one, or many separate products and listings. "
                 "A review is evidence, not a store listing. Distinguish product facts "
                 "from listing price, seller, availability, and region facts. A product "
-                "mention in a review may be returned without a listing. Cite the exact "
+                "mention in a review may be returned without a listing. Use "
+                "product_mentions for cited named products that still need a "
+                "direct official or retailer offer lookup, even if the same "
+                "page also yielded other usable listings. Do not request "
+                "lookup for a product already backed by a direct offer. Cite the exact "
                 "supplied snapshot ID in every product, listing, evidence, mention, and "
                 "gap; evidence targets must reference returned entity IDs. Do not infer "
                 "price, currency, specification, seller, availability or item URL from "
                 "ambiguous page text. Leave unknown fields empty and report gaps. "
                 "Never use a review URL as a retail listing URL."
+                " If research_leads are supplied, match a newly extracted product "
+                "to a prior cited research lead only when page-level model or "
+                "identity evidence supports it. Return lead_matches with the "
+                "prior lead evidence IDs for confident matches; leave "
+                "ambiguous matches out. Editorial snapshots may yield mentions "
+                "and review claims, but never retailer listings. For a multi-item "
+                "collection page, create separate products/listings only for "
+                "item-level identities and prices the text supports. Do not "
+                "reuse the collection URL as every item's offer URL; when an "
+                "item URL is absent, return a cited mention and explicit gap "
+                "so discovery can seek a direct offer."
             ),
             tools=list(tools.sdk_tools()),
             output_type=ExtractionAgentOutput,
@@ -135,6 +150,15 @@ class LiveExtractionAgent:
                 "run_id": str(input_data.run_id),
                 "category": input_data.category,
                 "pages": [page.model_dump(mode="json") for page in pages],
+                "editorial_snapshot_ids": [
+                    str(item) for item in input_data.editorial_snapshot_ids
+                ],
+                "collection_snapshot_ids": [
+                    str(item) for item in input_data.collection_snapshot_ids
+                ],
+                "research_leads": [
+                    lead.model_dump(mode="json") for lead in input_data.research_leads
+                ],
             },
             sort_keys=True,
         )
@@ -151,7 +175,7 @@ class LiveExtractionAgent:
             output = ExtractionAgentOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
-            _validate_extraction(output, readable)
+            _validate_extraction(output, readable, input_data)
         except (TimeoutError, ValidationError, ValueError, TypeError):
             return self._gap_output(
                 input_data, tools, "Agent extraction was invalid or timed out."
@@ -198,7 +222,9 @@ class LiveExtractionAgent:
 
 
 def _validate_extraction(
-    output: ExtractionAgentOutput, readable: dict[SourceId, Any]
+    output: ExtractionAgentOutput,
+    readable: dict[SourceId, Any],
+    input_data: ExtractionAgentInput,
 ) -> None:
     if not any(
         (
@@ -211,13 +237,31 @@ def _validate_extraction(
     ):
         raise ValueError("empty extraction requires an explicit evidence gap")
     allowed = set(readable)
+    editorial = set(input_data.editorial_snapshot_ids)
+    collections = set(input_data.collection_snapshot_ids)
+    if not editorial.issubset(allowed):
+        raise ValueError("editorial snapshot must be an assigned readable source")
+    if not collections.issubset(allowed):
+        raise ValueError("collection snapshot must be an assigned readable source")
+    lead_evidence_ids = {
+        evidence.evidence_id
+        for lead in input_data.research_leads
+        for evidence in lead.source_evidence
+    }
     for product in output.products:
         if not product.source_ids or not set(product.source_ids).issubset(allowed):
             raise ValueError("product cites unknown or missing snapshot")
     for listing in output.listings:
+        if set(listing.source_ids) & editorial:
+            raise ValueError("editorial source cannot support a retailer listing")
         if not set(listing.source_ids).issubset(allowed):
             raise ValueError("listing cites unknown snapshot")
         listing_url = str(listing.url).rstrip("/")
+        if any(
+            listing_url == (readable[source_id].url or "").rstrip("/")
+            for source_id in set(listing.source_ids) & collections
+        ):
+            raise ValueError("collection URL is not an item-level offer URL")
         if urlsplit(listing_url).query or urlsplit(listing_url).fragment:
             raise ValueError("listing URL must be a neutral outbound URL")
         if not any(
@@ -254,6 +298,9 @@ def _validate_extraction(
     for gap in output.evidence_gaps:
         if gap.source_id not in allowed:
             raise ValueError("gap cites unknown snapshot")
+    for match in output.lead_matches:
+        if not set(match.lead_evidence_ids).issubset(lead_evidence_ids):
+            raise ValueError("lead match cites unknown source evidence")
 
 
 def _page_supports_amount(text: str, amount: Decimal) -> bool:

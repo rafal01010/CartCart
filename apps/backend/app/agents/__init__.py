@@ -30,6 +30,7 @@ from app.agents.contracts import (
     ExtractionAgent,
     ExtractionAgentInput,
     ExtractionAgentOutput,
+    ExtractionResearchLead,
     ExtractionEvidenceGap,
     ExtractionReviewAgent,
     ExtractionReviewAgentInput,

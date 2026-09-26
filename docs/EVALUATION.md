@@ -181,8 +181,16 @@ full extraction loop. Required cases:
 - `research/review-to-product-lookup`: several cited TV model mentions from a
   roundup trigger bounded official/retailer listing searches; the review is
   never itself a listing.
+- `extraction-agent/review-roundup`: mocked editorial extraction returns three
+  cited TV leads and review claims, with zero retailer listings. The focused
+  orchestration test confirms two leads trigger one targeted discovery pass,
+  two new offer pages, and explicit review-evidence-to-product matches before
+  shortlist construction; unmatched evidence remains source-scoped.
 - `research/multi-product-collection`: one retailer/category page yields
   multiple distinct cited products/listings, not its page title and first price.
+- `extraction-agent/collection-without-item-urls`: two cited item leads but no
+  invented direct offer URL or listing; the missing item links remain an
+  explicit gap for targeted discovery.
 - `research/uncertain-page-and-no-results`: explicit ignore/uncertainty/gaps,
   with no fabricated identifiers, prices, availability, or candidate products.
 - `research/source-id-and-budget-integrity`: every entity/evidence reference

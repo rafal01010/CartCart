@@ -4,7 +4,10 @@ These adapters replay explicit source decisions and entities. Unknown provider
 results are insufficient evidence; they never become products by heuristic.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import AnyHttpUrl
 
@@ -19,7 +22,6 @@ from app.agents.contracts import (
     ExtractionAgentOutput,
     ExtractionEvidenceGap,
 )
-from app.orchestration.fixtures import MonitorFixtureRunOutput
 from app.providers.contracts import ExtractionProviderOptions, SearchProviderOptions
 from app.schemas.search_sources import (
     SearchQuery,
@@ -27,6 +29,9 @@ from app.schemas.search_sources import (
     SourceSnapshot,
     SourceType,
 )
+
+if TYPE_CHECKING:
+    from app.orchestration.fixtures import MonitorFixtureRunOutput
 
 
 def _fixture_kind(source_type: SourceType) -> DiscoverySourceKind:

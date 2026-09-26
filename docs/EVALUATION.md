@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 
 ## Evaluation Direction
 
@@ -85,9 +85,10 @@ Eval cases should check whether the system:
 - Uses Amazon evidence with marketplace, listing, seller/fulfillment, review, and regional availability context preserved.
 - Uses IKEA evidence only with explicit country/region context and does not infer global shipping or availability.
 - Handles unavailable, blocked, weak, stale, anecdotal, or conflicting reusable source intelligence without fabricating certainty.
-- Classifies official sources, established first-party and mixed retailers,
-  open marketplaces, excluded proxy/resale platforms, review/testing sources,
-  community sources, and unknown stores deterministically.
+- Checks agent classification of official sources, established first-party and
+  mixed retailers, open marketplaces, excluded proxy/resale platforms,
+  review/testing sources, community sources, and unknown stores against cited
+  source evidence. Deterministic source policy still excludes unsafe sources.
 - Scores matching and mismatched regional domains, currencies, shipping,
   Amazon marketplaces, and IKEA country paths predictably and with reasons.
 
@@ -165,10 +166,10 @@ ExtractionAgent replay, explicit uncertain/gap outcomes for unknown pages,
 and TV/office-chair no-product results that never inherit Dell/ASUS monitor
 candidates. The complete monitor replay remains the positive fixture case.
 
-## Planned Agent-First Research Cases
+## Agent-First Research Gate Cases
 
-The target research/extraction architecture needs fixture-backed and mocked
-agent evaluations beyond the existing deterministic provider checks. Seed
+The research/extraction architecture has fixture-backed and mocked checks
+beyond deterministic provider checks. Seed
 inputs include `tests/fixtures/providers/agent_research_source_shapes.json`;
 the workbench's mixed TV discovery case now has eight review and eighteen
 generic shopping results. Mocked tool-invocation tests prove bounded follow-up
@@ -201,8 +202,13 @@ full extraction loop. Required cases:
   persisted failed snapshot and explicit gap while another generic selected
   page still yields multiple candidates. Stage research activity records
   per-source decisions, extracted entities, gaps, and follow-up matches.
-- The Task 89I gate must still run the broader mocked/live-optional integration
-  cases, including honest no-product behavior after Task 89H fixture alignment.
+- `test_agent_first_research_gate.py` replays the observed TV result shape
+  through a mocked Tavily HTTP response and a persisted shopping run: eight
+  preclassified professional reviews plus eighteen generic shopping results
+  reach `DiscoveryAgent`. The network-free fixture interpreter has no TV
+  product facts to replay, so the result is honestly no-strong-buy with no
+  monitor products. Twelve selected pages are inspected under the research
+  budget; source-intelligence stages may persist additional source snapshots.
 - `research/uncertain-page-and-no-results`: explicit ignore/uncertainty/gaps,
   with no fabricated identifiers, prices, availability, or candidate products.
 - `research/source-id-and-budget-integrity`: every entity/evidence reference
@@ -214,10 +220,13 @@ full extraction loop. Required cases:
   source IDs cannot reach model-facing tool output. Generic provider labels
   survive, safe records commit before their IDs are returned, and partial
   provider failure is represented as a typed gap. Focused mocked tests cover
-  the implemented boundary; agent-led invocation remains a later eval gate.
+  the implemented boundary and SDK tool invocation.
 
-These are planned eval cases, not passing runtime claims. Their implementation
-and full joint verification belong to the later research/extraction gate.
+The offline gate combines these workbench, contract, and integration tests with
+per-agent profile assertions. The optional live TV discovery workbench smoke is
+marked `live_provider` and runs only with
+`CARTCART_RUN_LIVE_PROVIDER_TESTS=1` and a configured `OPENAI_API_KEY`; offline
+success does not claim that a real live TV search yielded purchasable listings.
 
 The focused Section J fixture-mode gate command and its live-provider exclusions
 are documented in `docs/PROVIDERS.md`. Keep live calls, full backend/frontend

@@ -559,7 +559,8 @@ sensitive data by default. The new run-scoped research tool adapter enforces fou
 eight page fetches, ten returned results per search, and 12,000 page-text
 characters per fetch by default. These backend-owned bounds may be narrowed
 when constructing a tool adapter; they are not shopper- or model-controlled.
-The tools have not yet been attached to the current live discovery step.
+The tools are attached to the live `DiscoveryAgent` step; fixture/mock runs
+remain network-free unless a non-fixture provider was explicitly selected.
 The resolved model and optional reasoning effort are set on each SDK `Agent`,
 not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
 caller's model profile.
@@ -570,12 +571,15 @@ a time. It is disabled by default and is mounted only for `local`, `test`, or
 
 Its catalog lists catalog-approved SDK tool names. `AgentResearchTools` records
 safe tool name/status/source-ID summaries in the workbench activity format;
-SDK calls are traceable when a live agent is later wired to the tools. The
+SDK calls are traceable in the live agent step. The
 local-only `POST /internal/agent-workbench/research-tools/probe` uses fixture
 providers and a disposable in-memory database to show one search/fetch call,
-their persisted IDs, and tool activity without spending API quota. The existing
-discovery workbench scenarios still exercise the older supplied-result contract
-and do not claim to demonstrate agent-led search yet.
+their persisted IDs, and tool activity without spending API quota. The
+discovery workbench's 26-result TV scenario exercises supplied-result
+classification. Separate mocked SDK-tool tests exercise agent-chosen search
+and fetch calls. The persisted TV gate replay uses mocked Tavily HTTP responses
+and fixture agents, so it tests honest insufficient-evidence behavior rather
+than claiming live product recommendations.
 
 ```dotenv
 CARTCART_AGENT_WORKBENCH_ENABLED=true

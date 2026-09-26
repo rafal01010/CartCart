@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
-Status: Agent-first research target with transitional runtime called out below
-Last updated: 2026-09-25
+Status: Agent-first research runtime with fixture limitations called out below
+Last updated: 2026-09-26
 
 ## Purpose
 
@@ -42,13 +42,13 @@ schema/evidence-ID integrity, and policy enforcement. Helpers may propose
 fields or reject invalid output but may not silently veto or replace an
 agent's semantic source/product decision.
 
-This is partly implemented. Live `DiscoveryAgent` receives pre-fetched results,
-can call bounded search/fetch SDK tools, and returns a decision for each
+The research path is implemented. Live `DiscoveryAgent` receives pre-fetched
+results, can call bounded search/fetch SDK tools, and returns a decision for each
 inspected source, including generic results. Live `ExtractionAgent` now
 interprets persisted snapshots and can return multiple listings. One bounded
 extraction-to-discovery handoff now sends up to twelve cited leads still
 needing direct offers; Discovery chooses targeted official/retailer searches within
-its four-call budget. The run inspects up to four new pages, and extraction
+its four-call budget. The run inspects up to four new pages per cycle, and extraction
 explicitly matches review evidence to found products. The fixture path now
 replays typed `DiscoveryAgent` and `ExtractionAgent` outputs; unknown results
 are inspected as uncertain and produce explicit gaps, not guessed listings.
@@ -65,6 +65,13 @@ for its downstream comparison bundle. TV, furniture, and other unsupported
 fixture categories receive no-strong-buy without unrelated products. Mixed
 live-provider/fixture-agent mode emits a readiness warning because it cannot
 test live agent-owned research.
+
+The offline gate replays eight professional TV reviews and eighteen generic
+Tavily shopping results through a persisted shopping run. All 26 reach
+`DiscoveryAgent`; the fixture interpreter has no cited TV product facts, so the
+result is no-strong-buy with no monitor product injection. This is not evidence
+that a credentialed live run will always find TV listings; that remains an
+opt-in live-model/provider check.
 
 The executable catalog now also assigns `fast`, `strong`, or `default` run
 profiles. Strong is assigned to complex research/analysis, listing trust,

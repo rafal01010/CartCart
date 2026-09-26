@@ -680,10 +680,14 @@ a provider-service probe; mock mode exercises the bounded official-region
 search/read SDK contract offline, and opt-in live mode runs the SDK specialist
 over recorded workbench provider data. All four source specialists support mocked
 SDK runs and opt-in live SDK runs
-over fixture providers; parent agent-as-tool delegation is still pending.
-In a live shopping workflow the source stage trace is named
-`ProviderSourceIntelligenceServices` with `runtime_mode=provider_service` and
-no model name; live providers may still be contacted by those services.
+over fixture providers. In a live-agent shopping workflow, the post-dedupe source
+stage records `SourceIntelligenceManagerAgent` with its resolved strong-profile
+model, SDK specialist agent-tool activity, nested fast-profile models, available
+usage, source/evidence ID relationships, and explicit skip/failure notes. The
+parent can invoke at most one run of each enabled specialist. Fixture runs keep
+the provider-service path without claiming a model call. A legacy directly
+constructed orchestrator with no manager injected still records its live
+provider-service path truthfully.
 For
 `ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
 source-backed three-monitor shortlist with best overall, best value,

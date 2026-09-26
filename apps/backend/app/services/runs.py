@@ -2,6 +2,7 @@ from app.core.errors import ApplicationError
 from app.agents.research_tools import AgentResearchTools
 from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_extraction import LiveExtractionAgent
+from app.agents.live_source_intelligence_manager import SourceIntelligenceManagerAgent
 from app.core.settings import AgentWorkflowMode, Settings
 from app.agents import (
     AmazonProductIntelligenceService,
@@ -299,6 +300,14 @@ class RunService:
                 settings=self._settings
             ),
             "verifier_critic_agent": LiveVerifierCriticAgent(settings=self._settings),
+            "source_intelligence_manager": SourceIntelligenceManagerAgent(
+                settings=self._settings,
+                video_provider=self._video_search_provider,
+                transcript_provider=self._transcript_provider,
+                community_provider=self._community_discussion_provider,
+                amazon_provider=self._amazon_product_intelligence_provider,
+                ikea_provider=self._ikea_store_intelligence_provider,
+            ),
             "youtube_review_intelligence_service": YouTubeReviewIntelligenceService(
                 settings=self._settings,
                 video_search_provider=self._video_search_provider,

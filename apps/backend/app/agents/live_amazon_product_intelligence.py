@@ -145,9 +145,9 @@ class AmazonProductIntelligenceAgent:
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
         return self._workbench_activity
 
-    async def run(
+    def prepare_delegated_run(
         self, input_data: AmazonProductIntelligenceAgentInput
-    ) -> AmazonProductEvidenceBundle:
+    ) -> tuple[Agent[Any], AmazonMarketplaceTools, Any]:
         config = build_openai_agent_run_configuration(
             self.settings,
             agent_name="AmazonProductIntelligenceAgent",
@@ -175,6 +175,12 @@ class AmazonProductIntelligenceAgent:
             output_type=AmazonProductModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
+        return agent, tools, config
+
+    async def run(
+        self, input_data: AmazonProductIntelligenceAgentInput
+    ) -> AmazonProductEvidenceBundle:
+        agent, tools, config = self.prepare_delegated_run(input_data)
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,

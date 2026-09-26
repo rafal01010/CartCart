@@ -188,9 +188,9 @@ class RedditCommunityIntelligenceAgent:
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
         return self._workbench_activity
 
-    async def run(
+    def prepare_delegated_run(
         self, input_data: RedditCommunityIntelligenceAgentInput
-    ) -> CommunityDiscussionEvidenceBundle:
+    ) -> tuple[Agent[Any], RedditCommunityTools, Any]:
         config = build_openai_agent_run_configuration(
             self.settings,
             agent_name="RedditCommunityIntelligenceAgent",
@@ -220,6 +220,12 @@ class RedditCommunityIntelligenceAgent:
             output_type=RedditCommunityModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
+        return agent, tools, config
+
+    async def run(
+        self, input_data: RedditCommunityIntelligenceAgentInput
+    ) -> CommunityDiscussionEvidenceBundle:
+        agent, tools, config = self.prepare_delegated_run(input_data)
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,

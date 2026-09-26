@@ -104,32 +104,32 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
     assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
     youtube, reddit, amazon, ikea = source_agents
-    assert youtube.invocation_mode == InvocationMode.TYPED_STEP
+    assert youtube.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert youtube.sdk_implementation_pending is False
     assert {tool.value for tool in youtube.approved_sdk_tools} == {
         "search_videos",
         "read_video_metadata",
         "read_video_transcript",
     }
-    assert reddit.invocation_mode == InvocationMode.TYPED_STEP
+    assert reddit.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert reddit.sdk_implementation_pending is False
     assert {tool.value for tool in reddit.approved_sdk_tools} == {
         "search_community_discussions",
         "read_community_discussion",
     }
-    assert amazon.invocation_mode == InvocationMode.TYPED_STEP
+    assert amazon.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert amazon.sdk_implementation_pending is False
     assert {tool.value for tool in amazon.approved_sdk_tools} == {
         "search_amazon_products",
         "read_amazon_product",
     }
-    assert ikea.invocation_mode == InvocationMode.TYPED_STEP
+    assert ikea.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert ikea.sdk_implementation_pending is False
     assert {tool.value for tool in ikea.approved_sdk_tools} == {
         "search_ikea_products",
         "read_ikea_product",
     }
-    assert all(not agent.agent_as_tool_available for agent in source_agents)
+    assert all(agent.agent_as_tool_available for agent in source_agents)
     assert all(agent.approved_sdk_tools for agent in source_agents)
     assert all(not agent.planned_sdk_tools for agent in source_agents)
     assert all(agent.provider_service_name for agent in source_agents)
@@ -186,19 +186,19 @@ def test_ikea_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None
         ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
         ApprovedSDKTool.READ_IKEA_PRODUCT,
     )
-    assert entry.agent_as_tool_available is False
+    assert entry.agent_as_tool_available is True
 
 
 def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None:
     entry = DEFAULT_AGENT_CATALOG.require("AmazonProductIntelligenceAgent")
     assert entry.sdk_implementation_pending is False
-    assert entry.invocation_mode == InvocationMode.TYPED_STEP
+    assert entry.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert entry.run_profile == AgentRunProfileName.FAST
     assert entry.approved_sdk_tools == (
         ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
         ApprovedSDKTool.READ_AMAZON_PRODUCT,
     )
-    assert entry.agent_as_tool_available is False
+    assert entry.agent_as_tool_available is True
 
 
 def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:

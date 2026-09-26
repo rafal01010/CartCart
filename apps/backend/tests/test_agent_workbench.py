@@ -265,7 +265,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     }
     assert youtube["modes"] == ["fixture", "mock", "live"]
     assert youtube["sdk_implementation_pending"] is False
-    assert youtube["agent_as_tool_available"] is False
+    assert youtube["agent_as_tool_available"] is True
     assert youtube["approved_sdk_tools"] == [
         "search_videos",
         "read_video_metadata",
@@ -314,7 +314,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert ikea["modes"] == ["fixture", "mock", "live"]
     for source_agent in (amazon, ikea):
         assert source_agent["sdk_implementation_pending"] is False
-        assert source_agent["agent_as_tool_available"] is False
+        assert source_agent["agent_as_tool_available"] is True
         assert source_agent["provider_service_name"].endswith("Service")
         assert source_agent["approved_sdk_tools"]
         assert source_agent["planned_sdk_tools"] == []

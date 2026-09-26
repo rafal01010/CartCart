@@ -102,8 +102,7 @@ live mode is explicit and may incur OpenAI usage.
 The YouTube specialist now exposes approved video search, metadata, and
 transcript tools with fixture/mock/live workbench modes. Fixture remains a
 provider-service run with no model; mock exercises the SDK contract offline;
-explicit live mode runs the model over workbench provider fixtures. It is not
-yet delegated by the normal shopping-run parent. Reddit now likewise exposes
+explicit live mode runs the model over workbench provider fixtures. Reddit likewise exposes
 approved public-community search/read tools and fixture/mock/live workbench
 modes, with only mock/live representing SDK specialist runs. Amazon now exposes
 approved bounded marketplace candidate-search/read tools and fixture/mock/live workbench
@@ -111,7 +110,9 @@ modes; fixture remains a provider-service probe, while mock/live run its SDK
 specialist contract. IKEA now likewise exposes bounded official-region
 search/read tools and fixture/mock/live workbench modes; only mock/live run its
 SDK specialist contract. All four expose
-`agent_as_tool_available=false` until parent delegation is wired.
+`agent_as_tool_available=true` because the live shopping-run source manager now
+invokes each through the SDK agent-as-tool path. The workbench fixture mode
+still reports provider-service execution without a model call.
 Transcript-backed YouTube evidence may include `signal_kind` (`pro`, `con`,
 `concern`, or `other`) and a short interpretation alongside the exact quoted
 `claim`, segment IDs, and timestamps. Metadata-only evidence has no transcript
@@ -240,6 +241,9 @@ product groups, preserved listings, and collapsed duplicates. The
 `source_intelligence` event then reports checking review videos, community
 discussions, Amazon listings, and regional store sources. Long-running
 background orchestration is a later milestone.
+In live-agent mode this stage is owned by `SourceIntelligenceManagerAgent`;
+its persisted stage trace includes the parent model and nested specialist
+agent-tool activity. Fixture mode keeps a provider-service simulation.
 
 `GET /api/sessions/{session_id}/results`
 

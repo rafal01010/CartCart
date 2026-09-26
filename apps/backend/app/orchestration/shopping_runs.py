@@ -55,6 +55,10 @@ from app.agents.contracts import (
     YouTubeReviewIntelligenceServicePort,
 )
 from app.agents.catalog import ProductAnalysisRoute, build_default_agent_catalog
+from app.agents.live_source_intelligence_manager import (
+    SourceIntelligenceManagerAgent,
+    SourceManagerInput,
+)
 from app.agents.fixture_research import (
     FixtureDiscoveryAgent,
     FixtureExtractionAgent,
@@ -903,6 +907,7 @@ class ShoppingRunOrchestrator:
         ) = None,
         amazon_product_intelligence_service: AmazonProductIntelligenceServicePort | None = None,
         ikea_store_intelligence_service: IKEAStoreIntelligenceServicePort | None = None,
+        source_intelligence_manager: SourceIntelligenceManagerAgent | None = None,
         product_deduplicator: DeterministicProductDeduplicator | None = None,
         seller_listing_trust_agent: SellerListingTrustAgent | None = None,
         comparison_decision_agent: ComparisonDecisionAgent | None = None,
@@ -946,6 +951,7 @@ class ShoppingRunOrchestrator:
         self._reddit_community_intelligence_service = reddit_community_intelligence_service
         self._amazon_product_intelligence_service = amazon_product_intelligence_service
         self._ikea_store_intelligence_service = ikea_store_intelligence_service
+        self._source_intelligence_manager = source_intelligence_manager
         self._product_deduplicator = (
             product_deduplicator or DeterministicProductDeduplicator()
         )
@@ -1106,7 +1112,13 @@ class ShoppingRunOrchestrator:
             agent_record = await self._persistence_hooks.record_stage_trace(
                 run_id=context.run_id,
                 stage=definition.stage,
-                agent_name=definition.agent_name,
+                agent_name=(
+                    "SourceIntelligenceManagerAgent"
+                    if definition.stage == RunStage.SOURCE_INTELLIGENCE
+                    and self._source_intelligence_manager is not None
+                    and self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                    else definition.agent_name
+                ),
                 status=RunStatus.FAILED,
                 trace_id=self._stage_trace_id(context.trace_id, definition.stage),
                 started_at=started_at,
@@ -1115,9 +1127,15 @@ class ShoppingRunOrchestrator:
                     "provider_service"
                     if definition.stage == RunStage.SOURCE_INTELLIGENCE
                     and self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                    and self._source_intelligence_manager is None
                     else self._agent_workflow_mode.value
                 ),
-                model_name=self._model_name_for_stage(definition.stage),
+                model_name=(
+                    self._model_name_for_agent("SourceIntelligenceManagerAgent")
+                    if definition.stage == RunStage.SOURCE_INTELLIGENCE
+                    and self._source_intelligence_manager is not None
+                    else self._model_name_for_stage(definition.stage)
+                ),
                 duration_ms=_duration_ms(started_at, ended_at),
                 tool_activity=tuple(context.research_activity)
                 if definition.stage == RunStage.EXTRACTION
@@ -1969,6 +1987,10 @@ class ShoppingRunOrchestrator:
         )
 
         if self._agent_workflow_mode == AgentWorkflowMode.LIVE:
+            if self._source_intelligence_manager is not None:
+                return await self._run_agent_source_intelligence(
+                    context, brief, region_code, candidates, request
+                )
             return await self._run_provider_source_intelligence(
                 context,
                 brief,
@@ -2095,6 +2117,68 @@ class ShoppingRunOrchestrator:
                 "gap_count": str(output.gap_count),
             },
             runtime_mode=self._agent_workflow_mode.value,
+        )
+
+    async def _run_agent_source_intelligence(
+        self,
+        context: ShoppingRunContext,
+        brief: ShoppingBrief,
+        region_code: RegionCode,
+        candidates: SourceIntelligenceCandidates,
+        request: ReusableSourceIntelligenceRequest,
+    ) -> FixtureStageOutput:
+        assert self._source_intelligence_manager is not None
+        allowed = tuple(
+            capability
+            for capability in request.requested_capabilities
+            if _capability_allowed(request, capability)
+        )
+        result = await self._source_intelligence_manager.run(
+            SourceManagerInput(
+                run_id=context.run_id,
+                brief=brief,
+                products=candidates.products,
+                listings=candidates.listings,
+                source_snapshots=tuple(item.snapshot for item in context.source_extractions),
+                query_hints=request.query_hints,
+                region_code=region_code,
+                allowed_capabilities=allowed,
+            )
+        )
+        output = SourceIntelligenceRunOutput(
+            request=request,
+            video_bundles=result.video_bundles,
+            community_bundles=result.community_bundles,
+            amazon_bundles=result.amazon_bundles,
+            ikea_bundles=result.ikea_bundles,
+            notes=result.notes,
+        )
+        context.source_intelligence = output
+        await self._persistence_hooks.persist_source_intelligence(context, output)
+        return FixtureStageOutput(
+            stage=RunStage.SOURCE_INTELLIGENCE,
+            trace_id=self._stage_trace_id(context.trace_id, RunStage.SOURCE_INTELLIGENCE),
+            summary=_source_intelligence_summary(output),
+            payload={
+                "bundle_count": str(output.bundle_count),
+                "evidence_count": str(output.evidence_count),
+                "gap_count": str(output.gap_count),
+            },
+            agent_name="SourceIntelligenceManagerAgent",
+            runtime_mode="live",
+            model_name=result.model_name,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+            tool_activity=result.activity,
+            fallback_outcome=next(
+                (
+                    str(item["status"])
+                    for item in result.activity
+                    if item.get("status") in {"model_or_validation_failure", "evidence_gap"}
+                ),
+                _fallback_outcome(result.activity),
+            ),
         )
 
     async def _run_provider_source_intelligence(

@@ -38,6 +38,10 @@ class ApprovedSDKTool(StrEnum):
     READ_AMAZON_PRODUCT = "read_amazon_product"
     SEARCH_IKEA_PRODUCTS = "search_ikea_products"
     READ_IKEA_PRODUCT = "read_ikea_product"
+    CONSULT_VIDEO_REVIEW = "consult_video_review"
+    CONSULT_COMMUNITY_DISCUSSION = "consult_community_discussion"
+    CONSULT_AMAZON_PRODUCT_LISTING_REVIEW = "consult_amazon_product_listing_review"
+    CONSULT_IKEA_REGIONAL_OFFICIAL_STORE = "consult_ikea_regional_official_store"
 
 
 class FixtureFallback(StrEnum):
@@ -594,11 +598,28 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="ListingTrustAssessment",
         run_profile=AgentRunProfileName.STRONG,
     ),
+    "SourceIntelligenceManagerAgent": _entry(
+        "SourceIntelligenceManagerAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.ORCHESTRATOR,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="SourceIntelligenceManagerAgent",
+        approved_sdk_tools=(
+            ApprovedSDKTool.CONSULT_VIDEO_REVIEW,
+            ApprovedSDKTool.CONSULT_COMMUNITY_DISCUSSION,
+            ApprovedSDKTool.CONSULT_AMAZON_PRODUCT_LISTING_REVIEW,
+            ApprovedSDKTool.CONSULT_IKEA_REGIONAL_OFFICIAL_STORE,
+        ),
+        output_schema="SourceManagerResult",
+        run_profile=AgentRunProfileName.STRONG,
+    ),
     "YouTubeReviewIntelligenceAgent": _entry(
         "YouTubeReviewIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.TYPED_STEP,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        parent_agent_name="SourceIntelligenceManagerAgent",
+        agent_as_tool_available=True,
         provider_service_name="YouTubeReviewIntelligenceService",
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_VIDEOS,
@@ -618,7 +639,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "RedditCommunityIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.TYPED_STEP,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        parent_agent_name="SourceIntelligenceManagerAgent",
+        agent_as_tool_available=True,
         provider_service_name="RedditCommunityIntelligenceService",
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_COMMUNITY_DISCUSSIONS,
@@ -638,7 +661,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "AmazonProductIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.TYPED_STEP,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        parent_agent_name="SourceIntelligenceManagerAgent",
+        agent_as_tool_available=True,
         provider_service_name="AmazonProductIntelligenceService",
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
@@ -659,7 +684,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "IKEAStoreIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.TYPED_STEP,
+        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        parent_agent_name="SourceIntelligenceManagerAgent",
+        agent_as_tool_available=True,
         sdk_implementation_pending=False,
         provider_service_name="IKEAStoreIntelligenceService",
         approved_sdk_tools=(

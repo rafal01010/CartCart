@@ -130,6 +130,10 @@ from app.agents.live_amazon_product_intelligence import (
 from app.agents.ikea_store_intelligence_service import (
     IKEAStoreIntelligenceService,
 )
+from app.agents.live_ikea_store_intelligence import (
+    IKEAStoreIntelligenceAgent,
+    MockIKEAStoreModelRunner,
+)
 from app.agents.youtube_review_intelligence_service import (
     YouTubeReviewIntelligenceService,
 )
@@ -579,6 +583,7 @@ class AgentWorkbenchRunner:
                         "YouTubeReviewIntelligenceAgent",
                         "RedditCommunityIntelligenceAgent",
                         "AmazonProductIntelligenceAgent",
+                        "IKEAStoreIntelligenceAgent",
                     }
                     and request.mode == AgentWorkbenchMode.FIXTURE
                 )
@@ -590,6 +595,7 @@ class AgentWorkbenchRunner:
                     "YouTubeReviewIntelligenceAgent",
                     "RedditCommunityIntelligenceAgent",
                     "AmazonProductIntelligenceAgent",
+                    "IKEAStoreIntelligenceAgent",
                 }
                 else "fixture_or_mock"
             ),
@@ -609,6 +615,7 @@ class AgentWorkbenchRunner:
                     "YouTubeReviewIntelligenceAgent",
                     "RedditCommunityIntelligenceAgent",
                     "AmazonProductIntelligenceAgent",
+                    "IKEAStoreIntelligenceAgent",
                 }
                 and request.mode == AgentWorkbenchMode.FIXTURE
             )
@@ -1120,8 +1127,10 @@ def _build_workbench_definitions(
             (
                 _scenario_ikea_available_regional_product,
                 _scenario_ikea_no_regional_presence,
+                _scenario_ikea_provider_failure,
             ),
-            mock_agent_factory=_mock_ikea_store_intelligence_service,
+            mock_agent_factory=_mock_ikea_store_intelligence_agent,
+            live_agent_factory=_live_ikea_store_intelligence_agent,
         ),
         "ComparisonDecisionAgent": _definition(
             catalog,
@@ -1398,10 +1407,20 @@ def _fixture_ikea_store_intelligence_service() -> IKEAStoreIntelligenceService:
     )
 
 
-def _mock_ikea_store_intelligence_service(
+def _mock_ikea_store_intelligence_agent(
     settings: Settings,
-) -> IKEAStoreIntelligenceService:
-    return IKEAStoreIntelligenceService(
+) -> IKEAStoreIntelligenceAgent:
+    return IKEAStoreIntelligenceAgent(
+        settings=settings,
+        ikea_provider=_WorkbenchIKEAStoreIntelligenceProvider(),
+        model_runner=MockIKEAStoreModelRunner(),
+    )
+
+
+def _live_ikea_store_intelligence_agent(
+    settings: Settings,
+) -> IKEAStoreIntelligenceAgent:
+    return IKEAStoreIntelligenceAgent(
         settings=settings,
         ikea_provider=_WorkbenchIKEAStoreIntelligenceProvider(),
     )
@@ -1595,6 +1614,12 @@ class _WorkbenchIKEAStoreIntelligenceProvider:
         options: IKEAStoreIntelligenceProviderOptions | None = None,
     ) -> IKEAStoreIntelligenceProviderResult:
         region_code = options.region_code if options is not None else None
+        if product.model == "PROVIDER-FAIL":
+            return IKEAStoreIntelligenceProviderResult(
+                status=ProviderRunStatus.UNAVAILABLE,
+                capabilities=self.capabilities,
+                notes=("Recorded IKEA provider failure.",),
+            )
         if region_code == "AQ":
             bundle = IKEAStoreEvidenceBundle(
                 evidence_gaps=(
@@ -4306,6 +4331,7 @@ def _scenario_ikea_no_regional_presence() -> AgentWorkbenchScenario:
             ),
         }
     )
+
     product = product.model_copy(
         update={
             "name": "MICKE desk",
@@ -4324,6 +4350,18 @@ def _scenario_ikea_no_regional_presence() -> AgentWorkbenchScenario:
             product_queries=("MICKE desk IKEA Antarctica",),
             target_region_code="AQ",
         ),
+        boundary=True,
+    )
+
+
+def _scenario_ikea_provider_failure() -> AgentWorkbenchScenario:
+    scenario = _scenario_ikea_available_regional_product()
+    input_data = IKEAStoreIntelligenceAgentInput.model_validate(scenario.input)
+    product = input_data.products[0].model_copy(update={"model": "PROVIDER-FAIL"})
+    return _scenario(
+        "ikea/provider-failure",
+        "Recorded regional IKEA provider failure with an honest evidence gap.",
+        input_data.model_copy(update={"products": (product,)}),
         boundary=True,
     )
 

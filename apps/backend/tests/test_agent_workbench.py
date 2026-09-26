@@ -309,16 +309,17 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in ikea["scenarios"]} >= {
         "ikea/available-regional-product",
         "ikea/no-regional-presence",
+        "ikea/provider-failure",
     }
-    assert ikea["modes"] == ["fixture", "mock"]
+    assert ikea["modes"] == ["fixture", "mock", "live"]
     for source_agent in (amazon, ikea):
-        assert source_agent["sdk_implementation_pending"] is True
+        assert source_agent["sdk_implementation_pending"] is False
         assert source_agent["agent_as_tool_available"] is False
         assert source_agent["provider_service_name"].endswith("Service")
-        assert source_agent["approved_sdk_tools"] == []
-        assert source_agent["planned_sdk_tools"]
-        assert source_agent["resolved_model"] is None
-        assert source_agent["planned_model"]
+        assert source_agent["approved_sdk_tools"]
+        assert source_agent["planned_sdk_tools"] == []
+        assert source_agent["resolved_model"]
+        assert source_agent["planned_model"] is None
     comparison = next(
         agent
         for agent in body["agents"]
@@ -803,7 +804,7 @@ def test_workbench_mock_amazon_provider_failure_returns_honest_gap() -> None:
     assert "provider_error" in body["output"]["evidence_gaps"][-1]["reason"]
 
 
-def test_workbench_rejects_live_ikea_specialist_until_sdk_agent_exists() -> None:
+def test_workbench_live_ikea_requires_explicit_live_opt_in() -> None:
     client = make_test_client(agent_workbench_enabled=True)
     response = client.post(
         "/internal/agent-workbench/runs",
@@ -814,7 +815,46 @@ def test_workbench_rejects_live_ikea_specialist_until_sdk_agent_exists() -> None
         },
     )
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == "agent_workbench_sdk_agent_pending"
+    assert response.json()["error"]["code"] == "agent_workbench_live_mode_unavailable"
+
+
+def test_workbench_mock_ikea_uses_sdk_contract_and_regional_tools() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "IKEAStoreIntelligenceAgent",
+            "scenario_name": "ikea/available-regional-product",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["model"]
+    assert body["output"]["store_contexts"][0]["country_code"] == "PH"
+    assert body["output"]["evidence"]
+    assert [activity["tool_name"] for activity in body["allowed_tool_activity"]] == [
+        "search_ikea_products",
+        "read_ikea_product",
+        "openai_agents_structured_output",
+    ]
+
+
+def test_workbench_mock_ikea_provider_failure_has_gap() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "IKEAStoreIntelligenceAgent",
+            "scenario_name": "ikea/provider-failure",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output"]["evidence"] == []
+    assert "unavailable" in body["output"]["evidence_gaps"][0]["reason"]
 
 
 def test_workbench_fixture_ikea_preserves_regional_price_availability_and_sources() -> (

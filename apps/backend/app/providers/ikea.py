@@ -87,6 +87,38 @@ class IKEARegionalStoreDiscoveryProvider:
             ),
         )
 
+    async def search_product_candidates(
+        self, product: CanonicalProduct, *, region_code: str | None
+    ) -> tuple[SearchResult, ...]:
+        """Return official regional candidates without deciding product identity.
+
+        Search metadata is the approved retrieval surface; this adapter does not
+        directly scrape IKEA pages. The specialist interprets the returned hits.
+        """
+        store = _regional_store(region_code)
+        if store is None:
+            return ()
+        results = await self._search_provider.search(
+            SearchQuery(
+                query=_ikea_scoped_query(product, store),
+                intent=SearchIntent.OFFICIAL_SOURCE,
+                region_code=store.country_code,
+                required_source_types=(SourceType.OFFICIAL_BRAND_PAGE,),
+            ),
+            SearchProviderOptions(
+                region_code=store.country_code,
+                max_results=MAX_IKEA_RESULTS,
+                source_policy=_ikea_source_policy(
+                    SourceAllowAvoidPolicy(), store.domain
+                ),
+            ),
+        )
+        return tuple(
+            result
+            for result in results[:MAX_IKEA_RESULTS]
+            if _matches_regional_store(*normalize_source_url(str(result.url)), store)
+        )
+
     async def fetch_store_evidence(
         self,
         product: CanonicalProduct,
@@ -164,9 +196,7 @@ class IKEARegionalStoreDiscoveryProvider:
                         target=target,
                         summary=summary,
                         reason=reason,
-                        source_quality=SourceQuality(
-                            level=SourceQualityLevel.UNKNOWN
-                        ),
+                        source_quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
                     ),
                 ),
             ),
@@ -354,7 +384,9 @@ def _extract_price(text: str, region_code: str) -> Money | None:
 
 def _availability_from_text(text: str) -> RegionalStoreAvailability:
     normalized = " ".join(text.casefold().split())
-    if any(marker in normalized for marker in ("out of stock", "currently unavailable")):
+    if any(
+        marker in normalized for marker in ("out of stock", "currently unavailable")
+    ):
         return RegionalStoreAvailability.OUT_OF_STOCK
     if "pickup only" in normalized or "collection only" in normalized:
         return RegionalStoreAvailability.PICKUP_ONLY

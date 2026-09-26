@@ -659,10 +659,10 @@ _DEFAULT_AGENT_ENTRIES = {
         "IKEAStoreIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
-        sdk_implementation_pending=True,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        sdk_implementation_pending=False,
         provider_service_name="IKEAStoreIntelligenceService",
-        planned_sdk_tools=(
+        approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
             ApprovedSDKTool.READ_IKEA_PRODUCT,
         ),

@@ -71,8 +71,10 @@ services are not model-running source agents or SDK agent tools. Their future
 agent counterparts have source-specific tool allowlists: video search,
 metadata and transcript reads; community search and discussion reads; Amazon
 product search and product/listing reads; and official regional IKEA search and
-product reads. YouTube, Reddit, and Amazon now expose approved SDK tools in
-their isolated specialists; IKEA remains pending. The workflow
+product reads. All four expose approved SDK tools in their isolated specialists.
+The IKEA search tool returns official country-path candidates without a provider
+name-match gate; the read tool exposes bounded search metadata or permitted
+persisted source text, not a new direct IKEA page scrape. The workflow
 passes a scoped brief, region, selected product/listing/source IDs, provider
 capability descriptors, and query hints. It persists source-specific evidence
 bundles separately from normal web/listing evidence. YouTube transcript access is

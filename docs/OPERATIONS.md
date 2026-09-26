@@ -549,10 +549,8 @@ so choose an effort the selected model accepts.
 
 Each implemented SDK runner resolves its own profile. The workbench catalog
 lists implemented agents' profiles and resolved models. The YouTube, Reddit,
-and Amazon specialists resolve their `fast` models for mock/live workbench runs;
-their fixture service runs still report no model. For the pending IKEA source
-specialist, the catalog lists a planned model but leaves `resolved_model` null;
-its fixture/mock service runs likewise report no model or usage.
+Amazon, and IKEA specialists resolve their `fast` models for mock/live workbench
+runs; their fixture service runs still report no model or usage.
 OpenAI trace metadata records the resolved model and profile; persisted
 model-backed shopping-stage records store the resolved model. The category
 analysis stage is aggregate: its persisted `model_name` is the selected analyst
@@ -676,10 +674,12 @@ path exercises bounded search/read SDK-specialist contracts; fixture mode
 remains a provider-service probe. For `IKEAStoreIntelligenceAgent`,
 `ikea/available-regional-product` checks official regional price/currency,
 availability, and source IDs, while `ikea/no-regional-presence` checks an
-explicit unsupported-region gap without global-shipping inference. For
-the IKEA role, the workbench currently offers only fixture/mock provider-service
-probes: `execution_kind=provider_service`, `model=null`, and no model usage.
-YouTube, Reddit, and Amazon support mocked SDK runs and opt-in live SDK runs
+explicit unsupported-region gap without global-shipping inference;
+`ikea/provider-failure` checks an honest retrieval gap. IKEA fixture mode remains
+a provider-service probe; mock mode exercises the bounded official-region
+search/read SDK contract offline, and opt-in live mode runs the SDK specialist
+over recorded workbench provider data. All four source specialists support mocked
+SDK runs and opt-in live SDK runs
 over fixture providers; parent agent-as-tool delegation is still pending.
 In a live shopping workflow the source stage trace is named
 `ProviderSourceIntelligenceServices` with `runtime_mode=provider_service` and

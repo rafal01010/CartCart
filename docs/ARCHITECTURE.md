@@ -363,7 +363,7 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. YouTube, Reddit, and Amazon source-intelligence roles now have separate SDK implementations in the workbench with approved bounded tools and cited evidence bundles. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes without source-agent model delegation. IKEA's SDK specialist and all four agent-as-tool parent calls remain pending.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. YouTube, Reddit, Amazon, and IKEA source-intelligence roles now have separate SDK implementations in the workbench with approved bounded tools and cited evidence bundles. The IKEA specialist selects official country-path search results or permitted persisted snapshots, interprets item and regional purchase context, and validates cited source IDs and supported fields before evidence creation. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes without source-agent model delegation; all four agent-as-tool parent calls remain pending.
 
 Each catalog entry also declares an operator-configured OpenAI run profile
 (`fast`, `strong`, or `default`). The shared runtime resolver combines an
@@ -385,8 +385,8 @@ Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`,
 `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
 `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
 `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
-`TVSpecialistAgent`, SDK specialist scenarios for YouTube, Reddit, and Amazon,
-and provider-service scenarios for the pending IKEA role. It is disabled
+`TVSpecialistAgent`, SDK specialist scenarios for YouTube, Reddit, Amazon, and IKEA,
+with separate provider-service fixture scenarios. It is disabled
 unless the local workbench flag is
 explicitly enabled.
 

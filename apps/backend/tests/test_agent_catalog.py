@@ -103,7 +103,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     ]
     assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
     assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
-    youtube, reddit, amazon, *pending = source_agents
+    youtube, reddit, amazon, ikea = source_agents
     assert youtube.invocation_mode == InvocationMode.TYPED_STEP
     assert youtube.sdk_implementation_pending is False
     assert {tool.value for tool in youtube.approved_sdk_tools} == {
@@ -123,13 +123,15 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "search_amazon_products",
         "read_amazon_product",
     }
-    assert all(
-        agent.invocation_mode == InvocationMode.NOT_IMPLEMENTED for agent in pending
-    )
-    assert all(agent.sdk_implementation_pending for agent in pending)
+    assert ikea.invocation_mode == InvocationMode.TYPED_STEP
+    assert ikea.sdk_implementation_pending is False
+    assert {tool.value for tool in ikea.approved_sdk_tools} == {
+        "search_ikea_products",
+        "read_ikea_product",
+    }
     assert all(not agent.agent_as_tool_available for agent in source_agents)
-    assert all(not agent.approved_sdk_tools for agent in pending)
-    assert all(agent.planned_sdk_tools for agent in pending)
+    assert all(agent.approved_sdk_tools for agent in source_agents)
+    assert all(not agent.planned_sdk_tools for agent in source_agents)
     assert all(agent.provider_service_name for agent in source_agents)
     assert all(agent.run_profile == AgentRunProfileName.FAST for agent in source_agents)
     assert all(agent.is_reusable_source_agent is True for agent in source_agents)
@@ -165,14 +167,26 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
 
 def test_pending_source_agent_cannot_claim_sdk_tool_or_agent_as_tool_access() -> None:
     entry = DEFAULT_AGENT_CATALOG.require("IKEAStoreIntelligenceAgent")
+    pending = {
+        **entry.model_dump(),
+        "sdk_implementation_pending": True,
+        "invocation_mode": InvocationMode.NOT_IMPLEMENTED,
+        "approved_sdk_tools": (),
+    }
     with pytest.raises(ValidationError, match="pending SDK agents"):
-        type(entry).model_validate(
-            {**entry.model_dump(), "approved_sdk_tools": ["search_videos"]}
-        )
+        type(entry).model_validate({**pending, "approved_sdk_tools": ["search_videos"]})
     with pytest.raises(ValidationError, match="pending SDK agents"):
-        type(entry).model_validate(
-            {**entry.model_dump(), "agent_as_tool_available": True}
-        )
+        type(entry).model_validate({**pending, "agent_as_tool_available": True})
+
+
+def test_ikea_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None:
+    entry = DEFAULT_AGENT_CATALOG.require("IKEAStoreIntelligenceAgent")
+    assert entry.run_profile == AgentRunProfileName.FAST
+    assert entry.approved_sdk_tools == (
+        ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
+        ApprovedSDKTool.READ_IKEA_PRODUCT,
+    )
+    assert entry.agent_as_tool_available is False
 
 
 def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None:

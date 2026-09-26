@@ -108,8 +108,9 @@ approved public-community search/read tools and fixture/mock/live workbench
 modes, with only mock/live representing SDK specialist runs. Amazon now exposes
 approved bounded marketplace candidate-search/read tools and fixture/mock/live workbench
 modes; fixture remains a provider-service probe, while mock/live run its SDK
-specialist contract. IKEA still exposes `sdk_implementation_pending=true` and
-provider-service-only fixture/mock modes. All four expose
+specialist contract. IKEA now likewise exposes bounded official-region
+search/read tools and fixture/mock/live workbench modes; only mock/live run its
+SDK specialist contract. All four expose
 `agent_as_tool_available=false` until parent delegation is wired.
 Transcript-backed YouTube evidence may include `signal_kind` (`pro`, `con`,
 `concern`, or `other`) and a short interpretation alongside the exact quoted

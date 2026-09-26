@@ -8,6 +8,8 @@ from app.providers.contracts import (
     TranscriptProviderOptions,
     TranscriptProviderResult,
 )
+from typing import Literal
+
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence
 from app.schemas.ids import SourceId
@@ -34,6 +36,8 @@ class TranscriptBackedVideoClaim(CartCartBaseModel):
     target: EvidenceTarget
     video_id: str
     claim: str
+    signal_kind: Literal["pro", "con", "concern", "other"] | None = None
+    interpretation: str | None = None
     confidence: Confidence
     source_quality: SourceQuality
     transcript_segment_ids: tuple[SourceId, ...]
@@ -154,6 +158,8 @@ class VideoEvidenceCreator:
                     target=claim.target,
                     video_id=claim.video_id,
                     claim=claim.claim,
+                    signal_kind=claim.signal_kind,
+                    interpretation=claim.interpretation,
                     confidence=claim.confidence,
                     source_quality=claim.source_quality,
                     timestamp_references=timestamps,

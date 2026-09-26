@@ -125,6 +125,10 @@ from app.agents.ikea_store_intelligence_service import (
 from app.agents.youtube_review_intelligence_service import (
     YouTubeReviewIntelligenceService,
 )
+from app.agents.live_youtube_review_intelligence import (
+    MockYouTubeReviewModelRunner,
+    YouTubeReviewIntelligenceAgent,
+)
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
     build_openai_agent_run_configuration,
@@ -156,6 +160,7 @@ from app.providers import (
     TranscriptAccessStrategy,
     TranscriptProviderOptions,
     TranscriptProviderResult,
+    FakeVideoSearchProvider,
 )
 from app.providers.fakes import FakeExtractionProvider, FakeSearchProvider
 from app.schemas.analysis import (
@@ -559,8 +564,13 @@ class AgentWorkbenchRunner:
             mode=request.mode,
             execution_kind=(
                 "provider_service"
-                if definition.entry.sdk_implementation_pending
-                else "sdk_agent" if request.mode == AgentWorkbenchMode.LIVE else "fixture_or_mock"
+                if definition.entry.sdk_implementation_pending or (
+                    definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+                    and request.mode == AgentWorkbenchMode.FIXTURE
+                )
+                else "sdk_agent" if request.mode == AgentWorkbenchMode.LIVE
+                else "mock_sdk_agent" if definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+                else "fixture_or_mock"
             ),
             input_schema=definition.input_model.__name__,
             output_schema=definition.output_schema_name,
@@ -570,7 +580,10 @@ class AgentWorkbenchRunner:
             fallback=WorkbenchFallbackOutcome(used=False),
             trace_id=trace_id,
             usage=None,
-            model=None if definition.entry.sdk_implementation_pending else configuration.model,
+            model=None if definition.entry.sdk_implementation_pending or (
+                definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+                and request.mode == AgentWorkbenchMode.FIXTURE
+            ) else configuration.model,
             run_profile=configuration.run_profile,
             timeout_seconds=configuration.timeout_seconds,
             max_turns=configuration.max_turns,
@@ -1036,8 +1049,10 @@ def _build_workbench_definitions(
             (
                 _scenario_youtube_monitor_review_transcript,
                 _scenario_youtube_no_transcript_gap,
+                _scenario_youtube_transcript_provider_failure,
             ),
-            mock_agent_factory=_mock_youtube_review_intelligence_service,
+            mock_agent_factory=_mock_youtube_review_intelligence_agent,
+            live_agent_factory=_live_youtube_review_intelligence_agent,
         ),
         "RedditCommunityIntelligenceAgent": _definition(
             catalog,
@@ -1271,11 +1286,23 @@ def _fixture_youtube_review_intelligence_service() -> YouTubeReviewIntelligenceS
     )
 
 
-def _mock_youtube_review_intelligence_service(
+def _mock_youtube_review_intelligence_agent(
     settings: Settings,
-) -> YouTubeReviewIntelligenceService:
-    return YouTubeReviewIntelligenceService(
+) -> YouTubeReviewIntelligenceAgent:
+    return YouTubeReviewIntelligenceAgent(
         settings=settings,
+        video_search_provider=FakeVideoSearchProvider(),
+        transcript_provider=_WorkbenchYouTubeTranscriptProvider(),
+        model_runner=MockYouTubeReviewModelRunner(),
+    )
+
+
+def _live_youtube_review_intelligence_agent(
+    settings: Settings,
+) -> YouTubeReviewIntelligenceAgent:
+    return YouTubeReviewIntelligenceAgent(
+        settings=settings,
+        video_search_provider=FakeVideoSearchProvider(),
         transcript_provider=_WorkbenchYouTubeTranscriptProvider(),
     )
 
@@ -1350,6 +1377,8 @@ class _WorkbenchYouTubeTranscriptProvider:
         options: TranscriptProviderOptions | None = None,
     ) -> TranscriptProviderResult:
         del options
+        if video.video_id == "ccTranscriptFail01":
+            raise RuntimeError("Synthetic transcript provider failure")
         if video.video_id == "ccNoTrans01":
             return TranscriptProviderResult(
                 status=ProviderRunStatus.SUCCEEDED,
@@ -4040,6 +4069,28 @@ def _scenario_youtube_no_transcript_gap() -> AgentWorkbenchScenario:
                     video_id="ccNoTrans01",
                     title="Fixture Monitor short review without captions",
                     description="Workbench video metadata only.",
+                ),
+            ),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_youtube_transcript_provider_failure() -> AgentWorkbenchScenario:
+    brief, product, listing, _, _ = _seed_objects("monitor")
+    return _scenario(
+        "youtube/transcript-provider-failure",
+        "Boundary YouTube run where the approved transcript provider fails.",
+        YouTubeReviewIntelligenceAgentInput(
+            run_id=new_id(),
+            brief=brief,
+            products=(product,),
+            listings=(listing,),
+            source_snapshots=(
+                _youtube_video_snapshot(
+                    video_id="ccTranscriptFail01",
+                    title="Fixture Monitor review with inaccessible captions",
+                    description="Workbench review-video metadata only.",
                 ),
             ),
         ),

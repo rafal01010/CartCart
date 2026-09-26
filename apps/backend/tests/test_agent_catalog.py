@@ -103,11 +103,15 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     ]
     assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
     assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
-    assert all(agent.invocation_mode == InvocationMode.NOT_IMPLEMENTED for agent in source_agents)
-    assert all(agent.sdk_implementation_pending for agent in source_agents)
+    youtube, *pending = source_agents
+    assert youtube.invocation_mode == InvocationMode.TYPED_STEP
+    assert youtube.sdk_implementation_pending is False
+    assert {tool.value for tool in youtube.approved_sdk_tools} == {"search_videos", "read_video_metadata", "read_video_transcript"}
+    assert all(agent.invocation_mode == InvocationMode.NOT_IMPLEMENTED for agent in pending)
+    assert all(agent.sdk_implementation_pending for agent in pending)
     assert all(not agent.agent_as_tool_available for agent in source_agents)
-    assert all(not agent.approved_sdk_tools for agent in source_agents)
-    assert all(agent.planned_sdk_tools for agent in source_agents)
+    assert all(not agent.approved_sdk_tools for agent in pending)
+    assert all(agent.planned_sdk_tools for agent in pending)
     assert all(agent.provider_service_name for agent in source_agents)
     assert all(agent.run_profile == AgentRunProfileName.FAST for agent in source_agents)
     assert all(agent.is_reusable_source_agent is True for agent in source_agents)
@@ -142,7 +146,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
 
 
 def test_pending_source_agent_cannot_claim_sdk_tool_or_agent_as_tool_access() -> None:
-    entry = DEFAULT_AGENT_CATALOG.require("YouTubeReviewIntelligenceAgent")
+    entry = DEFAULT_AGENT_CATALOG.require("RedditCommunityIntelligenceAgent")
     with pytest.raises(ValidationError, match="pending SDK agents"):
         type(entry).model_validate(
             {**entry.model_dump(), "approved_sdk_tools": ["search_videos"]}

@@ -170,6 +170,10 @@ from app.agents.youtube_review_intelligence_service import (
     YouTubeReviewIntelligenceService,
     YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
 )
+from app.agents.live_youtube_review_intelligence import (
+    MockYouTubeReviewModelRunner,
+    OpenAIAgentsSDKYouTubeReviewModelRunner,
+)
 from app.agents.reddit_community_intelligence_service import (
     RedditCommunityIntelligenceService,
     REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
@@ -343,6 +347,8 @@ __all__ = [
     "LiveTechnologyDomainAnalystAgent",
     "LiveVerifierCriticAgent",
     "YouTubeReviewIntelligenceService",
+    "MockYouTubeReviewModelRunner",
+    "OpenAIAgentsSDKYouTubeReviewModelRunner",
     "MonitorSpecialistAgent",
     "MonitorSpecialistModelRunner",
     "MockIntakeModelRunner",

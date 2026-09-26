@@ -591,10 +591,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "YouTubeReviewIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
-        sdk_implementation_pending=True,
+        invocation_mode=InvocationMode.TYPED_STEP,
         provider_service_name="YouTubeReviewIntelligenceService",
-        planned_sdk_tools=(
+        approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_VIDEOS,
             ApprovedSDKTool.READ_VIDEO_METADATA,
             ApprovedSDKTool.READ_VIDEO_TRANSCRIPT,

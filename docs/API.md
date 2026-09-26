@@ -99,14 +99,19 @@ The local workbench also has isolated `ExtractionAgent` cases for an individual
 product page, an ambiguous page, malformed model output, and a multi-product
 page. Mock mode uses disposable persisted snapshots and no live model calls;
 live mode is explicit and may incur OpenAI usage.
-For the four pending YouTube, Reddit, Amazon, and IKEA source-agent identities,
-the workbench catalog exposes `sdk_implementation_pending=true`,
-`agent_as_tool_available=false`, a `provider_service_name`, `planned_model`
-(with `resolved_model=null`), planned (not approved) SDK tools, and only
-fixture/mock modes. Their run results identify
-`execution_kind=provider_service`, `model=null`, and no model usage; live mode
-returns `agent_workbench_sdk_agent_pending`. Other agent runs retain their
-existing workbench behavior.
+The YouTube specialist now exposes approved video search, metadata, and
+transcript tools with fixture/mock/live workbench modes. Fixture remains a
+provider-service run with no model; mock exercises the SDK contract offline;
+explicit live mode runs the model over workbench provider fixtures. It is not
+yet delegated by the normal shopping-run parent. Reddit, Amazon, and IKEA
+still expose `sdk_implementation_pending=true`, planned tools/model,
+fixture/mock provider-service modes, and no model usage; their live mode returns
+`agent_workbench_sdk_agent_pending`. All four expose
+`agent_as_tool_available=false` until parent delegation is wired.
+Transcript-backed YouTube evidence may include `signal_kind` (`pro`, `con`,
+`concern`, or `other`) and a short interpretation alongside the exact quoted
+`claim`, segment IDs, and timestamps. Metadata-only evidence has no transcript
+claim.
 
 ## Endpoint Responsibilities
 

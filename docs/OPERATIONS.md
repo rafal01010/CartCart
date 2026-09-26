@@ -535,7 +535,7 @@ registered-agent override, catalog-assigned profile, `default` profile, then
 the three global `CARTCART_OPENAI_*` fallbacks. For example,
 `ComparisonDecisionAgent`, `VerifierCriticAgent`, product analysts, and
 `DiscoveryAgent` have the `strong` catalog profile; bounded intake, routing,
-query planning, `ExtractionAgent`, and the four planned source specialists have
+query planning, `ExtractionAgent`, and the four source-specialist profiles have
 `fast`. An unconfigured
 profile safely uses the global fallback, and model strings can be changed
 without a code release. `CARTCART_OPENAI_AGENT_OVERRIDES` is operator-only;
@@ -548,9 +548,11 @@ values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; model
 so choose an effort the selected model accepts.
 
 Each implemented SDK runner resolves its own profile. The workbench catalog
-lists implemented agents' profiles and resolved models. For the four pending
-source specialists, it lists a planned model but leaves `resolved_model` null;
-fixture/mock service runs likewise leave `model` null and report no usage.
+lists implemented agents' profiles and resolved models. The YouTube specialist
+now resolves its `fast` model for mock/live workbench runs; its fixture service
+run still reports no model. For the three pending Reddit, Amazon, and IKEA
+source specialists, the catalog lists planned models but leaves `resolved_model`
+null; their fixture/mock service runs likewise report no model or usage.
 OpenAI trace metadata records the resolved model and profile; persisted
 model-backed shopping-stage records store the resolved model. The category
 analysis stage is aggregate: its persisted `model_name` is the selected analyst

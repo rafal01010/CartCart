@@ -247,8 +247,14 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in youtube["scenarios"]} >= {
         "youtube/monitor-review-transcript",
         "youtube/no-transcript-gap",
+        "youtube/transcript-provider-failure",
     }
-    assert youtube["modes"] == ["fixture", "mock"]
+    assert youtube["modes"] == ["fixture", "mock", "live"]
+    assert youtube["sdk_implementation_pending"] is False
+    assert youtube["agent_as_tool_available"] is False
+    assert youtube["approved_sdk_tools"] == ["search_videos", "read_video_metadata", "read_video_transcript"]
+    assert youtube["resolved_model"]
+    assert youtube["planned_model"] is None
     reddit = next(
         agent
         for agent in body["agents"]
@@ -279,7 +285,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "ikea/no-regional-presence",
     }
     assert ikea["modes"] == ["fixture", "mock"]
-    for source_agent in (youtube, reddit, amazon, ikea):
+    for source_agent in (reddit, amazon, ikea):
         assert source_agent["sdk_implementation_pending"] is True
         assert source_agent["agent_as_tool_available"] is False
         assert source_agent["provider_service_name"].endswith("Service")
@@ -1135,12 +1141,10 @@ def test_workbench_mock_youtube_returns_timestamped_review_evidence() -> None:
         for item in output["evidence"]
         if not item["metadata_only"]
     )
+    assert body["execution_kind"] == "mock_sdk_agent"
     assert {
         activity["tool_name"] for activity in body["allowed_tool_activity"]
-    } >= {
-        "TranscriptProvider.fetch_transcript",
-        "VideoEvidenceCreator.create",
-    }
+    } >= {"read_video_metadata", "read_video_transcript", "openai_agents_structured_output"}
 
 
 def test_workbench_mock_youtube_preserves_no_transcript_gap() -> None:
@@ -1158,6 +1162,9 @@ def test_workbench_mock_youtube_preserves_no_transcript_gap() -> None:
     assert response.status_code == 200
     body = response.json()
     output = body["output"]
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["model"] is not None
+    assert body["allowed_tool_activity"][-1]["status"] == "model_evidence_completed"
     assert output["videos"][0]["transcript_availability"] == "unavailable"
     assert output["transcript_segments"] == []
     assert output["transcript_gap_notes"]
@@ -1165,6 +1172,26 @@ def test_workbench_mock_youtube_preserves_no_transcript_gap() -> None:
     assert output["evidence"][0]["metadata_only"] is True
     assert output["evidence"][0]["transcript_gap"]
     assert "sharp text" not in output["evidence"][0]["claim"].casefold()
+
+
+def test_workbench_mock_youtube_transcript_provider_failure_is_metadata_only() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "YouTubeReviewIntelligenceAgent",
+            "scenario_name": "youtube/transcript-provider-failure",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["allowed_tool_activity"][-1]["status"] == "model_evidence_completed"
+    output = body["output"]
+    assert output["evidence"][0]["metadata_only"] is True
+    assert output["transcript_segments"] == []
+    assert "failed" in " ".join(output["transcript_gap_notes"]).lower()
 
 
 def test_workbench_mock_reddit_returns_recurring_qualitative_evidence() -> None:

@@ -176,7 +176,10 @@ tools, and returns evidence limitations for weak inputs instead of blocking
 ordinary categories. Technology-domain analysis also uses no direct tools,
 consumes only supplied product/listing/evidence bundles and executable catalog
 route context, and falls back to generic analysis for non-technology input or
-domain failure. YouTube review intelligence uses only typed
+domain failure. The YouTube SDK specialist is available in the isolated
+workbench and can choose bounded video search, metadata, and transcript tool
+calls; the normal shopping source stage still calls its provider service.
+YouTube review intelligence uses only typed
 `VideoSearchProvider`, `TranscriptProvider`, `YouTubeTranscriptIngestor`, and
 `VideoEvidenceCreator` boundaries; it does not call `yt-dlp` directly, parse
 WebVTT, build caption-provider command arguments, or create final purchase

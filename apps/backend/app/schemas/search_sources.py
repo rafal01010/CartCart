@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, Field, model_validator
 
@@ -343,6 +343,8 @@ class VideoReviewEvidence(CartCartBaseModel):
     target: EvidenceTarget
     video_id: str = Field(min_length=1, max_length=128)
     claim: str = Field(min_length=1, max_length=2000)
+    signal_kind: Literal["pro", "con", "concern", "other"] | None = None
+    interpretation: str | None = Field(default=None, min_length=1, max_length=1000)
     confidence: Confidence
     source_quality: SourceQuality
     timestamp_references: tuple[TimestampReference, ...] = Field(default_factory=tuple)

@@ -116,6 +116,10 @@ from app.agents.live_seller_listing_trust import (
 from app.agents.reddit_community_intelligence_service import (
     RedditCommunityIntelligenceService,
 )
+from app.agents.live_reddit_community_intelligence import (
+    MockRedditCommunityModelRunner,
+    RedditCommunityIntelligenceAgent,
+)
 from app.agents.amazon_product_intelligence_service import (
     AmazonProductIntelligenceService,
 )
@@ -564,12 +568,23 @@ class AgentWorkbenchRunner:
             mode=request.mode,
             execution_kind=(
                 "provider_service"
-                if definition.entry.sdk_implementation_pending or (
-                    definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+                if definition.entry.sdk_implementation_pending
+                or (
+                    definition.entry.agent_name
+                    in {
+                        "YouTubeReviewIntelligenceAgent",
+                        "RedditCommunityIntelligenceAgent",
+                    }
                     and request.mode == AgentWorkbenchMode.FIXTURE
                 )
-                else "sdk_agent" if request.mode == AgentWorkbenchMode.LIVE
-                else "mock_sdk_agent" if definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+                else "sdk_agent"
+                if request.mode == AgentWorkbenchMode.LIVE
+                else "mock_sdk_agent"
+                if definition.entry.agent_name
+                in {
+                    "YouTubeReviewIntelligenceAgent",
+                    "RedditCommunityIntelligenceAgent",
+                }
                 else "fixture_or_mock"
             ),
             input_schema=definition.input_model.__name__,
@@ -580,10 +595,17 @@ class AgentWorkbenchRunner:
             fallback=WorkbenchFallbackOutcome(used=False),
             trace_id=trace_id,
             usage=None,
-            model=None if definition.entry.sdk_implementation_pending or (
-                definition.entry.agent_name == "YouTubeReviewIntelligenceAgent"
+            model=None
+            if definition.entry.sdk_implementation_pending
+            or (
+                definition.entry.agent_name
+                in {
+                    "YouTubeReviewIntelligenceAgent",
+                    "RedditCommunityIntelligenceAgent",
+                }
                 and request.mode == AgentWorkbenchMode.FIXTURE
-            ) else configuration.model,
+            )
+            else configuration.model,
             run_profile=configuration.run_profile,
             timeout_seconds=configuration.timeout_seconds,
             max_turns=configuration.max_turns,
@@ -1063,8 +1085,10 @@ def _build_workbench_definitions(
             (
                 _scenario_reddit_headphones_recurring_complaint,
                 _scenario_reddit_inaccessible_gap,
+                _scenario_reddit_provider_failure,
             ),
-            mock_agent_factory=_mock_reddit_community_intelligence_service,
+            mock_agent_factory=_mock_reddit_community_intelligence_agent,
+            live_agent_factory=_live_reddit_community_intelligence_agent,
         ),
         "AmazonProductIntelligenceAgent": _definition(
             catalog,
@@ -1315,10 +1339,20 @@ def _fixture_reddit_community_intelligence_service() -> (
     )
 
 
-def _mock_reddit_community_intelligence_service(
+def _mock_reddit_community_intelligence_agent(
     settings: Settings,
-) -> RedditCommunityIntelligenceService:
-    return RedditCommunityIntelligenceService(
+) -> RedditCommunityIntelligenceAgent:
+    return RedditCommunityIntelligenceAgent(
+        settings=settings,
+        community_provider=_WorkbenchRedditCommunityProvider(),
+        model_runner=MockRedditCommunityModelRunner(),
+    )
+
+
+def _live_reddit_community_intelligence_agent(
+    settings: Settings,
+) -> RedditCommunityIntelligenceAgent:
+    return RedditCommunityIntelligenceAgent(
         settings=settings,
         community_provider=_WorkbenchRedditCommunityProvider(),
     )
@@ -1458,6 +1492,8 @@ class _WorkbenchRedditCommunityProvider:
         options: CommunityDiscussionProviderOptions | None = None,
     ) -> CommunityDiscussionProviderResult:
         del products, options
+        if "provider-failure" in query.casefold():
+            raise RuntimeError("Workbench public-community provider failure")
         if "inaccessible" in query.casefold():
             return CommunityDiscussionProviderResult(
                 status=ProviderRunStatus.SUCCEEDED,
@@ -4124,6 +4160,22 @@ def _scenario_reddit_inaccessible_gap() -> AgentWorkbenchScenario:
             products=(product,),
             listings=(listing,),
             community_queries=("fixture headphones inaccessible reddit",),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_reddit_provider_failure() -> AgentWorkbenchScenario:
+    brief, product, listing, _, _ = _seed_objects("headphones")
+    return _scenario(
+        "reddit/provider-failure",
+        "Boundary Reddit run with unavailable public-community retrieval.",
+        RedditCommunityIntelligenceAgentInput(
+            run_id=new_id(),
+            brief=brief,
+            products=(product,),
+            listings=(listing,),
+            community_queries=("fixture headphones provider-failure reddit",),
         ),
         boundary=True,
     )

@@ -179,6 +179,11 @@ route context, and falls back to generic analysis for non-technology input or
 domain failure. The YouTube SDK specialist is available in the isolated
 workbench and can choose bounded video search, metadata, and transcript tool
 calls; the normal shopping source stage still calls its provider service.
+The Reddit SDK specialist similarly uses bounded public-community search and
+persisted discussion-read tools in the isolated workbench. It receives no raw
+Reddit credentials or unrestricted page-fetching access; the current provider
+uses public search excerpts or approved upstream text rather than direct Reddit
+page extraction. The normal shopping source stage still calls its service.
 YouTube review intelligence uses only typed
 `VideoSearchProvider`, `TranscriptProvider`, `YouTubeTranscriptIngestor`, and
 `VideoEvidenceCreator` boundaries; it does not call `yt-dlp` directly, parse

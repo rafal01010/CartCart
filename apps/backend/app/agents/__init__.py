@@ -178,6 +178,10 @@ from app.agents.reddit_community_intelligence_service import (
     RedditCommunityIntelligenceService,
     REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
 )
+from app.agents.live_reddit_community_intelligence import (
+    MockRedditCommunityModelRunner,
+    OpenAIAgentsSDKRedditCommunityModelRunner,
+)
 from app.agents.amazon_product_intelligence_service import (
     AMAZON_PRODUCT_INTELLIGENCE_SERVICE_NAME,
     AmazonProductIntelligenceService,
@@ -338,6 +342,8 @@ __all__ = [
     "LiveMonitorSpecialistAgent",
     "LiveQueryPlannerAgent",
     "RedditCommunityIntelligenceService",
+    "MockRedditCommunityModelRunner",
+    "OpenAIAgentsSDKRedditCommunityModelRunner",
     "LiveSellerListingTrustAgent",
     "LiveShoppingGuideAgent",
     "LiveShoppingScopeGuardrail",

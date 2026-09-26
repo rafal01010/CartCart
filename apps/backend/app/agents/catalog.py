@@ -90,7 +90,9 @@ class AgentCatalogEntry(VersionedSchema):
     planned_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
     sdk_implementation_pending: bool = False
     agent_as_tool_available: bool = False
-    provider_service_name: str | None = Field(default=None, min_length=1, max_length=200)
+    provider_service_name: str | None = Field(
+        default=None, min_length=1, max_length=200
+    )
     fixture_fallback: FixtureFallback | None = None
     superseded_by: str | None = Field(default=None, min_length=1, max_length=200)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
@@ -115,8 +117,13 @@ class AgentCatalogEntry(VersionedSchema):
             or self.approved_sdk_tools
         ):
             raise ValueError("pending SDK agents cannot claim live tool availability.")
-        if self.agent_as_tool_available and self.invocation_mode != InvocationMode.REUSABLE_SOURCE_TOOL:
-            raise ValueError("agent-as-tool availability requires reusable source invocation.")
+        if (
+            self.agent_as_tool_available
+            and self.invocation_mode != InvocationMode.REUSABLE_SOURCE_TOOL
+        ):
+            raise ValueError(
+                "agent-as-tool availability requires reusable source invocation."
+            )
         return self
 
 
@@ -611,10 +618,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "RedditCommunityIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
-        sdk_implementation_pending=True,
+        invocation_mode=InvocationMode.TYPED_STEP,
         provider_service_name="RedditCommunityIntelligenceService",
-        planned_sdk_tools=(
+        approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_COMMUNITY_DISCUSSIONS,
             ApprovedSDKTool.READ_COMMUNITY_DISCUSSION,
         ),

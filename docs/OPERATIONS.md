@@ -548,9 +548,9 @@ values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; model
 so choose an effort the selected model accepts.
 
 Each implemented SDK runner resolves its own profile. The workbench catalog
-lists implemented agents' profiles and resolved models. The YouTube specialist
-now resolves its `fast` model for mock/live workbench runs; its fixture service
-run still reports no model. For the three pending Reddit, Amazon, and IKEA
+lists implemented agents' profiles and resolved models. The YouTube and Reddit
+specialists resolve their `fast` models for mock/live workbench runs; their fixture
+service runs still report no model. For pending Amazon and IKEA
 source specialists, the catalog lists planned models but leaves `resolved_model`
 null; their fixture/mock service runs likewise report no model or usage.
 OpenAI trace metadata records the resolved model and profile; persisted
@@ -666,17 +666,19 @@ metadata-only gaps. For `RedditCommunityIntelligenceAgent`,
 `reddit/headphones-recurring-complaint` checks recurring qualitative community
 signals with subreddit/thread/source context and anecdotal/manipulation
 warnings, while `reddit/inaccessible-gap` checks explicit inaccessible-content
-gaps. For `AmazonProductIntelligenceAgent`,
+gaps and `reddit/provider-failure` checks an honest retrieval-error gap. Its
+mock path exercises an offline SDK-specialist contract through bounded search
+and read tools; fixture mode remains a provider-service probe. For `AmazonProductIntelligenceAgent`,
 `amazon/third-party-seller-region-gap` checks marketplace/listing, seller,
 review, and regional shipping-gap context. For `IKEAStoreIntelligenceAgent`,
 `ikea/available-regional-product` checks official regional price/currency,
 availability, and source IDs, while `ikea/no-regional-presence` checks an
 explicit unsupported-region gap without global-shipping inference. For
-these four source roles, the workbench currently offers only fixture/mock
+the Amazon and IKEA roles, the workbench currently offers only fixture/mock
 provider-service probes: `execution_kind=provider_service`, `model=null`, and
-no model usage. It rejects `--mode live` for them even with an OpenAI key,
-because the source-specialist SDK agents and agent-as-tool delegation are not
-implemented yet. In a live shopping workflow the source stage trace is named
+no model usage. YouTube and Reddit support mocked SDK runs and opt-in live SDK
+runs over fixture providers; parent agent-as-tool delegation is still pending.
+In a live shopping workflow the source stage trace is named
 `ProviderSourceIntelligenceServices` with `runtime_mode=provider_service` and
 no model name; live providers may still be contacted by those services.
 For

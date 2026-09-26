@@ -29,10 +29,13 @@ def test_workbench_route_is_disabled_by_default() -> None:
     response = client.get("/internal/agent-workbench")
 
     assert response.status_code == 404
-    assert client.post(
-        "/internal/agent-workbench/research-tools/probe",
-        json={"query": "TVs"},
-    ).status_code == 404
+    assert (
+        client.post(
+            "/internal/agent-workbench/research-tools/probe",
+            json={"query": "TVs"},
+        ).status_code
+        == 404
+    )
 
 
 def test_workbench_route_is_unavailable_outside_allowed_environments() -> None:
@@ -44,10 +47,13 @@ def test_workbench_route_is_unavailable_outside_allowed_environments() -> None:
     response = client.get("/internal/agent-workbench")
 
     assert response.status_code == 404
-    assert client.post(
-        "/internal/agent-workbench/research-tools/probe",
-        json={"query": "TVs"},
-    ).status_code == 404
+    assert (
+        client.post(
+            "/internal/agent-workbench/research-tools/probe",
+            json={"query": "TVs"},
+        ).status_code
+        == 404
+    )
 
 
 def test_workbench_route_is_excluded_from_openapi() -> None:
@@ -62,12 +68,19 @@ def test_workbench_route_is_excluded_from_openapi() -> None:
     assert "/internal/agent-workbench/research-tools/probe" not in paths
 
 
-def test_workbench_research_tool_probe_shows_fixture_activity_without_live_calls() -> None:
+def test_workbench_research_tool_probe_shows_fixture_activity_without_live_calls() -> (
+    None
+):
     client = make_test_client(agent_workbench_enabled=True)
 
     response = client.post(
         "/internal/agent-workbench/research-tools/probe",
-        json={"query": "best TVs", "intent": "review", "region_code": "PH", "max_results": 1},
+        json={
+            "query": "best TVs",
+            "intent": "review",
+            "region_code": "PH",
+            "max_results": 1,
+        },
     )
 
     assert response.status_code == 200
@@ -79,7 +92,8 @@ def test_workbench_research_tool_probe_shows_fixture_activity_without_live_calls
     assert body["fetch"]["source_id"] == body["search"]["sources"][0]["source_id"]
     assert body["fetch"]["snapshot_id"]
     assert [item["tool_name"] for item in body["allowed_tool_activity"]] == [
-        "search_sources", "fetch_source"
+        "search_sources",
+        "fetch_source",
     ]
 
 
@@ -252,7 +266,11 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert youtube["modes"] == ["fixture", "mock", "live"]
     assert youtube["sdk_implementation_pending"] is False
     assert youtube["agent_as_tool_available"] is False
-    assert youtube["approved_sdk_tools"] == ["search_videos", "read_video_metadata", "read_video_transcript"]
+    assert youtube["approved_sdk_tools"] == [
+        "search_videos",
+        "read_video_metadata",
+        "read_video_transcript",
+    ]
     assert youtube["resolved_model"]
     assert youtube["planned_model"] is None
     reddit = next(
@@ -263,8 +281,15 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in reddit["scenarios"]} >= {
         "reddit/headphones-recurring-complaint",
         "reddit/inaccessible-gap",
+        "reddit/provider-failure",
     }
-    assert reddit["modes"] == ["fixture", "mock"]
+    assert reddit["modes"] == ["fixture", "mock", "live"]
+    assert reddit["sdk_implementation_pending"] is False
+    assert reddit["approved_sdk_tools"] == [
+        "search_community_discussions",
+        "read_community_discussion",
+    ]
+    assert reddit["resolved_model"]
     amazon = next(
         agent
         for agent in body["agents"]
@@ -285,7 +310,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "ikea/no-regional-presence",
     }
     assert ikea["modes"] == ["fixture", "mock"]
-    for source_agent in (reddit, amazon, ikea):
+    for source_agent in (amazon, ikea):
         assert source_agent["sdk_implementation_pending"] is True
         assert source_agent["agent_as_tool_available"] is False
         assert source_agent["provider_service_name"].endswith("Service")
@@ -346,7 +371,11 @@ def test_workbench_fixture_reports_resolved_profiles_without_live_calls() -> Non
     client = make_test_client(
         agent_workbench_enabled=True,
         openai_run_profiles={
-            "fast": {"model": "small-model", "reasoning_effort": "none", "max_turns": 4},
+            "fast": {
+                "model": "small-model",
+                "reasoning_effort": "none",
+                "max_turns": 4,
+            },
             "strong": {
                 "model": "large-model",
                 "reasoning_effort": "medium",
@@ -374,10 +403,12 @@ def test_workbench_fixture_reports_resolved_profiles_without_live_calls() -> Non
 
     assert guide.status_code == decision.status_code == 200
     assert (guide.json()["model"], guide.json()["run_profile"]) == (
-        "small-model", "fast"
+        "small-model",
+        "fast",
     )
     assert (decision.json()["model"], decision.json()["run_profile"]) == (
-        "large-model", "strong"
+        "large-model",
+        "strong",
     )
     assert guide.json()["max_turns"] == 4
     assert decision.json()["max_turns"] == 10
@@ -439,10 +470,7 @@ def test_workbench_mock_verifier_blocks_unsupported_claim() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["output"]["approved"] is False
-    assert any(
-        "factual claim" in issue
-        for issue in body["output"]["blocking_issues"]
-    )
+    assert any("factual claim" in issue for issue in body["output"]["blocking_issues"])
     assert body["allowed_tool_activity"][0]["status"] == "output_guardrail_blocked"
 
 
@@ -461,10 +489,7 @@ def test_workbench_mock_verifier_blocks_suspicious_listing_without_warning() -> 
     assert response.status_code == 200
     body = response.json()
     assert body["output"]["approved"] is False
-    assert any(
-        "suspicious" in issue
-        for issue in body["output"]["blocking_issues"]
-    )
+    assert any("suspicious" in issue for issue in body["output"]["blocking_issues"])
     warnings = body["output"]["recommendation_bundle"]["warnings"]
     assert any("blocked for review" in warning.casefold() for warning in warnings)
 
@@ -684,7 +709,9 @@ def test_workbench_mock_query_planner_keeps_unknown_category_generic() -> None:
     assert body["allowed_tool_activity"][0]["status"] == "model_query_plan_completed"
 
 
-def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context() -> None:
+def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context() -> (
+    None
+):
     client = make_test_client(agent_workbench_enabled=True)
 
     response = client.post(
@@ -703,15 +730,17 @@ def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context
     context = output["listing_contexts"][0]
     fact_types = {item["fact_type"] for item in output["evidence"]}
     gap_text = " ".join(
-        f"{gap['summary']} {gap.get('reason') or ''}"
-        for gap in output["evidence_gaps"]
+        f"{gap['summary']} {gap.get('reason') or ''}" for gap in output["evidence_gaps"]
     ).casefold()
 
     assert body["output_schema"] == "AmazonProductEvidenceBundle"
     assert body["execution_kind"] == "provider_service"
     assert body["model"] is None
     assert body["usage"] is None
-    assert body["allowed_tool_activity"][0]["input"]["service"] == "AmazonProductIntelligenceService"
+    assert (
+        body["allowed_tool_activity"][0]["input"]["service"]
+        == "AmazonProductIntelligenceService"
+    )
     assert source_url == "https://www.amazon.com/dp/B0CART5901"
     assert "tag=" not in source_url
     assert context["asin"] == "B0CART5901"
@@ -886,7 +915,9 @@ def test_workbench_mock_discovery_reports_no_good_results() -> None:
     assert body["allowed_tool_activity"][0]["status"] == "model_discovery_completed"
 
 
-def test_workbench_mock_discovery_preserves_tv_reviews_and_generic_shopping_results() -> None:
+def test_workbench_mock_discovery_preserves_tv_reviews_and_generic_shopping_results() -> (
+    None
+):
     client = make_test_client(agent_workbench_enabled=True)
     response = client.post(
         "/internal/agent-workbench/runs",
@@ -900,28 +931,48 @@ def test_workbench_mock_discovery_preserves_tv_reviews_and_generic_shopping_resu
     assert response.status_code == 200
     body = response.json()
     assert len(body["input"]["seed_results"]) == 26
-    assert sum(
-        item["source_type"] == "professional_review"
-        for item in body["input"]["seed_results"]
-    ) == 8
-    assert sum(
-        item["source_type"] == "search_result"
-        for item in body["input"]["seed_results"]
-    ) == 18
+    assert (
+        sum(
+            item["source_type"] == "professional_review"
+            for item in body["input"]["seed_results"]
+        )
+        == 8
+    )
+    assert (
+        sum(
+            item["source_type"] == "search_result"
+            for item in body["input"]["seed_results"]
+        )
+        == 18
+    )
     decisions = body["output"]["source_decisions"]
     assert len(decisions) == 26
     assert {item["source_id"] for item in decisions} == {
         item["source_id"] for item in body["input"]["seed_results"]
     }
-    assert sum(item["classification"] == "professional_review" for item in decisions) == 8
+    assert (
+        sum(item["classification"] == "professional_review" for item in decisions) == 8
+    )
     assert any(item["classification"] == "retailer_listing" for item in decisions)
     assert any(item["classification"] == "category_collection" for item in decisions)
     assert len(body["output"]["selected_source_ids"]) == 26
     assert decisions[0]["candidate_model_hints"] == ["Aurora A55", "Northstar N65"]
     first_eight = set(body["output"]["selected_source_ids"][:8])
     by_id = {item["source_id"]: item for item in decisions}
-    assert sum(by_id[source_id]["classification"] == "retailer_listing" for source_id in first_eight) == 6
-    assert sum(by_id[source_id]["classification"] == "professional_review" for source_id in first_eight) == 2
+    assert (
+        sum(
+            by_id[source_id]["classification"] == "retailer_listing"
+            for source_id in first_eight
+        )
+        == 6
+    )
+    assert (
+        sum(
+            by_id[source_id]["classification"] == "professional_review"
+            for source_id in first_eight
+        )
+        == 2
+    )
 
 
 def test_workbench_mock_discovery_rejects_misleading_domain_result() -> None:
@@ -1142,9 +1193,11 @@ def test_workbench_mock_youtube_returns_timestamped_review_evidence() -> None:
         if not item["metadata_only"]
     )
     assert body["execution_kind"] == "mock_sdk_agent"
-    assert {
-        activity["tool_name"] for activity in body["allowed_tool_activity"]
-    } >= {"read_video_metadata", "read_video_transcript", "openai_agents_structured_output"}
+    assert {activity["tool_name"] for activity in body["allowed_tool_activity"]} >= {
+        "read_video_metadata",
+        "read_video_transcript",
+        "openai_agents_structured_output",
+    }
 
 
 def test_workbench_mock_youtube_preserves_no_transcript_gap() -> None:
@@ -1210,6 +1263,7 @@ def test_workbench_mock_reddit_returns_recurring_qualitative_evidence() -> None:
     body = response.json()
     output = body["output"]
     assert body["output_schema"] == "CommunityDiscussionEvidenceBundle"
+    assert body["execution_kind"] == "mock_sdk_agent"
     assert "final_product_id" not in output
     assert len(output["discussions"]) >= 2
     assert all(discussion["thread_id"] for discussion in output["discussions"])
@@ -1219,15 +1273,13 @@ def test_workbench_mock_reddit_returns_recurring_qualitative_evidence() -> None:
     assert evidence["qualitative_signal"] is True
     assert len(evidence["context_source_ids"]) >= 2
     warnings = " ".join(evidence["evidence_quality_warnings"]).casefold()
-    assert "qualitative" in warnings
-    assert "authoritative product fact" in warnings
-    assert "brigaded" in warnings
-    assert "astroturfed" in warnings
-    assert {
-        activity["tool_name"] for activity in body["allowed_tool_activity"]
-    } >= {
-        "CommunityDiscussionProvider.search_discussions",
-        "CommunityEvidenceCreator.create",
+    assert "anecdotal" in warnings
+    assert "corroborat" in warnings or "do not use reddit alone" in warnings
+    assert len(evidence["supporting_quotes"]) == 2
+    assert {activity["tool_name"] for activity in body["allowed_tool_activity"]} >= {
+        "search_community_discussions",
+        "read_community_discussion",
+        "openai_agents_structured_output",
     }
 
 
@@ -1245,15 +1297,32 @@ def test_workbench_mock_reddit_preserves_inaccessible_gap() -> None:
 
     assert response.status_code == 200
     body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
     output = body["output"]
     assert output["evidence"] == []
     assert output["evidence_gaps"]
     gap_text = " ".join(
-        f"{gap['summary']} {gap.get('reason') or ''}"
-        for gap in output["evidence_gaps"]
+        f"{gap['summary']} {gap.get('reason') or ''}" for gap in output["evidence_gaps"]
     ).casefold()
     assert "inaccessible" in gap_text
     assert "deleted" in gap_text or "removed" in gap_text
+
+
+def test_workbench_mock_reddit_provider_failure_returns_honest_gap() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "RedditCommunityIntelligenceAgent",
+            "scenario_name": "reddit/provider-failure",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["output"]["evidence"] == []
+    assert "provider_error" in body["output"]["evidence_gaps"][-1]["reason"]
 
 
 def test_workbench_mock_technology_routes_monitor_toward_specialist() -> None:

@@ -12,6 +12,7 @@ from app.schemas.search_sources import (
     CommunityDiscussionContext,
     CommunityDiscussionEvidence,
     CommunityDiscussionEvidenceBundle,
+    CommunitySupportingQuote,
     EvidenceTarget,
     SourceQuality,
 )
@@ -37,6 +38,9 @@ class SourceBackedCommunityClaim(CartCartBaseModel):
     context_source_ids: tuple[SourceId, ...] = Field(min_length=1)
     recurring_signal: bool = False
     evidence_quality_warnings: tuple[str, ...] = Field(default_factory=tuple)
+    supporting_quotes: tuple[CommunitySupportingQuote, ...] = Field(
+        default_factory=tuple
+    )
 
 
 class CommunityEvidenceCreator:
@@ -67,7 +71,22 @@ class CommunityEvidenceCreator:
                 )
 
             cited_discussions = _cited_discussions(claim, discussions)
-            if not all(
+            if claim.supporting_quotes:
+                quote_sources = {quote.source_id for quote in claim.supporting_quotes}
+                if quote_sources != set(claim.context_source_ids) or len(
+                    quote_sources
+                ) != len(claim.supporting_quotes):
+                    raise CommunityEvidenceCreationError(
+                        "community quotes must cover each cited context once."
+                    )
+                if not all(
+                    _claim_is_source_backed(quote.quote, discussions[quote.source_id])
+                    for quote in claim.supporting_quotes
+                ):
+                    raise CommunityEvidenceCreationError(
+                        "community quotes must occur in cited public discussion text."
+                    )
+            elif not all(
                 _claim_is_source_backed(claim.claim, discussion)
                 for discussion in cited_discussions
             ):
@@ -92,6 +111,7 @@ class CommunityEvidenceCreator:
                     recurring_signal=claim.recurring_signal,
                     qualitative_signal=True,
                     evidence_quality_warnings=warnings,
+                    supporting_quotes=claim.supporting_quotes,
                 )
             )
 
@@ -138,8 +158,7 @@ def _evidence_warnings(
     if any(discussion.posted_at is None for discussion in discussions):
         warnings.append("Discussion recency was unavailable.")
     if any(
-        discussion.posted_at is not None
-        and discussion.posted_at < now - _RECENT_WINDOW
+        discussion.posted_at is not None and discussion.posted_at < now - _RECENT_WINDOW
         for discussion in discussions
     ):
         warnings.append("At least one cited discussion is older than one year.")

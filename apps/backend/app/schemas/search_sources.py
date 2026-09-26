@@ -182,15 +182,9 @@ class EvidenceTarget(CartCartBaseModel):
 
     @model_validator(mode="after")
     def _target_must_identify_declared_entity(self) -> "EvidenceTarget":
-        if (
-            self.target_type == EvidenceTargetType.PRODUCT
-            and self.product_id is None
-        ):
+        if self.target_type == EvidenceTargetType.PRODUCT and self.product_id is None:
             raise ValueError("product evidence targets require product_id.")
-        if (
-            self.target_type == EvidenceTargetType.LISTING
-            and self.listing_id is None
-        ):
+        if self.target_type == EvidenceTargetType.LISTING and self.listing_id is None:
             raise ValueError("listing evidence targets require listing_id.")
         if self.target_type == EvidenceTargetType.SELLER and not (
             self.listing_id or self.seller_name
@@ -366,7 +360,9 @@ class VideoReviewEvidence(CartCartBaseModel):
             self.metadata_only
             and self.target.target_type != EvidenceTargetType.SOURCE_METADATA
         ):
-            raise ValueError("metadata-only video evidence must target source metadata.")
+            raise ValueError(
+                "metadata-only video evidence must target source metadata."
+            )
         if self.metadata_only and (
             self.timestamp_references or self.transcript_segment_ids
         ):
@@ -416,6 +412,11 @@ class CommunityDiscussionContext(CartCartBaseModel):
     )
 
 
+class CommunitySupportingQuote(CartCartBaseModel):
+    source_id: SourceId
+    quote: str = Field(min_length=1, max_length=500)
+
+
 class CommunityDiscussionEvidence(CartCartBaseModel):
     evidence_id: SourceId = Field(default_factory=new_id)
     source_id: SourceId
@@ -427,6 +428,9 @@ class CommunityDiscussionEvidence(CartCartBaseModel):
     recurring_signal: bool = False
     qualitative_signal: bool = True
     evidence_quality_warnings: tuple[str, ...] = Field(default_factory=tuple)
+    supporting_quotes: tuple[CommunitySupportingQuote, ...] = Field(
+        default_factory=tuple
+    )
 
     @model_validator(mode="after")
     def _validate_source_metadata_target(self) -> "CommunityDiscussionEvidence":
@@ -489,10 +493,14 @@ class AmazonProductEvidence(CartCartBaseModel):
             and self.target.target_type != EvidenceTargetType.SELLER
         ):
             raise ValueError("Amazon seller/fulfillment facts must target a seller.")
-        if self.fact_type in (
-            AmazonEvidenceFactType.REVIEW_SUMMARY,
-            AmazonEvidenceFactType.REVIEW_QUALITY_WARNING,
-        ) and self.target.target_type != EvidenceTargetType.REVIEW:
+        if (
+            self.fact_type
+            in (
+                AmazonEvidenceFactType.REVIEW_SUMMARY,
+                AmazonEvidenceFactType.REVIEW_QUALITY_WARNING,
+            )
+            and self.target.target_type != EvidenceTargetType.REVIEW
+        ):
             raise ValueError("Amazon review facts must target review evidence.")
         if (
             self.fact_type == AmazonEvidenceFactType.REGIONAL_AVAILABILITY
@@ -537,11 +545,15 @@ class IKEAStoreEvidence(CartCartBaseModel):
             and self.target.target_type != EvidenceTargetType.PRODUCT
         ):
             raise ValueError("IKEA official product facts must target a product.")
-        if self.fact_type in (
-            IKEAEvidenceFactType.REGIONAL_PRICE,
-            IKEAEvidenceFactType.REGIONAL_AVAILABILITY,
-            IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
-        ) and self.target.target_type != EvidenceTargetType.REGION:
+        if (
+            self.fact_type
+            in (
+                IKEAEvidenceFactType.REGIONAL_PRICE,
+                IKEAEvidenceFactType.REGIONAL_AVAILABILITY,
+                IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
+            )
+            and self.target.target_type != EvidenceTargetType.REGION
+        ):
             raise ValueError("IKEA regional store facts must target a region.")
         return self
 
@@ -588,10 +600,11 @@ class SourceEvidence(CartCartBaseModel):
         ):
             raise ValueError("source metadata evidence target must match source_id.")
         if (
-            self.evidence_type == EvidenceType.VIDEO_CLAIM
-            or self.timestamp_references
+            self.evidence_type == EvidenceType.VIDEO_CLAIM or self.timestamp_references
         ) and self.video is None:
-            raise ValueError("video context is required for video or timestamped evidence.")
+            raise ValueError(
+                "video context is required for video or timestamped evidence."
+            )
         return self
 
 
@@ -641,9 +654,13 @@ class VideoReviewEvidenceBundle(VersionedSchema):
 
         for item in self.evidence:
             if item.video_id not in video_ids:
-                raise ValueError("video review evidence must reference a bundled video.")
+                raise ValueError(
+                    "video review evidence must reference a bundled video."
+                )
             if item.source_id not in source_ids:
-                raise ValueError("video review evidence must reference a bundled source.")
+                raise ValueError(
+                    "video review evidence must reference a bundled source."
+                )
             for segment_id in item.transcript_segment_ids:
                 referenced_segment = segment_by_id.get(segment_id)
                 if referenced_segment is None:
@@ -674,7 +691,9 @@ class CommunityDiscussionEvidenceBundle(VersionedSchema):
                 "source reference IDs must be unique within a community evidence bundle."
             )
 
-        discussion_source_ids = {discussion.source_id for discussion in self.discussions}
+        discussion_source_ids = {
+            discussion.source_id for discussion in self.discussions
+        }
         if len(discussion_source_ids) != len(self.discussions):
             raise ValueError(
                 "discussion source IDs must be unique within a community evidence bundle."
@@ -684,14 +703,19 @@ class CommunityDiscussionEvidenceBundle(VersionedSchema):
 
         for item in self.evidence:
             if item.source_id not in source_ids:
-                raise ValueError(
-                    "community evidence must reference a bundled source."
-                )
+                raise ValueError("community evidence must reference a bundled source.")
             for context_source_id in item.context_source_ids:
                 if context_source_id not in discussion_source_ids:
                     raise ValueError(
                         "community evidence must reference bundled discussion context."
                     )
+            if any(
+                quote.source_id not in item.context_source_ids
+                for quote in item.supporting_quotes
+            ):
+                raise ValueError(
+                    "community quotes must reference cited discussion contexts."
+                )
         for gap in self.evidence_gaps:
             if gap.source_id is not None and gap.source_id not in source_ids:
                 raise ValueError("evidence gaps can only cite bundled sources.")

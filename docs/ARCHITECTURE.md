@@ -363,7 +363,7 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. `YouTubeReviewIntelligenceAgent` now has a separate SDK implementation in the workbench with approved bounded video search, metadata, and transcript tools; its validated output is a cited `VideoReviewEvidenceBundle`. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes, including the YouTube service, without source-agent model delegation. Reddit, Amazon, and IKEA SDK specialists and all four agent-as-tool parent calls remain pending.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. YouTube and Reddit source-intelligence roles now have separate SDK implementations in the workbench with approved bounded tools and cited evidence bundles. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes without source-agent model delegation. Amazon and IKEA SDK specialists and all four agent-as-tool parent calls remain pending.
 
 Each catalog entry also declares an operator-configured OpenAI run profile
 (`fast`, `strong`, or `default`). The shared runtime resolver combines an
@@ -385,9 +385,8 @@ Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`,
 `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
 `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
 `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
-`TVSpecialistAgent`, provider-service scenarios for the pending `YouTubeReviewIntelligenceAgent`,
-`RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and
-`IKEAStoreIntelligenceAgent` scenarios. It is disabled
+`TVSpecialistAgent`, SDK specialist scenarios for YouTube and Reddit, and
+provider-service scenarios for pending Amazon and IKEA roles. It is disabled
 unless the local workbench flag is
 explicitly enabled.
 
@@ -717,7 +716,7 @@ not establish availability or shipping outside the declared region.
 
 Reusable source-intelligence providers are also defined in the provider layer.
 The agent contract and executable catalog layer reserves four required reusable source
-agent roles for YouTube, Reddit, Amazon, and IKEA. Until their SDK implementations exist, provider services return evidence
+agent roles for YouTube, Reddit, Amazon, and IKEA. Until parent delegation is implemented, provider services return evidence
 bundles for usable source intelligence rather than recommendations or
 availability-only checks. The provider boundary exposes enabled state, supported
 capabilities, official/user-authorized access, domain-scoped search support,

@@ -9,6 +9,8 @@ from app.agents import (
     DiscoveryAgentInput,
     DiscoveryAgentOutcome,
     DiscoveryAgentOutput,
+    ExtractionAgentInput,
+    ExtractionAgentOutput,
     IntakeAgentInput,
     ProductAnalysisAgentInput,
     QueryPlannerAgentInput,
@@ -256,6 +258,7 @@ class RecordingExtractionProvider:
 
     def __init__(self) -> None:
         self.calls: list[tuple[AnyHttpUrl, ExtractionProviderOptions | None]] = []
+        self.snapshots: dict[object, SourceSnapshot] = {}
 
     async def extract(
         self,
@@ -272,7 +275,7 @@ class RecordingExtractionProvider:
             f"Brand: Northstar\nPrice: USD 329.99\nSeller: {seller}\n"
             "Region: US\nA 27 inch USB-C monitor for office work."
         )
-        return SourceSnapshot(
+        snapshot = SourceSnapshot(
             url=url,
             source_type=SourceType.RETAILER_LISTING,
             provider=ProviderMetadata(provider_name=self.provider_name),
@@ -284,6 +287,22 @@ class RecordingExtractionProvider:
                 site_name="Metro Office",
                 word_count=len(text.split()),
             ),
+        )
+        self.snapshots[snapshot.source_id] = snapshot
+        return snapshot
+
+
+class RecordingExtractionAgent:
+    """Mocked model output for legacy integration fixtures, not runtime logic."""
+
+    def __init__(self, provider: RecordingExtractionProvider) -> None:
+        self.provider = provider
+
+    async def run(self, input_data: ExtractionAgentInput) -> ExtractionAgentOutput:
+        snapshot = self.provider.snapshots[input_data.snapshot_ids[0]]
+        extraction = ProductListingExtractor().extract_source_snapshot(snapshot)
+        return ExtractionAgentOutput(
+            products=(extraction.product,), listings=(extraction.listing,)
         )
 
 
@@ -408,6 +427,10 @@ class SelectingDiscoveryAgent:
     )
 
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        if not input_data.seed_results:
+            return DiscoveryAgentOutput(
+                outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+            )
         selected = input_data.seed_results[:1]
         return DiscoveryAgentOutput(
             search_results=input_data.seed_results,
@@ -418,6 +441,10 @@ class SelectingDiscoveryAgent:
 
 class SelectingGeneratedAndUserAddedDiscoveryAgent(SelectingDiscoveryAgent):
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        if not input_data.seed_results:
+            return DiscoveryAgentOutput(
+                outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+            )
         selected = [
             result
             for index, result in enumerate(input_data.seed_results)
@@ -494,7 +521,9 @@ class RecordingComparisonDecisionAgent:
         self.calls.append(input_data)
         product = input_data.products[0]
         listing = next(
-            item for item in input_data.listings if item.product_id == product.product_id
+            item
+            for item in input_data.listings
+            if item.product_id == product.product_id
         )
         evidence_ids = input_data.category_analyses[0].evidence_ids
         source_ids = input_data.category_analyses[0].source_ids
@@ -783,9 +812,7 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         assert result.recommendation_bundle.final_product_id == (
             fixture.recommendation_bundle.final_product_id
         )
-        assert {
-            mode.mode for mode in result.recommendation_bundle.mode_results
-        } >= {
+        assert {mode.mode for mode in result.recommendation_bundle.mode_results} >= {
             RecommendationMode.BEST_OVERALL,
             RecommendationMode.BEST_VALUE,
             RecommendationMode.WITHIN_BUDGET,
@@ -1109,9 +1136,9 @@ async def test_extraction_continues_and_persists_failed_source_snapshot(
             ).run(run.run_id, shopping_session.current_brief)
 
         async with session_factory() as db_session:
-            snapshots = await SearchSourceRepository(
-                db_session
-            ).list_source_snapshots(run.run_id)
+            snapshots = await SearchSourceRepository(db_session).list_source_snapshots(
+                run.run_id
+            )
             loaded_run = await RunRepository(db_session).get(run.run_id)
 
         assert loaded_run is not None
@@ -1343,6 +1370,7 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
                 intake_agent=RecordingIntakeAgent(),
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
                 category_router_agent=RecordingCategoryRouterAgent(),
                 generic_product_analyst_agent=analyst,
                 seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
@@ -1457,6 +1485,7 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
                 intake_agent=RecordingIntakeAgent(),
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingGeneratedAndUserAddedDiscoveryAgent(),
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
                 category_router_agent=RecordingCategoryRouterAgent(),
                 generic_product_analyst_agent=analyst,
                 seller_listing_trust_agent=trust_agent,
@@ -1648,6 +1677,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
     )
     engine = create_database_engine(settings)
     analyst = RecordingGenericAnalystAgent()
+    extraction_provider = RecordingExtractionProvider()
 
     try:
         async with engine.begin() as connection:
@@ -1677,19 +1707,22 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
                 ),
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 agent_model_name="gpt-recording",
-                agent_model_resolver=lambda name: build_openai_agent_run_configuration(
-                    settings, agent_name=name
-                ).model,
+                agent_model_resolver=lambda name: (
+                    build_openai_agent_run_configuration(
+                        settings, agent_name=name
+                    ).model
+                ),
                 intake_agent=RecordingIntakeAgent(),
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
                 category_router_agent=RecordingCategoryRouterAgent(),
                 generic_product_analyst_agent=analyst,
                 seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
                 comparison_decision_agent=RecordingComparisonDecisionAgent(),
                 verifier_critic_agent=RecordingVerifierCriticAgent(),
                 search_provider=ListingSearchProvider(),
-                extraction_provider=RecordingExtractionProvider(),
+                extraction_provider=extraction_provider,
                 default_region_code="US",
             )
 
@@ -1704,8 +1737,14 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
             result_repository = ResultRepository(db_session)
             agent_records = await result_repository.list_agent_records(run.run_id)
             result = await result_repository.load_latest_result_bundle(run.run_id)
+            stored_products = await ProductRepository(
+                db_session
+            ).list_canonical_products_for_run(run.run_id)
 
         assert context.trace_id == f"live-agent-run-{run.run_id}"
+        assert context.fixture_output is None
+        assert len(stored_products) == 1
+        assert stored_products[0].name == "Northstar Arc 27 USB-C Monitor"
         assert context.active_brief.category == "monitor"
         assert len(context.selected_source_ids) == 1
         assert len(analyst.calls) == 1
@@ -1722,13 +1761,26 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert records_by_stage[RunStage.INTAKE].runtime_mode == "live"
         assert records_by_stage[RunStage.INTAKE].model_name == "small-model"
         assert records_by_stage[RunStage.QUERY_PLANNING].model_name == "small-model"
-        assert records_by_stage[RunStage.QUERY_PLANNING].tool_activity[0][
-            "status"
-        ] == "model_query_plan_completed"
+        assert (
+            records_by_stage[RunStage.QUERY_PLANNING].tool_activity[0]["status"]
+            == "model_query_plan_completed"
+        )
         assert records_by_stage[RunStage.DISCOVERY].agent_name == "DiscoveryAgent"
-        assert records_by_stage[RunStage.DISCOVERY].tool_activity[0]["input"][
-            "allowed_tools"
-        ] == []
+        assert any(
+            item["tool_name"] == "research_discovery_decision"
+            for item in records_by_stage[RunStage.DISCOVERY].tool_activity
+        )
+        assert any(
+            item["tool_name"] == "research_extraction_decision"
+            and item["output"]["products"]
+            for item in records_by_stage[RunStage.EXTRACTION].tool_activity
+        )
+        assert (
+            records_by_stage[RunStage.DISCOVERY].tool_activity[0]["input"][
+                "allowed_tools"
+            ]
+            == []
+        )
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].agent_name == (
             "CategoryRouterAgent+ProductAnalysisAgents"
         )
@@ -1738,9 +1790,10 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
             "large-model"
         )
         assert records_by_stage[RunStage.VERIFICATION].model_name == "large-model"
-        assert records_by_stage[RunStage.VERIFICATION].tool_activity[0][
-            "status"
-        ] == "model_verifier_critic_completed"
+        assert (
+            records_by_stage[RunStage.VERIFICATION].tool_activity[0]["status"]
+            == "model_verifier_critic_completed"
+        )
 
     finally:
         await engine.dispose()

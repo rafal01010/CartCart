@@ -101,6 +101,28 @@ class SearchSourceRepository:
         await self._session.flush()
         return record.to_schema()
 
+    async def save_source_snapshot(
+        self,
+        run_id: RunId,
+        snapshot: SourceSnapshot,
+        *,
+        search_result_id: SourceId | None = None,
+    ) -> SourceSnapshot:
+        """Refresh same-run metadata on a discovery-tool-fetched snapshot."""
+        record = await self._session.get(SourceSnapshotRecord, str(snapshot.source_id))
+        if record is None:
+            return await self.add_source_snapshot(
+                run_id, snapshot, search_result_id=search_result_id
+            )
+        if record.run_id != str(run_id) or (
+            search_result_id is not None
+            and record.search_result_id != str(search_result_id)
+        ):
+            raise ValueError("snapshot ID belongs to a different run or search result")
+        record.snapshot = snapshot.model_dump(mode="json")
+        await self._session.flush()
+        return record.to_schema()
+
     async def get_source_snapshot(
         self,
         source_id: SourceId,

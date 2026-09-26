@@ -378,7 +378,6 @@ class AgentResearchTools:
 
             snapshot = snapshot.model_copy(
                 update={
-                    "source_type": source.source_type,
                     "title": snapshot.title or source.title,
                     "quality": source.quality,
                     "provider": _safe_snapshot_metadata(

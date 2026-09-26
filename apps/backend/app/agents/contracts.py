@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import Field, model_validator
+from pydantic import AnyHttpUrl, Field, model_validator
 
 from app.agents.catalog import ProductAnalysisRoute
 from app.schemas.analysis import (
@@ -26,6 +26,7 @@ from app.schemas.search_sources import (
     AmazonProductEvidenceBundle,
     CommunityDiscussionEvidenceBundle,
     EvidenceConflict,
+    EvidenceTargetType,
     IKEAStoreEvidenceBundle,
     SearchPlan,
     SearchResult,
@@ -76,6 +77,38 @@ class DiscoveryAgentInput(VersionedSchema):
     product_leads: tuple[ExtractedProductMention, ...] = Field(
         default_factory=tuple, max_length=12
     )
+    research_state: "DiscoveryResearchState | None" = None
+
+
+class DiscoveryResearchState(VersionedSchema):
+    cycle: int = Field(ge=1, le=4)
+    remaining_page_budget: int = Field(ge=0, le=12)
+    product_names: tuple[str, ...] = Field(default_factory=tuple, max_length=12)
+    candidates: tuple["DiscoveryCandidateSummary", ...] = Field(
+        default_factory=tuple, max_length=12
+    )
+    evidence: tuple["DiscoveryEvidenceSummary", ...] = Field(
+        default_factory=tuple, max_length=24
+    )
+    listing_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    evidence_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=12)
+    previously_inspected_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+
+
+class DiscoveryCandidateSummary(VersionedSchema):
+    product_id: ProductId
+    name: str = Field(min_length=1, max_length=300)
+    listing_url: AnyHttpUrl
+    seller_name: str = Field(min_length=1, max_length=300)
+    source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+
+
+class DiscoveryEvidenceSummary(VersionedSchema):
+    evidence_id: SourceId
+    source_id: SourceId
+    claim: str = Field(min_length=1, max_length=1000)
+    target_type: EvidenceTargetType
 
 
 class DiscoveryAgentOutcome(StrEnum):

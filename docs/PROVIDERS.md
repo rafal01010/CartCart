@@ -52,13 +52,14 @@ invocations when these tools are attached, and the same activity summaries fit
 the internal workbench response. A fixture-only workbench probe exercises the
 two tools against disposable persistence and shows their activity; the catalog
 lists approved names. Live `DiscoveryAgent` can invoke them with bounded calls
-and classify every observed source; the downstream agent-led extraction loop
-is subsequent work.
+and classify every observed source; the shopping run now repeats selected
+fetch, agent extraction, evidence review, and targeted discovery within explicit
+cycle/page/follow-up budgets.
 `ExtractionAgent` now has a separately approved, read-only, run-scoped
 snapshot-reader boundary. Generic `SearchResult` records remain available to
 agents, not grounds for automatic rejection. In live mode, cited product leads
-from extracted pages without offers can initiate one bounded follow-up
-DiscoveryAgent search pass. The same approved search/fetch tools, source
+from extracted pages without offers can initiate bounded follow-up
+DiscoveryAgent searches. The same approved search/fetch tools, source
 policy, neutral URLs, and persisted IDs apply; neither agent gets raw provider
 credentials or an arbitrary-URL fetch path.
 

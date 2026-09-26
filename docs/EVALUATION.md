@@ -183,14 +183,22 @@ full extraction loop. Required cases:
   never itself a listing.
 - `extraction-agent/review-roundup`: mocked editorial extraction returns three
   cited TV leads and review claims, with zero retailer listings. The focused
-  orchestration test confirms two leads trigger one targeted discovery pass,
-  two new offer pages, and explicit review-evidence-to-product matches before
-  shortlist construction; unmatched evidence remains source-scoped.
+  orchestration tests confirm two leads can trigger one targeted discovery pass,
+  while a separate bounded-loop case repeats discovery after a partial first
+  pass. Generic provider source types remain inspectable; lead matches are
+  explicit before shortlist construction and unmatched evidence remains
+  source-scoped.
 - `research/multi-product-collection`: one retailer/category page yields
   multiple distinct cited products/listings, not its page title and first price.
 - `extraction-agent/collection-without-item-urls`: two cited item leads but no
   invented direct offer URL or listing; the missing item links remain an
   explicit gap for targeted discovery.
+- `research/partial-page-provider-failure`: a failed selected fetch leaves a
+  persisted failed snapshot and explicit gap while another generic selected
+  page still yields multiple candidates. Stage research activity records
+  per-source decisions, extracted entities, gaps, and follow-up matches.
+- The Task 89I gate must still run the broader mocked/live-optional integration
+  cases, including honest no-product behavior after Task 89H fixture alignment.
 - `research/uncertain-page-and-no-results`: explicit ignore/uncertainty/gaps,
   with no fabricated identifiers, prices, availability, or candidate products.
 - `research/source-id-and-budget-integrity`: every entity/evidence reference

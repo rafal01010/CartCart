@@ -296,7 +296,6 @@ gate. Review evidence stays separate from retailer offers. Failed optional
 sources become explicit gaps; a category-incompatible fixture is not a valid
 fallback.
 
-The current runtime has **not** reached the full research-loop target.
 Run-scoped OpenAI Agents SDK `search_sources` and `fetch_source` function tools
 now wrap the approved search/extraction providers. They validate bounded agent
 choices, resolve fetches only from persisted same-run search IDs, commit source
@@ -311,16 +310,23 @@ select generic results for inspection. Live `ExtractionAgent` reads selected
 persisted snapshots through a bounded same-run tool and returns validated
 zero/one/many products, listings, evidence, mentions, and gaps. Its listings feed
 the current shortlist path. Cited mentions needing an offer lookup can
-trigger one bounded DiscoveryAgent search pass before the shortlist: at most
-twelve leads, four search calls, and four newly selected pages. ExtractionAgent
+trigger bounded DiscoveryAgent follow-up cycles before the shortlist: at most
+twelve leads per handoff, two follow-up discovery calls, four extraction cycles,
+and twelve discovery-selected fetched pages (direct user-added URLs are a
+separate input path). ExtractionAgent
 must explicitly match
 prior review evidence to a found product; otherwise the claim remains
 source-scoped. Editorial snapshots cannot produce retailer listings, and a
-collection URL cannot be reused as each item's direct offer URL. The full
-repeat-until-sufficient research loop is not yet integrated. Fixture runs still
-contain monitor data. These are
-transitional limitations, not the intended agent ownership. The normal run
-path remains fixture-first; live typed agents require explicit configuration.
+collection URL cannot be reused as each item's direct offer URL. Each cycle
+reviews candidate/evidence counts and gaps; a later discovery call sees typed
+candidate, seller, citation, and gap summaries and chooses further sources.
+Provider-type labels cannot veto a
+selected generic result. Search results, snapshots, and evidence are stored;
+per-source decisions, extracted entities, gaps, and lead matches are retained
+in stage research activity. Live result persistence uses only the grouped
+agent-validated shortlist, never the monitor fixture. Fixture runs still
+contain monitor data and are aligned in Task 89H. The normal run path remains
+fixture-first; live typed agents require explicit configuration.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -577,8 +583,8 @@ seller and region hints, but yields at most one linked
 listing, and review facts, and may return zero, one, or many cited entities and
 explicit gaps. Invalid schema, missing same-run snapshot IDs, unsupported
 listing URLs/prices, or malformed model output fail closed to a gap rather than
-silently invoking the legacy normalizer. Review-derived leads are not yet sent
-through a targeted listing search; that bounded loop remains pending.
+silently invoking the legacy normalizer. Review-derived leads enter the bounded
+discovery/fetch/extraction loop before shortlist construction.
 
 `DeterministicProductDeduplicator` is the conservative product grouping layer
 for obvious duplicates. It canonicalizes listing URLs with the source URL

@@ -14,6 +14,9 @@ from app.agents import (
     ComparisonDecisionAgentInput,
     DiscoveryAgent,
     DiscoveryAgentInput,
+    DiscoveryCandidateSummary,
+    DiscoveryEvidenceSummary,
+    DiscoveryResearchState,
     DiscoverySourceKind,
     ExtractionAgent,
     ExtractionAgentInput,
@@ -160,6 +163,9 @@ from app.services.recommendation_trust import (
 _MAX_SOURCE_INTELLIGENCE_PRODUCTS = 3
 _MAX_REVIEW_VIDEOS = 3
 _MAX_EXTRACTION_SOURCES = 12
+_RESEARCH_PAGES_PER_CYCLE = 4
+_MAX_RESEARCH_CYCLES = 4
+_MAX_FOLLOW_UP_DISCOVERY_CALLS = 2
 _IKEA_RELEVANCE_TERMS = (
     "armchair",
     "bed",
@@ -289,6 +295,7 @@ class ShoppingRunContext:
     extraction_evidence: tuple[SourceEvidence, ...] = ()
     extraction_mentions: tuple[ExtractedProductMention, ...] = ()
     extraction_gaps: tuple[ExtractionEvidenceGap, ...] = ()
+    research_activity: list[dict[str, Any]] = field(default_factory=list)
     user_added_products: tuple[UserAddedProduct, ...] = ()
     deduplication: CandidateDeduplicationRunOutput | None = None
     source_intelligence: SourceIntelligenceRunOutput | None = None
@@ -348,6 +355,9 @@ class ShoppingRunPersistenceHooks(Protocol):
     ) -> None:
         """Persist the fixture shopping-run output."""
 
+    async def persist_live_output(self, context: ShoppingRunContext) -> None:
+        """Persist a recommendation only from the live research shortlist."""
+
     async def persist_search_plan(
         self,
         context: ShoppingRunContext,
@@ -370,6 +380,11 @@ class ShoppingRunPersistenceHooks(Protocol):
         extractions: tuple[DiscoveredSourceExtraction, ...],
     ) -> None:
         """Persist extracted snapshots before candidate grouping."""
+
+    async def load_snapshot_for_search_result(
+        self, context: ShoppingRunContext, source_id: SourceId
+    ) -> SourceSnapshot | None:
+        """Reuse an approved snapshot already saved by the discovery fetch tool."""
 
     async def persist_extraction_evidence(
         self, context: ShoppingRunContext, evidence: tuple[SourceEvidence, ...]
@@ -543,6 +558,21 @@ class RepositoryShoppingRunPersistenceHooks:
             recommendation_bundle=recommendation_bundle,
         )
 
+    async def persist_live_output(self, context: ShoppingRunContext) -> None:
+        if context.recommendation_bundle is None:
+            return
+        recommendation_bundle = integrate_trust_analysis_into_recommendation(
+            context.recommendation_bundle,
+            context.trust_assessments,
+        )
+        await self._result_repository.save_result_bundle(
+            context.run_id,
+            trust_assessments=context.trust_assessments,
+            category_analyses=context.category_analyses,
+            agent_records=(),
+            recommendation_bundle=recommendation_bundle,
+        )
+
     async def persist_search_plan(
         self,
         context: ShoppingRunContext,
@@ -586,7 +616,7 @@ class RepositoryShoppingRunPersistenceHooks:
             raise ValueError("source extraction persistence requires a repository.")
 
         for item in extractions:
-            await self._search_source_repository.add_source_snapshot(
+            await self._search_source_repository.save_source_snapshot(
                 context.run_id,
                 item.snapshot,
                 search_result_id=(
@@ -595,6 +625,15 @@ class RepositoryShoppingRunPersistenceHooks:
                     else item.search_result.source_id
                 ),
             )
+
+    async def load_snapshot_for_search_result(
+        self, context: ShoppingRunContext, source_id: SourceId
+    ) -> SourceSnapshot | None:
+        if self._search_source_repository is None:
+            return None
+        return await self._search_source_repository.get_snapshot_for_search_result(
+            context.run_id, source_id
+        )
 
     async def persist_extraction_evidence(
         self, context: ShoppingRunContext, evidence: tuple[SourceEvidence, ...]
@@ -945,13 +984,21 @@ class ShoppingRunOrchestrator:
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
 
-        fixture_output = build_monitor_fixture_run_output(
-            run_id=run_id,
-            session_id=run.session_id,
+        fixture_output = (
+            build_monitor_fixture_run_output(run_id=run_id, session_id=run.session_id)
+            if self._agent_workflow_mode != AgentWorkflowMode.LIVE
+            else None
         )
-        active_brief = brief or ShoppingBrief(
-            original_query=fixture_output.search_plan.queries[0].query
-        )
+        if brief is not None:
+            active_brief = brief
+        elif original_input is not None:
+            active_brief = ShoppingBrief(original_query=original_input.query)
+        elif fixture_output is not None:
+            active_brief = ShoppingBrief(
+                original_query=fixture_output.search_plan.queries[0].query
+            )
+        else:
+            raise ValueError("Live shopping runs require a shopping brief or request.")
         context = ShoppingRunContext(
             run_id=run_id,
             session_id=run.session_id,
@@ -967,10 +1014,12 @@ class ShoppingRunOrchestrator:
                 context.active_stage = definition.stage
                 await self._run_stage(context, definition)
 
-            await self._persistence_hooks.persist_fixture_output(
-                context,
-                fixture_output,
-            )
+            if fixture_output is not None:
+                await self._persistence_hooks.persist_fixture_output(
+                    context, fixture_output
+                )
+            else:
+                await self._persistence_hooks.persist_live_output(context)
 
             complete_event = await self._persistence_hooks.emit_event(
                 run_id,
@@ -1046,6 +1095,9 @@ class ShoppingRunOrchestrator:
                 runtime_mode=self._agent_workflow_mode.value,
                 model_name=self._model_name_for_stage(definition.stage),
                 duration_ms=_duration_ms(started_at, ended_at),
+                tool_activity=tuple(context.research_activity)
+                if definition.stage == RunStage.EXTRACTION
+                else (),
                 fallback_outcome="stage_error",
                 error=error,
             )
@@ -1192,8 +1244,22 @@ class ShoppingRunOrchestrator:
             category=brief.category,
         )
         discovered: list[SearchResult] = []
+        discovery_gaps: list[dict[str, Any]] = []
         for query in context.search_plan.queries:
-            provider_results = await self._search_provider.search(query, options)
+            try:
+                provider_results = await self._search_provider.search(query, options)
+            except Exception as exc:
+                if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+                    raise
+                discovery_gaps.append(
+                    {
+                        "tool_name": "provider_search_gap",
+                        "status": "provider_unavailable",
+                        "input": {"query": query.query},
+                        "output": {"reason": exc.__class__.__name__},
+                    }
+                )
+                continue
             user_added = _user_added_product_for_lookup_query(
                 query,
                 context.user_added_products,
@@ -1217,7 +1283,7 @@ class ShoppingRunOrchestrator:
             context.search_results,
             plan_id=context.search_plan_id,
         )
-        activity: tuple[dict[str, Any], ...] = ()
+        activity: tuple[dict[str, Any], ...] = tuple(discovery_gaps)
         if (
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
             and self._discovery_agent is not None
@@ -1242,7 +1308,17 @@ class ShoppingRunOrchestrator:
                 if decision.classification == DiscoverySourceKind.CATEGORY_COLLECTION
             )
             context.search_results = discovery_output.search_results
-            activity = _agent_tool_activity(self._discovery_agent)
+            activity = (
+                *activity,
+                *_agent_tool_activity(self._discovery_agent),
+                _discovery_journal(discovery_output, cycle=0),
+            )
+            context.research_activity.extend(activity)
+            await self._persistence_hooks.persist_search_results(
+                context,
+                discovery_output.search_results,
+                plan_id=context.search_plan_id,
+            )
         provider_name = getattr(
             self._search_provider,
             "provider_name",
@@ -1270,21 +1346,25 @@ class ShoppingRunOrchestrator:
         self,
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
+        if self._agent_workflow_mode == AgentWorkflowMode.LIVE and (
+            self._discovery_agent is None or self._extraction_agent is None
+        ):
+            raise ValueError(
+                "Live research requires DiscoveryAgent and ExtractionAgent."
+            )
         brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
         context.user_added_products = (
             await self._persistence_hooks.load_user_added_products(context.session_id)
         )
         extracted_sources: list[DiscoveredSourceExtraction] = []
-        for result in _selected_extraction_results(
-            context.search_results,
-            selected_source_ids=(
-                context.selected_source_ids
-                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and (self._discovery_agent is not None or context.selected_source_ids)
-                else None
-            ),
-        ):
+        initial_results = (
+            ()
+            if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            and self._extraction_agent is not None
+            else _selected_extraction_results(context.search_results)
+        )
+        for result in initial_results:
             snapshot = await self._extract_source_or_failure(
                 result.url,
                 source_type=result.source_type,
@@ -1306,7 +1386,6 @@ class ShoppingRunOrchestrator:
             listing_extraction = (
                 None
                 if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and self._extraction_agent is not None
                 else _listing_from_extracted_source(
                     self._listing_extractor,
                     result=result,
@@ -1341,146 +1420,11 @@ class ShoppingRunOrchestrator:
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
             and self._extraction_agent is not None
         ):
-            interpreted: list[DiscoveredSourceExtraction] = []
-            evidence: list[SourceEvidence] = []
-            mentions: list[ExtractedProductMention] = []
-            gaps: list[ExtractionEvidenceGap] = []
-            follow_up_leads: list[ExtractionResearchLead] = []
-            for item in extracted_sources:
-                output = await self._interpret_source(context, item, research_leads=())
-                activity.extend(_agent_tool_activity(self._extraction_agent))
-                interpreted.extend(_source_extractions_from_agent(item, output))
-                evidence.extend(_pending_product_evidence(output))
-                mentions.extend(output.product_mentions)
-                gaps.extend(output.evidence_gaps)
-                for mention in output.product_mentions:
-                    cited = tuple(
-                        record
-                        for record in output.source_evidence
-                        if record.evidence_id in mention.evidence_ids
-                    )
-                    if cited:
-                        follow_up_leads.append(
-                            ExtractionResearchLead(
-                                mention=mention, source_evidence=cited
-                            )
-                        )
-
-            # One bounded review/collection-to-offer expansion in this stage.
-            # Task 89G owns the later repeat-until-sufficient research loop.
-            unique_leads: list[ExtractionResearchLead] = []
-            lead_keys: set[tuple[str, str, str]] = set()
-            for lead in follow_up_leads:
-                key = (
-                    (lead.mention.brand or "").casefold(),
-                    (lead.mention.model or "").casefold(),
-                    lead.mention.name.casefold(),
+            activity.extend(
+                await self._run_agent_research_loop(
+                    context, extracted_sources, region_code=region_code
                 )
-                if key not in lead_keys:
-                    unique_leads.append(lead)
-                    lead_keys.add(key)
-                if len(unique_leads) == 12:
-                    break
-            if unique_leads and self._discovery_agent is not None:
-                follow_up = await self._discovery_agent.run(
-                    DiscoveryAgentInput(
-                        run_id=context.run_id,
-                        brief=brief,
-                        search_plan=context.search_plan,
-                        product_leads=tuple(lead.mention for lead in unique_leads),
-                    )
-                )
-                activity.extend(_agent_tool_activity(self._discovery_agent))
-                context.search_results = (
-                    *context.search_results,
-                    *follow_up.search_results,
-                )
-                context.editorial_result_ids = (
-                    *context.editorial_result_ids,
-                    *(
-                        decision.source_id
-                        for decision in follow_up.source_decisions
-                        if decision.classification
-                        == DiscoverySourceKind.PROFESSIONAL_REVIEW
-                    ),
-                )
-                context.collection_result_ids = (
-                    *context.collection_result_ids,
-                    *(
-                        decision.source_id
-                        for decision in follow_up.source_decisions
-                        if decision.classification
-                        == DiscoverySourceKind.CATEGORY_COLLECTION
-                    ),
-                )
-                await self._persistence_hooks.persist_search_results(
-                    context,
-                    follow_up.search_results,
-                    plan_id=context.search_plan_id,
-                )
-                known_urls = {
-                    str(item.search_result.url).casefold().rstrip("/")
-                    for item in extracted_sources
-                }
-                follow_up_sources = tuple(
-                    result
-                    for result in _selected_extraction_results(
-                        follow_up.search_results,
-                        selected_source_ids=follow_up.selected_source_ids,
-                    )
-                    if str(result.url).casefold().rstrip("/") not in known_urls
-                )[:4]
-                matched_evidence_ids: set[SourceId] = set()
-                for result in follow_up_sources:
-                    snapshot = await self._extract_source_or_failure(
-                        result.url, source_type=result.source_type
-                    )
-                    snapshot = _link_snapshot_to_search_result(
-                        snapshot, result, region_code=region_code
-                    )
-                    item = DiscoveredSourceExtraction(
-                        search_result=result, snapshot=snapshot
-                    )
-                    await self._persistence_hooks.persist_source_extractions(
-                        context, (item,)
-                    )
-                    output = await self._interpret_source(
-                        context,
-                        item,
-                        research_leads=tuple(
-                            lead
-                            for lead in unique_leads
-                            if not set(lead.mention.evidence_ids) & matched_evidence_ids
-                        ),
-                    )
-                    activity.extend(_agent_tool_activity(self._extraction_agent))
-                    interpreted.extend(_source_extractions_from_agent(item, output))
-                    evidence.extend(_pending_product_evidence(output))
-                    mentions.extend(output.product_mentions)
-                    gaps.extend(output.evidence_gaps)
-                    matches = {
-                        evidence_id: match.product_id
-                        for match in output.lead_matches
-                        for evidence_id in match.lead_evidence_ids
-                    }
-                    matched_evidence_ids.update(matches)
-                    evidence = [
-                        record.model_copy(
-                            update={
-                                "target": EvidenceTarget(
-                                    target_type=EvidenceTargetType.PRODUCT,
-                                    product_id=matches[record.evidence_id],
-                                )
-                            }
-                        )
-                        if record.evidence_id in matches
-                        else record
-                        for record in evidence
-                    ]
-            context.source_extractions = tuple(interpreted)
-            context.extraction_evidence = tuple(evidence)
-            context.extraction_mentions = tuple(mentions)
-            context.extraction_gaps = tuple(gaps)
+            )
             await self._persistence_hooks.persist_extraction_evidence(
                 context, context.extraction_evidence
             )
@@ -1535,6 +1479,305 @@ class ShoppingRunOrchestrator:
             fallback_outcome=_fallback_outcome(tuple(activity)),
         )
 
+    async def _run_agent_research_loop(
+        self,
+        context: ShoppingRunContext,
+        direct_sources: list[DiscoveredSourceExtraction],
+        *,
+        region_code: RegionCode,
+    ) -> list[dict[str, Any]]:
+        """Bounded application-level cycles; agents own source and page meaning."""
+        assert self._discovery_agent is not None
+        assert self._extraction_agent is not None
+        assert context.search_plan is not None
+        assert context.search_plan_id is not None
+        activity: list[dict[str, Any]] = []
+        interpreted: list[DiscoveredSourceExtraction] = []
+        evidence: list[SourceEvidence] = []
+        mentions: list[ExtractedProductMention] = []
+        gaps: list[ExtractionEvidenceGap] = []
+        leads: list[ExtractionResearchLead] = []
+        matched_evidence_ids: set[SourceId] = set()
+        offered_lead_ids: set[SourceId] = set()
+        known_urls = {
+            _research_url_key(str(item.search_result.url)) for item in direct_sources
+        }
+        pending = list(
+            _agent_selected_results(context.search_results, context.selected_source_ids)
+        )
+        inspected_source_ids: list[SourceId] = []
+        pages_inspected = 0
+        follow_up_calls = 0
+
+        for cycle in range(1, _MAX_RESEARCH_CYCLES + 1):
+            batch: list[DiscoveredSourceExtraction] = []
+            if cycle == 1:
+                batch.extend(direct_sources)
+            while (
+                pending
+                and len(batch) < _RESEARCH_PAGES_PER_CYCLE
+                and pages_inspected < _MAX_EXTRACTION_SOURCES
+            ):
+                result = pending.pop(0)
+                url_key = _research_url_key(str(result.url))
+                if url_key in known_urls:
+                    continue
+                known_urls.add(url_key)
+                snapshot = (
+                    await self._persistence_hooks.load_snapshot_for_search_result(
+                        context, result.source_id
+                    )
+                )
+                already_persisted = snapshot is not None
+                if snapshot is None:
+                    snapshot = await self._extract_source_or_failure(
+                        result.url, source_type=result.source_type
+                    )
+                    snapshot = _link_snapshot_to_search_result(
+                        snapshot, result, region_code=region_code
+                    )
+                user_added_candidate_id = _user_added_candidate_id_from_search_result(
+                    result
+                )
+                if user_added_candidate_id is not None:
+                    snapshot = _link_snapshot_to_user_added_lookup(
+                        snapshot,
+                        result,
+                        user_added_candidate_id=user_added_candidate_id,
+                    )
+                item = DiscoveredSourceExtraction(
+                    search_result=result,
+                    snapshot=snapshot,
+                    user_added_candidate_id=user_added_candidate_id,
+                )
+                if not already_persisted or user_added_candidate_id is not None:
+                    await self._persistence_hooks.persist_source_extractions(
+                        context, (item,)
+                    )
+                batch.append(item)
+                pages_inspected += 1
+
+            for item in batch:
+                inspected_source_ids.append(item.search_result.source_id)
+                if item.snapshot.extraction_status not in {
+                    ExtractionStatus.SUCCEEDED,
+                    ExtractionStatus.PARTIAL,
+                }:
+                    interpreted.append(item)
+                    gap = ExtractionEvidenceGap(
+                        source_id=item.snapshot.source_id,
+                        summary="Selected page could not be retrieved or read.",
+                    )
+                    gaps.append(gap)
+                    journal = {
+                        "tool_name": "research_source_gap",
+                        "status": item.snapshot.extraction_status.value,
+                        "input": {
+                            "cycle": cycle,
+                            "search_result_id": str(item.search_result.source_id),
+                        },
+                        "output": {"gap": gap.model_dump(mode="json")},
+                    }
+                    activity.append(journal)
+                    context.research_activity.append(journal)
+                    continue
+                available_leads = tuple(
+                    lead
+                    for lead in leads
+                    if not set(lead.mention.evidence_ids) & matched_evidence_ids
+                )[:12]
+                output = await self._interpret_source(
+                    context, item, research_leads=available_leads
+                )
+                activity.extend(_agent_tool_activity(self._extraction_agent))
+                interpreted.extend(_source_extractions_from_agent(item, output))
+                evidence.extend(_pending_product_evidence(output))
+                mentions.extend(output.product_mentions)
+                gaps.extend(output.evidence_gaps)
+                for mention in output.product_mentions:
+                    cited = tuple(
+                        record
+                        for record in output.source_evidence
+                        if record.evidence_id in mention.evidence_ids
+                    )
+                    if cited:
+                        leads.append(
+                            ExtractionResearchLead(
+                                mention=mention, source_evidence=cited
+                            )
+                        )
+                matches = {
+                    evidence_id: match.product_id
+                    for match in output.lead_matches
+                    for evidence_id in match.lead_evidence_ids
+                }
+                matched_evidence_ids.update(matches)
+                evidence = [
+                    record.model_copy(
+                        update={
+                            "target": EvidenceTarget(
+                                target_type=EvidenceTargetType.PRODUCT,
+                                product_id=matches[record.evidence_id],
+                            )
+                        }
+                    )
+                    if record.evidence_id in matches
+                    else record
+                    for record in evidence
+                ]
+                journal = _extraction_journal(item, output, cycle=cycle)
+                activity.append(journal)
+                context.research_activity.append(journal)
+
+            context.source_extractions = tuple(interpreted)
+            context.extraction_evidence = tuple(evidence)
+            context.extraction_mentions = tuple(mentions)
+            context.extraction_gaps = tuple(gaps)
+            if evidence:
+                await self._persistence_hooks.persist_extraction_evidence(
+                    context, context.extraction_evidence
+                )
+            review = _research_review_journal(
+                cycle=cycle,
+                listings=sum(
+                    item.listing_extraction is not None for item in interpreted
+                ),
+                evidence=len(evidence),
+                gaps=len(gaps),
+                remaining_pages=_MAX_EXTRACTION_SOURCES - pages_inspected,
+            )
+            activity.append(review)
+            context.research_activity.append(review)
+            if _research_sufficient(interpreted, evidence):
+                break
+            if (
+                pages_inspected >= _MAX_EXTRACTION_SOURCES
+                or cycle == _MAX_RESEARCH_CYCLES
+            ):
+                break
+            unresolved = _unique_research_leads(
+                leads,
+                matched_evidence_ids=matched_evidence_ids,
+                offered_lead_ids=offered_lead_ids,
+            )
+            if pending and not unresolved:
+                continue
+            if follow_up_calls >= _MAX_FOLLOW_UP_DISCOVERY_CALLS:
+                if pending:
+                    continue
+                break
+            for lead in unresolved:
+                offered_lead_ids.update(lead.mention.evidence_ids)
+            follow_up_calls += 1
+            follow_up = await self._discovery_agent.run(
+                DiscoveryAgentInput(
+                    run_id=context.run_id,
+                    brief=context.active_brief,
+                    search_plan=context.search_plan,
+                    product_leads=tuple(lead.mention for lead in unresolved),
+                    research_state=DiscoveryResearchState(
+                        cycle=cycle,
+                        remaining_page_budget=_MAX_EXTRACTION_SOURCES - pages_inspected,
+                        product_names=tuple(
+                            item.listing_extraction.product.name
+                            for item in interpreted
+                            if item.listing_extraction is not None
+                        )[:12],
+                        candidates=tuple(
+                            DiscoveryCandidateSummary(
+                                product_id=item.listing_extraction.product.product_id,
+                                name=item.listing_extraction.product.name,
+                                listing_url=item.listing_extraction.listing.url,
+                                seller_name=item.listing_extraction.listing.seller.seller_name,
+                                source_ids=item.listing_extraction.listing.source_ids,
+                            )
+                            for item in interpreted
+                            if item.listing_extraction is not None
+                        )[:12],
+                        evidence=tuple(
+                            DiscoveryEvidenceSummary(
+                                evidence_id=record.evidence_id,
+                                source_id=record.source_id,
+                                claim=record.claim[:1000],
+                                target_type=record.target.target_type,
+                            )
+                            for record in evidence[-24:]
+                        ),
+                        listing_count=sum(
+                            item.listing_extraction is not None for item in interpreted
+                        ),
+                        evidence_count=len(evidence),
+                        evidence_gaps=tuple(gap.summary for gap in gaps[-12:]),
+                        previously_inspected_source_ids=tuple(inspected_source_ids),
+                    ),
+                )
+            )
+            activity.extend(_agent_tool_activity(self._discovery_agent))
+            journal = _discovery_journal(
+                follow_up, cycle=cycle, offered_leads=unresolved
+            )
+            activity.append(journal)
+            context.research_activity.append(journal)
+            await self._persistence_hooks.persist_search_results(
+                context, follow_up.search_results, plan_id=context.search_plan_id
+            )
+            context.search_results = _append_unique_search_results(
+                context.search_results, follow_up.search_results
+            )
+            context.editorial_result_ids = (
+                *context.editorial_result_ids,
+                *(
+                    decision.source_id
+                    for decision in follow_up.source_decisions
+                    if decision.classification
+                    == DiscoverySourceKind.PROFESSIONAL_REVIEW
+                ),
+            )
+            context.collection_result_ids = (
+                *context.collection_result_ids,
+                *(
+                    decision.source_id
+                    for decision in follow_up.source_decisions
+                    if decision.classification
+                    == DiscoverySourceKind.CATEGORY_COLLECTION
+                ),
+            )
+            follow_up_pending = [
+                result
+                for result in _agent_selected_results(
+                    follow_up.search_results, follow_up.selected_source_ids
+                )
+                if _research_url_key(str(result.url)) not in known_urls
+            ]
+            pending = [*follow_up_pending, *pending]
+            if not pending:
+                break
+
+        for lead in leads:
+            if not set(lead.mention.evidence_ids) & matched_evidence_ids:
+                gap = ExtractionEvidenceGap(
+                    source_id=lead.mention.source_id,
+                    summary=f"No verified direct offer was found for {lead.mention.name} within the research budget.",
+                )
+                gaps.append(gap)
+                journal = {
+                    "tool_name": "research_unresolved_lead",
+                    "status": "evidence_gap",
+                    "input": {
+                        "lead_evidence_ids": [
+                            str(item) for item in lead.mention.evidence_ids
+                        ]
+                    },
+                    "output": {"gap": gap.model_dump(mode="json")},
+                }
+                activity.append(journal)
+                context.research_activity.append(journal)
+        context.source_extractions = tuple(interpreted)
+        context.extraction_evidence = tuple(evidence)
+        context.extraction_mentions = tuple(mentions)
+        context.extraction_gaps = tuple(gaps)
+        return activity
+
     async def _interpret_source(
         self,
         context: ShoppingRunContext,
@@ -1543,10 +1786,7 @@ class ShoppingRunOrchestrator:
         research_leads: tuple[ExtractionResearchLead, ...],
     ) -> ExtractionAgentOutput:
         assert self._extraction_agent is not None
-        editorial = (
-            item.search_result.source_id in context.editorial_result_ids
-            or item.search_result.source_type == SourceType.PROFESSIONAL_REVIEW
-        )
+        editorial = item.search_result.source_id in context.editorial_result_ids
         collection = item.search_result.source_id in context.collection_result_ids
         return await self._extraction_agent.run(
             ExtractionAgentInput(
@@ -1590,7 +1830,6 @@ class ShoppingRunOrchestrator:
             listing_extraction = (
                 None
                 if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and self._extraction_agent is not None
                 else _listing_from_extracted_source(
                     self._listing_extractor,
                     result=result,
@@ -1724,6 +1963,13 @@ class ShoppingRunOrchestrator:
             context.source_extractions,
             limit=_MAX_SOURCE_INTELLIGENCE_PRODUCTS,
         )
+        if (
+            self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            and not candidates.products
+        ):
+            return self._live_insufficient_stage_output(
+                context, RunStage.SOURCE_INTELLIGENCE
+            )
         if (
             not candidates.products
             and self._agent_workflow_mode == AgentWorkflowMode.FIXTURE
@@ -2026,9 +2272,7 @@ class ShoppingRunOrchestrator:
     ) -> FixtureStageOutput:
         listings = _listing_trust_targets(context)
         contexts = price_plausibility_contexts(_listing_groups_by_product(listings))
-        evidence_by_listing_id = _evidence_by_listing_id(
-            context.fixture_output.source_evidence if context.fixture_output else ()
-        )
+        evidence_by_listing_id = _evidence_by_listing_id(_analysis_evidence(context))
         assessments: list[ListingTrustAssessment] = []
         for listing in listings:
             evidence = evidence_by_listing_id.get(listing.listing_id, ())
@@ -2081,10 +2325,8 @@ class ShoppingRunOrchestrator:
         listings = _analysis_listings(context)
         evidence = _analysis_evidence(context)
         if not products:
-            return self._fixture_stage_output(
-                context,
-                RunStage.CATEGORY_ANALYSIS,
-                fallback_outcome="missing_products_fixture_analysis_fallback",
+            return self._live_insufficient_stage_output(
+                context, RunStage.CATEGORY_ANALYSIS
             )
 
         route = await self._category_route(context, products, listings, evidence)
@@ -2098,11 +2340,7 @@ class ShoppingRunOrchestrator:
                 analyst = self._generic_product_analyst_agent
                 agent_name = "GenericProductAnalystAgent"
             if analyst is None:
-                return self._fixture_stage_output(
-                    context,
-                    RunStage.CATEGORY_ANALYSIS,
-                    fallback_outcome="missing_live_analysis_agent_fallback",
-                )
+                raise ValueError("No approved live product analyst is configured.")
 
             product_listings = tuple(
                 listing
@@ -2161,10 +2399,8 @@ class ShoppingRunOrchestrator:
         listings = _analysis_listings(context)
         evidence = _analysis_evidence(context)
         if not products:
-            return self._fixture_stage_output(
-                context,
-                RunStage.COMPARISON_DECISION,
-                fallback_outcome="missing_products_fixture_decision_fallback",
+            return self._live_insufficient_stage_output(
+                context, RunStage.COMPARISON_DECISION
             )
 
         bundle = await self._comparison_decision_agent.run(
@@ -2212,11 +2448,7 @@ class ShoppingRunOrchestrator:
 
         bundle = context.recommendation_bundle
         if bundle is None:
-            return self._fixture_stage_output(
-                context,
-                RunStage.VERIFICATION,
-                fallback_outcome="missing_recommendation_fixture_verification_fallback",
-            )
+            return self._live_insufficient_stage_output(context, RunStage.VERIFICATION)
 
         report = await self._verifier_critic_agent.run(
             VerificationAgentInput(
@@ -2266,6 +2498,18 @@ class ShoppingRunOrchestrator:
             },
             runtime_mode=AgentWorkflowMode.FIXTURE.value,
             fallback_outcome=fallback_outcome,
+        )
+
+    def _live_insufficient_stage_output(
+        self, context: ShoppingRunContext, stage: RunStage
+    ) -> FixtureStageOutput:
+        return FixtureStageOutput(
+            stage=stage,
+            trace_id=self._stage_trace_id(context.trace_id, stage),
+            summary="Not enough verified product offers to continue comparison.",
+            payload={"reason": "insufficient_agent_validated_candidates"},
+            runtime_mode=AgentWorkflowMode.LIVE.value,
+            fallback_outcome="insufficient_research_evidence",
         )
 
     def _current_or_initial_stage(self, context: ShoppingRunContext) -> RunStage:
@@ -2732,6 +2976,148 @@ def _selected_extraction_results(
     return tuple(selected_results)
 
 
+def _agent_selected_results(
+    results: tuple[SearchResult, ...], selected_source_ids: tuple[SourceId, ...]
+) -> tuple[SearchResult, ...]:
+    """Enforce agent-selected IDs and URL dedupe, never provider source type."""
+    by_id = {item.source_id: item for item in results}
+    selected: list[SearchResult] = []
+    seen_urls: set[str] = set()
+    for source_id in selected_source_ids:
+        result = by_id.get(source_id)
+        if result is None:
+            raise ValueError("Discovery selected an unknown source ID")
+        key = _research_url_key(str(result.url))
+        if key not in seen_urls:
+            selected.append(result)
+            seen_urls.add(key)
+    return tuple(selected)
+
+
+def _research_url_key(url: str) -> str:
+    return url.casefold().rstrip("/")
+
+
+def _append_unique_search_results(
+    current: tuple[SearchResult, ...], added: tuple[SearchResult, ...]
+) -> tuple[SearchResult, ...]:
+    known = {item.source_id for item in current}
+    return (*current, *(item for item in added if item.source_id not in known))
+
+
+def _unique_research_leads(
+    leads: list[ExtractionResearchLead],
+    *,
+    matched_evidence_ids: set[SourceId],
+    offered_lead_ids: set[SourceId],
+) -> tuple[ExtractionResearchLead, ...]:
+    selected: list[ExtractionResearchLead] = []
+    seen_names: set[tuple[str, str, str]] = set()
+    for lead in leads:
+        if set(lead.mention.evidence_ids) & (matched_evidence_ids | offered_lead_ids):
+            continue
+        key = (
+            (lead.mention.brand or "").casefold(),
+            (lead.mention.model or "").casefold(),
+            lead.mention.name.casefold(),
+        )
+        if key not in seen_names:
+            selected.append(lead)
+            seen_names.add(key)
+        if len(selected) == 12:
+            break
+    return tuple(selected)
+
+
+def _research_sufficient(
+    extracted: list[DiscoveredSourceExtraction], evidence: list[SourceEvidence]
+) -> bool:
+    """Mechanical adequacy budget, not semantic source/product classification."""
+    product_ids = {
+        item.listing_extraction.product.product_id
+        for item in extracted
+        if item.listing_extraction is not None
+    }
+    return len(product_ids) >= 3 and len(evidence) >= 2
+
+
+def _discovery_journal(
+    output: Any,
+    *,
+    cycle: int,
+    offered_leads: tuple[ExtractionResearchLead, ...] = (),
+) -> dict[str, Any]:
+    return {
+        "tool_name": "research_discovery_decision",
+        "status": output.outcome.value,
+        "input": {
+            "cycle": cycle,
+            "product_leads": [
+                lead.mention.model_dump(mode="json") for lead in offered_leads
+            ],
+        },
+        "output": {
+            "source_decisions": [
+                item.model_dump(mode="json") for item in output.source_decisions
+            ],
+            "selected_source_ids": [str(item) for item in output.selected_source_ids],
+            "notes": list(output.notes),
+        },
+    }
+
+
+def _extraction_journal(
+    item: DiscoveredSourceExtraction, output: ExtractionAgentOutput, *, cycle: int
+) -> dict[str, Any]:
+    return {
+        "tool_name": "research_extraction_decision",
+        "status": "interpreted",
+        "input": {
+            "cycle": cycle,
+            "search_result_id": str(item.search_result.source_id),
+            "snapshot_id": str(item.snapshot.source_id),
+        },
+        "output": {
+            "products": [
+                product.model_dump(mode="json") for product in output.products
+            ],
+            "listings": [
+                listing.model_dump(mode="json") for listing in output.listings
+            ],
+            "mentions": [
+                mention.model_dump(mode="json") for mention in output.product_mentions
+            ],
+            "evidence_ids": [
+                str(record.evidence_id) for record in output.source_evidence
+            ],
+            "evidence_gaps": [
+                gap.model_dump(mode="json") for gap in output.evidence_gaps
+            ],
+            "lead_matches": [
+                match.model_dump(mode="json") for match in output.lead_matches
+            ],
+        },
+    }
+
+
+def _research_review_journal(
+    *, cycle: int, listings: int, evidence: int, gaps: int, remaining_pages: int
+) -> dict[str, Any]:
+    return {
+        "tool_name": "research_cycle_review",
+        "status": "sufficient"
+        if listings >= 3 and evidence >= 2
+        else "continue_or_limit",
+        "input": {"cycle": cycle},
+        "output": {
+            "listing_count": listings,
+            "evidence_count": evidence,
+            "gap_count": gaps,
+            "remaining_page_budget": remaining_pages,
+        },
+    }
+
+
 def _link_snapshot_to_search_result(
     snapshot: SourceSnapshot,
     result: SearchResult,
@@ -2751,7 +3137,6 @@ def _link_snapshot_to_search_result(
     )
     return snapshot.model_copy(
         update={
-            "source_type": result.source_type,
             "title": snapshot.title or result.title,
             "provider": provider,
             "quality": result.quality,

@@ -242,6 +242,12 @@ def _build_discovery_agent(
             "models for this shopper and search for official or retailer "
             "offers within the four-call tool budget, before choosing pages "
             "to inspect. Explain useful leads you could not research. A review "
+            "When research_state is supplied, review the current candidates, "
+            "evidence, gaps, and remaining page budget. Search for missing "
+            "direct offers or corroborating sources when useful; if nothing "
+            "worth inspecting remains, return insufficient_candidates with "
+            "a clear reason. Do not reselect previously inspected sources. "
+            "A review "
             "lead is not "
             "itself an offer; explain ambiguous identity instead of guessing. "
             "A provider source_type or planned query intent is only a hint, never "
@@ -276,6 +282,9 @@ def _model_input(input_data: DiscoveryAgentInput) -> str:
             "product_leads": [
                 lead.model_dump(mode="json") for lead in input_data.product_leads
             ],
+            "research_state": input_data.research_state.model_dump(mode="json")
+            if input_data.research_state is not None
+            else None,
         },
         sort_keys=True,
     )

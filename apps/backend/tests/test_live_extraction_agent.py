@@ -11,6 +11,7 @@ from app.agents.contracts import (
     ExtractedProductMention,
     ExtractionAgentInput,
     ExtractionAgentOutput,
+    ExtractionEvidenceGap,
     ExtractionLeadMatch,
 )
 from app.agents.live_extraction import _validate_extraction
@@ -182,6 +183,15 @@ class _CaptureLeadDiscoveryAgent:
         )
 
 
+class _KeepSeedDiscoveryAgent(_CaptureLeadDiscoveryAgent):
+    async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        self.inputs.append(input_data)
+        return DiscoveryAgentOutput(
+            search_results=input_data.seed_results,
+            outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
+        )
+
+
 class _CollectionProvider:
     async def extract(self, url: object, options: object) -> SourceSnapshot:
         del options
@@ -225,7 +235,12 @@ async def test_live_extraction_stage_uses_agent_for_two_listings_from_generic_pa
                 source_type=SourceType.SEARCH_RESULT,
                 provider=ProviderMetadata(provider_name="fixture"),
             )
-            await SearchSourceRepository(session).add_search_result(run.run_id, result)
+            source_repository = SearchSourceRepository(session)
+            plan = SearchPlan(queries=(result.query,))
+            plan_id = await source_repository.create_search_plan(run.run_id, plan)
+            await source_repository.add_search_result(
+                run.run_id, result, plan_id=plan_id
+            )
             await session.commit()
             extraction_agent = _MultiProductExtractionAgent()
             discovery_agent = _CaptureLeadDiscoveryAgent()
@@ -246,7 +261,8 @@ async def test_live_extraction_stage_uses_agent_for_two_listings_from_generic_pa
                 session_id=shopping_session.session_id,
                 trace_id="test-trace",
                 active_brief=brief,
-                search_plan=SearchPlan(queries=(result.query,)),
+                search_plan=plan,
+                search_plan_id=plan_id,
                 search_results=(result,),
                 selected_source_ids=(result.source_id,),
                 collection_result_ids=(result.source_id,),
@@ -428,6 +444,11 @@ class _LeadDiscoveryAgent:
 
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         self.inputs.append(input_data)
+        if not input_data.product_leads:
+            return DiscoveryAgentOutput(
+                outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
+                notes=("No further direct offers were found.",),
+            )
         assert len(input_data.product_leads) == 3
         results = tuple(
             SearchResult(
@@ -452,6 +473,37 @@ class _LeadDiscoveryAgent:
                 for result in results
             ),
             selected_source_ids=tuple(result.source_id for result in results),
+            outcome=DiscoveryAgentOutcome.SELECTED,
+        )
+
+
+class _TwoRoundLeadDiscoveryAgent:
+    def __init__(self) -> None:
+        self.inputs: list[DiscoveryAgentInput] = []
+
+    async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+        self.inputs.append(input_data)
+        name = "Aurora A55" if len(self.inputs) == 1 else "Northstar N65"
+        result = SearchResult(
+            query=SearchQuery(query=name, intent=SearchIntent.DISCOVERY),
+            url=f"https://tv-store.example/{name.split()[-1].lower()}-{name.split()[0].lower()}",
+            title=f"{name} at TV Store",
+            source_type=SourceType.SEARCH_RESULT,
+            provider=ProviderMetadata(provider_name="fixture"),
+        )
+        return DiscoveryAgentOutput(
+            search_results=(result,),
+            source_decisions=(
+                DiscoverySourceDecision(
+                    source_id=result.source_id,
+                    classification=DiscoverySourceKind.RETAILER_LISTING,
+                    confidence=0.9,
+                    reasons=("Named retail offer despite generic provider type.",),
+                    intended_treatment="Fetch offer",
+                    next_action=DiscoveryNextAction.FETCH,
+                ),
+            ),
+            selected_source_ids=(result.source_id,),
             outcome=DiscoveryAgentOutcome.SELECTED,
         )
 
@@ -514,7 +566,7 @@ async def test_review_mentions_drive_bounded_offer_lookup_before_shortlist() -> 
                 editorial_result_ids=(review.source_id,),
             )
             await orchestrator._extract_sources(context)
-            assert len(discovery_agent.inputs) == 1
+            assert len(discovery_agent.inputs) == 2
             assert len(context.extraction_mentions) == 3
             assert (
                 len(
@@ -573,6 +625,428 @@ async def test_review_mentions_drive_bounded_offer_lookup_before_shortlist() -> 
                 for record in await repository.list_source_evidence(run.run_id)
                 if record.target.target_type == EvidenceTargetType.PRODUCT
             } == canonical_ids
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_research_loop_repeats_agent_follow_up_for_generic_offer_results() -> (
+    None
+):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            brief = ShoppingBrief(
+                original_query="Best TVs",
+                category="tv",
+                category_source=FieldSource.INFERRED,
+            )
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query=brief.original_query),
+                current_brief=brief,
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            repository = SearchSourceRepository(session)
+            plan = SearchPlan(
+                queries=(SearchQuery(query="best TVs", intent=SearchIntent.REVIEW),)
+            )
+            plan_id = await repository.create_search_plan(run.run_id, plan)
+            review = SearchResult(
+                query=plan.queries[0],
+                url="https://reviews.example/best-tvs",
+                title="Best TVs",
+                source_type=SourceType.SEARCH_RESULT,
+                provider=ProviderMetadata(provider_name="fixture"),
+            )
+            await repository.add_search_result(run.run_id, review, plan_id=plan_id)
+            await session.commit()
+            provider = _ReviewAndOfferProvider()
+            discovery = _TwoRoundLeadDiscoveryAgent()
+            extraction = _ReviewToOfferExtractionAgent(provider)
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(session),
+                    result_repository=ResultRepository(session),
+                    search_source_repository=repository,
+                    product_repository=ProductRepository(session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                discovery_agent=discovery,
+                extraction_agent=extraction,
+                extraction_provider=provider,
+            )
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id="two-round-followup",
+                active_brief=brief,
+                search_plan=plan,
+                search_plan_id=plan_id,
+                search_results=(review,),
+                selected_source_ids=(review.source_id,),
+                editorial_result_ids=(review.source_id,),
+            )
+            stage = await orchestrator._extract_sources(context)
+            assert len(discovery.inputs) == 2
+            assert discovery.inputs[0].research_state is not None
+            assert discovery.inputs[0].product_leads
+            assert discovery.inputs[1].research_state is not None
+            assert discovery.inputs[1].research_state.listing_count == 1
+            assert discovery.inputs[1].research_state.candidates[0].name == "Aurora A55"
+            assert discovery.inputs[1].research_state.evidence
+            assert len(await repository.list_search_results(run.run_id)) == 3
+            assert len(await repository.list_source_snapshots(run.run_id)) == 3
+            assert (
+                sum(
+                    item.listing_extraction is not None
+                    for item in context.source_extractions
+                )
+                == 2
+            )
+            journals = [
+                item
+                for item in stage.tool_activity
+                if item["tool_name"].startswith("research_")
+            ]
+            assert (
+                sum(
+                    item["tool_name"] == "research_discovery_decision"
+                    for item in journals
+                )
+                == 2
+            )
+            assert (
+                sum(
+                    item["tool_name"] == "research_extraction_decision"
+                    for item in journals
+                )
+                == 3
+            )
+            assert any(
+                item["output"]["lead_matches"]
+                for item in journals
+                if item["tool_name"] == "research_extraction_decision"
+            )
+            assert context.extraction_gaps
+    finally:
+        await engine.dispose()
+
+
+class _PartlyFailingCollectionProvider(_CollectionProvider):
+    async def extract(self, url: object, options: object) -> SourceSnapshot:
+        if "unavailable" in str(url):
+            raise RuntimeError("optional page provider unavailable")
+        return await super().extract(url, options)
+
+
+class _PartlyFailingSearchProvider:
+    provider_name = "partly-failing-search"
+
+    async def search(
+        self, query: SearchQuery, options: object
+    ) -> tuple[SearchResult, ...]:
+        del options
+        if query.query == "unavailable TVs":
+            raise RuntimeError("optional search provider unavailable")
+        return (
+            SearchResult(
+                query=query,
+                url="https://shop.example/tvs",
+                title="TV collection",
+                source_type=SourceType.SEARCH_RESULT,
+                provider=ProviderMetadata(provider_name=self.provider_name),
+            ),
+        )
+
+
+class _GapExtractionAgent:
+    async def run(self, input_data: ExtractionAgentInput) -> ExtractionAgentOutput:
+        return ExtractionAgentOutput(
+            evidence_gaps=(
+                ExtractionEvidenceGap(
+                    source_id=input_data.snapshot_ids[0],
+                    summary="No specific offer on this page.",
+                ),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_optional_planned_search_failure_keeps_other_generic_results() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            brief = ShoppingBrief(original_query="Find TVs")
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query=brief.original_query),
+                current_brief=brief,
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            repository = SearchSourceRepository(session)
+            plan = SearchPlan(
+                queries=(
+                    SearchQuery(query="unavailable TVs", intent=SearchIntent.DISCOVERY),
+                    SearchQuery(query="available TVs", intent=SearchIntent.DISCOVERY),
+                )
+            )
+            plan_id = await repository.create_search_plan(run.run_id, plan)
+            await session.commit()
+            discovery = _KeepSeedDiscoveryAgent()
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(session),
+                    result_repository=ResultRepository(session),
+                    search_source_repository=repository,
+                    product_repository=ProductRepository(session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                discovery_agent=discovery,
+                extraction_agent=_GapExtractionAgent(),
+                search_provider=_PartlyFailingSearchProvider(),
+            )
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id="partial-search-failure",
+                active_brief=brief,
+                search_plan=plan,
+                search_plan_id=plan_id,
+            )
+            stage = await orchestrator._discover_sources(context)
+            assert len(await repository.list_search_results(run.run_id)) == 1
+            assert len(discovery.inputs[0].seed_results) == 1
+            assert (
+                discovery.inputs[0].seed_results[0].source_type
+                == SourceType.SEARCH_RESULT
+            )
+            assert any(
+                item["tool_name"] == "provider_search_gap"
+                for item in stage.tool_activity
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_live_loop_reuses_discovery_tool_snapshot_by_source_id() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            brief = ShoppingBrief(original_query="Find TVs")
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query=brief.original_query),
+                current_brief=brief,
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            repository = SearchSourceRepository(session)
+            query = SearchQuery(query="TVs", intent=SearchIntent.DISCOVERY)
+            plan = SearchPlan(queries=(query,))
+            plan_id = await repository.create_search_plan(run.run_id, plan)
+            result = SearchResult(
+                query=query,
+                url="https://shop.example/unavailable",
+                title="TV collection",
+                source_type=SourceType.SEARCH_RESULT,
+                provider=ProviderMetadata(provider_name="fixture"),
+            )
+            await repository.add_search_result(run.run_id, result, plan_id=plan_id)
+            cached = SourceSnapshot(
+                url=result.url,
+                source_type=SourceType.SEARCH_RESULT,
+                provider=ProviderMetadata(provider_name="fixture"),
+                extraction_status=ExtractionStatus.SUCCEEDED,
+                extracted_content=ExtractedPageContent(
+                    text="TV 1 and TV 2 are listed here.",
+                    extractor="fixture",
+                    word_count=7,
+                ),
+            )
+            await repository.add_source_snapshot(
+                run.run_id, cached, search_result_id=result.source_id
+            )
+            await session.commit()
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(session),
+                    result_repository=ResultRepository(session),
+                    search_source_repository=repository,
+                    product_repository=ProductRepository(session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                discovery_agent=_CaptureLeadDiscoveryAgent(),
+                extraction_agent=_MultiProductExtractionAgent(),
+                extraction_provider=_PartlyFailingCollectionProvider(),
+            )
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id="cached-discovery-fetch",
+                active_brief=brief,
+                search_plan=plan,
+                search_plan_id=plan_id,
+                search_results=(result,),
+                selected_source_ids=(result.source_id,),
+                collection_result_ids=(result.source_id,),
+            )
+            await orchestrator._extract_sources(context)
+            assert len(await repository.list_source_snapshots(run.run_id)) == 1
+            assert (
+                len(
+                    [
+                        item
+                        for item in context.source_extractions
+                        if item.listing_extraction
+                    ]
+                )
+                == 2
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generic_selected_page_survives_optional_fetch_failure() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            brief = ShoppingBrief(
+                original_query="Find TVs",
+                category="tv",
+                category_source=FieldSource.INFERRED,
+            )
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query=brief.original_query),
+                current_brief=brief,
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            repository = SearchSourceRepository(session)
+            query = SearchQuery(query="TVs", intent=SearchIntent.DISCOVERY)
+            plan = SearchPlan(queries=(query,))
+            plan_id = await repository.create_search_plan(run.run_id, plan)
+            results = tuple(
+                SearchResult(
+                    query=query,
+                    url=f"https://shop.example/{path}",
+                    title=path,
+                    source_type=SourceType.SEARCH_RESULT,
+                    provider=ProviderMetadata(provider_name="fixture"),
+                )
+                for path in ("unavailable", "tvs")
+            )
+            for result in results:
+                await repository.add_search_result(run.run_id, result, plan_id=plan_id)
+            await session.commit()
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(session),
+                    result_repository=ResultRepository(session),
+                    search_source_repository=repository,
+                    product_repository=ProductRepository(session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                discovery_agent=_CaptureLeadDiscoveryAgent(),
+                extraction_agent=_MultiProductExtractionAgent(),
+                extraction_provider=_PartlyFailingCollectionProvider(),
+            )
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id="partial-page-failure",
+                active_brief=brief,
+                search_plan=plan,
+                search_plan_id=plan_id,
+                search_results=results,
+                selected_source_ids=tuple(result.source_id for result in results),
+                collection_result_ids=(results[1].source_id,),
+            )
+            await orchestrator._extract_sources(context)
+            assert len(context.source_extractions) == 3
+            assert (
+                sum(
+                    item.listing_extraction is not None
+                    for item in context.source_extractions
+                )
+                == 2
+            )
+            assert any(
+                "could not be retrieved" in gap.summary
+                for gap in context.extraction_gaps
+            )
+            assert len(await repository.list_source_snapshots(run.run_id)) == 2
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_research_page_budget_bounds_large_generic_selection() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            brief = ShoppingBrief(original_query="Find TVs")
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query=brief.original_query),
+                current_brief=brief,
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            repository = SearchSourceRepository(session)
+            query = SearchQuery(query="TVs", intent=SearchIntent.DISCOVERY)
+            plan = SearchPlan(queries=(query,))
+            plan_id = await repository.create_search_plan(run.run_id, plan)
+            results = tuple(
+                SearchResult(
+                    query=query,
+                    url=f"https://shop.example/tv-{index}",
+                    title=f"TV page {index}",
+                    source_type=SourceType.SEARCH_RESULT,
+                    provider=ProviderMetadata(provider_name="fixture"),
+                )
+                for index in range(15)
+            )
+            for result in results:
+                await repository.add_search_result(run.run_id, result, plan_id=plan_id)
+            await session.commit()
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(session),
+                    result_repository=ResultRepository(session),
+                    search_source_repository=repository,
+                    product_repository=ProductRepository(session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                discovery_agent=_CaptureLeadDiscoveryAgent(),
+                extraction_agent=_GapExtractionAgent(),
+                extraction_provider=_CollectionProvider(),
+            )
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id="bounded-generic-selection",
+                active_brief=brief,
+                search_plan=plan,
+                search_plan_id=plan_id,
+                search_results=results,
+                selected_source_ids=tuple(result.source_id for result in results),
+            )
+            stage = await orchestrator._extract_sources(context)
+            assert len(await repository.list_search_results(run.run_id)) == 15
+            assert len(await repository.list_source_snapshots(run.run_id)) == 12
+            assert len(context.extraction_gaps) == 12
+            assert stage.payload["snapshot_count"] == "12"
     finally:
         await engine.dispose()
 

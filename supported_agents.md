@@ -54,8 +54,12 @@ uses the one-listing `ProductListingExtractor`. The fixture-only
 `ExtractionReviewAgent` is transitional compatibility, superseded by
 `ExtractionAgent`; it is not the target extraction architecture. The catalog's
 `planned_tool_boundaries` are design declarations; `approved_sdk_tools` is the
-active allowlist. A general repeat-until-sufficient research loop and
-category-safe fixture behavior remain implementation work.
+active allowlist. The live shopping run now repeats discovery, selected fetch,
+extraction, and candidate/evidence review within four cycles, two follow-up
+discovery calls, and twelve discovery-selected fetched pages (direct user-added
+URLs are a separate input path). Live result persistence does not
+inject monitor fixture products. Category-safe fixture behavior remains
+implementation work in Task 89H.
 
 The executable catalog now also assigns `fast`, `strong`, or `default` run
 profiles. Strong is assigned to complex research/analysis, listing trust,
@@ -280,7 +284,7 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `IntakeAgent` | `required-mvp` | Interpret user goal, inferred category, region, budget, hard constraints, soft preferences, and clarification needs. | Typed step | Query and explicit controls | `ShoppingBrief` | Ask for correction or preserve uncertainty when critical intent is ambiguous. |
 | `QueryPlannerAgent` | `required-mvp` | Plan region-aware searches and source strategy, including scoped lookup queries for user-considered product names/descriptions and when video-review search is useful. | Typed step | `ShoppingBrief` plus user-added product hints | `SearchPlan` | Generic shopping query plan. |
 | `DiscoveryAgent` | `required-mvp` | Own semantic source classification/relevance, product leads from reviews, and bounded follow-up search/fetch decisions, including user-considered products. | Typed agent step with approved search/retrieval tools | Brief, plan, persisted provider results and cited leads | Per-source kind, confidence, reasons, treatment, candidate/model hints, next action, and selected IDs | Keep generic search results available for judgment; return explicit insufficient evidence if classification fails. |
-| `ExtractionAgent` | `required-mvp` | Primarily interpret each persisted page, including review roundups and multi-product collection pages; separate product, listing, seller, and review facts. | Live typed agent step over approved persisted-snapshot reader | Assigned snapshot IDs, bounded page text, and cited leads on targeted follow-up pages | Zero/one/many cited products/listings, review mentions/evidence, lead matches, and gaps | Preserve unknowns; invalid citations/schema become explicit gaps. A bounded one-hop handoff feeds review/collection mentions to DiscoveryAgent before shortlist construction. |
+| `ExtractionAgent` | `required-mvp` | Primarily interpret each persisted page, including review roundups and multi-product collection pages; separate product, listing, seller, and review facts. | Live typed agent step over approved persisted-snapshot reader | Assigned snapshot IDs, bounded page text, and cited leads on targeted follow-up pages | Zero/one/many cited products/listings, review mentions/evidence, lead matches, and gaps | Preserve unknowns; invalid citations/schema become explicit gaps. Bounded research cycles feed review/collection mentions to DiscoveryAgent before shortlist construction. |
 | `ExtractionReviewAgent` | `transitional` | Existing fixture/workbench compatibility contract only; superseded by `ExtractionAgent`. | Fixture sub-run only; not the target live path | Existing snapshot/extracted fields | Legacy `ExtractionReviewAgentOutput` | Do not promote its fixture monitor output into an unrelated category. |
 | `DeduplicationReviewAgent` | `required-mvp` | Review ambiguous duplicate candidates after deterministic matching. | Tool/sub-run only for uncertain pairs | Listings and match evidence | `DeduplicationDecision` | Preserve candidates as distinct when confidence is insufficient. |
 | `CategoryRouterAgent` | `required-mvp` | Select implemented specialist or generic fallback. | Deterministic catalog plus typed routing decision where needed | Brief and candidates | Declared route | Always route unsupported/uncertain categories to generic fallback. |

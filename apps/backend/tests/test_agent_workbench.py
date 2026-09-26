@@ -298,8 +298,9 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in amazon["scenarios"]} >= {
         "amazon/third-party-seller-region-gap",
         "amazon/variant-ambiguity",
+        "amazon/provider-failure",
     }
-    assert amazon["modes"] == ["fixture", "mock"]
+    assert amazon["modes"] == ["fixture", "mock", "live"]
     ikea = next(
         agent
         for agent in body["agents"]
@@ -762,13 +763,53 @@ def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context
     ]
 
 
-def test_workbench_rejects_live_source_specialist_until_sdk_agent_exists() -> None:
+def test_workbench_mock_amazon_uses_sdk_contract_and_marketplace_tools() -> None:
     client = make_test_client(agent_workbench_enabled=True)
     response = client.post(
         "/internal/agent-workbench/runs",
         json={
             "agent_name": "AmazonProductIntelligenceAgent",
             "scenario_name": "amazon/third-party-seller-region-gap",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["model"]
+    assert body["output"]["evidence"]
+    assert body["output"]["listing_contexts"][0]["seller_name"] == "Fixture Deals"
+    assert [item["tool_name"] for item in body["allowed_tool_activity"]] == [
+        "search_amazon_products",
+        "read_amazon_product",
+        "openai_agents_structured_output",
+    ]
+
+
+def test_workbench_mock_amazon_provider_failure_returns_honest_gap() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "AmazonProductIntelligenceAgent",
+            "scenario_name": "amazon/provider-failure",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_kind"] == "mock_sdk_agent"
+    assert body["output"]["evidence"] == []
+    assert "provider_error" in body["output"]["evidence_gaps"][-1]["reason"]
+
+
+def test_workbench_rejects_live_ikea_specialist_until_sdk_agent_exists() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "IKEAStoreIntelligenceAgent",
+            "scenario_name": "ikea/available-regional-product",
             "mode": "live",
         },
     )

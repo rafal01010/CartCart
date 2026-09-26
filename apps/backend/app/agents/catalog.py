@@ -638,10 +638,9 @@ _DEFAULT_AGENT_ENTRIES = {
         "AmazonProductIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
-        sdk_implementation_pending=True,
+        invocation_mode=InvocationMode.TYPED_STEP,
         provider_service_name="AmazonProductIntelligenceService",
-        planned_sdk_tools=(
+        approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
             ApprovedSDKTool.READ_AMAZON_PRODUCT,
         ),

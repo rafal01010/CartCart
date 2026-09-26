@@ -105,10 +105,11 @@ provider-service run with no model; mock exercises the SDK contract offline;
 explicit live mode runs the model over workbench provider fixtures. It is not
 yet delegated by the normal shopping-run parent. Reddit now likewise exposes
 approved public-community search/read tools and fixture/mock/live workbench
-modes, with only mock/live representing SDK specialist runs. Amazon and IKEA
-still expose `sdk_implementation_pending=true`, planned tools/model,
-fixture/mock provider-service modes, and no model usage; their live mode returns
-`agent_workbench_sdk_agent_pending`. All four expose
+modes, with only mock/live representing SDK specialist runs. Amazon now exposes
+approved bounded marketplace candidate-search/read tools and fixture/mock/live workbench
+modes; fixture remains a provider-service probe, while mock/live run its SDK
+specialist contract. IKEA still exposes `sdk_implementation_pending=true` and
+provider-service-only fixture/mock modes. All four expose
 `agent_as_tool_available=false` until parent delegation is wired.
 Transcript-backed YouTube evidence may include `signal_kind` (`pro`, `con`,
 `concern`, or `other`) and a short interpretation alongside the exact quoted

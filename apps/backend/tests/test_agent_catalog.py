@@ -103,7 +103,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     ]
     assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
     assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
-    youtube, reddit, *pending = source_agents
+    youtube, reddit, amazon, *pending = source_agents
     assert youtube.invocation_mode == InvocationMode.TYPED_STEP
     assert youtube.sdk_implementation_pending is False
     assert {tool.value for tool in youtube.approved_sdk_tools} == {
@@ -116,6 +116,12 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert {tool.value for tool in reddit.approved_sdk_tools} == {
         "search_community_discussions",
         "read_community_discussion",
+    }
+    assert amazon.invocation_mode == InvocationMode.TYPED_STEP
+    assert amazon.sdk_implementation_pending is False
+    assert {tool.value for tool in amazon.approved_sdk_tools} == {
+        "search_amazon_products",
+        "read_amazon_product",
     }
     assert all(
         agent.invocation_mode == InvocationMode.NOT_IMPLEMENTED for agent in pending
@@ -158,7 +164,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
 
 
 def test_pending_source_agent_cannot_claim_sdk_tool_or_agent_as_tool_access() -> None:
-    entry = DEFAULT_AGENT_CATALOG.require("AmazonProductIntelligenceAgent")
+    entry = DEFAULT_AGENT_CATALOG.require("IKEAStoreIntelligenceAgent")
     with pytest.raises(ValidationError, match="pending SDK agents"):
         type(entry).model_validate(
             {**entry.model_dump(), "approved_sdk_tools": ["search_videos"]}
@@ -167,6 +173,18 @@ def test_pending_source_agent_cannot_claim_sdk_tool_or_agent_as_tool_access() ->
         type(entry).model_validate(
             {**entry.model_dump(), "agent_as_tool_available": True}
         )
+
+
+def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None:
+    entry = DEFAULT_AGENT_CATALOG.require("AmazonProductIntelligenceAgent")
+    assert entry.sdk_implementation_pending is False
+    assert entry.invocation_mode == InvocationMode.TYPED_STEP
+    assert entry.run_profile == AgentRunProfileName.FAST
+    assert entry.approved_sdk_tools == (
+        ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
+        ApprovedSDKTool.READ_AMAZON_PRODUCT,
+    )
+    assert entry.agent_as_tool_available is False
 
 
 def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:

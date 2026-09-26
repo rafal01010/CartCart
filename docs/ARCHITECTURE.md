@@ -363,7 +363,7 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. YouTube and Reddit source-intelligence roles now have separate SDK implementations in the workbench with approved bounded tools and cited evidence bundles. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes without source-agent model delegation. Amazon and IKEA SDK specialists and all four agent-as-tool parent calls remain pending.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. YouTube, Reddit, and Amazon source-intelligence roles now have separate SDK implementations in the workbench with approved bounded tools and cited evidence bundles. The normal shopping-run source stage still directly invokes provider-backed `*IntelligenceService` classes without source-agent model delegation. IKEA's SDK specialist and all four agent-as-tool parent calls remain pending.
 
 Each catalog entry also declares an operator-configured OpenAI run profile
 (`fast`, `strong`, or `default`). The shared runtime resolver combines an
@@ -385,8 +385,8 @@ Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`,
 `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
 `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
 `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
-`TVSpecialistAgent`, SDK specialist scenarios for YouTube and Reddit, and
-provider-service scenarios for pending Amazon and IKEA roles. It is disabled
+`TVSpecialistAgent`, SDK specialist scenarios for YouTube, Reddit, and Amazon,
+and provider-service scenarios for the pending IKEA role. It is disabled
 unless the local workbench flag is
 explicitly enabled.
 
@@ -423,6 +423,8 @@ Required MVP reusable source intelligence roles include:
 - `IKEAStoreIntelligenceAgent`
 
 Reusable source intelligence agents are not category specialists and are not final decision agents. They retrieve, normalize, quality-score, and summarize source-specific evidence that can be reused by discovery, product/domain analysts, trust analysis, and the final decision flow. Their scope is usable evidence retrieval, not availability-only checks. Depending on the source, they may return product-page information, review summaries, recurring owner complaints, seller/fulfillment signals, price/currency, regional availability, shipping/store context, warranty/return context, and explicit evidence gaps.
+
+The Amazon SDK specialist now selects candidate products and marketplace source IDs through bounded approved tools. Its SerpAPI search tool exposes valid ASIN/title hits without the provider's older semantic name-match gate; the agent chooses which hit to read. Its typed output selects source-backed provider facts and marks ASIN/variant ambiguity; backend validation enforces neutral URLs, source/evidence IDs, and non-removable hard listing-risk warnings. The normal shopping-run source stage still invokes `AmazonProductIntelligenceService` directly until parent SDK delegation in Task 89O.
 
 ## MVP Behavior Rules
 

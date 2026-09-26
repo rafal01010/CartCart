@@ -123,6 +123,10 @@ from app.agents.live_reddit_community_intelligence import (
 from app.agents.amazon_product_intelligence_service import (
     AmazonProductIntelligenceService,
 )
+from app.agents.live_amazon_product_intelligence import (
+    AmazonProductIntelligenceAgent,
+    MockAmazonProductModelRunner,
+)
 from app.agents.ikea_store_intelligence_service import (
     IKEAStoreIntelligenceService,
 )
@@ -574,6 +578,7 @@ class AgentWorkbenchRunner:
                     in {
                         "YouTubeReviewIntelligenceAgent",
                         "RedditCommunityIntelligenceAgent",
+                        "AmazonProductIntelligenceAgent",
                     }
                     and request.mode == AgentWorkbenchMode.FIXTURE
                 )
@@ -584,6 +589,7 @@ class AgentWorkbenchRunner:
                 in {
                     "YouTubeReviewIntelligenceAgent",
                     "RedditCommunityIntelligenceAgent",
+                    "AmazonProductIntelligenceAgent",
                 }
                 else "fixture_or_mock"
             ),
@@ -602,6 +608,7 @@ class AgentWorkbenchRunner:
                 in {
                     "YouTubeReviewIntelligenceAgent",
                     "RedditCommunityIntelligenceAgent",
+                    "AmazonProductIntelligenceAgent",
                 }
                 and request.mode == AgentWorkbenchMode.FIXTURE
             )
@@ -1099,8 +1106,10 @@ def _build_workbench_definitions(
             (
                 _scenario_amazon_third_party_seller_region_gap,
                 _scenario_amazon_variant_ambiguity,
+                _scenario_amazon_provider_failure,
             ),
-            mock_agent_factory=_mock_amazon_product_intelligence_service,
+            mock_agent_factory=_mock_amazon_product_intelligence_agent,
+            live_agent_factory=_live_amazon_product_intelligence_agent,
         ),
         "IKEAStoreIntelligenceAgent": _definition(
             catalog,
@@ -1364,10 +1373,20 @@ def _fixture_amazon_product_intelligence_service() -> AmazonProductIntelligenceS
     )
 
 
-def _mock_amazon_product_intelligence_service(
+def _mock_amazon_product_intelligence_agent(
     settings: Settings,
-) -> AmazonProductIntelligenceService:
-    return AmazonProductIntelligenceService(
+) -> AmazonProductIntelligenceAgent:
+    return AmazonProductIntelligenceAgent(
+        settings=settings,
+        amazon_provider=_WorkbenchAmazonProductIntelligenceProvider(),
+        model_runner=MockAmazonProductModelRunner(),
+    )
+
+
+def _live_amazon_product_intelligence_agent(
+    settings: Settings,
+) -> AmazonProductIntelligenceAgent:
+    return AmazonProductIntelligenceAgent(
         settings=settings,
         amazon_provider=_WorkbenchAmazonProductIntelligenceProvider(),
     )
@@ -1535,6 +1554,8 @@ class _WorkbenchAmazonProductIntelligenceProvider:
         options: AmazonProductIntelligenceProviderOptions | None = None,
     ) -> AmazonProductIntelligenceProviderResult:
         del listings
+        if "Provider Failure" in product.name:
+            raise RuntimeError("Recorded Amazon provider failure")
         region_code = options.region_code if options is not None else None
         return AmazonProductIntelligenceProviderResult(
             status=ProviderRunStatus.SUCCEEDED,
@@ -4214,6 +4235,22 @@ def _scenario_amazon_variant_ambiguity() -> AgentWorkbenchScenario:
             products=(product,),
             listings=(listing,),
             product_queries=("fixture monitor variant amazon",),
+            target_region_code="US",
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_amazon_provider_failure() -> AgentWorkbenchScenario:
+    brief, product, listing, _, _ = _seed_objects("monitor")
+    return _scenario(
+        "amazon/provider-failure",
+        "Amazon provider fails and mock specialist returns an explicit gap.",
+        AmazonProductIntelligenceAgentInput(
+            run_id=new_id(),
+            brief=brief,
+            products=(product.model_copy(update={"name": "Fixture Provider Failure"}),),
+            listings=(listing,),
             target_region_code="US",
         ),
         boundary=True,

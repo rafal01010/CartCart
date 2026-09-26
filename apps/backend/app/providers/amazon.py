@@ -97,6 +97,14 @@ class _AmazonSearchResponse(BaseModel):
     organic_results: list[_AmazonSearchResult] = Field(default_factory=list)
 
 
+class AmazonSearchCandidate(BaseModel):
+    """A neutral marketplace search hit; relevance is for the agent to judge."""
+
+    asin: str = Field(pattern=r"^[A-Z0-9]{10}$")
+    title: str = Field(min_length=1, max_length=300)
+    marketplace_domain: str = Field(min_length=1, max_length=100)
+
+
 class _AmazonProductResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -141,6 +149,80 @@ class SerpApiAmazonProductIntelligenceProvider:
                 "Live calls require explicit local configuration and provider credentials.",
                 "Returned links are neutral Amazon product URLs without affiliate tags.",
                 "Review signals remain marketplace-provided and are not independently verified.",
+            ),
+        )
+
+    async def search_product_candidates(
+        self,
+        product: CanonicalProduct,
+        *,
+        region_code: str | None = None,
+    ) -> tuple[AmazonSearchCandidate, ...]:
+        """Return bounded valid search hits without deciding semantic product match."""
+        marketplace_domain = _marketplace_for_region(region_code)
+        response = await self._get(
+            {
+                "engine": "amazon",
+                "k": _product_query(product),
+                "amazon_domain": marketplace_domain,
+                "output": "json",
+                **({"shipping_location": region_code} if region_code else {}),
+            }
+        )
+        try:
+            parsed = _AmazonSearchResponse.model_validate(response.json())
+        except (ValueError, ValidationError) as exc:
+            raise AmazonProductIntelligenceError(
+                "SerpApi returned an invalid Amazon search response."
+            ) from exc
+        candidates: list[AmazonSearchCandidate] = []
+        seen: set[str] = set()
+        for result in parsed.organic_results:
+            asin = _normalize_asin(result.asin)
+            if asin is None or asin in seen:
+                continue
+            seen.add(asin)
+            candidates.append(
+                AmazonSearchCandidate(
+                    asin=asin,
+                    title=result.title[:300],
+                    marketplace_domain=marketplace_domain,
+                )
+            )
+            if len(candidates) >= 8:
+                break
+        return tuple(candidates)
+
+    async def fetch_selected_product_evidence(
+        self,
+        product: CanonicalProduct,
+        *,
+        asin: str,
+        marketplace_domain: str,
+        region_code: str | None = None,
+        listing: ProductListing | None = None,
+    ) -> AmazonProductIntelligenceProviderResult:
+        """Read one agent-selected, previously validated ASIN on an approved domain."""
+        valid_asin = _normalize_asin(asin)
+        valid_domain = _amazon_domain(marketplace_domain)
+        if valid_asin is None or valid_domain != marketplace_domain:
+            raise ValueError("Selected Amazon ASIN or marketplace domain is invalid.")
+        response = await self._fetch_product(
+            asin=valid_asin,
+            marketplace_domain=valid_domain,
+            target_region=region_code,
+        )
+        return AmazonProductIntelligenceProviderResult(
+            status=ProviderRunStatus.SUCCEEDED,
+            capabilities=self.capabilities,
+            bundle=_to_evidence_bundle(
+                response=response,
+                product=product,
+                listing=listing,
+                requested_asin=valid_asin,
+                requested_marketplace_domain=valid_domain,
+                target_region=region_code,
+                accessed_at=self._now(),
             ),
         )
 
@@ -273,9 +355,7 @@ class SerpApiAmazonProductIntelligenceProvider:
                     timeout=self._timeout_seconds,
                 )
             else:
-                async with httpx.AsyncClient(
-                    timeout=self._timeout_seconds
-                ) as client:
+                async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
                     response = await client.get(
                         SERPAPI_SEARCH_URL,
                         params=request_params,
@@ -313,9 +393,7 @@ class SerpApiAmazonProductIntelligenceProvider:
                         ),
                         summary=summary,
                         reason=reason,
-                        source_quality=SourceQuality(
-                            level=SourceQualityLevel.UNKNOWN
-                        ),
+                        source_quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
                         confidence=_confidence(0.9, ConfidenceLevel.HIGH, reason),
                     ),
                 )
@@ -508,9 +586,7 @@ def _seller_context(
     seller = _text(data.get("sold_by")) or _text(offer.get("sold_by"))
     ship_from = _text(data.get("ships_from")) or _text(data.get("ship_from"))
     ship_from = ship_from or _text(offer.get("ship_from"))
-    delivery = _text_values(data.get("delivery")) or _text_values(
-        offer.get("delivery")
-    )
+    delivery = _text_values(data.get("delivery")) or _text_values(offer.get("delivery"))
     return seller, ship_from, delivery
 
 

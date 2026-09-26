@@ -26,7 +26,7 @@ or dependency to be configured explicitly.
 | Video metadata | `VideoSearchProvider` | Fake provider plus the official YouTube Data API metadata adapter. It uses `search.list` and `videos.list`; transcript availability remains unchecked. |
 | Video transcripts | `TranscriptProvider` | Deterministic fake plus `YtDlpTranscriptProvider` for explicitly enabled public-caption retrieval. The live adapter requests manual subtitles before automatic captions, parses bounded WebVTT into timestamped language-aware segments, and returns explicit gaps instead of fixture text when access fails. |
 | Community discussions | `CommunityDiscussionProvider` | Reddit discovery composes the configured general search provider with `reddit.com` scope. It does not call Reddit pages or APIs directly. |
-| Amazon intelligence | `AmazonProductIntelligenceProvider` | Fake provider plus optional SerpApi Amazon Search/Product adapters for listing, seller, delivery, product, and review-summary evidence. |
+| Amazon intelligence | `AmazonProductIntelligenceProvider` | Fake provider plus optional SerpApi Amazon Search/Product adapters for listing, seller, delivery, product, and review-summary evidence. The isolated Amazon SDK specialist accesses bounded typed candidate-search/read tools; the SerpAPI search path returns valid ASIN/title hits for agent choice without the legacy name-match gate. Credentials and vendor arguments remain in the adapter. |
 | IKEA intelligence | `IKEAStoreIntelligenceProvider` | Fake provider plus official regional-domain discovery composed over general search. It does not fetch IKEA pages directly. |
 | Generic marketplace/store lookup | `MarketplaceAvailabilityProvider`, `OfficialStoreProvider` | Typed contracts and fakes only. Dedicated Amazon and IKEA adapters remain separate source-intelligence boundaries. |
 
@@ -68,10 +68,11 @@ discovery and extraction have produced candidate products/listings. The workflow
 currently invokes four provider-backed source services directly in this stage,
 even when the surrounding research workflow uses live OpenAI agents. Those
 services are not model-running source agents or SDK agent tools. Their future
-agent counterparts have planned, source-specific tool allowlists: video search,
+agent counterparts have source-specific tool allowlists: video search,
 metadata and transcript reads; community search and discussion reads; Amazon
 product search and product/listing reads; and official regional IKEA search and
-product reads. None is exposed as an approved SDK tool until implemented. The workflow
+product reads. YouTube, Reddit, and Amazon now expose approved SDK tools in
+their isolated specialists; IKEA remains pending. The workflow
 passes a scoped brief, region, selected product/listing/source IDs, provider
 capability descriptors, and query hints. It persists source-specific evidence
 bundles separately from normal web/listing evidence. YouTube transcript access is

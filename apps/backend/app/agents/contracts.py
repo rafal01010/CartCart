@@ -348,6 +348,21 @@ class SourceIntelligenceAgentInput(VersionedSchema):
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     source_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
 
+    @model_validator(mode="after")
+    def _validate_references(self) -> "SourceIntelligenceAgentInput":
+        product_ids = {product.product_id for product in self.products}
+        if len(product_ids) != len(self.products):
+            raise ValueError("source-specialist product IDs must be unique.")
+        listing_ids = {listing.listing_id for listing in self.listings}
+        if len(listing_ids) != len(self.listings):
+            raise ValueError("source-specialist listing IDs must be unique.")
+        if any(listing.product_id not in product_ids for listing in self.listings):
+            raise ValueError("source-specialist listings must reference supplied products.")
+        snapshot_ids = {snapshot.source_id for snapshot in self.source_snapshots}
+        if len(snapshot_ids) != len(self.source_snapshots):
+            raise ValueError("source-specialist snapshot IDs must be unique.")
+        return self
+
 
 class SourceIntelligenceAgentOutput(VersionedSchema):
     source_evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
@@ -547,6 +562,33 @@ class IKEAStoreIntelligenceAgent(Protocol):
         input_data: IKEAStoreIntelligenceAgentInput,
     ) -> IKEAStoreEvidenceBundle:
         """Produce region-aware official IKEA store evidence and gaps."""
+
+
+# Provider-only implementations satisfy these service ports. The *Agent ports
+# above are reserved for model-running SDK specialists; they must not be used
+# as the orchestrator type for direct provider dispatch.
+class YouTubeReviewIntelligenceServicePort(Protocol):
+    async def run(
+        self, input_data: YouTubeReviewIntelligenceAgentInput
+    ) -> VideoReviewEvidenceBundle: ...
+
+
+class RedditCommunityIntelligenceServicePort(Protocol):
+    async def run(
+        self, input_data: RedditCommunityIntelligenceAgentInput
+    ) -> CommunityDiscussionEvidenceBundle: ...
+
+
+class AmazonProductIntelligenceServicePort(Protocol):
+    async def run(
+        self, input_data: AmazonProductIntelligenceAgentInput
+    ) -> AmazonProductEvidenceBundle: ...
+
+
+class IKEAStoreIntelligenceServicePort(Protocol):
+    async def run(
+        self, input_data: IKEAStoreIntelligenceAgentInput
+    ) -> IKEAStoreEvidenceBundle: ...
 
 
 class ComparisonDecisionAgent(Protocol):

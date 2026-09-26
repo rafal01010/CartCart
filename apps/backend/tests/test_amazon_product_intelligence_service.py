@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.agents import LiveAmazonProductIntelligenceAgent
+from app.agents import AmazonProductIntelligenceService
 from app.agents.contracts import AmazonProductIntelligenceAgentInput
 from app.providers import (
     AmazonProductIntelligenceProviderOptions,
@@ -35,7 +35,7 @@ async def test_amazon_agent_preserves_third_party_seller_region_gap_and_neutral_
     None
 ):
     product, listing = _product_and_listing()
-    agent = LiveAmazonProductIntelligenceAgent(
+    agent = AmazonProductIntelligenceService(
         amazon_provider=_FixtureAmazonProvider(mode="region_gap"),
     )
 
@@ -93,7 +93,7 @@ async def test_amazon_agent_preserves_third_party_seller_region_gap_and_neutral_
 @pytest.mark.asyncio
 async def test_amazon_agent_preserves_variant_review_ambiguity_warning() -> None:
     product, listing = _product_and_listing(name="Fixture Monitor Variant")
-    agent = LiveAmazonProductIntelligenceAgent(
+    agent = AmazonProductIntelligenceService(
         amazon_provider=_FixtureAmazonProvider(mode="variant"),
     )
 
@@ -128,7 +128,7 @@ async def test_amazon_agent_preserves_variant_review_ambiguity_warning() -> None
 @pytest.mark.asyncio
 async def test_amazon_agent_returns_explicit_gap_when_provider_disabled() -> None:
     product, listing = _product_and_listing()
-    agent = LiveAmazonProductIntelligenceAgent(
+    agent = AmazonProductIntelligenceService(
         amazon_provider=_FixtureAmazonProvider(disabled=True),
     )
 

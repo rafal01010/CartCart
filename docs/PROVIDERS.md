@@ -65,6 +65,13 @@ credentials or an arbitrary-URL fetch path.
 
 Shopping runs invoke reusable source-intelligence providers after normal
 discovery and extraction have produced candidate products/listings. The workflow
+currently invokes four provider-backed source services directly in this stage,
+even when the surrounding research workflow uses live OpenAI agents. Those
+services are not model-running source agents or SDK agent tools. Their future
+agent counterparts have planned, source-specific tool allowlists: video search,
+metadata and transcript reads; community search and discussion reads; Amazon
+product search and product/listing reads; and official regional IKEA search and
+product reads. None is exposed as an approved SDK tool until implemented. The workflow
 passes a scoped brief, region, selected product/listing/source IDs, provider
 capability descriptors, and query hints. It persists source-specific evidence
 bundles separately from normal web/listing evidence. YouTube transcript access is

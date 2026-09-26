@@ -113,17 +113,17 @@ from app.agents.live_seller_listing_trust import (
     LiveSellerListingTrustAgent,
     MockSellerListingTrustModelRunner,
 )
-from app.agents.live_reddit_community_intelligence import (
-    LiveRedditCommunityIntelligenceAgent,
+from app.agents.reddit_community_intelligence_service import (
+    RedditCommunityIntelligenceService,
 )
-from app.agents.live_amazon_product_intelligence import (
-    LiveAmazonProductIntelligenceAgent,
+from app.agents.amazon_product_intelligence_service import (
+    AmazonProductIntelligenceService,
 )
-from app.agents.live_ikea_store_intelligence import (
-    LiveIKEAStoreIntelligenceAgent,
+from app.agents.ikea_store_intelligence_service import (
+    IKEAStoreIntelligenceService,
 )
-from app.agents.live_youtube_review_intelligence import (
-    LiveYouTubeReviewIntelligenceAgent,
+from app.agents.youtube_review_intelligence_service import (
+    YouTubeReviewIntelligenceService,
 )
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
@@ -300,8 +300,13 @@ class AgentWorkbenchAgentSummary(CartCartBaseModel):
     kind: str = Field(min_length=1, max_length=80)
     invocation_mode: str = Field(min_length=1, max_length=80)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
-    resolved_model: str = Field(min_length=1, max_length=200)
+    resolved_model: str | None = Field(default=None, min_length=1, max_length=200)
+    planned_model: str | None = Field(default=None, min_length=1, max_length=200)
     approved_sdk_tools: tuple[str, ...] = Field(default_factory=tuple)
+    planned_sdk_tools: tuple[str, ...] = Field(default_factory=tuple)
+    sdk_implementation_pending: bool = False
+    agent_as_tool_available: bool = False
+    provider_service_name: str | None = None
     input_schema: str = Field(min_length=1, max_length=200)
     output_schema: str = Field(min_length=1, max_length=200)
     modes: tuple[AgentWorkbenchMode, ...]
@@ -327,6 +332,7 @@ class AgentWorkbenchRunResult(VersionedSchema):
     agent_name: str = Field(min_length=1, max_length=200)
     scenario_name: str = Field(min_length=1, max_length=200)
     mode: AgentWorkbenchMode
+    execution_kind: str = Field(min_length=1, max_length=80)
     input_schema: str = Field(min_length=1, max_length=200)
     output_schema: str = Field(min_length=1, max_length=200)
     input: dict[str, Any]
@@ -338,7 +344,7 @@ class AgentWorkbenchRunResult(VersionedSchema):
     error: str | None = Field(default=None, min_length=1, max_length=1000)
     trace_id: str = Field(min_length=1, max_length=120)
     usage: WorkbenchUsage | None = None
-    model: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
     timeout_seconds: float = Field(gt=0, le=300)
     max_turns: int = Field(ge=1, le=50)
@@ -389,6 +395,8 @@ class _AgentWorkbenchDefinition:
         return None
 
     def available_modes(self) -> tuple[AgentWorkbenchMode, ...]:
+        if self.entry.sdk_implementation_pending:
+            return (AgentWorkbenchMode.FIXTURE, AgentWorkbenchMode.MOCK)
         return (
             AgentWorkbenchMode.FIXTURE,
             AgentWorkbenchMode.MOCK,
@@ -420,13 +428,31 @@ class AgentWorkbenchRunner:
                     kind=definition.entry.kind.value,
                     invocation_mode=definition.entry.invocation_mode.value,
                     run_profile=definition.entry.run_profile,
-                    resolved_model=build_openai_agent_run_configuration(
-                        self._settings,
-                        agent_name=definition.entry.agent_name,
-                    ).model,
+                    resolved_model=(
+                        None
+                        if definition.entry.sdk_implementation_pending
+                        else build_openai_agent_run_configuration(
+                            self._settings,
+                            agent_name=definition.entry.agent_name,
+                        ).model
+                    ),
+                    planned_model=(
+                        build_openai_agent_run_configuration(
+                            self._settings,
+                            agent_name=definition.entry.agent_name,
+                        ).model
+                        if definition.entry.sdk_implementation_pending
+                        else None
+                    ),
                     approved_sdk_tools=tuple(
                         tool.value for tool in definition.entry.approved_sdk_tools
                     ),
+                    planned_sdk_tools=tuple(
+                        tool.value for tool in definition.entry.planned_sdk_tools
+                    ),
+                    sdk_implementation_pending=definition.entry.sdk_implementation_pending,
+                    agent_as_tool_available=definition.entry.agent_as_tool_available,
+                    provider_service_name=definition.entry.provider_service_name,
                     input_schema=definition.input_model.__name__,
                     output_schema=definition.output_schema_name,
                     modes=definition.available_modes(),
@@ -502,6 +528,13 @@ class AgentWorkbenchRunner:
 
         input_payload = request.input if request.input is not None else scenario.input
         input_data = _validate_input(definition, input_payload)
+        if request.mode not in definition.available_modes():
+            raise AgentWorkbenchError(
+                "agent_workbench_sdk_agent_pending",
+                "This source specialist has no live SDK agent yet; fixture and mock exercise only its provider service.",
+                status_code=400,
+                details={"agent_name": definition.entry.agent_name},
+            )
         configuration = build_openai_agent_run_configuration(
             self._settings,
             agent_name=definition.entry.agent_name,
@@ -524,6 +557,11 @@ class AgentWorkbenchRunner:
             agent_name=definition.entry.agent_name,
             scenario_name=scenario.name,
             mode=request.mode,
+            execution_kind=(
+                "provider_service"
+                if definition.entry.sdk_implementation_pending
+                else "sdk_agent" if request.mode == AgentWorkbenchMode.LIVE else "fixture_or_mock"
+            ),
             input_schema=definition.input_model.__name__,
             output_schema=definition.output_schema_name,
             input=input_data.model_dump(mode="json"),
@@ -532,7 +570,7 @@ class AgentWorkbenchRunner:
             fallback=WorkbenchFallbackOutcome(used=False),
             trace_id=trace_id,
             usage=None,
-            model=configuration.model,
+            model=None if definition.entry.sdk_implementation_pending else configuration.model,
             run_profile=configuration.run_profile,
             timeout_seconds=configuration.timeout_seconds,
             max_turns=configuration.max_turns,
@@ -994,52 +1032,48 @@ def _build_workbench_definitions(
             "YouTubeReviewIntelligenceAgent",
             YouTubeReviewIntelligenceAgentInput,
             "VideoReviewEvidenceBundle",
-            _fixture_youtube_review_intelligence_agent,
+            _fixture_youtube_review_intelligence_service,
             (
                 _scenario_youtube_monitor_review_transcript,
                 _scenario_youtube_no_transcript_gap,
             ),
-            mock_agent_factory=_mock_youtube_review_intelligence_agent,
-            live_agent_factory=LiveYouTubeReviewIntelligenceAgent,
+            mock_agent_factory=_mock_youtube_review_intelligence_service,
         ),
         "RedditCommunityIntelligenceAgent": _definition(
             catalog,
             "RedditCommunityIntelligenceAgent",
             RedditCommunityIntelligenceAgentInput,
             "CommunityDiscussionEvidenceBundle",
-            _fixture_reddit_community_intelligence_agent,
+            _fixture_reddit_community_intelligence_service,
             (
                 _scenario_reddit_headphones_recurring_complaint,
                 _scenario_reddit_inaccessible_gap,
             ),
-            mock_agent_factory=_mock_reddit_community_intelligence_agent,
-            live_agent_factory=LiveRedditCommunityIntelligenceAgent,
+            mock_agent_factory=_mock_reddit_community_intelligence_service,
         ),
         "AmazonProductIntelligenceAgent": _definition(
             catalog,
             "AmazonProductIntelligenceAgent",
             AmazonProductIntelligenceAgentInput,
             "AmazonProductEvidenceBundle",
-            _fixture_amazon_product_intelligence_agent,
+            _fixture_amazon_product_intelligence_service,
             (
                 _scenario_amazon_third_party_seller_region_gap,
                 _scenario_amazon_variant_ambiguity,
             ),
-            mock_agent_factory=_mock_amazon_product_intelligence_agent,
-            live_agent_factory=LiveAmazonProductIntelligenceAgent,
+            mock_agent_factory=_mock_amazon_product_intelligence_service,
         ),
         "IKEAStoreIntelligenceAgent": _definition(
             catalog,
             "IKEAStoreIntelligenceAgent",
             IKEAStoreIntelligenceAgentInput,
             "IKEAStoreEvidenceBundle",
-            _fixture_ikea_store_intelligence_agent,
+            _fixture_ikea_store_intelligence_service,
             (
                 _scenario_ikea_available_regional_product,
                 _scenario_ikea_no_regional_presence,
             ),
-            mock_agent_factory=_mock_ikea_store_intelligence_agent,
-            live_agent_factory=LiveIKEAStoreIntelligenceAgent,
+            mock_agent_factory=_mock_ikea_store_intelligence_service,
         ),
         "ComparisonDecisionAgent": _definition(
             catalog,
@@ -1231,63 +1265,63 @@ def _mock_verifier_critic_agent(settings: Settings) -> LiveVerifierCriticAgent:
     )
 
 
-def _fixture_youtube_review_intelligence_agent() -> LiveYouTubeReviewIntelligenceAgent:
-    return LiveYouTubeReviewIntelligenceAgent(
+def _fixture_youtube_review_intelligence_service() -> YouTubeReviewIntelligenceService:
+    return YouTubeReviewIntelligenceService(
         transcript_provider=_WorkbenchYouTubeTranscriptProvider(),
     )
 
 
-def _mock_youtube_review_intelligence_agent(
+def _mock_youtube_review_intelligence_service(
     settings: Settings,
-) -> LiveYouTubeReviewIntelligenceAgent:
-    return LiveYouTubeReviewIntelligenceAgent(
+) -> YouTubeReviewIntelligenceService:
+    return YouTubeReviewIntelligenceService(
         settings=settings,
         transcript_provider=_WorkbenchYouTubeTranscriptProvider(),
     )
 
 
-def _fixture_reddit_community_intelligence_agent() -> (
-    LiveRedditCommunityIntelligenceAgent
+def _fixture_reddit_community_intelligence_service() -> (
+    RedditCommunityIntelligenceService
 ):
-    return LiveRedditCommunityIntelligenceAgent(
+    return RedditCommunityIntelligenceService(
         community_provider=_WorkbenchRedditCommunityProvider(),
     )
 
 
-def _mock_reddit_community_intelligence_agent(
+def _mock_reddit_community_intelligence_service(
     settings: Settings,
-) -> LiveRedditCommunityIntelligenceAgent:
-    return LiveRedditCommunityIntelligenceAgent(
+) -> RedditCommunityIntelligenceService:
+    return RedditCommunityIntelligenceService(
         settings=settings,
         community_provider=_WorkbenchRedditCommunityProvider(),
     )
 
 
-def _fixture_amazon_product_intelligence_agent() -> LiveAmazonProductIntelligenceAgent:
-    return LiveAmazonProductIntelligenceAgent(
+def _fixture_amazon_product_intelligence_service() -> AmazonProductIntelligenceService:
+    return AmazonProductIntelligenceService(
         amazon_provider=_WorkbenchAmazonProductIntelligenceProvider(),
     )
 
 
-def _mock_amazon_product_intelligence_agent(
+def _mock_amazon_product_intelligence_service(
     settings: Settings,
-) -> LiveAmazonProductIntelligenceAgent:
-    return LiveAmazonProductIntelligenceAgent(
+) -> AmazonProductIntelligenceService:
+    return AmazonProductIntelligenceService(
         settings=settings,
         amazon_provider=_WorkbenchAmazonProductIntelligenceProvider(),
     )
 
 
-def _fixture_ikea_store_intelligence_agent() -> LiveIKEAStoreIntelligenceAgent:
-    return LiveIKEAStoreIntelligenceAgent(
+def _fixture_ikea_store_intelligence_service() -> IKEAStoreIntelligenceService:
+    return IKEAStoreIntelligenceService(
         ikea_provider=_WorkbenchIKEAStoreIntelligenceProvider(),
     )
 
 
-def _mock_ikea_store_intelligence_agent(
+def _mock_ikea_store_intelligence_service(
     settings: Settings,
-) -> LiveIKEAStoreIntelligenceAgent:
-    return LiveIKEAStoreIntelligenceAgent(
+) -> IKEAStoreIntelligenceService:
+    return IKEAStoreIntelligenceService(
         settings=settings,
         ikea_provider=_WorkbenchIKEAStoreIntelligenceProvider(),
     )

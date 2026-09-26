@@ -248,7 +248,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "youtube/monitor-review-transcript",
         "youtube/no-transcript-gap",
     }
-    assert youtube["modes"] == ["fixture", "mock", "live"]
+    assert youtube["modes"] == ["fixture", "mock"]
     reddit = next(
         agent
         for agent in body["agents"]
@@ -258,7 +258,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "reddit/headphones-recurring-complaint",
         "reddit/inaccessible-gap",
     }
-    assert reddit["modes"] == ["fixture", "mock", "live"]
+    assert reddit["modes"] == ["fixture", "mock"]
     amazon = next(
         agent
         for agent in body["agents"]
@@ -268,7 +268,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "amazon/third-party-seller-region-gap",
         "amazon/variant-ambiguity",
     }
-    assert amazon["modes"] == ["fixture", "mock", "live"]
+    assert amazon["modes"] == ["fixture", "mock"]
     ikea = next(
         agent
         for agent in body["agents"]
@@ -278,7 +278,15 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "ikea/available-regional-product",
         "ikea/no-regional-presence",
     }
-    assert ikea["modes"] == ["fixture", "mock", "live"]
+    assert ikea["modes"] == ["fixture", "mock"]
+    for source_agent in (youtube, reddit, amazon, ikea):
+        assert source_agent["sdk_implementation_pending"] is True
+        assert source_agent["agent_as_tool_available"] is False
+        assert source_agent["provider_service_name"].endswith("Service")
+        assert source_agent["approved_sdk_tools"] == []
+        assert source_agent["planned_sdk_tools"]
+        assert source_agent["resolved_model"] is None
+        assert source_agent["planned_model"]
     comparison = next(
         agent
         for agent in body["agents"]
@@ -694,6 +702,10 @@ def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context
     ).casefold()
 
     assert body["output_schema"] == "AmazonProductEvidenceBundle"
+    assert body["execution_kind"] == "provider_service"
+    assert body["model"] is None
+    assert body["usage"] is None
+    assert body["allowed_tool_activity"][0]["input"]["service"] == "AmazonProductIntelligenceService"
     assert source_url == "https://www.amazon.com/dp/B0CART5901"
     assert "tag=" not in source_url
     assert context["asin"] == "B0CART5901"
@@ -713,6 +725,20 @@ def test_workbench_fixture_amazon_preserves_seller_region_gap_and_review_context
         "AmazonProductIntelligenceProvider.fetch_product_evidence",
         "AmazonProductEvidenceBundle.returned",
     ]
+
+
+def test_workbench_rejects_live_source_specialist_until_sdk_agent_exists() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "AmazonProductIntelligenceAgent",
+            "scenario_name": "amazon/third-party-seller-region-gap",
+            "mode": "live",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "agent_workbench_sdk_agent_pending"
 
 
 def test_workbench_fixture_ikea_preserves_regional_price_availability_and_sources() -> (

@@ -3,39 +3,43 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.agents.contracts import AmazonProductIntelligenceAgentInput
+from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.core.settings import Settings
 from app.providers import (
-    AmazonProductIntelligenceProvider,
-    AmazonProductIntelligenceProviderOptions,
-    AmazonProductIntelligenceProviderResult,
+    IKEAStoreIntelligenceProvider,
+    IKEAStoreIntelligenceProviderOptions,
+    IKEAStoreIntelligenceProviderResult,
     ProviderRunStatus,
-    build_amazon_product_intelligence_provider,
+    build_ikea_store_intelligence_provider,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import ProductId
-from app.schemas.products import CanonicalProduct, ProductListing
+from app.schemas.products import CanonicalProduct
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
-    AmazonListingContext,
-    AmazonProductEvidence,
-    AmazonProductEvidenceBundle,
     EvidenceTarget,
     EvidenceTargetType,
+    IKEAStoreContext,
+    IKEAStoreEvidence,
+    IKEAStoreEvidenceBundle,
     SourceEvidenceGap,
     SourceIntelligenceCapability,
 )
 from app.schemas.source_references import SourceReference
 
 
-AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME = "AmazonProductIntelligenceAgent"
+IKEA_STORE_INTELLIGENCE_SERVICE_NAME = "IKEAStoreIntelligenceService"
 _MAX_PRODUCTS = 3
+_REGIONAL_SCOPE_WARNING = (
+    "IKEA official-store evidence applies only to the declared country or "
+    "region; it does not establish availability or shipping elsewhere."
+)
 
 
 @dataclass
-class LiveAmazonProductIntelligenceAgent:
+class IKEAStoreIntelligenceService:
     settings: Settings | None = None
-    amazon_provider: AmazonProductIntelligenceProvider | None = None
+    ikea_provider: IKEAStoreIntelligenceProvider | None = None
     max_products: int = _MAX_PRODUCTS
     _workbench_activity: tuple[dict[str, Any], ...] = field(
         default=(),
@@ -45,9 +49,9 @@ class LiveAmazonProductIntelligenceAgent:
 
     async def run(
         self,
-        input_data: AmazonProductIntelligenceAgentInput,
-    ) -> AmazonProductEvidenceBundle:
-        provider = self._amazon_provider()
+        input_data: IKEAStoreIntelligenceAgentInput,
+    ) -> IKEAStoreEvidenceBundle:
+        provider = self._ikea_provider()
         activity: list[dict[str, Any]] = []
         selected_products = _select_relevant_products(
             input_data,
@@ -55,66 +59,63 @@ class LiveAmazonProductIntelligenceAgent:
         )
 
         if not selected_products:
-            output = AmazonProductEvidenceBundle(
-                evidence_gaps=(_missing_product_gap(),),
-            )
+            output = IKEAStoreEvidenceBundle(evidence_gaps=(_missing_product_gap(),))
             self._workbench_activity = (
                 {
-                    "tool_name": "AmazonProductIntelligenceProvider.fetch_product_evidence",
+                    "tool_name": "IKEAStoreIntelligenceProvider.fetch_store_evidence",
                     "status": "not_started_missing_product",
                     "input": {
-                        "agent": AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME,
-                        "allowed_tools": ["AmazonProductIntelligenceProvider"],
+                        "service": IKEA_STORE_INTELLIGENCE_SERVICE_NAME,
+                        "allowed_tools": ["IKEAStoreIntelligenceProvider"],
                     },
                     "output": {"gap_count": len(output.evidence_gaps)},
                 },
             )
             return output
 
-        bundles: list[AmazonProductEvidenceBundle] = []
+        bundles: list[IKEAStoreEvidenceBundle] = []
         provider_gaps: list[SourceEvidenceGap] = []
         target_region = _target_region_code(input_data)
         for product in selected_products:
-            listings = _select_relevant_listings(input_data.listings, product)
-            result = await provider.fetch_product_evidence(
+            result = await provider.fetch_store_evidence(
                 product,
-                listings=listings,
-                options=AmazonProductIntelligenceProviderOptions(
+                options=IKEAStoreIntelligenceProviderOptions(
                     region_code=target_region,
                 ),
             )
-            activity.append(_provider_activity(provider, product, listings, result))
+            activity.append(_provider_activity(provider, product, result))
             if (
                 result.status == ProviderRunStatus.SUCCEEDED
                 and result.bundle is not None
             ):
-                bundles.append(result.bundle)
+                bundles.append(_ensure_regional_scope_warnings(result.bundle))
             else:
                 provider_gaps.append(_provider_gap(product, result))
 
-        output = _merge_amazon_bundles(tuple(bundles), tuple(provider_gaps))
+        output = _merge_ikea_bundles(tuple(bundles), tuple(provider_gaps))
         if not (
             output.source_references
-            or output.listing_contexts
+            or output.store_contexts
             or output.evidence
             or output.evidence_gaps
         ):
-            output = AmazonProductEvidenceBundle(
+            output = IKEAStoreEvidenceBundle(
                 evidence_gaps=(_empty_provider_gap(selected_products[0]),),
             )
 
         activity.append(
             {
-                "tool_name": "AmazonProductEvidenceBundle.returned",
-                "status": "amazon_product_evidence_ready",
+                "tool_name": "IKEAStoreEvidenceBundle.returned",
+                "status": "ikea_store_evidence_ready",
                 "input": {
-                    "agent": AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME,
+                    "service": IKEA_STORE_INTELLIGENCE_SERVICE_NAME,
                     "allowed_tools": [],
                     "selected_product_count": len(selected_products),
+                    "target_region_code": target_region,
                 },
                 "output": {
                     "source_count": len(output.source_references),
-                    "listing_context_count": len(output.listing_contexts),
+                    "store_context_count": len(output.store_contexts),
                     "evidence_count": len(output.evidence),
                     "gap_count": len(output.evidence_gaps),
                 },
@@ -127,35 +128,33 @@ class LiveAmazonProductIntelligenceAgent:
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
         return self._workbench_activity
 
-    def _amazon_provider(self) -> AmazonProductIntelligenceProvider:
-        if self.amazon_provider is not None:
-            return self.amazon_provider
+    def _ikea_provider(self) -> IKEAStoreIntelligenceProvider:
+        if self.ikea_provider is not None:
+            return self.ikea_provider
         if self.settings is None:
-            raise ValueError("settings are required to build the Amazon provider.")
-        return build_amazon_product_intelligence_provider(self.settings)
+            raise ValueError("settings are required to build the IKEA provider.")
+        return build_ikea_store_intelligence_provider(self.settings)
 
 
 def _provider_activity(
-    provider: AmazonProductIntelligenceProvider,
+    provider: IKEAStoreIntelligenceProvider,
     product: CanonicalProduct,
-    listings: tuple[ProductListing, ...],
-    result: AmazonProductIntelligenceProviderResult,
+    result: IKEAStoreIntelligenceProviderResult,
 ) -> dict[str, Any]:
     return {
-        "tool_name": "AmazonProductIntelligenceProvider.fetch_product_evidence",
+        "tool_name": "IKEAStoreIntelligenceProvider.fetch_store_evidence",
         "status": result.status.value,
         "input": {
-            "agent": AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME,
-            "allowed_tools": ["AmazonProductIntelligenceProvider"],
+            "service": IKEA_STORE_INTELLIGENCE_SERVICE_NAME,
+            "allowed_tools": ["IKEAStoreIntelligenceProvider"],
             "product_id": product.product_id,
-            "listing_ids": [listing.listing_id for listing in listings],
             "provider_name": provider.capabilities.provider_name,
         },
         "output": {
             "source_count": len(result.bundle.source_references)
             if result.bundle is not None
             else 0,
-            "listing_context_count": len(result.bundle.listing_contexts)
+            "store_context_count": len(result.bundle.store_contexts)
             if result.bundle is not None
             else 0,
             "evidence_count": len(result.bundle.evidence)
@@ -170,7 +169,7 @@ def _provider_activity(
 
 
 def _select_relevant_products(
-    input_data: AmazonProductIntelligenceAgentInput,
+    input_data: IKEAStoreIntelligenceAgentInput,
     *,
     limit: int,
 ) -> tuple[CanonicalProduct, ...]:
@@ -185,24 +184,9 @@ def _select_relevant_products(
     return tuple(product for _, _, product in scored[:limit])
 
 
-def _select_relevant_listings(
-    listings: tuple[ProductListing, ...],
-    product: CanonicalProduct,
-) -> tuple[ProductListing, ...]:
-    product_listings = tuple(
-        listing for listing in listings if listing.product_id == product.product_id
-    )
-    if not product_listings:
-        return ()
-    amazon_listings = tuple(
-        listing for listing in product_listings if _is_amazon_url(str(listing.url))
-    )
-    return amazon_listings or product_listings
-
-
 def _product_relevance_score(
     product: CanonicalProduct,
-    input_data: AmazonProductIntelligenceAgentInput,
+    input_data: IKEAStoreIntelligenceAgentInput,
 ) -> int:
     haystack = _normalized_text(
         " ".join(
@@ -222,19 +206,21 @@ def _product_relevance_score(
         input_data.brief.original_query,
         input_data.brief.category or "",
     )
-    score = 0
+    score = 1 if "ikea" in haystack_tokens else 0
     for needle in needles:
         normalized_needle = _normalized_text(needle)
         if not normalized_needle:
             continue
         needle_tokens = set(normalized_needle.split())
+        if "ikea" in needle_tokens:
+            score += 1
         if normalized_needle in haystack or haystack_tokens & needle_tokens:
             score += 1
     return score
 
 
 def _target_region_code(
-    input_data: AmazonProductIntelligenceAgentInput,
+    input_data: IKEAStoreIntelligenceAgentInput,
 ) -> RegionCode | None:
     if input_data.target_region_code is not None:
         return input_data.target_region_code
@@ -245,30 +231,30 @@ def _target_region_code(
 
 def _provider_gap(
     product: CanonicalProduct,
-    result: AmazonProductIntelligenceProviderResult,
+    result: IKEAStoreIntelligenceProviderResult,
 ) -> SourceEvidenceGap:
     return SourceEvidenceGap(
-        capability=SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+        capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
         target=_product_target(product.product_id),
-        summary="Amazon product/listing/review evidence was unavailable.",
+        summary="IKEA regional official-store evidence was unavailable.",
         reason=(
-            "Amazon product intelligence provider returned "
+            "IKEA store intelligence provider returned "
             f"{result.status.value}."
         ),
         confidence=_confidence(
             0.2,
             ConfidenceLevel.LOW,
-            "Amazon provider did not return usable evidence.",
+            "IKEA provider did not return usable regional official-store evidence.",
         ),
     )
 
 
 def _missing_product_gap() -> SourceEvidenceGap:
     return SourceEvidenceGap(
-        capability=SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
-        summary="Amazon product intelligence needs a candidate product.",
+        capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+        summary="IKEA store intelligence needs a candidate product.",
         reason=(
-            "No product candidate was supplied, so marketplace/listing/review "
+            "No product candidate was supplied, so regional official-store "
             "evidence could not be selected."
         ),
         confidence=_confidence(
@@ -281,45 +267,89 @@ def _missing_product_gap() -> SourceEvidenceGap:
 
 def _empty_provider_gap(product: CanonicalProduct) -> SourceEvidenceGap:
     return SourceEvidenceGap(
-        capability=SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+        capability=SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
         target=_product_target(product.product_id),
-        summary="No relevant Amazon product/listing/review evidence was selected.",
+        summary="No relevant IKEA regional official-store evidence was selected.",
         reason=(
-            "The Amazon provider returned no source references, listing contexts, "
+            "The IKEA provider returned no source references, store contexts, "
             "evidence, or explicit gaps for the selected product."
         ),
         confidence=_confidence(
             0.4,
             ConfidenceLevel.MEDIUM,
-            "Amazon provider output was empty.",
+            "IKEA provider output was empty.",
         ),
     )
 
 
-def _merge_amazon_bundles(
-    bundles: tuple[AmazonProductEvidenceBundle, ...],
+def _merge_ikea_bundles(
+    bundles: tuple[IKEAStoreEvidenceBundle, ...],
     provider_gaps: tuple[SourceEvidenceGap, ...],
-) -> AmazonProductEvidenceBundle:
+) -> IKEAStoreEvidenceBundle:
     source_references_by_id: dict[str, SourceReference] = {}
-    listing_contexts_by_id: dict[str, AmazonListingContext] = {}
-    evidence: list[AmazonProductEvidence] = []
+    store_contexts_by_id: dict[str, IKEAStoreContext] = {}
+    evidence: list[IKEAStoreEvidence] = []
     evidence_gaps: list[SourceEvidenceGap] = list(provider_gaps)
 
     for bundle in bundles:
         source_references_by_id.update(
             {reference.source_id: reference for reference in bundle.source_references}
         )
-        listing_contexts_by_id.update(
-            {context.source_id: context for context in bundle.listing_contexts}
+        store_contexts_by_id.update(
+            {context.source_id: context for context in bundle.store_contexts}
         )
         evidence.extend(bundle.evidence)
         evidence_gaps.extend(bundle.evidence_gaps)
 
-    return AmazonProductEvidenceBundle(
+    return IKEAStoreEvidenceBundle(
         source_references=tuple(source_references_by_id.values()),
-        listing_contexts=tuple(listing_contexts_by_id.values()),
+        store_contexts=tuple(store_contexts_by_id.values()),
         evidence=tuple(evidence),
         evidence_gaps=tuple(evidence_gaps),
+    )
+
+
+def _ensure_regional_scope_warnings(
+    bundle: IKEAStoreEvidenceBundle,
+) -> IKEAStoreEvidenceBundle:
+    context_by_id = {context.source_id: context for context in bundle.store_contexts}
+    evidence = tuple(
+        _ensure_evidence_warning(item, context_by_id) for item in bundle.evidence
+    )
+    return bundle.model_copy(update={"evidence": evidence})
+
+
+def _ensure_evidence_warning(
+    item: IKEAStoreEvidence,
+    context_by_id: dict[str, IKEAStoreContext],
+) -> IKEAStoreEvidence:
+    warning_text = " ".join(item.evidence_quality_warnings).casefold()
+    if "shipping elsewhere" in warning_text or "global" in warning_text:
+        return item
+
+    context = (
+        context_by_id.get(item.store_context_source_id)
+        if item.store_context_source_id is not None
+        else None
+    )
+    region_label = (
+        context.country_code
+        if context is not None
+        else item.target.region_code
+        if item.target.region_code is not None
+        else "the declared country or region"
+    )
+    warning = _REGIONAL_SCOPE_WARNING.replace(
+        "the declared country or region",
+        region_label,
+    )
+    return item.model_copy(
+        update={
+            "evidence_quality_warnings": (
+                *item.evidence_quality_warnings,
+                warning,
+            ),
+        }
     )
 
 
@@ -328,11 +358,6 @@ def _product_target(product_id: ProductId) -> EvidenceTarget:
         target_type=EvidenceTargetType.PRODUCT,
         product_id=product_id,
     )
-
-
-def _is_amazon_url(value: str) -> bool:
-    normalized = value.casefold()
-    return "://www.amazon." in normalized or "://amazon." in normalized
 
 
 def _normalized_text(value: str) -> str:

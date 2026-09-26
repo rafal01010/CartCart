@@ -29,6 +29,15 @@ class ApprovedSDKTool(StrEnum):
     SEARCH_SOURCES = "search_sources"
     FETCH_SOURCE = "fetch_source"
     READ_SOURCE_SNAPSHOT = "read_source_snapshot"
+    SEARCH_VIDEOS = "search_videos"
+    READ_VIDEO_METADATA = "read_video_metadata"
+    READ_VIDEO_TRANSCRIPT = "read_video_transcript"
+    SEARCH_COMMUNITY_DISCUSSIONS = "search_community_discussions"
+    READ_COMMUNITY_DISCUSSION = "read_community_discussion"
+    SEARCH_AMAZON_PRODUCTS = "search_amazon_products"
+    READ_AMAZON_PRODUCT = "read_amazon_product"
+    SEARCH_IKEA_PRODUCTS = "search_ikea_products"
+    READ_IKEA_PRODUCT = "read_ikea_product"
 
 
 class FixtureFallback(StrEnum):
@@ -78,6 +87,10 @@ class AgentCatalogEntry(VersionedSchema):
     )
     planned_tool_boundaries: tuple[str, ...] = Field(default_factory=tuple)
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
+    planned_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
+    sdk_implementation_pending: bool = False
+    agent_as_tool_available: bool = False
+    provider_service_name: str | None = Field(default=None, min_length=1, max_length=200)
     fixture_fallback: FixtureFallback | None = None
     superseded_by: str | None = Field(default=None, min_length=1, max_length=200)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
@@ -94,6 +107,16 @@ class AgentCatalogEntry(VersionedSchema):
             )
         if len(set(self.approved_sdk_tools)) != len(self.approved_sdk_tools):
             raise ValueError("approved SDK tools must be unique per agent.")
+        if len(set(self.planned_sdk_tools)) != len(self.planned_sdk_tools):
+            raise ValueError("planned SDK tools must be unique per agent.")
+        if self.sdk_implementation_pending and (
+            self.invocation_mode != InvocationMode.NOT_IMPLEMENTED
+            or self.agent_as_tool_available
+            or self.approved_sdk_tools
+        ):
+            raise ValueError("pending SDK agents cannot claim live tool availability.")
+        if self.agent_as_tool_available and self.invocation_mode != InvocationMode.REUSABLE_SOURCE_TOOL:
+            raise ValueError("agent-as-tool availability requires reusable source invocation.")
         return self
 
 
@@ -237,6 +260,10 @@ def _entry(
     target_research_decisions: tuple[ResearchDecision, ...] = (),
     planned_tool_boundaries: tuple[str, ...] = (),
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
+    planned_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
+    sdk_implementation_pending: bool = False,
+    agent_as_tool_available: bool = False,
+    provider_service_name: str | None = None,
     fixture_fallback: FixtureFallback | None = None,
     superseded_by: str | None = None,
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
@@ -256,6 +283,10 @@ def _entry(
         target_research_decisions=target_research_decisions,
         planned_tool_boundaries=planned_tool_boundaries,
         approved_sdk_tools=approved_sdk_tools,
+        planned_sdk_tools=planned_sdk_tools,
+        sdk_implementation_pending=sdk_implementation_pending,
+        agent_as_tool_available=agent_as_tool_available,
+        provider_service_name=provider_service_name,
         fixture_fallback=fixture_fallback,
         superseded_by=superseded_by,
         run_profile=run_profile,
@@ -560,7 +591,14 @@ _DEFAULT_AGENT_ENTRIES = {
         "YouTubeReviewIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
+        sdk_implementation_pending=True,
+        provider_service_name="YouTubeReviewIntelligenceService",
+        planned_sdk_tools=(
+            ApprovedSDKTool.SEARCH_VIDEOS,
+            ApprovedSDKTool.READ_VIDEO_METADATA,
+            ApprovedSDKTool.READ_VIDEO_TRANSCRIPT,
+        ),
         contract_name="YouTubeReviewIntelligenceAgent",
         provider_requirements=(
             "youtube_data_api_optional",
@@ -568,12 +606,19 @@ _DEFAULT_AGENT_ENTRIES = {
         ),
         output_schema="VideoReviewEvidenceBundle",
         is_reusable_source_agent=True,
+        run_profile=AgentRunProfileName.FAST,
     ),
     "RedditCommunityIntelligenceAgent": _entry(
         "RedditCommunityIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
+        sdk_implementation_pending=True,
+        provider_service_name="RedditCommunityIntelligenceService",
+        planned_sdk_tools=(
+            ApprovedSDKTool.SEARCH_COMMUNITY_DISCUSSIONS,
+            ApprovedSDKTool.READ_COMMUNITY_DISCUSSION,
+        ),
         contract_name="RedditCommunityIntelligenceAgent",
         provider_requirements=(
             "reddit_community_discussion_provider_optional",
@@ -582,12 +627,19 @@ _DEFAULT_AGENT_ENTRIES = {
         ),
         output_schema="CommunityDiscussionEvidenceBundle",
         is_reusable_source_agent=True,
+        run_profile=AgentRunProfileName.FAST,
     ),
     "AmazonProductIntelligenceAgent": _entry(
         "AmazonProductIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
+        sdk_implementation_pending=True,
+        provider_service_name="AmazonProductIntelligenceService",
+        planned_sdk_tools=(
+            ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
+            ApprovedSDKTool.READ_AMAZON_PRODUCT,
+        ),
         contract_name="AmazonProductIntelligenceAgent",
         provider_requirements=(
             "amazon_product_intelligence_provider_optional",
@@ -597,12 +649,19 @@ _DEFAULT_AGENT_ENTRIES = {
         ),
         output_schema="AmazonProductEvidenceBundle",
         is_reusable_source_agent=True,
+        run_profile=AgentRunProfileName.FAST,
     ),
     "IKEAStoreIntelligenceAgent": _entry(
         "IKEAStoreIntelligenceAgent",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
-        invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
+        invocation_mode=InvocationMode.NOT_IMPLEMENTED,
+        sdk_implementation_pending=True,
+        provider_service_name="IKEAStoreIntelligenceService",
+        planned_sdk_tools=(
+            ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
+            ApprovedSDKTool.READ_IKEA_PRODUCT,
+        ),
         contract_name="IKEAStoreIntelligenceAgent",
         provider_requirements=(
             "ikea_regional_official_store_provider_optional",
@@ -611,6 +670,7 @@ _DEFAULT_AGENT_ENTRIES = {
         ),
         output_schema="IKEAStoreEvidenceBundle",
         is_reusable_source_agent=True,
+        run_profile=AgentRunProfileName.FAST,
     ),
     "ComparisonDecisionAgent": _entry(
         "ComparisonDecisionAgent",

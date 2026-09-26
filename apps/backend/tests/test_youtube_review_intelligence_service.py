@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.agents import LiveYouTubeReviewIntelligenceAgent
+from app.agents import YouTubeReviewIntelligenceService
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.providers import (
     ProviderCapabilityFlags,
@@ -42,7 +42,7 @@ async def test_youtube_review_agent_creates_timestamped_pro_con_concern_evidence
             "description."
         ),
     )
-    agent = LiveYouTubeReviewIntelligenceAgent(
+    agent = YouTubeReviewIntelligenceService(
         transcript_provider=_FixtureTranscriptProvider(),
     )
 
@@ -106,7 +106,7 @@ async def test_youtube_review_agent_selects_relevant_review_video() -> None:
         "ccCoffee001",
         title="Coffee grinder teardown",
     )
-    agent = LiveYouTubeReviewIntelligenceAgent(
+    agent = YouTubeReviewIntelligenceService(
         transcript_provider=_FixtureTranscriptProvider(),
         max_review_videos=1,
     )
@@ -129,7 +129,7 @@ async def test_youtube_review_agent_selects_relevant_review_video() -> None:
 @pytest.mark.asyncio
 async def test_youtube_review_agent_preserves_no_transcript_metadata_gap() -> None:
     product, listing, snapshot = _product_listing_and_video_snapshot("ccNoTrans01")
-    agent = LiveYouTubeReviewIntelligenceAgent(
+    agent = YouTubeReviewIntelligenceService(
         transcript_provider=_FixtureTranscriptProvider(),
     )
 

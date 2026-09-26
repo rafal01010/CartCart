@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.agents import LiveRedditCommunityIntelligenceAgent
+from app.agents import RedditCommunityIntelligenceService
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
 from app.providers import (
     CommunityDiscussionProviderOptions,
@@ -32,7 +32,7 @@ from app.schemas.source_references import SourceReference
 async def test_reddit_agent_creates_recurring_qualitative_complaint_evidence() -> None:
     product, listing = _product_and_listing()
     provider = _FixtureCommunityProvider(bundle=_recurring_complaint_bundle())
-    agent = LiveRedditCommunityIntelligenceAgent(
+    agent = RedditCommunityIntelligenceService(
         community_provider=provider,
         now=lambda: datetime(2026, 6, 21, tzinfo=UTC),
     )
@@ -83,7 +83,7 @@ async def test_reddit_agent_creates_recurring_qualitative_complaint_evidence() -
 async def test_reddit_agent_selects_relevant_discussions_before_summarizing() -> None:
     product, listing = _product_and_listing()
     provider = _FixtureCommunityProvider(bundle=_recurring_complaint_bundle())
-    agent = LiveRedditCommunityIntelligenceAgent(
+    agent = RedditCommunityIntelligenceService(
         community_provider=provider,
         max_discussions=2,
         now=lambda: datetime(2026, 6, 21, tzinfo=UTC),
@@ -122,7 +122,7 @@ async def test_reddit_agent_selects_relevant_discussions_before_summarizing() ->
 async def test_reddit_agent_preserves_inaccessible_content_gap() -> None:
     product, listing = _product_and_listing()
     provider = _FixtureCommunityProvider(bundle=_inaccessible_bundle())
-    agent = LiveRedditCommunityIntelligenceAgent(community_provider=provider)
+    agent = RedditCommunityIntelligenceService(community_provider=provider)
 
     output = await agent.run(
         RedditCommunityIntelligenceAgentInput(
@@ -151,7 +151,7 @@ async def test_reddit_agent_preserves_inaccessible_content_gap() -> None:
 async def test_reddit_agent_returns_gap_when_provider_disabled() -> None:
     product, listing = _product_and_listing()
     provider = _FixtureCommunityProvider(disabled=True)
-    agent = LiveRedditCommunityIntelligenceAgent(community_provider=provider)
+    agent = RedditCommunityIntelligenceService(community_provider=provider)
 
     output = await agent.run(
         RedditCommunityIntelligenceAgentInput(

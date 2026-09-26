@@ -106,8 +106,10 @@ The orchestrator:
    deduped product/listing.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
-   workflow mode, the reusable source-intelligence agents call only their typed
-   provider/service boundaries.
+   workflow mode, the reusable source-intelligence provider services are called
+   directly through typed boundaries; the four SDK source agents and nested
+   agent-as-tool delegation are not yet implemented. The source stage trace is
+   labeled as provider-service execution, with no source-specialist model usage.
 9. Runs listing trust, category routing/analysis, comparison, and verification
    either through fixture stages or the configured live typed agents.
 10. Persists one run event and one agent trace record per executable stage.

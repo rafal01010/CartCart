@@ -613,6 +613,8 @@ class VideoReviewEvidenceBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_bundle_relationships(self) -> "VideoReviewEvidenceBundle":
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("video review evidence IDs must be unique.")
         video_ids = {video.video_id for video in self.videos}
         if len(video_ids) != len(self.videos):
             raise ValueError("video IDs must be unique within a video evidence bundle.")
@@ -662,6 +664,8 @@ class CommunityDiscussionEvidenceBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_bundle_relationships(self) -> "CommunityDiscussionEvidenceBundle":
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("community evidence IDs must be unique.")
         source_ids = {reference.source_id for reference in self.source_references}
         if len(source_ids) != len(self.source_references):
             raise ValueError(
@@ -701,6 +705,8 @@ class AmazonProductEvidenceBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_bundle_relationships(self) -> "AmazonProductEvidenceBundle":
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("Amazon evidence IDs must be unique.")
         source_ids = {reference.source_id for reference in self.source_references}
         if len(source_ids) != len(self.source_references):
             raise ValueError(
@@ -740,6 +746,8 @@ class IKEAStoreEvidenceBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_bundle_relationships(self) -> "IKEAStoreEvidenceBundle":
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("IKEA evidence IDs must be unique.")
         source_ids = {reference.source_id for reference in self.source_references}
         if len(source_ids) != len(self.source_references):
             raise ValueError(

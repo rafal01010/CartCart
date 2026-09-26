@@ -20,6 +20,10 @@
 		agent_name: string;
 		kind: string;
 		invocation_mode: string;
+		sdk_implementation_pending: boolean;
+		agent_as_tool_available: boolean;
+		provider_service_name?: string | null;
+		planned_sdk_tools: string[];
 		input_schema: string;
 		output_schema: string;
 		modes: WorkbenchMode[];
@@ -38,6 +42,7 @@
 		agent_name: string;
 		scenario_name: string;
 		mode: WorkbenchMode;
+		execution_kind: string;
 		input_schema: string;
 		output_schema: string;
 		input: Record<string, JsonValue>;
@@ -47,7 +52,7 @@
 		error?: string | null;
 		trace_id: string;
 		usage?: JsonValue;
-		model: string;
+		model: string | null;
 		elapsed_ms: number;
 		live_mode_notice?: string | null;
 	}
@@ -254,6 +259,10 @@
 							<p><span class="text-foreground">Input:</span> {selectedAgent.input_schema}</p>
 							<p><span class="text-foreground">Output:</span> {selectedAgent.output_schema}</p>
 							<p><span class="text-foreground">Invocation:</span> {selectedAgent.invocation_mode}</p>
+							{#if selectedAgent.sdk_implementation_pending}
+								<p class="text-warning-foreground">SDK agent pending. These scenarios exercise {selectedAgent.provider_service_name ?? 'a provider service'} only; no model runs.</p>
+								<p><span class="text-foreground">Planned tools:</span> {selectedAgent.planned_sdk_tools.join(', ')}</p>
+							{/if}
 						</div>
 					{/if}
 
@@ -282,7 +291,7 @@
 							<p class="text-sm text-warning-foreground">{catalog.live_mode_notice}</p>
 						{:else}
 							<p class="text-sm text-muted-foreground">
-								Fixture and mock runs do not make provider or model calls.
+								Fixture and mock runs do not make live provider or model calls.
 							</p>
 						{/if}
 						<Button type="button" onclick={runWorkbench} disabled={isRunning || !selectedAgent}>
@@ -302,7 +311,8 @@
 					<h2 class="text-sm font-[510]">Run</h2>
 					<dl class="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
 						<div><dt>Trace</dt><dd class="font-mono text-foreground">{result.trace_id}</dd></div>
-						<div><dt>Model</dt><dd class="font-mono text-foreground">{result.model}</dd></div>
+						<div><dt>Execution</dt><dd class="font-mono text-foreground">{result.execution_kind}</dd></div>
+						<div><dt>Model</dt><dd class="font-mono text-foreground">{result.model ?? 'not called'}</dd></div>
 						<div><dt>Mode</dt><dd class="font-mono text-foreground">{result.mode}</dd></div>
 						<div><dt>Timing</dt><dd class="font-mono text-foreground">{result.elapsed_ms} ms</dd></div>
 					</dl>

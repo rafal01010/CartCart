@@ -166,21 +166,21 @@ from app.agents.live_seller_listing_trust import (
     OpenAIAgentsSDKSellerListingTrustModelRunner,
     SellerListingTrustModelRunner,
 )
-from app.agents.live_youtube_review_intelligence import (
-    LiveYouTubeReviewIntelligenceAgent,
-    YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME,
+from app.agents.youtube_review_intelligence_service import (
+    YouTubeReviewIntelligenceService,
+    YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
 )
-from app.agents.live_reddit_community_intelligence import (
-    LiveRedditCommunityIntelligenceAgent,
-    REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME,
+from app.agents.reddit_community_intelligence_service import (
+    RedditCommunityIntelligenceService,
+    REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
 )
-from app.agents.live_amazon_product_intelligence import (
-    AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME,
-    LiveAmazonProductIntelligenceAgent,
+from app.agents.amazon_product_intelligence_service import (
+    AMAZON_PRODUCT_INTELLIGENCE_SERVICE_NAME,
+    AmazonProductIntelligenceService,
 )
-from app.agents.live_ikea_store_intelligence import (
-    IKEA_STORE_INTELLIGENCE_AGENT_NAME,
-    LiveIKEAStoreIntelligenceAgent,
+from app.agents.ikea_store_intelligence_service import (
+    IKEA_STORE_INTELLIGENCE_SERVICE_NAME,
+    IKEAStoreIntelligenceService,
 )
 from app.agents.live_tv_specialist import (
     LiveTVSpecialistAgent,
@@ -253,7 +253,7 @@ __all__ = [
     "AgentWorkbenchRunner",
     "AmazonProductIntelligenceAgent",
     "AmazonProductIntelligenceAgentInput",
-    "AMAZON_PRODUCT_INTELLIGENCE_AGENT_NAME",
+    "AMAZON_PRODUCT_INTELLIGENCE_SERVICE_NAME",
     "CategoryRouterAgent",
     "CategoryRouterAgentInput",
     "CategoryRouterModelRunner",
@@ -315,7 +315,7 @@ __all__ = [
     "GenericProductAnalystAgent",
     "IKEAStoreIntelligenceAgent",
     "IKEAStoreIntelligenceAgentInput",
-    "IKEA_STORE_INTELLIGENCE_AGENT_NAME",
+    "IKEA_STORE_INTELLIGENCE_SERVICE_NAME",
     "IntakeModelRunner",
     "IntakeAgent",
     "IntakeAgentInput",
@@ -328,12 +328,12 @@ __all__ = [
     "LiveIntakeAgent",
     "LiveDiscoveryAgent",
     "LiveLaptopSpecialistAgent",
-    "LiveAmazonProductIntelligenceAgent",
+    "AmazonProductIntelligenceService",
     "LiveComparisonDecisionAgent",
-    "LiveIKEAStoreIntelligenceAgent",
+    "IKEAStoreIntelligenceService",
     "LiveMonitorSpecialistAgent",
     "LiveQueryPlannerAgent",
-    "LiveRedditCommunityIntelligenceAgent",
+    "RedditCommunityIntelligenceService",
     "LiveSellerListingTrustAgent",
     "LiveShoppingGuideAgent",
     "LiveShoppingScopeGuardrail",
@@ -342,7 +342,7 @@ __all__ = [
     "LiveTVSpecialistAgent",
     "LiveTechnologyDomainAnalystAgent",
     "LiveVerifierCriticAgent",
-    "LiveYouTubeReviewIntelligenceAgent",
+    "YouTubeReviewIntelligenceService",
     "MonitorSpecialistAgent",
     "MonitorSpecialistModelRunner",
     "MockIntakeModelRunner",
@@ -389,7 +389,7 @@ __all__ = [
     "QueryPlannerModelRunner",
     "RedditCommunityIntelligenceAgent",
     "RedditCommunityIntelligenceAgentInput",
-    "REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME",
+    "REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME",
     "SellerListingTrustAgent",
     "SellerListingTrustAgentInput",
     "SellerListingTrustModelRunner",
@@ -416,7 +416,7 @@ __all__ = [
     "VerifierCriticAgent",
     "YouTubeReviewIntelligenceAgent",
     "YouTubeReviewIntelligenceAgentInput",
-    "YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME",
+    "YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME",
     "build_default_agent_catalog",
     "build_openai_agent_run_configuration",
     "require_live_openai_agent_configuration",

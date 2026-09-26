@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.agents import LiveIKEAStoreIntelligenceAgent
+from app.agents import IKEAStoreIntelligenceService
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.providers import (
     IKEAStoreIntelligenceProviderOptions,
@@ -38,7 +38,7 @@ from app.services.ikea_evidence_creation import (
 @pytest.mark.asyncio
 async def test_ikea_agent_preserves_available_regional_product_evidence() -> None:
     product, listing = _product_and_listing()
-    agent = LiveIKEAStoreIntelligenceAgent(
+    agent = IKEAStoreIntelligenceService(
         ikea_provider=_FixtureIKEAProvider(mode="available"),
     )
 
@@ -96,7 +96,7 @@ async def test_ikea_agent_preserves_available_regional_product_evidence() -> Non
 @pytest.mark.asyncio
 async def test_ikea_agent_preserves_unavailable_inventory_as_gap() -> None:
     product, listing = _product_and_listing(name="KALLAX shelf unit", model="KALLAX")
-    agent = LiveIKEAStoreIntelligenceAgent(
+    agent = IKEAStoreIntelligenceService(
         ikea_provider=_FixtureIKEAProvider(mode="unavailable"),
     )
 
@@ -130,7 +130,7 @@ async def test_ikea_agent_returns_no_regional_presence_gap_without_global_infere
     None
 ):
     product, listing = _product_and_listing()
-    agent = LiveIKEAStoreIntelligenceAgent(
+    agent = IKEAStoreIntelligenceService(
         ikea_provider=_FixtureIKEAProvider(mode="no_region"),
     )
 
@@ -162,7 +162,7 @@ async def test_ikea_agent_returns_no_regional_presence_gap_without_global_infere
 @pytest.mark.asyncio
 async def test_ikea_agent_returns_explicit_gap_when_provider_disabled() -> None:
     product, listing = _product_and_listing()
-    agent = LiveIKEAStoreIntelligenceAgent(
+    agent = IKEAStoreIntelligenceService(
         ikea_provider=_FixtureIKEAProvider(disabled=True),
     )
 

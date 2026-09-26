@@ -7,7 +7,6 @@ from uuid import UUID
 from pydantic import AnyHttpUrl
 
 from app.agents import (
-    AmazonProductIntelligenceAgent,
     AmazonProductIntelligenceAgentInput,
     CategoryRouterAgent,
     CategoryRouterAgentInput,
@@ -28,7 +27,6 @@ from app.agents import (
     FakeQueryPlannerAgent,
     FakeSellerListingTrustAgent,
     GenericProductAnalystAgent,
-    IKEAStoreIntelligenceAgent,
     IKEAStoreIntelligenceAgentInput,
     IntakeAgent,
     IntakeAgentInput,
@@ -37,7 +35,6 @@ from app.agents import (
     ProductAnalysisAgentInput,
     QueryPlannerAgent,
     QueryPlannerAgentInput,
-    RedditCommunityIntelligenceAgent,
     RedditCommunityIntelligenceAgentInput,
     SellerListingTrustAgent,
     SellerListingTrustAgentInput,
@@ -48,9 +45,14 @@ from app.agents import (
     VerificationAgentInput,
     VerificationReport,
     VerifierCriticAgent,
-    YouTubeReviewIntelligenceAgent,
     YouTubeReviewIntelligenceAgentInput,
     EarphonesHeadphonesSpecialistAgent,
+)
+from app.agents.contracts import (
+    AmazonProductIntelligenceServicePort,
+    IKEAStoreIntelligenceServicePort,
+    RedditCommunityIntelligenceServicePort,
+    YouTubeReviewIntelligenceServicePort,
 )
 from app.agents.catalog import ProductAnalysisRoute, build_default_agent_catalog
 from app.agents.fixture_research import (
@@ -895,12 +897,12 @@ class ShoppingRunOrchestrator:
             AmazonProductIntelligenceProvider | None
         ) = None,
         ikea_store_intelligence_provider: IKEAStoreIntelligenceProvider | None = None,
-        youtube_review_intelligence_agent: YouTubeReviewIntelligenceAgent | None = None,
-        reddit_community_intelligence_agent: (
-            RedditCommunityIntelligenceAgent | None
+        youtube_review_intelligence_service: YouTubeReviewIntelligenceServicePort | None = None,
+        reddit_community_intelligence_service: (
+            RedditCommunityIntelligenceServicePort | None
         ) = None,
-        amazon_product_intelligence_agent: AmazonProductIntelligenceAgent | None = None,
-        ikea_store_intelligence_agent: IKEAStoreIntelligenceAgent | None = None,
+        amazon_product_intelligence_service: AmazonProductIntelligenceServicePort | None = None,
+        ikea_store_intelligence_service: IKEAStoreIntelligenceServicePort | None = None,
         product_deduplicator: DeterministicProductDeduplicator | None = None,
         seller_listing_trust_agent: SellerListingTrustAgent | None = None,
         comparison_decision_agent: ComparisonDecisionAgent | None = None,
@@ -940,10 +942,10 @@ class ShoppingRunOrchestrator:
         self._ikea_store_intelligence_provider = (
             ikea_store_intelligence_provider or FakeIKEAStoreIntelligenceProvider()
         )
-        self._youtube_review_intelligence_agent = youtube_review_intelligence_agent
-        self._reddit_community_intelligence_agent = reddit_community_intelligence_agent
-        self._amazon_product_intelligence_agent = amazon_product_intelligence_agent
-        self._ikea_store_intelligence_agent = ikea_store_intelligence_agent
+        self._youtube_review_intelligence_service = youtube_review_intelligence_service
+        self._reddit_community_intelligence_service = reddit_community_intelligence_service
+        self._amazon_product_intelligence_service = amazon_product_intelligence_service
+        self._ikea_store_intelligence_service = ikea_store_intelligence_service
         self._product_deduplicator = (
             product_deduplicator or DeterministicProductDeduplicator()
         )
@@ -1109,7 +1111,12 @@ class ShoppingRunOrchestrator:
                 trace_id=self._stage_trace_id(context.trace_id, definition.stage),
                 started_at=started_at,
                 ended_at=ended_at,
-                runtime_mode=self._agent_workflow_mode.value,
+                runtime_mode=(
+                    "provider_service"
+                    if definition.stage == RunStage.SOURCE_INTELLIGENCE
+                    and self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                    else self._agent_workflow_mode.value
+                ),
                 model_name=self._model_name_for_stage(definition.stage),
                 duration_ms=_duration_ms(started_at, ended_at),
                 tool_activity=tuple(context.research_activity)
@@ -1962,7 +1969,7 @@ class ShoppingRunOrchestrator:
         )
 
         if self._agent_workflow_mode == AgentWorkflowMode.LIVE:
-            return await self._run_live_source_intelligence(
+            return await self._run_provider_source_intelligence(
                 context,
                 brief,
                 region_code,
@@ -2090,7 +2097,7 @@ class ShoppingRunOrchestrator:
             runtime_mode=self._agent_workflow_mode.value,
         )
 
-    async def _run_live_source_intelligence(
+    async def _run_provider_source_intelligence(
         self,
         context: ShoppingRunContext,
         brief: ShoppingBrief,
@@ -2107,11 +2114,11 @@ class ShoppingRunOrchestrator:
         source_snapshots = tuple(item.snapshot for item in context.source_extractions)
         query_hints = request.query_hints
 
-        if self._youtube_review_intelligence_agent is not None and _capability_allowed(
+        if self._youtube_review_intelligence_service is not None and _capability_allowed(
             request, SourceIntelligenceCapability.VIDEO_REVIEW
         ):
             video_bundles.append(
-                await self._youtube_review_intelligence_agent.run(
+                await self._youtube_review_intelligence_service.run(
                     YouTubeReviewIntelligenceAgentInput(
                         run_id=context.run_id,
                         brief=brief,
@@ -2123,18 +2130,18 @@ class ShoppingRunOrchestrator:
                 )
             )
             activity.extend(
-                _agent_tool_activity(self._youtube_review_intelligence_agent)
+                _agent_tool_activity(self._youtube_review_intelligence_service)
             )
 
         if (
-            self._reddit_community_intelligence_agent is not None
+            self._reddit_community_intelligence_service is not None
             and _capability_allowed(
                 request,
                 SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
             )
         ):
             community_bundles.append(
-                await self._reddit_community_intelligence_agent.run(
+                await self._reddit_community_intelligence_service.run(
                     RedditCommunityIntelligenceAgentInput(
                         run_id=context.run_id,
                         brief=brief,
@@ -2146,15 +2153,15 @@ class ShoppingRunOrchestrator:
                 )
             )
             activity.extend(
-                _agent_tool_activity(self._reddit_community_intelligence_agent)
+                _agent_tool_activity(self._reddit_community_intelligence_service)
             )
 
-        if self._amazon_product_intelligence_agent is not None and _capability_allowed(
+        if self._amazon_product_intelligence_service is not None and _capability_allowed(
             request,
             SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
         ):
             amazon_bundles.append(
-                await self._amazon_product_intelligence_agent.run(
+                await self._amazon_product_intelligence_service.run(
                     AmazonProductIntelligenceAgentInput(
                         run_id=context.run_id,
                         brief=brief,
@@ -2167,11 +2174,11 @@ class ShoppingRunOrchestrator:
                 )
             )
             activity.extend(
-                _agent_tool_activity(self._amazon_product_intelligence_agent)
+                _agent_tool_activity(self._amazon_product_intelligence_service)
             )
 
         if (
-            self._ikea_store_intelligence_agent is not None
+            self._ikea_store_intelligence_service is not None
             and _capability_allowed(
                 request,
                 SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
@@ -2181,7 +2188,7 @@ class ShoppingRunOrchestrator:
             )
         ):
             ikea_bundles.append(
-                await self._ikea_store_intelligence_agent.run(
+                await self._ikea_store_intelligence_service.run(
                     IKEAStoreIntelligenceAgentInput(
                         run_id=context.run_id,
                         brief=brief,
@@ -2193,7 +2200,7 @@ class ShoppingRunOrchestrator:
                     )
                 )
             )
-            activity.extend(_agent_tool_activity(self._ikea_store_intelligence_agent))
+            activity.extend(_agent_tool_activity(self._ikea_store_intelligence_service))
 
         output = SourceIntelligenceRunOutput(
             request=request,
@@ -2217,8 +2224,8 @@ class ShoppingRunOrchestrator:
                 "evidence_count": str(output.evidence_count),
                 "gap_count": str(output.gap_count),
             },
-            agent_name="ReusableSourceIntelligenceAgents",
-            runtime_mode=self._agent_workflow_mode.value,
+            agent_name="ProviderSourceIntelligenceServices",
+            runtime_mode="provider_service",
             tool_activity=activity_tuple,
             fallback_outcome=_fallback_outcome(activity_tuple),
         )

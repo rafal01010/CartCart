@@ -39,7 +39,7 @@ from app.services.community_evidence_creation import (
 )
 
 
-REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME = "RedditCommunityIntelligenceAgent"
+REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME = "RedditCommunityIntelligenceService"
 _MAX_DISCUSSIONS = 6
 _MAX_RECURRING_SIGNALS = 4
 _RECENT_WINDOW = timedelta(days=365)
@@ -103,7 +103,7 @@ _STALE_WARNING = "At least one cited discussion is stale."
 
 
 @dataclass
-class LiveRedditCommunityIntelligenceAgent:
+class RedditCommunityIntelligenceService:
     settings: Settings | None = None
     community_provider: CommunityDiscussionProvider | None = None
     evidence_creator: CommunityEvidenceCreator | None = None
@@ -144,7 +144,7 @@ class LiveRedditCommunityIntelligenceAgent:
                 "tool_name": "CommunityEvidenceCreator.create",
                 "status": "community_evidence_created",
                 "input": {
-                    "agent": REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME,
+                    "service": REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
                     "allowed_tools": [],
                     "recurring_claim_count": len(claims),
                 },
@@ -189,7 +189,7 @@ class LiveRedditCommunityIntelligenceAgent:
                     "tool_name": "supplied_reddit_discussions",
                     "status": "source_snapshots_selected",
                     "input": {
-                        "agent": REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME,
+                        "service": REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
                         "allowed_tools": [],
                         "snapshot_count": len(input_data.source_snapshots),
                     },
@@ -253,7 +253,7 @@ def _provider_activity(
         "tool_name": "CommunityDiscussionProvider.search_discussions",
         "status": result.status.value,
         "input": {
-            "agent": REDDIT_COMMUNITY_INTELLIGENCE_AGENT_NAME,
+            "service": REDDIT_COMMUNITY_INTELLIGENCE_SERVICE_NAME,
             "allowed_tools": ["CommunityDiscussionProvider"],
             "query": query,
             "provider_name": provider.capabilities.provider_name,

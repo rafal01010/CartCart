@@ -363,14 +363,16 @@ Recommended stages:
 
 ## Agent And Source Capability Model
 
-`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` implementations are available through the same typed protocols in the isolated workbench and, when explicitly configured, the normal shopping-run orchestrator. The verifier consumes the draft recommendation bundle plus products, listings, source evidence, trust assessments, category analyses, and dedupe decisions; it uses no tools and adds deterministic output guardrails for unsupported claims, suspicious-listing caveats, hard-budget violations, duplicate/result conflicts, overconfident or unsafe wording, and internal process language. `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are provider-backed reusable source-intelligence agents available to the workbench and opt-in normal workflow through typed provider/service boundaries only. They return source-specific evidence bundles rather than final recommendations.
+`supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use guided intake schemas. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, product analysts, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` have model-running implementations. The four named YouTube, Reddit, Amazon, and IKEA source-specialist agents are different: their SDK implementations and agent-as-tool delegation are pending. The current source stage directly invokes provider-backed `*IntelligenceService` classes and persists their evidence bundles, without a source-specialist model run. The workbench offers fixture/mock service scenarios only for these four pending agent identities, and the catalog records planned tools and explicit fast profiles without claiming live SDK tool access.
 
 Each catalog entry also declares an operator-configured OpenAI run profile
 (`fast`, `strong`, or `default`). The shared runtime resolver combines an
 exact-agent override, assigned profile, optional default profile, and global
 fallback for model, reasoning effort, timeout, and max turns. SDK runners, workbench output,
 trace metadata, and persisted model-backed stage records use that resolution;
-fixture/mock execution only reports it and does not call a model.
+fixture/mock SDK-agent execution can report the configured model without calling it.
+Provider-service probes instead report no resolved or called model, with a
+separate planned model for the future specialist.
 The current fixture shopping-run workflow also calls the typed
 `SellerListingTrustAgent` contract for listing trust review, seeded by
 deterministic trust rules, before final fixture recommendations are persisted.
@@ -383,7 +385,7 @@ Agents SDK steps such as `ShoppingScopeGuardrail`, `ShoppingGuideAgent`,
 `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`,
 `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`,
 `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`,
-`TVSpecialistAgent`, provider-backed `YouTubeReviewIntelligenceAgent`,
+`TVSpecialistAgent`, provider-service scenarios for the pending `YouTubeReviewIntelligenceAgent`,
 `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and
 `IKEAStoreIntelligenceAgent` scenarios. It is disabled
 unless the local workbench flag is
@@ -714,8 +716,8 @@ fields remain explicit gaps, and every purchase-context claim warns that it does
 not establish availability or shipping outside the declared region.
 
 Reusable source-intelligence providers are also defined in the provider layer.
-The agent contract and executable catalog layer exposes required reusable source
-tools for YouTube, Reddit, Amazon, and IKEA. Those source agents return evidence
+The agent contract and executable catalog layer reserves four required reusable source
+agent roles for YouTube, Reddit, Amazon, and IKEA. Until their SDK implementations exist, provider services return evidence
 bundles for usable source intelligence rather than recommendations or
 availability-only checks. The provider boundary exposes enabled state, supported
 capabilities, official/user-authorized access, domain-scoped search support,

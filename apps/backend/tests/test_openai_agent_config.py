@@ -151,7 +151,7 @@ def test_catalog_profiles_resolve_different_models_in_one_fixture_run() -> None:
 
     assert extraction.mode == decision.mode == OpenAIAgentRuntimeMode.FIXTURE
     assert (extraction.model, decision.model, source_agent.model) == (
-        "small-model", "large-model", "fallback-model"
+        "small-model", "large-model", "small-model"
     )
     assert (extraction.timeout_seconds, extraction.max_turns) == (20, 4)
     assert (decision.timeout_seconds, decision.max_turns) == (70, 8)

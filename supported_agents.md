@@ -95,7 +95,7 @@ workflow mode or change the fixture-first default.
 
 Specialized product/domain agents should normally be invoked as typed sub-runs or agents-as-tools when the orchestrator needs a scoped analysis result. OpenAI Agents SDK handoffs should be used only when a specialist should actually take over control of a conversational turn.
 
-Reusable source intelligence agents should usually be agents-as-tools or deterministic services wrapped by an agent contract. They gather, normalize, summarize, and quality-score source-specific evidence, then hand structured evidence back to product analysis and decision agents. They should not make final purchase recommendations by themselves.
+The four named reusable source-intelligence agents are target OpenAI SDK roles, not current implementations. Today `YouTubeReviewIntelligenceService`, `RedditCommunityIntelligenceService`, `AmazonProductIntelligenceService`, and `IKEAStoreIntelligenceService` call approved providers and package evidence deterministically. The orchestrator calls these services directly; no source-specialist model run or SDK agent-as-tool delegation occurs. The future source agents should gather and interpret cited evidence through typed tools, remain bounded by backend validation, and return evidence rather than recommendations.
 
 The product must support broad shopping queries even when no deep specialist exists. Generic fallback is mandatory.
 
@@ -190,7 +190,7 @@ Product/category analysts own fit analysis for a product bundle in the context o
 
 `TechnologyDomainAnalystAgent` owns shared technology-product reasoning, routing to MVP technology specialists, and technology-domain fallback when no narrower specialist applies. It should cover technology products broadly enough that adding future specific technology specialists is modular.
 
-Reusable source intelligence agents own source-specific discovery, extraction review, quality scoring, and evidence summarization. They must return structured evidence with source references and confidence. They do not make final purchase recommendations.
+The planned reusable source-intelligence agents will own source-specific discovery, extraction review, quality scoring, and evidence summarization. The current provider services package source evidence without model judgment. Both paths must return structured evidence with source references and confidence, not final purchase recommendations.
 
 `SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Suspicious deterministic trust flags cannot be silently overridden by agent output.
 
@@ -234,7 +234,7 @@ search excerpts or approved upstream extracted text, optional recency and
 engagement metadata, deterministic source quality, anecdotal-evidence warnings,
 and explicit gaps for removed, inaccessible, unextracted, or missing content.
 It does not call Reddit directly or claim public-page extraction support.
-The current source-intelligence agent selects relevant supplied or
+The current provider service selects relevant supplied or
 provider-discovered discussions, summarizes recurring qualitative owner signals
 only when they are grounded in cited public summaries, preserves subreddit,
 thread, comment, and source IDs, adds anecdotal/manipulation/low-context/stale
@@ -256,7 +256,7 @@ and explicit gaps. All returned Amazon product links are neutral and contain no
 affiliate parameters. Marketplace reviews remain unverified source signals, and
 seller/listing trust remains a separate downstream concern.
 
-The current source-intelligence agent selects relevant supplied products and
+The current provider service selects relevant supplied products and
 listings, calls only the typed `AmazonProductIntelligenceProvider`, preserves
 the provider-created `AmazonProductEvidenceBundle`, records disabled or empty
 provider output as explicit gaps, and exposes fixture/mock workbench scenarios
@@ -471,10 +471,10 @@ provider arguments or call vendor SDKs directly.
 | `TVSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied TV product/listing/evidence bundle. | Analyzing non-TV products as TV-scoped, raw provider access, unsupported factual claims. |
 | `SmartwatchSpecialistAgent` | None. | Typed specialist sub-run under `TechnologyDomainAnalystAgent`. | Supplied smartwatch product/listing/evidence bundle. | Analyzing non-watch products as smartwatch-scoped, raw provider access, unsupported factual claims. |
 | `SellerListingTrustAgent` | None. | None. | Supplied listing, evidence, deterministic trust-rule assessment, and price-plausibility signals. | Silently overriding hard suspicious flags, fetching seller pages directly, treating product quality as listing trust. |
-| `YouTubeReviewIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `VideoSearchProvider`, `TranscriptProvider`, `YouTubeTranscriptIngestor`, `VideoReviewEvidenceCreator`, and supplied video/source metadata. | Direct `yt-dlp`, WebVTT parsing, Deno/EJS management, cookies, media downloads, arbitrary YouTube/API args, fabricated transcript claims, final purchase recommendations. |
-| `RedditCommunityIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `CommunityDiscussionProvider`, approved public discussion summaries, `CommunityEvidenceCreator`, and source-quality warnings. | Direct Reddit API/page scraping unless approved, private/deleted/logged-in content, treating anecdotes as authoritative facts, final purchase recommendations. |
-| `AmazonProductIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | `AmazonProductIntelligenceProvider`, marketplace/listing identity context, regional ship-to evidence, review signals, and `AmazonProductEvidenceCreator` output. | Affiliate links, raw marketplace scraping outside approved providers, collapsing seller/listing risk into product quality. |
-| `IKEAStoreIntelligenceAgent` | Provider-backed isolated workbench implementation. Typed provider/service access only. | Reusable source-intelligence agent/tool callable by orchestration or analysts when relevant. | IKEA regional official-store provider, official-source search adapter, regional availability/price evidence creator. | Global shipping inference, non-official IKEA source substitution, arbitrary scraping outside approved provider paths. |
+| `YouTubeReviewIntelligenceAgent` | SDK implementation and agent-as-tool delegation pending; current path is `YouTubeReviewIntelligenceService`. | Future bounded source specialist. | Planned: video search, metadata read, transcript read through approved tools. | Direct `yt-dlp`, WebVTT parsing, arbitrary API args, fabricated transcript claims, final recommendations. |
+| `RedditCommunityIntelligenceAgent` | SDK implementation and agent-as-tool delegation pending; current path is `RedditCommunityIntelligenceService`. | Future bounded source specialist. | Planned: approved community search and discussion read tools. | Private/deleted/logged-in access, treating anecdotes as authoritative facts, final recommendations. |
+| `AmazonProductIntelligenceAgent` | SDK implementation and agent-as-tool delegation pending; current path is `AmazonProductIntelligenceService`. | Future bounded source specialist. | Planned: approved Amazon product search and product/listing read tools. | Affiliate links, unapproved scraping, collapsing seller risk into product quality. |
+| `IKEAStoreIntelligenceAgent` | SDK implementation and agent-as-tool delegation pending; current path is `IKEAStoreIntelligenceService`. | Future bounded source specialist. | Planned: official regional IKEA search and product read tools. | Global shipping inference, non-official source substitution, unapproved scraping. |
 | `ComparisonDecisionAgent` | None. | None. | Supplied brief, category analyses, trust assessments, dedupe decisions, and evidence. | New search/extraction, unsupported product claims, recommending suspicious listings without blocking warning, forced avoid items for ordinary non-winners. |
 | `VerifierCriticAgent` | Isolated live workbench implementation with deterministic output guardrails. | None. | Supplied draft recommendation bundle, products, listings, source evidence, trust assessments, category analyses, and dedupe decisions. | New provider calls, hidden rewriting without blocking issues, approving uncited factual claims or shopper-visible internal process language. |
 
@@ -485,7 +485,7 @@ provider arguments or call vendor SDKs directly.
 - `SearchResult` and `SourceSnapshot` are provider/persistence records, not semantic product classifications. Generic results remain eligible for agent inspection.
 - Live `ExtractionAgent` output owns cited `CanonicalProduct`, `ProductListing`, product mentions, `SourceEvidence`, and explicit gaps; one snapshot may yield zero, one, or many entities. Deterministic parsing may provide signals, while schema/source-ID validation and policy checks remain hard backend gates. `ProductListingExtractor` remains a fixture/legacy helper, not the live semantic authority.
 - `DeduplicationDecision` records duplicate reasoning and must preserve uncertain cases.
-- `ReusableSourceIntelligenceRequest` is the shared request boundary for source agents. It includes the shopping brief, target region, candidate product/listing/source IDs, optional source-specific query hints, requested source capabilities, and allowed-provider/capability descriptors.
+- `ReusableSourceIntelligenceRequest` is the orchestrator's shared source-capability request. The four typed specialist inputs carry run ID, brief, products, listings, persisted snapshots, source-specific query hints, and applicable region. Product/listing/snapshot IDs must be unique and listings must reference supplied products. The four bundle schemas require local source references for evidence and gaps, unique evidence IDs, and valid video/discussion/listing/store context links. Provider failures and unavailable source content produce explicit gaps or empty evidence, never invented claims. The future SDK agents are catalogued with explicit fast model profiles and *planned* tool allowlists, but no approved live SDK tools or agent-as-tool availability until implemented.
 - `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status, source references, timestamped transcript evidence where available, explicit transcript gaps where unavailable, and sponsorship/affiliate-bias signals.
 - `CommunityDiscussionEvidenceBundle` is the Reddit/community evidence boundary. It must include thread/comment source references, extracted public snippets or summaries where allowed, recurring claims, recency/engagement context when available, evidence-quality warnings, and explicit gaps.
 - `AmazonProductEvidenceBundle` is the Amazon evidence boundary. It must include product/listing identity, marketplace/region context, seller/fulfillment signals, product-page facts, review-summary signals, availability/ship-to-region evidence, and suspicious marketplace/review warnings.

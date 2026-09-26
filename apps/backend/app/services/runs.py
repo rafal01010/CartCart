@@ -4,17 +4,17 @@ from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_extraction import LiveExtractionAgent
 from app.core.settings import AgentWorkflowMode, Settings
 from app.agents import (
-    LiveAmazonProductIntelligenceAgent,
+    AmazonProductIntelligenceService,
     LiveCategoryRouterAgent,
     LiveComparisonDecisionAgent,
     LiveDiscoveryAgent,
     LiveEarphonesHeadphonesSpecialistAgent,
     LiveGenericProductAnalystAgent,
-    LiveIKEAStoreIntelligenceAgent,
+    IKEAStoreIntelligenceService,
     LiveIntakeAgent,
     LiveLaptopSpecialistAgent,
     LiveMonitorSpecialistAgent,
-    LiveRedditCommunityIntelligenceAgent,
+    RedditCommunityIntelligenceService,
     LiveSellerListingTrustAgent,
     LiveShoppingScopeGuardrail,
     LiveSmartphoneSpecialistAgent,
@@ -22,7 +22,7 @@ from app.agents import (
     LiveTVSpecialistAgent,
     LiveTechnologyDomainAnalystAgent,
     LiveVerifierCriticAgent,
-    LiveYouTubeReviewIntelligenceAgent,
+    YouTubeReviewIntelligenceService,
     LiveQueryPlannerAgent,
     OpenAIAgentConfigurationError,
     ShoppingScopeGuardrailInput,
@@ -299,22 +299,22 @@ class RunService:
                 settings=self._settings
             ),
             "verifier_critic_agent": LiveVerifierCriticAgent(settings=self._settings),
-            "youtube_review_intelligence_agent": LiveYouTubeReviewIntelligenceAgent(
+            "youtube_review_intelligence_service": YouTubeReviewIntelligenceService(
                 settings=self._settings,
                 video_search_provider=self._video_search_provider,
                 transcript_provider=self._transcript_provider,
             ),
-            "reddit_community_intelligence_agent": (
-                LiveRedditCommunityIntelligenceAgent(
+            "reddit_community_intelligence_service": (
+                RedditCommunityIntelligenceService(
                     settings=self._settings,
                     community_provider=self._community_discussion_provider,
                 )
             ),
-            "amazon_product_intelligence_agent": LiveAmazonProductIntelligenceAgent(
+            "amazon_product_intelligence_service": AmazonProductIntelligenceService(
                 settings=self._settings,
                 amazon_provider=self._amazon_product_intelligence_provider,
             ),
-            "ikea_store_intelligence_agent": LiveIKEAStoreIntelligenceAgent(
+            "ikea_store_intelligence_service": IKEAStoreIntelligenceService(
                 settings=self._settings,
                 ikea_provider=self._ikea_store_intelligence_provider,
             ),

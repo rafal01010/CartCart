@@ -103,10 +103,13 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     ]
     assert all(agent.status == AgentStatus.REQUIRED_MVP for agent in source_agents)
     assert all(agent.kind == AgentKind.SOURCE_INTELLIGENCE for agent in source_agents)
-    assert all(
-        agent.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
-        for agent in source_agents
-    )
+    assert all(agent.invocation_mode == InvocationMode.NOT_IMPLEMENTED for agent in source_agents)
+    assert all(agent.sdk_implementation_pending for agent in source_agents)
+    assert all(not agent.agent_as_tool_available for agent in source_agents)
+    assert all(not agent.approved_sdk_tools for agent in source_agents)
+    assert all(agent.planned_sdk_tools for agent in source_agents)
+    assert all(agent.provider_service_name for agent in source_agents)
+    assert all(agent.run_profile == AgentRunProfileName.FAST for agent in source_agents)
     assert all(agent.is_reusable_source_agent is True for agent in source_agents)
     assert [agent.output_schema for agent in source_agents] == [
         "VideoReviewEvidenceBundle",
@@ -136,6 +139,18 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert (
         "marketplace_availability_provider_optional" not in provider_requirement_names
     )
+
+
+def test_pending_source_agent_cannot_claim_sdk_tool_or_agent_as_tool_access() -> None:
+    entry = DEFAULT_AGENT_CATALOG.require("YouTubeReviewIntelligenceAgent")
+    with pytest.raises(ValidationError, match="pending SDK agents"):
+        type(entry).model_validate(
+            {**entry.model_dump(), "approved_sdk_tools": ["search_videos"]}
+        )
+    with pytest.raises(ValidationError, match="pending SDK agents"):
+        type(entry).model_validate(
+            {**entry.model_dump(), "agent_as_tool_available": True}
+        )
 
 
 def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:

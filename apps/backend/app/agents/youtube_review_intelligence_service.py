@@ -40,7 +40,7 @@ from app.services.video_evidence_creation import (
 )
 
 
-YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME = "YouTubeReviewIntelligenceAgent"
+YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME = "YouTubeReviewIntelligenceService"
 _MAX_REVIEW_VIDEOS = 3
 _MAX_CLAIMS_PER_VIDEO = 6
 _CLAIM_MAX_LENGTH = 700
@@ -103,7 +103,7 @@ _CONCERN_MARKERS = frozenset(
 
 
 @dataclass
-class LiveYouTubeReviewIntelligenceAgent:
+class YouTubeReviewIntelligenceService:
     settings: Settings | None = None
     video_search_provider: VideoSearchProvider | None = None
     transcript_provider: TranscriptProvider | None = None
@@ -144,7 +144,7 @@ class LiveYouTubeReviewIntelligenceAgent:
                 "tool_name": "TranscriptProvider.fetch_transcript",
                 "status": "transcripts_ingested",
                 "input": {
-                    "agent": YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME,
+                    "service": YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
                     "allowed_tools": ["TranscriptProvider"],
                     "video_ids": [video.video_id for video in ingested.videos],
                     "provider_name": transcript_provider.capabilities.provider_name,
@@ -173,7 +173,7 @@ class LiveYouTubeReviewIntelligenceAgent:
                 "tool_name": "VideoEvidenceCreator.create",
                 "status": "video_review_evidence_created",
                 "input": {
-                    "agent": YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME,
+                    "service": YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
                     "allowed_tools": [],
                     "claim_count": len(claims),
                 },
@@ -218,7 +218,7 @@ class LiveYouTubeReviewIntelligenceAgent:
                     "tool_name": "supplied_video_metadata",
                     "status": "source_snapshots_selected",
                     "input": {
-                        "agent": YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME,
+                        "service": YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
                         "allowed_tools": [],
                         "snapshot_count": len(input_data.source_snapshots),
                     },
@@ -247,7 +247,7 @@ class LiveYouTubeReviewIntelligenceAgent:
                     "tool_name": "VideoSearchProvider.search_videos",
                     "status": result.status.value,
                     "input": {
-                        "agent": YOUTUBE_REVIEW_INTELLIGENCE_AGENT_NAME,
+                        "service": YOUTUBE_REVIEW_INTELLIGENCE_SERVICE_NAME,
                         "allowed_tools": ["VideoSearchProvider"],
                         "query": query,
                         "provider_name": provider.capabilities.provider_name,

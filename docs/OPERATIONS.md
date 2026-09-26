@@ -535,7 +535,8 @@ registered-agent override, catalog-assigned profile, `default` profile, then
 the three global `CARTCART_OPENAI_*` fallbacks. For example,
 `ComparisonDecisionAgent`, `VerifierCriticAgent`, product analysts, and
 `DiscoveryAgent` have the `strong` catalog profile; bounded intake, routing,
-query planning, and `ExtractionAgent` have `fast`. An unconfigured
+query planning, `ExtractionAgent`, and the four planned source specialists have
+`fast`. An unconfigured
 profile safely uses the global fallback, and model strings can be changed
 without a code release. `CARTCART_OPENAI_AGENT_OVERRIDES` is operator-only;
 shopper input cannot choose a model. Profile names and agent names are
@@ -546,10 +547,11 @@ models can use configured or supported default effort. The allowed effort
 values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; model support varies,
 so choose an effort the selected model accepts.
 
-Each SDK runner resolves its own profile. The workbench catalog lists each
-agent's profile and resolved model; fixture/mock run output also shows the
-resolved model, profile, reasoning effort, timeout, and turn limit without making a live
-call. OpenAI trace metadata records the resolved model and profile; persisted
+Each implemented SDK runner resolves its own profile. The workbench catalog
+lists implemented agents' profiles and resolved models. For the four pending
+source specialists, it lists a planned model but leaves `resolved_model` null;
+fixture/mock service runs likewise leave `model` null and report no usage.
+OpenAI trace metadata records the resolved model and profile; persisted
 model-backed shopping-stage records store the resolved model. The category
 analysis stage is aggregate: its persisted `model_name` is the selected analyst
 model, while the router's own SDK trace metadata identifies its model and the
@@ -668,6 +670,14 @@ review, and regional shipping-gap context. For `IKEAStoreIntelligenceAgent`,
 `ikea/available-regional-product` checks official regional price/currency,
 availability, and source IDs, while `ikea/no-regional-presence` checks an
 explicit unsupported-region gap without global-shipping inference. For
+these four source roles, the workbench currently offers only fixture/mock
+provider-service probes: `execution_kind=provider_service`, `model=null`, and
+no model usage. It rejects `--mode live` for them even with an OpenAI key,
+because the source-specialist SDK agents and agent-as-tool delegation are not
+implemented yet. In a live shopping workflow the source stage trace is named
+`ProviderSourceIntelligenceServices` with `runtime_mode=provider_service` and
+no model name; live providers may still be contacted by those services.
+For
 `ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
 source-backed three-monitor shortlist with best overall, best value,
 within-budget, stretch, and runner-up modes, while

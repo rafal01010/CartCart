@@ -1891,6 +1891,9 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
             == "model_query_plan_completed"
         )
         assert records_by_stage[RunStage.DISCOVERY].agent_name == "DiscoveryAgent"
+        assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].agent_name == "ProviderSourceIntelligenceServices"
+        assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].runtime_mode == "provider_service"
+        assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].model_name is None
         assert records_by_stage[RunStage.EXTRACTION].model_name == "small-model"
         assert any(
             item["tool_name"] == "research_discovery_decision"

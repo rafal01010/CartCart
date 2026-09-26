@@ -1,4 +1,7 @@
 from app.core.errors import ApplicationError
+from app.agents.research_tools import AgentResearchTools
+from app.agents.extraction_tools import SnapshotInterpretationTools
+from app.agents.live_extraction import LiveExtractionAgent
 from app.core.settings import AgentWorkflowMode, Settings
 from app.agents import (
     LiveAmazonProductIntelligenceAgent,
@@ -23,6 +26,7 @@ from app.agents import (
     LiveQueryPlannerAgent,
     OpenAIAgentConfigurationError,
     ShoppingScopeGuardrailInput,
+    build_openai_agent_run_configuration,
     require_live_openai_agent_configuration,
 )
 from app.db.repositories.products import ProductRepository
@@ -133,11 +137,8 @@ class RunService:
                 video_review_repository=self._video_review_repository,
             ),
             agent_workflow_mode=self._agent_workflow_mode,
-            agent_model_name=(
-                self._settings.openai_model
-                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and self._settings is not None
-                else None
+            agent_model_resolver=(
+                self._resolved_agent_model if self._settings is not None else None
             ),
             **self._live_agent_kwargs(),
             search_provider=self._search_provider,
@@ -195,6 +196,13 @@ class RunService:
             return AgentWorkflowMode.FIXTURE
         return self._settings.agent_workflow_mode
 
+    def _resolved_agent_model(self, agent_name: str) -> str:
+        if self._settings is None:
+            raise RuntimeError("Agent model resolution requires backend settings.")
+        return build_openai_agent_run_configuration(
+            self._settings, agent_name=agent_name
+        ).model
+
     async def _check_live_agent_start(self, user_input: str) -> None:
         if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
             return
@@ -225,13 +233,42 @@ class RunService:
             )
 
     def _live_agent_kwargs(self) -> dict[str, object]:
-        if self._settings is None or self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+        if (
+            self._settings is None
+            or self._agent_workflow_mode != AgentWorkflowMode.LIVE
+        ):
             return {}
 
         return {
             "intake_agent": LiveIntakeAgent(settings=self._settings),
             "query_planner": LiveQueryPlannerAgent(settings=self._settings),
-            "discovery_agent": LiveDiscoveryAgent(settings=self._settings),
+            "discovery_agent": LiveDiscoveryAgent(
+                settings=self._settings,
+                research_tools_factory=(
+                    lambda run_id: AgentResearchTools(
+                        agent_name="DiscoveryAgent",
+                        run_id=run_id,
+                        session_factory=None,
+                        shared_session=self._search_source_repository.session,
+                        search_provider=self._search_provider,
+                        extraction_provider=self._extraction_provider,
+                    )
+                )
+                if self._search_source_repository is not None
+                and self._search_provider is not None
+                and self._extraction_provider is not None
+                else None,
+            ),
+            "extraction_agent": LiveExtractionAgent(
+                settings=self._settings,
+                snapshot_tools_factory=lambda request: SnapshotInterpretationTools(
+                    run_id=request.run_id,
+                    allowed_snapshot_ids=request.snapshot_ids,
+                    shared_session=self._search_source_repository.session,
+                ),
+            )
+            if self._search_source_repository is not None
+            else None,
             "category_router_agent": LiveCategoryRouterAgent(settings=self._settings),
             "generic_product_analyst_agent": LiveGenericProductAnalystAgent(
                 settings=self._settings

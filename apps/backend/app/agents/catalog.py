@@ -2,6 +2,7 @@ from enum import StrEnum
 
 from pydantic import Field, model_validator
 
+from app.core.agent_run_profiles import AgentRunProfileName
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 
 
@@ -10,6 +11,24 @@ class AgentStatus(StrEnum):
     CANDIDATE_MVP = "candidate-mvp"
     PROPOSED_LATER = "proposed-later"
     IMPLEMENTED = "implemented"
+    TRANSITIONAL = "transitional"
+
+
+class ResearchDecision(StrEnum):
+    SOURCE_CLASSIFICATION = "source_classification"
+    SOURCE_RELEVANCE = "source_relevance"
+    CANDIDATE_IDENTIFICATION = "candidate_identification"
+    FOLLOW_UP_SEARCH = "follow_up_search"
+    PAGE_SHAPE_INTERPRETATION = "page_shape_interpretation"
+    MULTI_PRODUCT_EXTRACTION = "multi_product_extraction"
+    REVIEW_TO_CANDIDATE = "review_to_candidate"
+    EVIDENCE_INTERPRETATION = "evidence_interpretation"
+
+
+class ApprovedSDKTool(StrEnum):
+    SEARCH_SOURCES = "search_sources"
+    FETCH_SOURCE = "fetch_source"
+    READ_SOURCE_SNAPSHOT = "read_source_snapshot"
 
 
 class AgentKind(StrEnum):
@@ -49,11 +68,26 @@ class AgentCatalogEntry(VersionedSchema):
     provider_requirements: tuple[str, ...] = Field(default_factory=tuple)
     output_schema: str | None = Field(default=None, min_length=1, max_length=200)
     is_reusable_source_agent: bool = False
+    target_research_decisions: tuple[ResearchDecision, ...] = Field(
+        default_factory=tuple
+    )
+    planned_tool_boundaries: tuple[str, ...] = Field(default_factory=tuple)
+    approved_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
+    superseded_by: str | None = Field(default=None, min_length=1, max_length=200)
+    run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
 
     @model_validator(mode="after")
     def _source_agents_require_source_kind(self) -> "AgentCatalogEntry":
         if self.is_reusable_source_agent and self.kind != AgentKind.SOURCE_INTELLIGENCE:
             raise ValueError("reusable source agents require source_intelligence kind.")
+        if self.superseded_by is not None and self.status != AgentStatus.TRANSITIONAL:
+            raise ValueError("only transitional agents may be superseded.")
+        if self.status == AgentStatus.TRANSITIONAL and self.target_research_decisions:
+            raise ValueError(
+                "transitional agents cannot own target research decisions."
+            )
+        if len(set(self.approved_sdk_tools)) != len(self.approved_sdk_tools):
+            raise ValueError("approved SDK tools must be unique per agent.")
         return self
 
 
@@ -77,11 +111,14 @@ class AgentCatalog(VersionedSchema):
             if key != entry.agent_name:
                 raise ValueError("catalog entry keys must match agent_name.")
             self._require_known_agent(entry.parent_agent_name, "parent")
+            self._require_known_agent(entry.superseded_by, "superseding")
             for fallback_name in entry.fallback_agent_names:
                 self._require_known_agent(fallback_name, "fallback")
 
         self._require_known_agent(self.generic_fallback_agent_name, "generic fallback")
-        self._require_known_agent(self.technology_domain_agent_name, "technology domain")
+        self._require_known_agent(
+            self.technology_domain_agent_name, "technology domain"
+        )
 
         for route_target in self.product_category_routes.values():
             self._require_known_agent(route_target, "category route")
@@ -91,7 +128,9 @@ class AgentCatalog(VersionedSchema):
         for source_agent_name in self.reusable_source_agent_names:
             self._require_known_agent(source_agent_name, "source agent")
             if not self.entries[source_agent_name].is_reusable_source_agent:
-                raise ValueError("reusable source agent names must target source agents.")
+                raise ValueError(
+                    "reusable source agent names must target source agents."
+                )
         return self
 
     def get(self, agent_name: str) -> AgentCatalogEntry | None:
@@ -189,6 +228,11 @@ def _entry(
     provider_requirements: tuple[str, ...] = (),
     output_schema: str | None = None,
     is_reusable_source_agent: bool = False,
+    target_research_decisions: tuple[ResearchDecision, ...] = (),
+    planned_tool_boundaries: tuple[str, ...] = (),
+    approved_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
+    superseded_by: str | None = None,
+    run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
 ) -> AgentCatalogEntry:
     return AgentCatalogEntry(
         agent_name=agent_name,
@@ -202,6 +246,11 @@ def _entry(
         provider_requirements=provider_requirements,
         output_schema=output_schema,
         is_reusable_source_agent=is_reusable_source_agent,
+        target_research_decisions=target_research_decisions,
+        planned_tool_boundaries=planned_tool_boundaries,
+        approved_sdk_tools=approved_sdk_tools,
+        superseded_by=superseded_by,
+        run_profile=run_profile,
     )
 
 
@@ -283,6 +332,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="ShoppingGuideAgent",
         output_schema="GuidedIntakeState",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "ShoppingScopeGuardrail": _entry(
         "ShoppingScopeGuardrail",
@@ -291,6 +341,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="ShoppingScopeGuardrail",
         output_schema="ShoppingGuardrailResult",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "IntakeAgent": _entry(
         "IntakeAgent",
@@ -299,6 +350,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="IntakeAgent",
         output_schema="ShoppingBrief",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "QueryPlannerAgent": _entry(
         "QueryPlannerAgent",
@@ -307,6 +359,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="QueryPlannerAgent",
         output_schema="SearchPlan",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "DiscoveryAgent": _entry(
         "DiscoveryAgent",
@@ -315,14 +368,45 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="DiscoveryAgent",
         output_schema="DiscoveryAgentOutput",
+        target_research_decisions=(
+            ResearchDecision.SOURCE_CLASSIFICATION,
+            ResearchDecision.SOURCE_RELEVANCE,
+            ResearchDecision.CANDIDATE_IDENTIFICATION,
+            ResearchDecision.FOLLOW_UP_SEARCH,
+        ),
+        planned_tool_boundaries=("SearchProvider", "ExtractionProvider"),
+        approved_sdk_tools=(
+            ApprovedSDKTool.SEARCH_SOURCES,
+            ApprovedSDKTool.FETCH_SOURCE,
+        ),
+        run_profile=AgentRunProfileName.STRONG,
+    ),
+    "ExtractionAgent": _entry(
+        "ExtractionAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.WORKFLOW_STEP,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="ExtractionAgent",
+        output_schema="ExtractionAgentOutput",
+        target_research_decisions=(
+            ResearchDecision.PAGE_SHAPE_INTERPRETATION,
+            ResearchDecision.MULTI_PRODUCT_EXTRACTION,
+            ResearchDecision.REVIEW_TO_CANDIDATE,
+            ResearchDecision.EVIDENCE_INTERPRETATION,
+        ),
+        planned_tool_boundaries=("SourceSnapshotReader", "MechanicalExtractionHelpers"),
+        approved_sdk_tools=(ApprovedSDKTool.READ_SOURCE_SNAPSHOT,),
+        run_profile=AgentRunProfileName.FAST,
     ),
     "ExtractionReviewAgent": _entry(
         "ExtractionReviewAgent",
-        status=AgentStatus.REQUIRED_MVP,
+        status=AgentStatus.TRANSITIONAL,
         kind=AgentKind.WORKFLOW_STEP,
         invocation_mode=InvocationMode.TOOL_SUBRUN,
         contract_name="ExtractionReviewAgent",
         output_schema="ExtractionReviewAgentOutput",
+        superseded_by="ExtractionAgent",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "DeduplicationReviewAgent": _entry(
         "DeduplicationReviewAgent",
@@ -331,6 +415,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TOOL_SUBRUN,
         contract_name="DeduplicationReviewAgent",
         output_schema="DeduplicationDecision",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "CategoryRouterAgent": _entry(
         "CategoryRouterAgent",
@@ -339,6 +424,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="CategoryRouterAgent",
         output_schema="ProductAnalysisRoute",
+        run_profile=AgentRunProfileName.FAST,
     ),
     "GenericProductAnalystAgent": _entry(
         "GenericProductAnalystAgent",
@@ -348,6 +434,7 @@ _DEFAULT_AGENT_ENTRIES = {
         contract_name="GenericProductAnalystAgent",
         routing_categories=("generic", "*"),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "TechnologyDomainAnalystAgent": _entry(
         "TechnologyDomainAnalystAgent",
@@ -358,6 +445,7 @@ _DEFAULT_AGENT_ENTRIES = {
         routing_categories=_DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS,
         fallback_agent_names=("GenericProductAnalystAgent",),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "MonitorSpecialistAgent": _entry(
         "MonitorSpecialistAgent",
@@ -372,6 +460,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartphoneSpecialistAgent": _entry(
         "SmartphoneSpecialistAgent",
@@ -386,6 +475,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "LaptopSpecialistAgent": _entry(
         "LaptopSpecialistAgent",
@@ -400,6 +490,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "EarphonesHeadphonesSpecialistAgent": _entry(
         "EarphonesHeadphonesSpecialistAgent",
@@ -414,6 +505,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "TVSpecialistAgent": _entry(
         "TVSpecialistAgent",
@@ -428,6 +520,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartwatchSpecialistAgent": _entry(
         "SmartwatchSpecialistAgent",
@@ -442,6 +535,7 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "SellerListingTrustAgent": _entry(
         "SellerListingTrustAgent",
@@ -450,6 +544,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="SellerListingTrustAgent",
         output_schema="ListingTrustAssessment",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "YouTubeReviewIntelligenceAgent": _entry(
         "YouTubeReviewIntelligenceAgent",
@@ -514,6 +609,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="ComparisonDecisionAgent",
         output_schema="RecommendationBundle",
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "VerifierCriticAgent": _entry(
         "VerifierCriticAgent",
@@ -522,6 +618,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.FINAL_TYPED_STEP,
         contract_name="VerifierCriticAgent",
         output_schema="VerificationReport",
+        run_profile=AgentRunProfileName.STRONG,
     ),
 }
 

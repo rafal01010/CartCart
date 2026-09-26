@@ -1,7 +1,17 @@
+from dataclasses import replace
 from enum import StrEnum
+from typing import Any
 
+from agents import Agent
 from pydantic import Field
+from openai.types.shared import Reasoning
 
+from app.agents.catalog import DEFAULT_AGENT_CATALOG
+from app.core.agent_run_profiles import (
+    AgentRunProfileName,
+    AgentRunProfileOptions,
+    ReasoningEffort,
+)
 from app.core.settings import Settings
 from app.schemas.base import CartCartBaseModel
 
@@ -23,8 +33,10 @@ class OpenAIAgentRunConfiguration(CartCartBaseModel):
     mode: OpenAIAgentRuntimeMode
     live_agents_enabled: bool
     model: str = Field(min_length=1, max_length=200)
+    run_profile: AgentRunProfileName
     timeout_seconds: float = Field(gt=0, le=300)
     max_turns: int = Field(ge=1, le=50)
+    reasoning_effort: ReasoningEffort | None = None
     tracing_enabled: bool
     trace_include_sensitive_data: bool
     trace_workflow_name: str = Field(min_length=1, max_length=120)
@@ -32,6 +44,21 @@ class OpenAIAgentRunConfiguration(CartCartBaseModel):
     api_key_configured: bool
     api_key_env_var: str = OPENAI_API_KEY_ENV_VAR
     missing_env_var: str | None = None
+
+    @property
+    def reasoning(self) -> Reasoning | None:
+        if self.reasoning_effort is None:
+            return None
+        return Reasoning(effort=self.reasoning_effort)
+
+
+def apply_openai_agent_run_profile(
+    agent: Agent[Any], configuration: OpenAIAgentRunConfiguration
+) -> None:
+    """Keep model-specific settings on the agent, not the whole SDK run."""
+    reasoning = configuration.reasoning
+    if reasoning is not None:
+        agent.model_settings = replace(agent.model_settings, reasoning=reasoning)
 
 
 def build_openai_agent_run_configuration(
@@ -41,6 +68,44 @@ def build_openai_agent_run_configuration(
     session_id: str | None = None,
     run_id: str | None = None,
 ) -> OpenAIAgentRunConfiguration:
+    entry = DEFAULT_AGENT_CATALOG.get(agent_name) if agent_name else None
+    if agent_name is not None and entry is None:
+        raise OpenAIAgentConfigurationError(
+            f"Unknown registered agent for OpenAI run configuration: {agent_name}"
+        )
+    profile_name = (
+        entry.run_profile if entry is not None else AgentRunProfileName.DEFAULT
+    )
+    default_profile = settings.openai_run_profiles.get(
+        AgentRunProfileName.DEFAULT, AgentRunProfileOptions()
+    )
+    profile = settings.openai_run_profiles.get(profile_name, AgentRunProfileOptions())
+    override = settings.openai_agent_overrides.get(
+        agent_name or "", AgentRunProfileOptions()
+    )
+    model = (
+        override.model
+        or profile.model
+        or default_profile.model
+        or settings.openai_model
+    )
+    timeout_seconds = (
+        override.timeout_seconds
+        or profile.timeout_seconds
+        or default_profile.timeout_seconds
+        or settings.openai_agent_timeout_seconds
+    )
+    max_turns = (
+        override.max_turns
+        or profile.max_turns
+        or default_profile.max_turns
+        or settings.openai_agent_max_turns
+    )
+    reasoning_effort = (
+        override.reasoning_effort
+        or profile.reasoning_effort
+        or default_profile.reasoning_effort
+    )
     api_key_configured = settings.openai_api_key is not None
     live_ready = settings.live_agents_enabled and api_key_configured
     mode = (
@@ -57,9 +122,11 @@ def build_openai_agent_run_configuration(
     return OpenAIAgentRunConfiguration(
         mode=mode,
         live_agents_enabled=settings.live_agents_enabled,
-        model=settings.openai_model,
-        timeout_seconds=settings.openai_agent_timeout_seconds,
-        max_turns=settings.openai_agent_max_turns,
+        model=model,
+        run_profile=profile_name,
+        timeout_seconds=timeout_seconds,
+        max_turns=max_turns,
+        reasoning_effort=reasoning_effort,
         tracing_enabled=settings.openai_agent_tracing_enabled,
         trace_include_sensitive_data=(
             settings.openai_agent_trace_include_sensitive_data
@@ -71,6 +138,9 @@ def build_openai_agent_run_configuration(
             session_id=session_id,
             run_id=run_id,
             mode=mode,
+            model=model,
+            run_profile=profile_name,
+            reasoning_effort=reasoning_effort,
         ),
         api_key_configured=api_key_configured,
         missing_env_var=missing_env_var,
@@ -111,15 +181,21 @@ def _trace_metadata(
     session_id: str | None,
     run_id: str | None,
     mode: OpenAIAgentRuntimeMode,
+    model: str,
+    run_profile: AgentRunProfileName,
+    reasoning_effort: ReasoningEffort | None,
 ) -> dict[str, str]:
     metadata = {
         "app": "cartcart",
         "environment": settings.environment.value,
         "agent_runtime_mode": mode.value,
-        "model": settings.openai_model,
+        "model": model,
+        "run_profile": run_profile.value,
     }
     if agent_name:
         metadata["agent_name"] = agent_name
+    if reasoning_effort:
+        metadata["reasoning_effort"] = reasoning_effort
     if session_id:
         metadata["session_id"] = session_id
     if run_id:

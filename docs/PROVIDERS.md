@@ -21,7 +21,7 @@ or dependency to be configured explicitly.
 | Boundary | Contract | Current implementation and limits |
 | --- | --- | --- |
 | General search | `SearchProvider` | Deterministic fake provider and live Tavily HTTP adapter. `brave` is reserved in settings but has no runtime adapter yet. Search returns normalized `SearchResult` records; it does not fetch or extract pages. |
-| Extraction | `ExtractionProvider` | Fixture and disabled modes plus the concrete `HttpStaticExtractionProvider`. The shopping run orchestrator sends a bounded, URL-deduplicated set of eligible pages through this boundary, persists successful, failed, and excluded snapshots linked to their search results, and creates shortlist candidates only from usable product/listing pages. The adapter validates public-network destinations and redirects, applies bounded retries only to retryable failures, stores successful HTML, and uses Trafilatura-backed static extraction. `DynamicExtractionPolicy` records static sufficiency and sparse results while browser extraction remains an optional future fallback. No browser runtime is installed or invoked. |
+| Extraction/retrieval | `ExtractionProvider` | Fixture and disabled modes plus `HttpStaticExtractionProvider`. It fetches a bounded, URL-deduplicated current selection and persists successful, failed, or excluded snapshots. HTTP/public-network checks, retries, content limits, and Trafilatura text extraction are mechanical provider work, not product/listing interpretation. The live path sends persisted snapshots through a bounded `ExtractionAgent` reader and accepts validated zero/one/many entities; fixture mode retains the legacy one-listing normalizer. No browser runtime is installed or invoked. |
 | Shopping search | `ShoppingProvider` | Typed optional contract and fake provider for direct test substitution only. There is no generic shopping runtime setting. The SerpApi Amazon adapter is source-specific product intelligence, not the generic shopping provider. |
 | Video metadata | `VideoSearchProvider` | Fake provider plus the official YouTube Data API metadata adapter. It uses `search.list` and `videos.list`; transcript availability remains unchecked. |
 | Video transcripts | `TranscriptProvider` | Deterministic fake plus `YtDlpTranscriptProvider` for explicitly enabled public-caption retrieval. The live adapter requests manual subtitles before automatic captions, parses bounded WebVTT into timestamped language-aware segments, and returns explicit gaps instead of fixture text when access fails. |
@@ -34,6 +34,29 @@ Provider options carry source policy, region, and result-limit context. Shared
 timeout and rate-limit defaults live in runtime settings. Adapters return typed
 records or explicit evidence gaps. Agents and workflow code must not call vendor
 SDKs, scrape sites, or invent a second provider path around these boundaries.
+
+The run-scoped `AgentResearchTools` adapter now supplies two OpenAI Agents SDK
+function tools approved only for `DiscoveryAgent`: `search_sources` accepts a
+validated query, search intent, two-letter region, and bounded result count;
+`fetch_source` accepts only a persisted search-result ID from the same run.
+Neither tool accepts vendor parameters, credentials, source policy, or an
+arbitrary URL. The backend injects approved provider adapters and policy,
+applies call/result/text budgets, rejects obviously private or credentialed
+provider URLs, and commits search results and snapshots before returning IDs.
+The underlying HTTP extraction provider still enforces public-network checks,
+redirect, timeout, retry, and content-size limits. Tool output includes neutral
+query-free URLs, short excerpts, a safe provider label, and stable source or
+snapshot IDs, not raw provider metadata, artifact paths, or secrets. Provider
+exceptions become typed gaps without disclosing their messages. The SDK traces
+invocations when these tools are attached, and the same activity summaries fit
+the internal workbench response. A fixture-only workbench probe exercises the
+two tools against disposable persistence and shows their activity; the catalog
+lists approved names. Live `DiscoveryAgent` can invoke them with bounded calls
+and classify every observed source; the downstream agent-led extraction loop
+is subsequent work.
+`ExtractionAgent` now has a separately approved, read-only, run-scoped
+snapshot-reader boundary. Generic `SearchResult` records remain available to
+agents, not grounds for automatic rejection.
 
 Shopping runs invoke reusable source-intelligence providers after normal
 discovery and extraction have produced candidate products/listings. The workflow
@@ -129,8 +152,9 @@ review intelligence, provider-backed Reddit community intelligence,
 provider-backed Amazon product intelligence, and provider-backed IKEA regional
 store intelligence. The normal shopping-run orchestrator can call these typed
 agents when `CARTCART_AGENT_WORKFLOW_MODE=live`; fixture mode remains default.
-Discovery mode selects only source IDs from supplied search results and returns
-`insufficient_candidates` when no credible source remains. Generic product
+Current discovery mode selects only source IDs from supplied search results and returns
+`insufficient_candidates` when no credible source remains; it does not yet own
+search or semantic classification. Generic product
 analysis consumes only supplied product/listing/evidence bundles, uses no direct
 tools, and returns evidence limitations for weak inputs instead of blocking
 ordinary categories. Technology-domain analysis also uses no direct tools,
@@ -321,7 +345,7 @@ claim that they were captured live unless a reviewed recorder is added later.
 - Prefer documented APIs and approved domain-scoped search. Do not bypass
   authentication, robots controls, access restrictions, rate limits, or blocked
   content.
-- Keep page extraction static-first. Browser automation is an optional fallback,
+- Keep page retrieval/text extraction static-first. Browser automation is an optional fallback,
   disabled by default, and should be considered only after usable static HTML
   extraction fails. Enabling a dynamic provider must not bypass source policy or
   access restrictions.

@@ -14,7 +14,10 @@ from app.agents.catalog import (
     build_default_agent_catalog,
 )
 from app.agents.contracts import ProductAnalysisAgentInput
-from app.agents.openai_config import build_openai_agent_run_configuration
+from app.agents.openai_config import (
+    apply_openai_agent_run_profile,
+    build_openai_agent_run_configuration,
+)
 from app.core.settings import Settings
 from app.schemas.analysis import CategoryAnalysis
 from app.schemas.confidence import Confidence, ConfidenceLevel
@@ -104,10 +107,9 @@ class LiveSmartphoneSpecialistAgent:
             run_id=str(input_data.run_id),
         )
         agent = _build_smartphone_specialist_agent(configuration.model)
+        apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model=configuration.model,
             model_settings=ModelSettings(
-                temperature=0,
                 max_tokens=1200,
                 include_usage=True,
             ),
@@ -209,7 +211,6 @@ def _build_smartphone_specialist_agent(model: str) -> Agent[Any]:
         name="CartCartSmartphoneSpecialistAgent",
         model=model,
         model_settings=ModelSettings(
-            temperature=0,
             max_tokens=1200,
             include_usage=True,
         ),

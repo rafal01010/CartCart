@@ -90,6 +90,15 @@ Local-only internal agent workbench endpoints may be mounted at
 `/internal/agent-workbench` when `CARTCART_AGENT_WORKBENCH_ENABLED=true` in a
 local, test, or fixture environment. They are deliberately excluded from the
 public OpenAPI contract and must not be consumed by the normal shopper UI.
+`POST /internal/agent-workbench/research-tools/probe` accepts a validated
+search query/intent/region/result limit, exercises fixture search and retrieval
+against disposable in-memory persistence, and returns safe source/snapshot IDs,
+typed tool results, and workbench tool-activity summaries. It never calls live
+providers or models and is not the normal discovery workflow.
+The local workbench also has isolated `ExtractionAgent` cases for an individual
+product page, an ambiguous page, malformed model output, and a multi-product
+page. Mock mode uses disposable persisted snapshots and no live model calls;
+live mode is explicit and may incur OpenAI usage.
 
 ## Endpoint Responsibilities
 

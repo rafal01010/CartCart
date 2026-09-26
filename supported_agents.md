@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
-Status: Finalized design artifact for review before agent implementation
-Last updated: 2026-06-21
+Status: Agent-first research target with transitional runtime called out below
+Last updated: 2026-09-25
 
 ## Purpose
 
@@ -28,6 +28,50 @@ Reusable source intelligence means retrieving usable source-backed information, 
 ## Architectural Decision
 
 CartCart uses deterministic workflow orchestration with typed agent steps. The orchestrator owns workflow stages, persisted state, evidence, errors, retries, and tracing.
+
+Research semantics belong to agents, not to provider metadata or page-shape
+heuristics. `DiscoveryAgent` classifies and judges search results, identifies
+product leads from reviews, and chooses bounded follow-up searches and pages to
+inspect. `ExtractionAgent` is the required primary interpreter of persisted
+source snapshots: it can return zero, one, or many cited products/listings,
+product mentions, review evidence, and explicit gaps. A review is evidence and
+a source of candidate leads, not a store listing. Deterministic code owns
+request validation, approved provider access and credentials, URL/network
+safety, rate/size/cost limits, mechanical parsing signals, persistence,
+schema/evidence-ID integrity, and policy enforcement. Helpers may propose
+fields or reject invalid output but may not silently veto or replace an
+agent's semantic source/product decision.
+
+This is partly implemented. Live `DiscoveryAgent` receives pre-fetched results,
+can call bounded search/fetch SDK tools, and returns a decision for each
+inspected source, including generic results. Live `ExtractionAgent` now
+interprets persisted snapshots and can return multiple listings; the fixture
+path still uses the one-listing `ProductListingExtractor`. The fixture-only
+`ExtractionReviewAgent` is transitional compatibility, superseded by
+`ExtractionAgent`; it is not the target extraction architecture. The catalog's
+`planned_tool_boundaries` are design declarations; `approved_sdk_tools` is the
+active allowlist. The bounded review-to-listing loop and category-safe fixture
+behavior remain implementation work.
+
+The executable catalog now also assigns `fast`, `strong`, or `default` run
+profiles. Strong is assigned to complex research/analysis, listing trust,
+comparison, and verification; fast is assigned to bounded intake, planning,
+routing, guardrail, and `ExtractionAgent`. These are
+operator-configured model/timeout/turn defaults, not a shopper-visible choice.
+
+The executable catalog separately allowlists `search_sources` and
+`fetch_source` for `DiscoveryAgent` only. Their run-scoped adapter accepts
+bounded query/intent/region/result-count choices and existing source IDs, then
+persists provider results/snapshots before returning IDs and safe excerpts.
+It does not expose provider credentials, vendor arguments, arbitrary-URL fetch,
+or raw metadata. The isolated workbench lists the approved tools and can show
+the adapter's tool activity in a fixture-only probe. In live workflow mode,
+`DiscoveryAgent` receives the SDK tools and may search again or inspect a
+same-run source by ID; fixture/mock modes make no live provider calls.
+An exact-agent override wins over the catalog profile for model, reasoning
+effort, timeout, and max turns, and omitted settings
+fall back to the global OpenAI configuration. Profiles do not activate live
+workflow mode or change the fixture-first default.
 
 Specialized product/domain agents should normally be invoked as typed sub-runs or agents-as-tools when the orchestrator needs a scoped analysis result. OpenAI Agents SDK handoffs should be used only when a specialist should actually take over control of a conversational turn.
 
@@ -60,6 +104,7 @@ The product must support broad shopping queries even when no deep specialist exi
 | `candidate-mvp` | Intended for MVP, pending explicit implementation and provider feasibility decisions. |
 | `proposed-later` | Useful future capability; not required for MVP. |
 | `implemented` | Change to this status only once code, tests, and eval coverage exist. |
+| `transitional` | Compatibility contract retained for current fixtures/workbench; not a target MVP research role. |
 
 ## Primary Product Analysis Hierarchy
 
@@ -70,7 +115,8 @@ ShoppingRunOrchestrator                                      [required-mvp]
   IntakeAgent                                                [required-mvp]
   QueryPlannerAgent                                          [required-mvp]
   DiscoveryAgent                                             [required-mvp]
-  ExtractionReviewAgent                                      [required-mvp]
+  ExtractionAgent                                            [required-mvp; live extraction]
+  ExtractionReviewAgent                                      [transitional; compatibility only]
   DeduplicationReviewAgent                                   [required-mvp]
   CategoryRouterAgent                                        [required-mvp]
     GenericProductAnalystAgent (fallback for all categories) [required-mvp]
@@ -229,8 +275,9 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `ShoppingScopeGuardrail` | `required-mvp` | Keep requests within shopping scope and safe consumer-product scope before discovery starts. | Early typed guardrail | Current user input and guided intake context | Allowed or blocked/redirection result | Return short regular-person-facing redirection copy and do not start discovery or analysis for blocked requests. |
 | `IntakeAgent` | `required-mvp` | Interpret user goal, inferred category, region, budget, hard constraints, soft preferences, and clarification needs. | Typed step | Query and explicit controls | `ShoppingBrief` | Ask for correction or preserve uncertainty when critical intent is ambiguous. |
 | `QueryPlannerAgent` | `required-mvp` | Plan region-aware searches and source strategy, including scoped lookup queries for user-considered product names/descriptions and when video-review search is useful. | Typed step | `ShoppingBrief` plus user-added product hints | `SearchPlan` | Generic shopping query plan. |
-| `DiscoveryAgent` | `required-mvp` | Select candidate products, listings, and evidence sources from supplied search results for extraction, including matched user-added name/description lookup results. | Typed step | Brief, plan, search results | Candidate source selections | Keep only evidence-backed discovered items; report insufficient candidates. |
-| `ExtractionReviewAgent` | `required-mvp` | Review structured extraction when deterministic extraction is incomplete or ambiguous. | Tool/sub-run only when needed | Source snapshot/extracted fields | Corrected `ProductListing` / `SourceEvidence` | Retain unknown fields; never invent missing facts. |
+| `DiscoveryAgent` | `required-mvp` | Own semantic source classification/relevance, product leads from reviews, and bounded follow-up search/fetch decisions, including user-considered products. | Typed agent step with approved search/retrieval tools | Brief, plan, persisted provider results and cited leads | Per-source kind, confidence, reasons, treatment, candidate/model hints, next action, and selected IDs | Keep generic search results available for judgment; return explicit insufficient evidence if classification fails. |
+| `ExtractionAgent` | `required-mvp` | Primarily interpret each persisted page, including review roundups and multi-product collection pages; separate product, listing, seller, and review facts. | Live typed agent step over approved persisted-snapshot reader | Assigned snapshot IDs and bounded page text | Zero/one/many cited products/listings, review mentions/evidence, and gaps | Preserve unknowns; invalid citations/schema become explicit gaps. Review mentions are not yet fed into follow-up research. |
+| `ExtractionReviewAgent` | `transitional` | Existing fixture/workbench compatibility contract only; superseded by `ExtractionAgent`. | Fixture sub-run only; not the target live path | Existing snapshot/extracted fields | Legacy `ExtractionReviewAgentOutput` | Do not promote its fixture monitor output into an unrelated category. |
 | `DeduplicationReviewAgent` | `required-mvp` | Review ambiguous duplicate candidates after deterministic matching. | Tool/sub-run only for uncertain pairs | Listings and match evidence | `DeduplicationDecision` | Preserve candidates as distinct when confidence is insufficient. |
 | `CategoryRouterAgent` | `required-mvp` | Select implemented specialist or generic fallback. | Deterministic catalog plus typed routing decision where needed | Brief and candidates | Declared route | Always route unsupported/uncertain categories to generic fallback. |
 | `GenericProductAnalystAgent` | `required-mvp` | Analyze product fit and tradeoffs for any shopping category. | Specialist tool/sub-run | Brief, product/evidence bundle | `CategoryAnalysis` | Mark limitations and evidence gaps instead of refusing unsupported categories. |
@@ -273,10 +320,10 @@ guide uses structured output, deterministic guardrail prechecks, mocked/live
 workbench scenarios, and an `IntakeAgent` handoff only when it reaches
 `ready_for_analysis`. The live query planner uses structured output with no
 tools and falls back to a generic region-aware search plan rather than blocking
-categories without specialists. The live discovery agent uses structured output
-with no tools, selects only source IDs from supplied search results, rejects
-weak/proxy-like selections, and returns an insufficient-candidates outcome when
-no credible source remains. The live category router uses structured output with
+categories without specialists. The currently implemented live discovery agent
+uses structured output with no tools and selects IDs from supplied search
+results. This is transitional: it cannot search again or inspect a generic
+result discarded by orchestration. The live category router uses structured output with
 no tools, normalizes route decisions through the executable catalog, sends MVP
 technology specialist categories through `TechnologyDomainAnalystAgent`, and
 falls back to `GenericProductAnalystAgent` for unsupported or uncertain
@@ -390,8 +437,9 @@ provider arguments or call vendor SDKs directly.
 | `ShoppingGuideAgent` | None. | `IntakeAgent` only after enough information exists. | Guided-intake state service and deterministic guardrail precheck. | Product recommendations, source retrieval, product links as normal intake, raw provider/tool controls. |
 | `IntakeAgent` | None. | None. | None beyond supplied user/session input. | Search, extraction, source intelligence, recommendation generation, invented region/budget certainty. |
 | `QueryPlannerAgent` | None. | None. | None directly. The workflow calls `SearchProvider` adapters after a validated `SearchPlan` is returned and may provide user-added product hints for scoped lookup queries. | Direct web search, browsing, provider SDK calls, category blocking because no specialist exists, asking users for product links. |
-| `DiscoveryAgent` | None. | None. | None directly. It selects IDs only from supplied `SearchResult` records produced by workflow search providers, including user-added lookup result records. | Fabricating products/listings/source IDs, fetching pages, browsing, provider SDK calls. |
-| `ExtractionReviewAgent` | Not implemented live yet. | May be a typed sub-run only for ambiguous or incomplete extraction. | Supplied `SourceSnapshot`, extracted fields, and deterministic extraction outputs. | Fetching new pages, scraping, inventing missing facts, bypassing extraction provider policy. |
+| `DiscoveryAgent` | `search_sources` and `fetch_source` are attached as bounded SDK function tools in the live shopping run. | None today. | Supplied persisted `SearchResult` IDs plus run-scoped typed `SearchProvider`/`ExtractionProvider` calls, with backend-owned credentials, source policy, URL validation, result/snapshot persistence, and stable IDs. | Arbitrary URLs/provider arguments, vendor SDKs, unbounded browsing, fabricated source IDs, discarding generic results solely for their provider type. |
+| `ExtractionAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None today. | Typed output with valid source/evidence IDs and zero/one/many products/listings; backend validates entity links, neutral listing URLs, and cited price text. | Direct scraping/vendor SDKs, invented facts/IDs, treating review articles as stores, collapsing multiple products into one page title. |
+| `ExtractionReviewAgent` | Fixture/workbench compatibility only; no live SDK tools. | None in target architecture. | Existing legacy snapshot/extraction contract until replacement. | Being treated as the primary semantic interpreter or injecting monitor fixtures for unrelated requests. |
 | `DeduplicationReviewAgent` | Not implemented live yet. | May be a typed sub-run only for uncertain duplicate pairs. | Supplied product/listing/evidence records and deterministic dedupe signals. | Collapsing uncertain products without evidence, fetching new source data. |
 | `CategoryRouterAgent` | None. | None. | Executable agent catalog for allowed route normalization and fallback. | Calling analysts directly, inventing specialists, unsupported-category refusal for normal products. |
 | `GenericProductAnalystAgent` | None. | May receive orchestrated source-intelligence outputs; may later request approved source-intelligence sub-runs only if explicitly implemented. | Supplied product/listing/evidence bundles and trust context. | Raw search, scraping, vendor SDK calls, unsupported-category refusal for normal products. |
@@ -414,7 +462,8 @@ provider arguments or call vendor SDKs directly.
 
 - `ShoppingBrief` is owned by intake and user corrections.
 - `SearchPlan` and source strategy are owned by query planning.
-- `ProductListing`, `SourceSnapshot`, and `SourceEvidence` are produced by deterministic extraction first, with extraction review only when needed.
+- `SearchResult` and `SourceSnapshot` are provider/persistence records, not semantic product classifications. Generic results remain eligible for agent inspection.
+- Live `ExtractionAgent` output owns cited `CanonicalProduct`, `ProductListing`, product mentions, `SourceEvidence`, and explicit gaps; one snapshot may yield zero, one, or many entities. Deterministic parsing may provide signals, while schema/source-ID validation and policy checks remain hard backend gates. `ProductListingExtractor` remains a fixture/legacy helper, not the live semantic authority.
 - `DeduplicationDecision` records duplicate reasoning and must preserve uncertain cases.
 - `ReusableSourceIntelligenceRequest` is the shared request boundary for source agents. It includes the shopping brief, target region, candidate product/listing/source IDs, optional source-specific query hints, requested source capabilities, and allowed-provider/capability descriptors.
 - `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status, source references, timestamped transcript evidence where available, explicit transcript gaps where unavailable, and sponsorship/affiliate-bias signals.

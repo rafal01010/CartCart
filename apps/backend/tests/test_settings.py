@@ -47,6 +47,8 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
     assert settings.openai_model == DEFAULT_OPENAI_AGENT_MODEL
     assert settings.openai_agent_timeout_seconds == 45.0
     assert settings.openai_agent_max_turns == 8
+    assert settings.openai_run_profiles == {}
+    assert settings.openai_agent_overrides == {}
     assert settings.openai_agent_tracing_enabled is False
     assert settings.openai_agent_trace_include_sensitive_data is False
     assert settings.openai_agent_trace_workflow_name == "cartcart-agent-run"

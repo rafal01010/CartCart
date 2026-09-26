@@ -6,7 +6,9 @@ from app.agents.workbench import (
     AgentWorkbenchRunRequest,
     AgentWorkbenchRunResult,
     AgentWorkbenchRunner,
+    ResearchToolWorkbenchProbeResult,
 )
+from app.agents.research_tools import SearchSourcesRequest
 from app.core.errors import ApplicationError
 from app.core.settings import Settings
 
@@ -39,6 +41,19 @@ async def run_agent_workbench(
     runner = _runner_for_request(request)
     try:
         return await runner.run(run_request)
+    except AgentWorkbenchError as exc:
+        raise _application_error(exc) from exc
+
+
+@router.post("/research-tools/probe")
+async def probe_research_tools(
+    probe_request: SearchSourcesRequest,
+    request: Request,
+) -> ResearchToolWorkbenchProbeResult:
+    _require_local_client(request)
+    runner = _runner_for_request(request)
+    try:
+        return await runner.probe_research_tools(probe_request)
     except AgentWorkbenchError as exc:
         raise _application_error(exc) from exc
 

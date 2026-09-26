@@ -218,7 +218,7 @@ The isolated workbench also exposes live OpenAI Agents SDK `QueryPlannerAgent`,
 Query planning produces region-aware shopping, review, official-source, price,
 and video-review query strategy without tools, and falls back to a generic
 search plan instead of blocking product categories that lack specialists.
-Discovery selects only supplied search-result source IDs for extraction, rejects
+Current discovery selects only supplied search-result source IDs for extraction, rejects
 weak/proxy-like selections, and returns `insufficient_candidates` when no
 credible source remains. Category routing uses no tools, normalizes model output
 through the executable catalog, sends MVP technology specialist categories
@@ -283,7 +283,37 @@ source retrieval or analysis runs.
 
 ## Workflow Architecture
 
-CartCart should use deterministic workflow orchestration around typed agent steps. The backend `ShoppingRunOrchestrator` owns workflow state, persistence hooks, trace IDs, emitted progress events, and the fixture monitor-shopping fallback bundle. `POST /api/sessions/{session_id}/runs` executes synchronously. Query planning and discovery use the configured search provider, eligible results use the configured extraction provider, usable extraction output creates normalized app-generated candidates, deterministic deduplication persists grouped products/listings/shortlist memberships, reusable source-intelligence providers can add source-specific evidence bundles for grouped candidates, and listing trust runs through the typed trust-agent contract seeded by deterministic rules. The normal run path remains fixture-first by default, but can opt into live typed agents with `CARTCART_AGENT_WORKFLOW_MODE=live`, `CARTCART_LIVE_AGENTS_ENABLED=true`, and a local `OPENAI_API_KEY`. In live workflow mode, the orchestrator can call live guarded intake/intake, query planning, discovery selection, category routing, generic/domain/specialist product analysis, reusable source-intelligence agents, seller/listing trust, comparison decision, and verifier steps through their typed protocols while preserving deterministic fallbacks.
+CartCart uses deterministic orchestration around agent-owned research decisions.
+The backend owns stage order, typed tool safety, budgets, persistence, hard
+schema/evidence-ID validation, policy enforcement, trace IDs, and user-safe
+events. `DiscoveryAgent` owns semantic source classification, relevance,
+candidate/model hints, review-to-candidate leads, and follow-up search/fetch
+decisions. `ExtractionAgent` is the primary interpreter of persisted snapshots
+and may return zero, one, or many cited products/listings and evidence records
+from a page. Mechanical HTML/text/JSON-LD/currency/identifier parsing remains
+available as signals or explicit fallback, never as an undisclosed semantic
+gate. Review evidence stays separate from retailer offers. Failed optional
+sources become explicit gaps; a category-incompatible fixture is not a valid
+fallback.
+
+The current runtime has **not** reached the full research-loop target.
+Run-scoped OpenAI Agents SDK `search_sources` and `fetch_source` function tools
+now wrap the approved search/extraction providers. They validate bounded agent
+choices, resolve fetches only from persisted same-run search IDs, commit source
+and snapshot records before revealing IDs, and return safe excerpts instead of
+credentials or raw provider metadata. The executable catalog approves search/fetch for
+`DiscoveryAgent` only. Live discovery now receives both tools and emits a
+structured decision for every observed source, including generic provider
+results; planned query source types are not stamped onto provider results.
+`POST /api/sessions/{session_id}/runs` executes synchronously; search is called by
+orchestration, live `DiscoveryAgent` can conduct bounded follow-up searches and
+select generic results for inspection. Live `ExtractionAgent` reads selected
+persisted snapshots through a bounded same-run tool and returns validated
+zero/one/many products, listings, evidence, mentions, and gaps. Its listings feed
+the current shortlist path, but review mentions do not yet trigger follow-up
+discovery. Fixture runs still contain monitor data. These are
+transitional limitations, not the intended agent ownership. The normal run
+path remains fixture-first; live typed agents require explicit configuration.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
 
@@ -298,9 +328,12 @@ Recommended stages:
    requests before discovery.
 5. Intake produces a typed `ShoppingBrief`.
 6. Query planning creates region-aware search and source plans.
-7. Search provider adapters collect web, product, or source-intelligence results.
-8. Fetch and extraction store source snapshots and structured evidence.
-9. Candidate generation normalizes product and listing data.
+7. `DiscoveryAgent` uses approved, bounded search tools to classify all returned
+   results, including generic provider results, and decide what to inspect.
+8. Approved retrieval tools persist snapshots; `ExtractionAgent` interprets each
+   page and keeps review evidence, product mentions, and listings distinct.
+9. Cited product/listing candidates may drive bounded follow-up listing lookup;
+   backend validation persists valid entities and explicit gaps.
 10. Deduplication groups obvious duplicates while preserving all listing-level
     seller, price, availability, and source-quality differences.
 11. Reusable source-intelligence checks add relevant YouTube/video, Reddit/community, Amazon, and IKEA evidence bundles for grouped products without replacing normal web/listing evidence.
@@ -313,6 +346,13 @@ Recommended stages:
 ## Agent And Source Capability Model
 
 `supported_agents.md` is the public, human-editable source of intent for supported agents, reusable source capabilities, routing, and fallback behavior. Runtime code must not parse that Markdown file. Agent wrapper contracts, deterministic fake implementations, and the validated executable catalog live under `apps/backend/app/agents`; these define typed input/output boundaries, current routing categories, fallback paths, reusable source capabilities, provider requirements, and invocation modes without live model calls. In fixture mode, `ShoppingGuideAgent` and `ShoppingScopeGuardrail` use the guided intake schemas to return user-facing question state, skip/reanswer metadata, ready-for-analysis briefs, or short blocked-request redirections before discovery starts. Live `ShoppingGuideAgent`, `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` implementations are available through the same typed protocols in the isolated workbench and, when explicitly configured, the normal shopping-run orchestrator. The verifier consumes the draft recommendation bundle plus products, listings, source evidence, trust assessments, category analyses, and dedupe decisions; it uses no tools and adds deterministic output guardrails for unsupported claims, suspicious-listing caveats, hard-budget violations, duplicate/result conflicts, overconfident or unsafe wording, and internal process language. `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are provider-backed reusable source-intelligence agents available to the workbench and opt-in normal workflow through typed provider/service boundaries only. They return source-specific evidence bundles rather than final recommendations.
+
+Each catalog entry also declares an operator-configured OpenAI run profile
+(`fast`, `strong`, or `default`). The shared runtime resolver combines an
+exact-agent override, assigned profile, optional default profile, and global
+fallback for model, reasoning effort, timeout, and max turns. SDK runners, workbench output,
+trace metadata, and persisted model-backed stage records use that resolution;
+fixture/mock execution only reports it and does not call a model.
 The current fixture shopping-run workflow also calls the typed
 `SellerListingTrustAgent` contract for listing trust review, seeded by
 deterministic trust rules, before final fixture recommendations are persisted.
@@ -339,7 +379,7 @@ Required MVP agent roles include:
 - `IntakeAgent`
 - `QueryPlannerAgent`
 - `DiscoveryAgent`
-- `ExtractionReviewAgent`
+- `ExtractionAgent` (live primary snapshot interpreter)
 - `DeduplicationReviewAgent`
 - `CategoryRouterAgent`
 - `GenericProductAnalystAgent`
@@ -521,18 +561,17 @@ optional even when enabled; the policy returns a decision but does not launch
 Playwright, Crawl4AI, or any other browser runtime. Sparse static results are marked
 partial and retain the policy decision metadata.
 
-`ProductListingExtractor` is the deterministic v1 normalization step after
-search or static page extraction. It converts selected search-result snippets
-and extracted product, retailer, or official-brand pages into a linked
-`CanonicalProduct` and `ProductListing`. Brand remains product-level data rather
-than being duplicated on the listing, while exact product identifiers such as
-model, SKU, UPC, and EAN remain available for later matching when known. Listing
-identity may include a canonicalized listing URL and retailer product ID. Price
-and currency remain a single `Money` value, region hints become unknown-status
-`RegionAvailability` entries, and the extraction result records explicit
-missing-data flags plus confidence. Hostname-derived seller names keep partial
-records valid but are marked as missing seller/store data. Professional reviews
-and other non-listing pages are not normalized as listings by this service.
+`ProductListingExtractor` is fixture/legacy normalization code, not the live
+semantic extraction authority. It can propose mechanical fields from a
+snippet or static page, including exact model/SKU/UPC/EAN, URL, price, currency,
+seller and region hints, but yields at most one linked
+`CanonicalProduct`/`ProductListing` and declines review pages. Live
+`ExtractionAgent` interprets persisted pages first, separates product, seller,
+listing, and review facts, and may return zero, one, or many cited entities and
+explicit gaps. Invalid schema, missing same-run snapshot IDs, unsupported
+listing URLs/prices, or malformed model output fail closed to a gap rather than
+silently invoking the legacy normalizer. Review-derived leads are not yet sent
+through a targeted listing search; that bounded loop remains pending.
 
 `DeterministicProductDeduplicator` is the conservative product grouping layer
 for obvious duplicates. It canonicalizes listing URLs with the source URL
@@ -550,13 +589,13 @@ That stage persists one canonical product per group, preserves every grouped
 listing, writes one shortlist membership per grouped product, and emits pre/post
 dedupe counts before source-intelligence and later analysis stages run.
 
-`SourceEvidenceCreator` is the deterministic evidence step for usable extracted
-page text. It converts explicit product, listing, warranty, availability, and
-review-verdict facts into typed `SourceEvidence` records only when the exact
-snapshot source ID is present on the target product or listing. Evidence from
-different sources is retained independently. Facts with the same target and
-fact kind but incompatible normalized values produce `EvidenceConflict`
-records that cite every retained evidence ID instead of selecting a winner.
+`SourceEvidenceCreator` currently constructs typed evidence from parsed page
+signals. In the target path, agent interpretation decides which product,
+listing, warranty, availability, or review claims a source actually supports;
+the backend validates referenced snapshot/target IDs, persists evidence, and
+detects mechanical conflicts without silently choosing a winner. Neither this
+helper nor source-domain scoring may invent a product or decide whether a
+review is a retailer offer.
 
 The implemented backend provider boundary lives under `apps/backend/app/providers`.
 `SearchProvider`, `ExtractionProvider`, and optional `ShoppingProvider` are async
@@ -697,12 +736,13 @@ Source policy:
 - Preserve source evidence and conflicts rather than flattening incompatible claims.
 - Do not recommend a listing merely because it matches the query; source quality and buyer safety are part of candidacy.
 
-The deterministic v1 implementation lives in
+The current source-policy implementation lives in
 `apps/backend/app/providers/source_quality.py`. It normalizes source URLs and
 removes common affiliate/tracking parameters, classifies the project-owner
 approved seed domains, and returns separate fields for source quality,
 exclusion, listing-trust requirements, region relevance, and human-readable
-reasons. Domain quality never substitutes for offer quality: marketplace and
+reasons. Its domain/source class is a policy/quality signal, not a semantic
+page classification or extraction eligibility verdict. Domain quality never substitutes for offer quality: marketplace and
 mixed-retailer listings remain trust-required, Amazon remains listing-specific,
 Reddit and other communities remain qualitative, and IKEA price/stock evidence
 is strong only on the matching country or region path. Unknown sources are not

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import dataclass
 import os
 from typing import Any
@@ -6,15 +7,27 @@ from typing import Any
 import pytest
 
 from agents import Agent, RunConfig
+from agents.tool_context import ToolContext
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.agents import (
     DiscoveryAgentInput,
     DiscoveryAgentOutcome,
     DiscoveryAgentOutput,
+    DiscoveryNextAction,
+    DiscoverySourceDecision,
+    DiscoverySourceKind,
     LiveDiscoveryAgent,
     MockDiscoveryModelRunner,
 )
 from app.core.settings import Settings
+from app.agents.research_tools import AgentResearchTools
+from app.db.base import Base
+from app.db.repositories.runs import RunRepository
+from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.repositories.sessions import SessionRepository
+from app.db.session import create_session_factory
+from app.providers.fakes import FakeExtractionProvider
 from app.schemas.ids import new_id
 from app.schemas.intake import (
     BudgetConstraint,
@@ -37,6 +50,7 @@ from app.schemas.search_sources import (
     SourceQualityLevel,
     SourceType,
 )
+from app.schemas.intake import CreateSessionRequest
 
 
 @dataclass
@@ -218,6 +232,7 @@ def _no_good_input() -> DiscoveryAgentInput:
 def _valid_model_selection() -> DiscoveryAgentOutput:
     input_data = _input()
     return DiscoveryAgentOutput(
+        source_decisions=_decisions(input_data),
         selected_source_ids=(
             input_data.seed_results[0].source_id,
             input_data.seed_results[1].source_id,
@@ -227,11 +242,38 @@ def _valid_model_selection() -> DiscoveryAgentOutput:
     )
 
 
+def _decisions(input_data: DiscoveryAgentInput) -> tuple[DiscoverySourceDecision, ...]:
+    return tuple(
+        DiscoverySourceDecision(
+            source_id=result.source_id,
+            classification=(
+                DiscoverySourceKind.IRRELEVANT
+                if index == 2
+                else DiscoverySourceKind.PROFESSIONAL_REVIEW
+                if index == 1
+                else DiscoverySourceKind.RETAILER_LISTING
+            ),
+            confidence=0.9,
+            reasons=("Fixture source context supports this classification.",),
+            intended_treatment="Inspect" if index != 2 else "Ignore",
+            next_action=(
+                DiscoveryNextAction.IGNORE
+                if index == 2
+                else DiscoveryNextAction.RETAIN_AS_EVIDENCE
+                if index == 1
+                else DiscoveryNextAction.FETCH
+            ),
+        )
+        for index, result in enumerate(input_data.seed_results)
+    )
+
+
 @pytest.mark.asyncio
 async def test_live_discovery_accepts_valid_mocked_structured_output() -> None:
     input_data = _input()
     runner = RecordingDiscoveryRunner(
         output=DiscoveryAgentOutput(
+            source_decisions=_decisions(input_data),
             selected_source_ids=(
                 input_data.seed_results[0].source_id,
                 input_data.seed_results[1].source_id,
@@ -253,6 +295,7 @@ async def test_live_discovery_accepts_valid_mocked_structured_output() -> None:
     assert input_data.seed_results[2].source_id not in result.selected_source_ids
     assert agent.workbench_activity[0]["status"] == "model_discovery_completed"
     assert agent.workbench_activity[0]["input"]["allowed_tools"] == []
+    assert len(result.source_decisions) == 3
 
 
 @pytest.mark.asyncio
@@ -271,11 +314,8 @@ async def test_live_discovery_falls_back_on_fabricated_or_malformed_output() -> 
 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
-    assert result.outcome == DiscoveryAgentOutcome.SELECTED
-    assert result.selected_source_ids == (
-        input_data.seed_results[0].source_id,
-        input_data.seed_results[1].source_id,
-    )
+    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    assert result.selected_source_ids == ()
 
 
 @pytest.mark.asyncio
@@ -283,6 +323,12 @@ async def test_live_discovery_falls_back_when_model_selects_ineligible_source() 
     input_data = _input()
     runner = RecordingDiscoveryRunner(
         output=DiscoveryAgentOutput(
+            source_decisions=tuple(
+                decision.model_copy(update={"next_action": DiscoveryNextAction.FETCH})
+                if decision.source_id == input_data.seed_results[2].source_id
+                else decision
+                for decision in _decisions(input_data)
+            ),
             selected_source_ids=(input_data.seed_results[2].source_id,),
             outcome=DiscoveryAgentOutcome.SELECTED,
         )
@@ -294,10 +340,44 @@ async def test_live_discovery_falls_back_when_model_selects_ineligible_source() 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
     assert input_data.seed_results[2].source_id not in result.selected_source_ids
-    assert result.selected_source_ids == (
-        input_data.seed_results[0].source_id,
-        input_data.seed_results[1].source_id,
+    assert result.selected_source_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_live_discovery_rejects_missing_or_fabricated_source_decisions() -> None:
+    input_data = _input()
+    partial = DiscoveryAgentOutput(
+        source_decisions=_decisions(input_data)[:1],
+        selected_source_ids=(input_data.seed_results[0].source_id,),
+        outcome=DiscoveryAgentOutcome.SELECTED,
     )
+    agent = LiveDiscoveryAgent(
+        settings=_settings(), model_runner=RecordingDiscoveryRunner(output=partial)
+    )
+    result = await agent.run(input_data)
+    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
+
+    forged = DiscoveryAgentOutput(
+        source_decisions=(
+            DiscoverySourceDecision(
+                source_id=new_id(),
+                classification=DiscoverySourceKind.RETAILER_LISTING,
+                confidence=0.9,
+                reasons=("Fabricated source.",),
+                intended_treatment="Inspect",
+                next_action=DiscoveryNextAction.FETCH,
+            ),
+        ),
+        selected_source_ids=(),
+        outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
+    )
+    agent = LiveDiscoveryAgent(
+        settings=_settings(), model_runner=RecordingDiscoveryRunner(output=forged)
+    )
+    result = await agent.run(input_data)
+    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
 
 
 @pytest.mark.asyncio
@@ -312,8 +392,8 @@ async def test_live_discovery_falls_back_on_timeout() -> None:
 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "timeout_fallback"
-    assert result.outcome == DiscoveryAgentOutcome.SELECTED
-    assert len(result.selected_source_ids) == 2
+    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    assert len(result.selected_source_ids) == 0
 
 
 @pytest.mark.asyncio
@@ -325,12 +405,14 @@ async def test_live_discovery_falls_back_on_model_error() -> None:
 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "error_fallback"
-    assert result.outcome == DiscoveryAgentOutcome.SELECTED
-    assert len(result.selected_source_ids) == 2
+    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
+    assert len(result.selected_source_ids) == 0
 
 
 @pytest.mark.asyncio
-async def test_live_discovery_reports_insufficient_candidates_without_product_details() -> None:
+async def test_live_discovery_reports_insufficient_candidates_without_product_details() -> (
+    None
+):
     runner = MockDiscoveryModelRunner()
     agent = LiveDiscoveryAgent(settings=_settings(), model_runner=runner)
 
@@ -342,11 +424,162 @@ async def test_live_discovery_reports_insufficient_candidates_without_product_de
     assert set(result.model_dump(mode="json")) == {
         "schema_version",
         "search_results",
+        "source_decisions",
         "selected_source_ids",
         "outcome",
         "notes",
     }
     assert "product" not in result.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_discovery_uses_sdk_search_twice_and_classifies_generic_results() -> None:
+    class TwoQuerySearchProvider:
+        provider_name = "fixture-search"
+
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(
+            self, query: SearchQuery, options: Any = None
+        ) -> tuple[SearchResult, ...]:
+            self.queries.append(query.query)
+            title = (
+                "Best TVs review: Aurora A55"
+                if len(self.queries) == 1
+                else "Aurora A55 at retailer"
+            )
+            return (
+                SearchResult(
+                    query=query,
+                    url=(
+                        "https://reviews.example.com/best-tvs"
+                        if len(self.queries) == 1
+                        else "https://retailer.example.com/aurora-a55"
+                    ),
+                    title=title,
+                    source_type=SourceType.SEARCH_RESULT,
+                    provider=ProviderMetadata(provider_name=self.provider_name),
+                ),
+            )
+
+    class IterativeRunner:
+        async def run(
+            self,
+            agent: Agent[Any],
+            model_input: str,
+            *,
+            run_config: RunConfig,
+            max_turns: int,
+        ) -> Any:
+            del model_input, run_config
+            assert max_turns >= 3
+            assert agent.output_type.__name__ == "DiscoveryModelOutput"
+            assert "search_results" not in agent.output_type.model_fields
+            assert {tool.name for tool in agent.tools} == {
+                "search_sources",
+                "fetch_source",
+            }
+            search_tool = next(
+                tool for tool in agent.tools if tool.name == "search_sources"
+            )
+            seen: list[dict[str, Any]] = []
+            for index, query in enumerate(
+                ("best TVs review", "Aurora A55 official retailer")
+            ):
+                response = await search_tool.on_invoke_tool(
+                    ToolContext(
+                        context=None,
+                        tool_name="search_sources",
+                        tool_call_id=f"search-{index}",
+                        tool_arguments="{}",
+                    ),
+                    json.dumps({"query": query, "region_code": "US", "max_results": 5}),
+                )
+                seen.append(json.loads(response)["sources"][0])
+            return _RunResult(
+                final_output=DiscoveryAgentOutput(
+                    source_decisions=(
+                        DiscoverySourceDecision(
+                            source_id=seen[0]["source_id"],
+                            classification=DiscoverySourceKind.PROFESSIONAL_REVIEW,
+                            confidence=0.94,
+                            reasons=("Editorial comparison of named TVs.",),
+                            intended_treatment="Retain review evidence",
+                            candidate_model_hints=("Aurora A55",),
+                            next_action=DiscoveryNextAction.RETAIN_AS_EVIDENCE,
+                        ),
+                        DiscoverySourceDecision(
+                            source_id=seen[1]["source_id"],
+                            classification=DiscoverySourceKind.RETAILER_LISTING,
+                            confidence=0.88,
+                            reasons=("A model-specific retailer page.",),
+                            intended_treatment="Inspect listing",
+                            next_action=DiscoveryNextAction.FETCH,
+                        ),
+                    ),
+                    selected_source_ids=(seen[0]["source_id"], seen[1]["source_id"]),
+                    outcome=DiscoveryAgentOutcome.SELECTED,
+                )
+            )
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = create_session_factory(engine)
+        async with factory() as session:
+            shopping_session = await SessionRepository(session).create(
+                original_input=CreateSessionRequest(query="Which TV should I buy?"),
+                current_brief=_brief(),
+            )
+            run = await RunRepository(session).create(shopping_session.session_id)
+            await session.commit()
+        search_provider = TwoQuerySearchProvider()
+        tools = AgentResearchTools(
+            agent_name="DiscoveryAgent",
+            run_id=run.run_id,
+            session_factory=factory,
+            search_provider=search_provider,
+            extraction_provider=FakeExtractionProvider(),
+        )
+        agent = LiveDiscoveryAgent(
+            settings=_settings(),
+            model_runner=IterativeRunner(),
+            research_tools_factory=lambda run_id: tools,
+        )
+        result = await agent.run(
+            DiscoveryAgentInput(
+                run_id=run.run_id,
+                brief=_brief(),
+                search_plan=_plan(),
+            )
+        )
+        assert search_provider.queries == [
+            "best TVs review",
+            "Aurora A55 official retailer",
+        ]
+        assert len(result.search_results) == 2
+        assert all(
+            item.source_type == SourceType.SEARCH_RESULT
+            for item in result.search_results
+        )
+        assert {item.classification for item in result.source_decisions} == {
+            DiscoverySourceKind.PROFESSIONAL_REVIEW,
+            DiscoverySourceKind.RETAILER_LISTING,
+        }
+        assert [item["tool_name"] for item in agent.workbench_activity] == [
+            "search_sources",
+            "search_sources",
+            "openai_agents_structured_output",
+        ]
+        async with factory() as session:
+            saved = await SearchSourceRepository(session).list_search_results(
+                run.run_id
+            )
+            assert {item.source_id for item in saved} == set(result.selected_source_ids)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.live_provider
@@ -366,4 +599,3 @@ async def test_live_discovery_agent_live_opt_in() -> None:
         DiscoveryAgentOutcome.SELECTED,
         DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
     }
-

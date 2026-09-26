@@ -31,6 +31,13 @@ class RecordingIntakeRunner:
     error: BaseException | None = None
     delay_seconds: float = 0
     calls: int = 0
+    observed_agent_model: str | None = None
+    observed_run_model: str | None = None
+    observed_max_turns: int | None = None
+    observed_agent_temperature: float | None = None
+    observed_run_temperature: float | None = None
+    observed_reasoning_effort: str | None = None
+    observed_run_reasoning_effort: str | None = None
 
     async def run(
         self,
@@ -40,7 +47,28 @@ class RecordingIntakeRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        del agent, model_input, run_config, max_turns
+        del model_input
+        self.observed_agent_model = str(agent.model)
+        self.observed_run_model = (
+            str(run_config.model) if run_config.model is not None else None
+        )
+        self.observed_max_turns = max_turns
+        self.observed_agent_temperature = agent.model_settings.temperature
+        self.observed_run_temperature = (
+            run_config.model_settings.temperature
+            if run_config.model_settings is not None
+            else None
+        )
+        reasoning = agent.model_settings.reasoning
+        self.observed_reasoning_effort = reasoning.effort if reasoning else None
+        run_reasoning = (
+            run_config.model_settings.reasoning
+            if run_config.model_settings is not None
+            else None
+        )
+        self.observed_run_reasoning_effort = (
+            run_reasoning.effort if run_reasoning else None
+        )
         self.calls += 1
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
@@ -142,6 +170,34 @@ async def test_live_intake_accepts_valid_mocked_structured_output() -> None:
     }
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "model_intake_completed"
+
+
+@pytest.mark.asyncio
+async def test_live_intake_runner_receives_fast_profile_and_exact_override() -> None:
+    runner = RecordingIntakeRunner()
+    agent = LiveIntakeAgent(
+        settings=_settings(
+            openai_run_profiles={
+                "fast": {
+                    "model": "fast-model",
+                    "reasoning_effort": "none",
+                    "max_turns": 4,
+                }
+            },
+            openai_agent_overrides={"IntakeAgent": {"model": "intake-model"}},
+        ),
+        model_runner=runner,
+    )
+
+    await agent.run(_input())
+
+    assert runner.observed_agent_model == "intake-model"
+    assert runner.observed_run_model is None
+    assert runner.observed_max_turns == 4
+    assert runner.observed_agent_temperature is None
+    assert runner.observed_run_temperature is None
+    assert runner.observed_reasoning_effort == "none"
+    assert runner.observed_run_reasoning_effort is None
 
 
 @pytest.mark.asyncio

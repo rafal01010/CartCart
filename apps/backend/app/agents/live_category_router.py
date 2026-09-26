@@ -13,7 +13,10 @@ from app.agents.catalog import (
     build_default_agent_catalog,
 )
 from app.agents.contracts import CategoryRouterAgentInput
-from app.agents.openai_config import build_openai_agent_run_configuration
+from app.agents.openai_config import (
+    apply_openai_agent_run_profile,
+    build_openai_agent_run_configuration,
+)
 from app.core.settings import Settings
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing
@@ -91,10 +94,9 @@ class LiveCategoryRouterAgent:
             run_id=str(input_data.run_id),
         )
         agent = _build_category_router_agent(configuration.model)
+        apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model=configuration.model,
             model_settings=ModelSettings(
-                temperature=0,
                 max_tokens=500,
                 include_usage=True,
             ),
@@ -170,7 +172,6 @@ def _build_category_router_agent(model: str) -> Agent[Any]:
         name="CartCartCategoryRouterAgent",
         model=model,
         model_settings=ModelSettings(
-            temperature=0,
             max_tokens=500,
             include_usage=True,
         ),

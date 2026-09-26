@@ -29,6 +29,10 @@ def test_workbench_route_is_disabled_by_default() -> None:
     response = client.get("/internal/agent-workbench")
 
     assert response.status_code == 404
+    assert client.post(
+        "/internal/agent-workbench/research-tools/probe",
+        json={"query": "TVs"},
+    ).status_code == 404
 
 
 def test_workbench_route_is_unavailable_outside_allowed_environments() -> None:
@@ -40,6 +44,10 @@ def test_workbench_route_is_unavailable_outside_allowed_environments() -> None:
     response = client.get("/internal/agent-workbench")
 
     assert response.status_code == 404
+    assert client.post(
+        "/internal/agent-workbench/research-tools/probe",
+        json={"query": "TVs"},
+    ).status_code == 404
 
 
 def test_workbench_route_is_excluded_from_openapi() -> None:
@@ -51,6 +59,28 @@ def test_workbench_route_is_excluded_from_openapi() -> None:
     paths = response.json()["paths"]
     assert "/internal/agent-workbench" not in paths
     assert "/internal/agent-workbench/runs" not in paths
+    assert "/internal/agent-workbench/research-tools/probe" not in paths
+
+
+def test_workbench_research_tool_probe_shows_fixture_activity_without_live_calls() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+
+    response = client.post(
+        "/internal/agent-workbench/research-tools/probe",
+        json={"query": "best TVs", "intent": "review", "region_code": "PH", "max_results": 1},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["agent_name"] == "DiscoveryAgent"
+    assert body["mode"] == "fixture"
+    assert body["search"]["status"] == "succeeded"
+    assert body["search"]["sources"][0]["provider_source_type"] == "search_result"
+    assert body["fetch"]["source_id"] == body["search"]["sources"][0]["source_id"]
+    assert body["fetch"]["snapshot_id"]
+    assert [item["tool_name"] for item in body["allowed_tool_activity"]] == [
+        "search_sources", "fetch_source"
+    ]
 
 
 def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
@@ -83,6 +113,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "guide/ready-monitor-brief",
     }
     assert guide["modes"] == ["fixture", "mock", "live"]
+    assert guide["run_profile"] == "fast"
     intake = next(
         agent for agent in body["agents"] if agent["agent_name"] == "IntakeAgent"
     )
@@ -102,9 +133,12 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     discovery = next(
         agent for agent in body["agents"] if agent["agent_name"] == "DiscoveryAgent"
     )
+    assert discovery["approved_sdk_tools"] == ["search_sources", "fetch_source"]
     assert {scenario["name"] for scenario in discovery["scenarios"]} >= {
         "discovery/select-valid-sources",
         "discovery/no-good-results",
+        "discovery/tv-review-and-generic-results",
+        "discovery/misleading-domains",
     }
     assert discovery["modes"] == ["fixture", "mock", "live"]
     router = next(
@@ -292,6 +326,49 @@ def test_workbench_runs_allowlisted_fake_agent_from_internal_endpoint() -> None:
     assert body["usage"] is None
     assert body["trace_id"].startswith("agent_workbench_")
     assert body["elapsed_ms"] >= 0
+
+
+def test_workbench_fixture_reports_resolved_profiles_without_live_calls() -> None:
+    client = make_test_client(
+        agent_workbench_enabled=True,
+        openai_run_profiles={
+            "fast": {"model": "small-model", "reasoning_effort": "none", "max_turns": 4},
+            "strong": {
+                "model": "large-model",
+                "reasoning_effort": "medium",
+                "max_turns": 10,
+            },
+        },
+    )
+
+    guide = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "ShoppingGuideAgent",
+            "scenario_name": "guide/ready-monitor-brief",
+            "mode": "fixture",
+        },
+    )
+    decision = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "ComparisonDecisionAgent",
+            "scenario_name": "comparison/monitor-shortlist",
+            "mode": "fixture",
+        },
+    )
+
+    assert guide.status_code == decision.status_code == 200
+    assert (guide.json()["model"], guide.json()["run_profile"]) == (
+        "small-model", "fast"
+    )
+    assert (decision.json()["model"], decision.json()["run_profile"]) == (
+        "large-model", "strong"
+    )
+    assert guide.json()["max_turns"] == 4
+    assert decision.json()["max_turns"] == 10
+    assert guide.json()["reasoning_effort"] == "none"
+    assert decision.json()["reasoning_effort"] == "medium"
 
 
 def test_workbench_mock_guardrail_accepts_required_coffee_grinder_scenario() -> None:
@@ -769,11 +846,67 @@ def test_workbench_mock_discovery_reports_no_good_results() -> None:
     assert set(body["output"]) == {
         "schema_version",
         "search_results",
+        "source_decisions",
         "selected_source_ids",
         "outcome",
         "notes",
     }
     assert body["allowed_tool_activity"][0]["status"] == "model_discovery_completed"
+
+
+def test_workbench_mock_discovery_preserves_tv_reviews_and_generic_shopping_results() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "DiscoveryAgent",
+            "scenario_name": "discovery/tv-review-and-generic-results",
+            "mode": "mock",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["input"]["seed_results"]) == 26
+    assert sum(
+        item["source_type"] == "professional_review"
+        for item in body["input"]["seed_results"]
+    ) == 8
+    assert sum(
+        item["source_type"] == "search_result"
+        for item in body["input"]["seed_results"]
+    ) == 18
+    decisions = body["output"]["source_decisions"]
+    assert len(decisions) == 26
+    assert {item["source_id"] for item in decisions} == {
+        item["source_id"] for item in body["input"]["seed_results"]
+    }
+    assert sum(item["classification"] == "professional_review" for item in decisions) == 8
+    assert any(item["classification"] == "retailer_listing" for item in decisions)
+    assert any(item["classification"] == "category_collection" for item in decisions)
+    assert len(body["output"]["selected_source_ids"]) == 26
+    assert decisions[0]["candidate_model_hints"] == ["Aurora A55", "Northstar N65"]
+    first_eight = set(body["output"]["selected_source_ids"][:8])
+    by_id = {item["source_id"]: item for item in decisions}
+    assert sum(by_id[source_id]["classification"] == "retailer_listing" for source_id in first_eight) == 6
+    assert sum(by_id[source_id]["classification"] == "professional_review" for source_id in first_eight) == 2
+
+
+def test_workbench_mock_discovery_rejects_misleading_domain_result() -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "DiscoveryAgent",
+            "scenario_name": "discovery/misleading-domains",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    decisions = response.json()["output"]["source_decisions"]
+    assert decisions[0]["classification"] == "irrelevant"
+    assert decisions[0]["next_action"] == "ignore"
+    assert decisions[1]["classification"] == "retailer_listing"
 
 
 def test_workbench_mock_router_sends_monitor_to_specialist() -> None:

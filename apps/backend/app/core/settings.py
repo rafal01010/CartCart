@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.agent_run_profiles import AgentRunProfileName, AgentRunProfileOptions
 from app.schemas.base import CartCartBaseModel
 from app.schemas.regions import RegionCode
 
@@ -107,6 +108,12 @@ class Settings(BaseSettings):
     )
     openai_agent_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
     openai_agent_max_turns: int = Field(default=8, ge=1, le=50)
+    openai_run_profiles: dict[AgentRunProfileName, AgentRunProfileOptions] = Field(
+        default_factory=dict
+    )
+    openai_agent_overrides: dict[str, AgentRunProfileOptions] = Field(
+        default_factory=dict
+    )
     openai_agent_tracing_enabled: bool = False
     openai_agent_trace_include_sensitive_data: bool = False
     openai_agent_trace_workflow_name: str = Field(
@@ -207,6 +214,21 @@ class Settings(BaseSettings):
         if not stripped:
             raise ValueError("OpenAI agent configuration strings must not be blank.")
         return stripped
+
+    @field_validator("openai_agent_overrides")
+    @classmethod
+    def _validate_openai_agent_overrides(
+        cls, value: dict[str, AgentRunProfileOptions]
+    ) -> dict[str, AgentRunProfileOptions]:
+        from app.agents.catalog import DEFAULT_AGENT_CATALOG
+
+        unknown = set(value) - set(DEFAULT_AGENT_CATALOG.entries)
+        if unknown:
+            raise ValueError(
+                "OpenAI agent overrides contain unknown catalog agents: "
+                + ", ".join(sorted(unknown))
+            )
+        return value
 
     @model_validator(mode="after")
     def _reject_cross_session_preference_profiling(self) -> "Settings":

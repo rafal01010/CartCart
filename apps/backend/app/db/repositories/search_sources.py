@@ -23,6 +23,11 @@ class SearchSourceRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        """Unit-of-work session for run-scoped agent tools."""
+        return self._session
+
     async def create_search_plan(
         self,
         run_id: RunId,
@@ -72,6 +77,14 @@ class SearchSourceRepository:
         records = (await self._session.scalars(statement)).all()
         return tuple(record.to_schema() for record in records)
 
+    async def get_search_result_for_run(
+        self, run_id: RunId, source_id: SourceId
+    ) -> SearchResult | None:
+        record = await self._session.get(SearchResultRecord, str(source_id))
+        if record is None or record.run_id != str(run_id):
+            return None
+        return record.to_schema()
+
     async def add_source_snapshot(
         self,
         run_id: RunId,
@@ -96,6 +109,26 @@ class SearchSourceRepository:
         if record is None:
             return None
         return record.to_schema()
+
+    async def get_source_snapshot_for_run(
+        self, run_id: RunId, source_id: SourceId
+    ) -> SourceSnapshot | None:
+        record = await self._session.get(SourceSnapshotRecord, str(source_id))
+        if record is None or record.run_id != str(run_id):
+            return None
+        return record.to_schema()
+
+    async def get_snapshot_for_search_result(
+        self, run_id: RunId, search_result_id: SourceId
+    ) -> SourceSnapshot | None:
+        statement: Select[tuple[SourceSnapshotRecord]] = select(
+            SourceSnapshotRecord
+        ).where(
+            SourceSnapshotRecord.run_id == str(run_id),
+            SourceSnapshotRecord.search_result_id == str(search_result_id),
+        )
+        record = await self._session.scalar(statement)
+        return None if record is None else record.to_schema()
 
     async def list_source_snapshots(self, run_id: RunId) -> tuple[SourceSnapshot, ...]:
         statement: Select[tuple[SourceSnapshotRecord]] = (

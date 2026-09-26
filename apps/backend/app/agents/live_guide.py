@@ -14,7 +14,10 @@ from app.agents.contracts import (
     ShoppingGuideAgentInput,
 )
 from app.agents.live_intake import LiveIntakeAgent
-from app.agents.openai_config import build_openai_agent_run_configuration
+from app.agents.openai_config import (
+    apply_openai_agent_run_profile,
+    build_openai_agent_run_configuration,
+)
 from app.core.settings import Settings
 from app.schemas.guided_intake import (
     AnalysisStartAvailability,
@@ -190,10 +193,9 @@ class LiveShoppingGuideAgent:
             agent_name="ShoppingGuideAgent",
         )
         agent = _build_guide_agent(configuration.model)
+        apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model=configuration.model,
             model_settings=ModelSettings(
-                temperature=0,
                 max_tokens=1200,
                 include_usage=True,
             ),
@@ -300,7 +302,6 @@ def _build_guide_agent(model: str) -> Agent[Any]:
         name="CartCartShoppingGuideAgent",
         model=model,
         model_settings=ModelSettings(
-            temperature=0,
             max_tokens=1200,
             include_usage=True,
         ),

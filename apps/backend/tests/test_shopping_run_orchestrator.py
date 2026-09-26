@@ -17,6 +17,7 @@ from app.agents import (
     VerificationReport,
 )
 from app.agents.catalog import ProductAnalysisRoute
+from app.agents.openai_config import build_openai_agent_run_configuration
 from app.core.settings import AgentWorkflowMode, Settings
 from app.db.base import Base
 from app.db.repositories.products import ProductRepository
@@ -31,7 +32,10 @@ from app.orchestration import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunOrchestrator,
 )
-from app.orchestration.shopping_runs import _listing_from_extracted_source
+from app.orchestration.shopping_runs import (
+    _listing_from_extracted_source,
+    _selected_extraction_results,
+)
 from app.providers import (
     ExtractionProviderOptions,
     ProviderCapabilityFlags,
@@ -72,6 +76,26 @@ from app.schemas.search_sources import (
 )
 from app.schemas.products import UserAddedProduct
 from app.services.product_listing_extraction import ProductListingExtractor
+
+
+def test_agent_selected_generic_source_reaches_page_inspection() -> None:
+    query = SearchQuery(
+        query="Aurora A55 official retailer",
+        intent=SearchIntent.DISCOVERY,
+        required_source_types=(SourceType.RETAILER_LISTING,),
+    )
+    result = SearchResult(
+        query=query,
+        url="https://retailer.example.com/aurora-a55",
+        title="Aurora A55 at retailer",
+        source_type=SourceType.SEARCH_RESULT,
+        provider=ProviderMetadata(provider_name="fixture-search"),
+    )
+
+    assert _selected_extraction_results(
+        (result,), selected_source_ids=(result.source_id,)
+    ) == (result,)
+    assert result.source_type == SourceType.SEARCH_RESULT
 
 
 class RecordingSearchProvider:
@@ -1617,6 +1641,10 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         database_path=tmp_path / "orchestrator-live-agents.sqlite3",
+        openai_run_profiles={
+            "fast": {"model": "small-model"},
+            "strong": {"model": "large-model"},
+        },
     )
     engine = create_database_engine(settings)
     analyst = RecordingGenericAnalystAgent()
@@ -1649,6 +1677,9 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
                 ),
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 agent_model_name="gpt-recording",
+                agent_model_resolver=lambda name: build_openai_agent_run_configuration(
+                    settings, agent_name=name
+                ).model,
                 intake_agent=RecordingIntakeAgent(),
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
@@ -1689,7 +1720,8 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
 
         records_by_stage = {record.stage: record for record in agent_records}
         assert records_by_stage[RunStage.INTAKE].runtime_mode == "live"
-        assert records_by_stage[RunStage.INTAKE].model_name == "gpt-recording"
+        assert records_by_stage[RunStage.INTAKE].model_name == "small-model"
+        assert records_by_stage[RunStage.QUERY_PLANNING].model_name == "small-model"
         assert records_by_stage[RunStage.QUERY_PLANNING].tool_activity[0][
             "status"
         ] == "model_query_plan_completed"
@@ -1701,9 +1733,11 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
             "CategoryRouterAgent+ProductAnalysisAgents"
         )
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].duration_ms is not None
+        assert records_by_stage[RunStage.CATEGORY_ANALYSIS].model_name == "large-model"
         assert records_by_stage[RunStage.COMPARISON_DECISION].model_name == (
-            "gpt-recording"
+            "large-model"
         )
+        assert records_by_stage[RunStage.VERIFICATION].model_name == "large-model"
         assert records_by_stage[RunStage.VERIFICATION].tool_activity[0][
             "status"
         ] == "model_verifier_critic_completed"

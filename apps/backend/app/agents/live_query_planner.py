@@ -9,7 +9,10 @@ from agents import Agent, ModelSettings, RunConfig, Runner
 from pydantic import ValidationError
 
 from app.agents.contracts import QueryPlannerAgentInput
-from app.agents.openai_config import build_openai_agent_run_configuration
+from app.agents.openai_config import (
+    apply_openai_agent_run_profile,
+    build_openai_agent_run_configuration,
+)
 from app.core.settings import Settings
 from app.schemas.intake import BudgetMode, PreferenceMode, ShoppingBrief
 from app.schemas.regions import RegionCode
@@ -94,10 +97,9 @@ class LiveQueryPlannerAgent:
             run_id=str(input_data.run_id),
         )
         agent = _build_query_planner_agent(configuration.model)
+        apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model=configuration.model,
             model_settings=ModelSettings(
-                temperature=0,
                 max_tokens=1100,
                 include_usage=True,
             ),
@@ -184,7 +186,6 @@ def _build_query_planner_agent(model: str) -> Agent[Any]:
         name="CartCartQueryPlannerAgent",
         model=model,
         model_settings=ModelSettings(
-            temperature=0,
             max_tokens=1100,
             include_usage=True,
         ),

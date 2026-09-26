@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Initial public evaluation strategy for planning
-Last updated: 2026-06-21
+Last updated: 2026-09-25
 
 ## Evaluation Direction
 
@@ -161,6 +161,44 @@ snapshot while other sources and the run continue. Security cases must reject
 loopback, private, link-local, and redirect-to-private targets before a request,
 and professional-review pages must never be normalized as store listings.
 
+## Planned Agent-First Research Cases
+
+The target research/extraction architecture needs fixture-backed and mocked
+agent evaluations beyond the existing deterministic provider checks. Seed
+inputs include `tests/fixtures/providers/agent_research_source_shapes.json`;
+the workbench's mixed TV discovery case now has eight review and eighteen
+generic shopping results. Mocked tool-invocation tests prove bounded follow-up
+searches without live calls; the workbench scenario alone is not proof of the
+full extraction loop. Required cases:
+
+- `research/tv-reviews-and-generic-shopping`: review pages remain reviews,
+  generic shopping results reach `DiscoveryAgent`, likely listings/collections
+  are inspected, and no monitor fixture is presented as a TV result.
+- `extraction/individual-page`, `extraction/ambiguous-page`,
+  `extraction/malformed-output`, and `extraction/multiple-products`: exercise
+  mocked `ExtractionAgent` output against persisted, run-scoped snapshots,
+  checking cited entity links, unknown-field handling, and explicit gaps.
+- `research/review-to-product-lookup`: several cited TV model mentions from a
+  roundup trigger bounded official/retailer listing searches; the review is
+  never itself a listing.
+- `research/multi-product-collection`: one retailer/category page yields
+  multiple distinct cited products/listings, not its page title and first price.
+- `research/uncertain-page-and-no-results`: explicit ignore/uncertainty/gaps,
+  with no fabricated identifiers, prices, availability, or candidate products.
+- `research/source-id-and-budget-integrity`: every entity/evidence reference
+  resolves to a persisted source/snapshot, provider failures remain gaps, and
+  search/fetch/tool depth and call budgets are enforced.
+- `research/typed-tool-boundary`: SDK tool schemas expose only query, intent,
+  region, result count, and same-run source ID; arbitrary URLs/vendor arguments,
+  private or credentialed provider URLs, secrets in raw metadata, and cross-run
+  source IDs cannot reach model-facing tool output. Generic provider labels
+  survive, safe records commit before their IDs are returned, and partial
+  provider failure is represented as a typed gap. Focused mocked tests cover
+  the implemented boundary; agent-led invocation remains a later eval gate.
+
+These are planned eval cases, not passing runtime claims. Their implementation
+and full joint verification belong to the later research/extraction gate.
+
 The focused Section J fixture-mode gate command and its live-provider exclusions
 are documented in `docs/PROVIDERS.md`. Keep live calls, full backend/frontend
 suites, extraction checks, E2E tests, and model/eval runs outside that gate.
@@ -238,9 +276,11 @@ mocked or live mode to inspect region-aware shopping and review queries for a
 non-specialist category, and pair it with
 `query-planner/unknown-category-generic` to confirm generic fallback planning
 without artificial category blocking. For Task 77 discovery acceptance, use
-`discovery/select-valid-sources` in mocked or live mode to confirm eligible
-retailer and review source IDs are selected while weak proxy sources are not,
-and pair it with `discovery/no-good-results` to confirm an
+`discovery/select-valid-sources` in mocked or live mode to inspect explicit
+review/listing decisions while excluded proxy sources are ignored. Pair it
+with `discovery/tv-review-and-generic-results`,
+`discovery/misleading-domains`, and `discovery/no-good-results` to inspect
+generic-source classification, misleading context, and an
 `insufficient_candidates` outcome without product-detail fabrication. For Task
 78 category-router acceptance, use `router/monitor-to-specialist` in mocked or
 live mode to inspect the `TechnologyDomainAnalystAgent` to

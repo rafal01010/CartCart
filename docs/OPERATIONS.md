@@ -322,9 +322,11 @@ Current backend variables:
 - `CARTCART_AGENT_WORKBENCH_ENABLED`: enables the local-only isolated agent workbench when `true`. Defaults to `false`.
 - `CARTCART_AGENT_WORKFLOW_MODE`: normal shopping-run agent mode. Allowed values are `fixture` and `live`. Defaults to `fixture`.
 - `CARTCART_LIVE_AGENTS_ENABLED`: opt-in gate for live OpenAI agent calls. Defaults to `false`.
-- `CARTCART_OPENAI_MODEL`: model string for implemented OpenAI Agents SDK runners. Defaults to `gpt-5.4-mini`.
-- `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS`: per-agent timeout for live runners. Defaults to `45`.
-- `CARTCART_OPENAI_AGENT_MAX_TURNS`: max SDK runner turns. Defaults to `8`.
+- `CARTCART_OPENAI_MODEL`: global model fallback for implemented OpenAI Agents SDK runners. Defaults to `gpt-5.4-mini`.
+- `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS`: global per-agent timeout fallback. Defaults to `45`.
+- `CARTCART_OPENAI_AGENT_MAX_TURNS`: global max SDK runner turns fallback. Defaults to `8`.
+- `CARTCART_OPENAI_RUN_PROFILES`: JSON object keyed by `default`, `fast`, and/or `strong`; each profile may set `model`, `reasoning_effort`, `timeout_seconds`, and `max_turns`. Catalog roles select a profile; omitted fields fall back individually.
+- `CARTCART_OPENAI_AGENT_OVERRIDES`: optional JSON object keyed by exact registered agent name, with the same fields. An exact-agent value takes precedence over its catalog profile.
 - `CARTCART_OPENAI_AGENT_TRACING_ENABLED`: enables OpenAI Agents SDK tracing when live runners use it. Defaults to `false`.
 - `CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA`: controls whether OpenAI trace payloads may include inputs/outputs. Defaults to `false`.
 - `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME`: OpenAI trace workflow name. Defaults to `cartcart-agent-run`.
@@ -517,17 +519,58 @@ live-agent workflow mode with:
 CARTCART_AGENT_WORKFLOW_MODE=live
 CARTCART_LIVE_AGENTS_ENABLED=true
 CARTCART_OPENAI_MODEL=gpt-5.5
+CARTCART_OPENAI_RUN_PROFILES='{"fast":{"model":"gpt-5.4-mini","reasoning_effort":"none","timeout_seconds":30,"max_turns":6},"strong":{"model":"gpt-5.5","reasoning_effort":"medium","timeout_seconds":60,"max_turns":10}}'
 OPENAI_API_KEY=replace-with-your-real-key
 ```
 
 Without `OPENAI_API_KEY`, readiness reports `agents:openai` with
 `missing_openai_api_key`, while fixture and mocked agent modes remain available.
-The runtime configuration also carries per-agent timeout, max-turn, and tracing
-metadata settings. OpenAI trace payloads exclude sensitive data by default.
+Model, reasoning effort, timeout, and max turns resolve independently in this order: exact
+registered-agent override, catalog-assigned profile, `default` profile, then
+the three global `CARTCART_OPENAI_*` fallbacks. For example,
+`ComparisonDecisionAgent`, `VerifierCriticAgent`, product analysts, and
+`DiscoveryAgent` have the `strong` catalog profile; bounded intake, routing,
+query planning, and `ExtractionAgent` have `fast`. An unconfigured
+profile safely uses the global fallback, and model strings can be changed
+without a code release. `CARTCART_OPENAI_AGENT_OVERRIDES` is operator-only;
+shopper input cannot choose a model. Profile names and agent names are
+validated at startup, as are model strings and numeric limits. Choose models
+available to your OpenAI project; the sample names are illustrative.
+SDK runner settings deliberately leave `temperature` unset so reasoning
+models can use configured or supported default effort. The allowed effort
+values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; model support varies,
+so choose an effort the selected model accepts.
+
+Each SDK runner resolves its own profile. The workbench catalog lists each
+agent's profile and resolved model; fixture/mock run output also shows the
+resolved model, profile, reasoning effort, timeout, and turn limit without making a live
+call. OpenAI trace metadata records the resolved model and profile; persisted
+model-backed shopping-stage records store the resolved model. The category
+analysis stage is aggregate: its persisted `model_name` is the selected analyst
+model, while the router's own SDK trace metadata identifies its model and the
+transient stage payload identifies both. Provider-only and
+fixture-stage records do not claim a model call. OpenAI trace payloads exclude
+sensitive data by default. The new run-scoped research tool adapter enforces four search calls,
+eight page fetches, ten returned results per search, and 12,000 page-text
+characters per fetch by default. These backend-owned bounds may be narrowed
+when constructing a tool adapter; they are not shopper- or model-controlled.
+The tools have not yet been attached to the current live discovery step.
+The resolved model and optional reasoning effort are set on each SDK `Agent`,
+not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
+caller's model profile.
 
 The isolated agent workbench is a local debugging surface for one typed agent at
 a time. It is disabled by default and is mounted only for `local`, `test`, or
 `fixture` backend environments when explicitly enabled:
+
+Its catalog lists catalog-approved SDK tool names. `AgentResearchTools` records
+safe tool name/status/source-ID summaries in the workbench activity format;
+SDK calls are traceable when a live agent is later wired to the tools. The
+local-only `POST /internal/agent-workbench/research-tools/probe` uses fixture
+providers and a disposable in-memory database to show one search/fetch call,
+their persisted IDs, and tool activity without spending API quota. The existing
+discovery workbench scenarios still exercise the older supplied-result contract
+and do not claim to demonstrate agent-led search yet.
 
 ```dotenv
 CARTCART_AGENT_WORKBENCH_ENABLED=true
@@ -556,10 +599,12 @@ uncertain category intent remains uncertain. For `QueryPlannerAgent`,
 queries for a non-specialist category, while
 `query-planner/unknown-category-generic` checks generic fallback strategy
 without artificial category blocking. For `DiscoveryAgent`,
-`discovery/select-valid-sources` checks that eligible retailer and review source
-IDs are selected while weak proxy sources are rejected, while
-`discovery/no-good-results` checks the `insufficient_candidates` fallback
-without product-detail fabrication. For `CategoryRouterAgent`,
+`discovery/select-valid-sources` checks explicit retailer/review decisions and
+rejection of an excluded proxy; `discovery/tv-review-and-generic-results`
+covers eight reviews plus eighteen generic shopping results, and
+`discovery/misleading-domains` checks title/context against misleading domains.
+Pair these with `discovery/no-good-results` for an honest
+`insufficient_candidates` outcome. For `CategoryRouterAgent`,
 `router/monitor-to-specialist` checks the route path
 `TechnologyDomainAnalystAgent` to `MonitorSpecialistAgent`, while
 `router/office-chair-generic` checks direct `GenericProductAnalystAgent`

@@ -1,40 +1,32 @@
 import asyncio
 import json
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from agents import Agent, ModelSettings, RunConfig, Runner
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from app.agents.contracts import (
     DiscoveryAgentInput,
     DiscoveryAgentOutcome,
     DiscoveryAgentOutput,
+    DiscoveryNextAction,
+    DiscoverySourceDecision,
+    DiscoverySourceKind,
 )
-from app.agents.openai_config import build_openai_agent_run_configuration
+from app.agents.research_tools import AgentResearchTools
+from app.agents.openai_config import (
+    apply_openai_agent_run_profile,
+    build_openai_agent_run_configuration,
+)
 from app.core.settings import Settings
-from app.schemas.search_sources import (
-    SearchResult,
-    SourceQualityLevel,
-    SourceType,
-)
+from app.schemas.base import CartCartBaseModel
+from app.schemas.ids import SourceId
+from app.schemas.search_sources import SearchResult
 
 
-_EXTRACTABLE_SOURCE_TYPES = frozenset(
-    {
-        SourceType.PRODUCT_PAGE,
-        SourceType.RETAILER_LISTING,
-        SourceType.OFFICIAL_BRAND_PAGE,
-        SourceType.PROFESSIONAL_REVIEW,
-        SourceType.COMMUNITY_DISCUSSION,
-    }
-)
-_EXCLUDED_SOURCE_CLASSES = frozenset(
-    {
-        "reseller_import_proxy",
-        "price_comparison",
-    }
-)
 _EXCLUDED_RAW_FLAGS = frozenset(
     {
         "excluded",
@@ -54,6 +46,15 @@ class DiscoveryModelRunner(Protocol):
         max_turns: int,
     ) -> Any:
         """Run the SDK discovery agent and return its raw run result."""
+
+
+class DiscoveryModelOutput(CartCartBaseModel):
+    """Compact model response; persisted sources are reattached by backend code."""
+
+    source_decisions: tuple[DiscoverySourceDecision, ...]
+    selected_source_ids: tuple[SourceId, ...]
+    outcome: DiscoveryAgentOutcome
+    notes: tuple[str, ...] = Field(default_factory=tuple)
 
 
 @dataclass
@@ -103,6 +104,7 @@ class MockDiscoveryModelRunner:
 @dataclass
 class LiveDiscoveryAgent:
     settings: Settings
+    research_tools_factory: Callable[[Any], AgentResearchTools] | None = None
     model_runner: DiscoveryModelRunner = field(
         default_factory=OpenAIAgentsSDKDiscoveryModelRunner,
     )
@@ -111,6 +113,9 @@ class LiveDiscoveryAgent:
         init=False,
         repr=False,
     )
+    _research_tools: AgentResearchTools | None = field(
+        default=None, init=False, repr=False
+    )
 
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         configuration = build_openai_agent_run_configuration(
@@ -118,12 +123,16 @@ class LiveDiscoveryAgent:
             agent_name="DiscoveryAgent",
             run_id=str(input_data.run_id),
         )
-        agent = _build_discovery_agent(configuration.model)
+        self._research_tools = (
+            self.research_tools_factory(input_data.run_id)
+            if self.research_tools_factory is not None
+            else None
+        )
+        agent = _build_discovery_agent(configuration.model, self._research_tools)
+        apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model=configuration.model,
             model_settings=ModelSettings(
-                temperature=0,
-                max_tokens=900,
+                max_tokens=4000,
                 include_usage=True,
             ),
             tracing_disabled=not configuration.tracing_enabled,
@@ -145,17 +154,27 @@ class LiveDiscoveryAgent:
             output = _coerce_discovery_result(
                 getattr(raw_result, "final_output", raw_result),
                 input_data,
+                self._research_tools.search_results if self._research_tools else (),
             )
         except TimeoutError:
-            output = _fallback_discovery_output(input_data)
+            output = _fallback_discovery_output(
+                input_data,
+                self._research_tools.search_results if self._research_tools else (),
+            )
             self._set_activity("timeout_fallback", input_data, output)
             return output
         except (ValidationError, ValueError, TypeError):
-            output = _fallback_discovery_output(input_data)
+            output = _fallback_discovery_output(
+                input_data,
+                self._research_tools.search_results if self._research_tools else (),
+            )
             self._set_activity("schema_invalid_fallback", input_data, output)
             return output
         except Exception:
-            output = _fallback_discovery_output(input_data)
+            output = _fallback_discovery_output(
+                input_data,
+                self._research_tools.search_results if self._research_tools else (),
+            )
             self._set_activity("error_fallback", input_data, output)
             return output
 
@@ -173,16 +192,19 @@ class LiveDiscoveryAgent:
         output: DiscoveryAgentOutput,
     ) -> None:
         self._workbench_activity = (
+            *(self._research_tools.workbench_activity if self._research_tools else ()),
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,
                 "input": {
                     "agent": "DiscoveryAgent",
-                    "allowed_tools": [],
+                    "allowed_tools": [
+                        tool.name for tool in self._research_tools.sdk_tools()
+                    ]
+                    if self._research_tools is not None
+                    else [],
                     "search_result_count": len(input_data.seed_results),
-                    "eligible_source_count": len(
-                        _eligible_search_results(input_data.seed_results)
-                    ),
+                    "inspected_source_count": len(output.source_decisions),
                 },
                 "output": {
                     "outcome": output.outcome.value,
@@ -200,33 +222,39 @@ class _MockRunResult:
     final_output: Any
 
 
-def _build_discovery_agent(model: str) -> Agent[Any]:
+def _build_discovery_agent(
+    model: str, research_tools: AgentResearchTools | None
+) -> Agent[Any]:
     return Agent(
         name="CartCartDiscoveryAgent",
         model=model,
         model_settings=ModelSettings(
-            temperature=0,
-            max_tokens=900,
+            max_tokens=4000,
             include_usage=True,
         ),
         instructions=(
-            "Review supplied SearchResult records and return only a structured "
-            "DiscoveryAgentOutput. Select candidate source IDs for extraction "
-            "from the supplied search_results only. Choose product pages, "
-            "retailer listings, official brand/store pages, professional "
-            "reviews, or community discussions when the source quality is not "
-            "weak and the source is not a proxy, reseller-import, or price "
-            "comparison result. Do not select generic search-result pages, "
-            "video results, other/unknown page types, weak sources, excluded "
-            "source-policy classes, or IDs not present in the input. If no "
-            "credible candidates exist, return outcome insufficient_candidates "
-            "with no selected_source_ids and a brief note. Do not invent product "
-            "names, listings, prices, specs, seller facts, source IDs, URLs, or "
-            "claims. Do not browse, call tools, recommend products, or expose "
-            "agents, providers, prompts, traces, policies, or schemas."
+            "You own shopping-source research. Inspect the supplied seed results and "
+            "use search_sources for bounded follow-up searches when reviews, broad "
+            "collections, weak matches, or too few listings leave the research "
+            "incomplete. Use the shopping brief's buying region for follow-up "
+            "searches. Search for named models found in reviews when useful. "
+            "A provider source_type or planned query intent is only a hint, never "
+            "a semantic classification. For every source ID you inspect, return "
+            "one source_decision with a classification, calibrated confidence, "
+            "specific reasons, intended treatment, candidate/model hints, and "
+            "next_action. Classify professional reviews, individual product "
+            "pages, retailer listings, official brand pages, marketplace "
+            "listings, category/collection pages, community sources, irrelevant "
+            "and uncertain sources. Retain reviews as evidence; do not turn a "
+            "review into a listing. Select source IDs needing page inspection "
+            "in selected_source_ids (fetch or retain_as_evidence actions). "
+            "Use fetch_source by ID to resolve ambiguity when needed. Excluded "
+            "or unsafe sources must be ignored. If nothing useful remains, "
+            "return insufficient_candidates with explicit reasons. Never invent "
+            "IDs, prices, specs, sellers, or product facts."
         ),
-        tools=[],
-        output_type=DiscoveryAgentOutput,
+        tools=list(research_tools.sdk_tools()) if research_tools else [],
+        output_type=DiscoveryModelOutput,
     )
 
 
@@ -237,8 +265,7 @@ def _model_input(input_data: DiscoveryAgentInput) -> str:
             "brief": input_data.brief.model_dump(mode="json"),
             "search_plan": input_data.search_plan.model_dump(mode="json"),
             "search_results": [
-                _search_result_summary(result)
-                for result in input_data.seed_results
+                _search_result_summary(result) for result in input_data.seed_results
             ],
         },
         sort_keys=True,
@@ -249,7 +276,7 @@ def _search_result_summary(result: SearchResult) -> dict[str, Any]:
     return {
         "source_id": str(result.source_id),
         "query": result.query.model_dump(mode="json"),
-        "url": str(result.url),
+        "url": _neutral_url(str(result.url)),
         "title": result.title,
         "snippet": result.snippet,
         "source_type": result.source_type.value,
@@ -274,58 +301,95 @@ def _safe_provider_raw(raw: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in raw.items() if key in allowed_keys}
 
 
+def _neutral_url(url: str) -> str:
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
 def _coerce_discovery_result(
     value: Any,
     input_data: DiscoveryAgentInput,
+    tool_results: tuple[SearchResult, ...],
 ) -> DiscoveryAgentOutput:
     raw_output = (
         value
-        if isinstance(value, DiscoveryAgentOutput)
-        else DiscoveryAgentOutput.model_validate(value)
+        if isinstance(value, (DiscoveryAgentOutput, DiscoveryModelOutput))
+        else DiscoveryModelOutput.model_validate(value)
     )
     output = DiscoveryAgentOutput(
-        search_results=input_data.seed_results,
+        search_results=(*input_data.seed_results, *tool_results),
+        source_decisions=raw_output.source_decisions,
         selected_source_ids=raw_output.selected_source_ids,
         outcome=raw_output.outcome,
         notes=raw_output.notes,
     )
     _validate_discovery_policy(output)
-    return output
+    return output.model_copy(
+        update={"selected_source_ids": _inspection_order(output.source_decisions)}
+    )
+
+
+def _inspection_order(
+    decisions: tuple[DiscoverySourceDecision, ...],
+) -> tuple[SourceId, ...]:
+    fetch = tuple(
+        item.source_id
+        for item in decisions
+        if item.next_action == DiscoveryNextAction.FETCH
+    )
+    evidence = tuple(
+        item.source_id
+        for item in decisions
+        if item.next_action == DiscoveryNextAction.RETAIN_AS_EVIDENCE
+    )
+    # The current extraction stage inspects at most eight pages. Reserve room
+    # for review evidence while ensuring shopping pages are not hidden behind it.
+    return (*fetch[:6], *evidence[:2], *fetch[6:], *evidence[2:])
 
 
 def _validate_discovery_policy(output: DiscoveryAgentOutput) -> None:
     result_by_id = {result.source_id: result for result in output.search_results}
-    selected_results = tuple(result_by_id[source_id] for source_id in output.selected_source_ids)
-    invalid_source_ids = tuple(
-        result.source_id
-        for result in selected_results
-        if not _is_eligible_search_result(result)
-    )
-    if invalid_source_ids:
-        raise ValueError("discovery output selected ineligible source IDs.")
-
-    eligible_source_ids = {
-        result.source_id for result in _eligible_search_results(output.search_results)
-    }
-    if eligible_source_ids and output.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES:
-        raise ValueError("discovery output ignored eligible source candidates.")
-
-
-def _fallback_discovery_output(input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
-    eligible_results = _eligible_search_results(input_data.seed_results)
-    if not eligible_results:
-        return DiscoveryAgentOutput(
-            search_results=input_data.seed_results,
-            outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
-            notes=("No eligible source results were available for extraction.",),
+    decisions = {decision.source_id: decision for decision in output.source_decisions}
+    if set(decisions) != set(result_by_id):
+        raise ValueError(
+            "discovery must classify every observed source ID exactly once."
         )
+    if any(
+        decision.next_action != DiscoveryNextAction.IGNORE
+        for decision in output.source_decisions
+        if any(
+            result_by_id[decision.source_id].provider.raw.get(flag)
+            for flag in _EXCLUDED_RAW_FLAGS
+        )
+    ):
+        raise ValueError("excluded sources cannot be selected for research.")
+    selected = set(output.selected_source_ids)
+    actionable = {
+        decision.source_id
+        for decision in output.source_decisions
+        if decision.next_action
+        in {
+            DiscoveryNextAction.FETCH,
+            DiscoveryNextAction.RETAIN_AS_EVIDENCE,
+        }
+    }
+    if selected != actionable:
+        raise ValueError("selected IDs must match fetch/evidence decisions.")
+    if any(
+        decisions[source_id].classification == DiscoverySourceKind.IRRELEVANT
+        for source_id in selected
+    ):
+        raise ValueError("irrelevant sources cannot be selected.")
+
+
+def _fallback_discovery_output(
+    input_data: DiscoveryAgentInput,
+    tool_results: tuple[SearchResult, ...] = (),
+) -> DiscoveryAgentOutput:
     return DiscoveryAgentOutput(
-        search_results=input_data.seed_results,
-        selected_source_ids=tuple(result.source_id for result in eligible_results),
-        outcome=DiscoveryAgentOutcome.SELECTED,
-        notes=(
-            "Deterministic fallback selected eligible source IDs from supplied search results.",
-        ),
+        search_results=(*input_data.seed_results, *tool_results),
+        outcome=DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
+        notes=("Discovery model could not classify the available sources.",),
     )
 
 
@@ -339,27 +403,50 @@ def _mock_discovery_from_model_input(model_input: str) -> DiscoveryAgentOutput:
             "seed_results": payload["search_results"],
         }
     )
-    return _fallback_discovery_output(input_data)
-
-
-def _eligible_search_results(
-    results: tuple[SearchResult, ...],
-) -> tuple[SearchResult, ...]:
-    return tuple(result for result in results if _is_eligible_search_result(result))
-
-
-def _is_eligible_search_result(result: SearchResult) -> bool:
-    if result.source_type not in _EXTRACTABLE_SOURCE_TYPES:
-        return False
-    if result.quality.level == SourceQualityLevel.WEAK:
-        return False
-
-    raw = result.provider.raw
-    if any(bool(raw.get(flag)) for flag in _EXCLUDED_RAW_FLAGS):
-        return False
-
-    source_class = raw.get("source_class")
-    if isinstance(source_class, str) and source_class in _EXCLUDED_SOURCE_CLASSES:
-        return False
-
-    return True
+    # Fixture-only model response; live decisions come from the OpenAI model.
+    decisions: list[DiscoverySourceDecision] = []
+    for result in input_data.seed_results:
+        text = f"{result.title} {result.snippet or ''}".casefold()
+        excluded = any(result.provider.raw.get(flag) for flag in _EXCLUDED_RAW_FLAGS)
+        if excluded or "proxy" in text or "unrelated" in text:
+            kind, action = DiscoverySourceKind.IRRELEVANT, DiscoveryNextAction.IGNORE
+        elif "review" in text or "best tvs" in text:
+            kind, action = (
+                DiscoverySourceKind.PROFESSIONAL_REVIEW,
+                DiscoveryNextAction.RETAIN_AS_EVIDENCE,
+            )
+        elif "retailer" in text or " at " in text:
+            kind, action = (
+                DiscoverySourceKind.RETAILER_LISTING,
+                DiscoveryNextAction.FETCH,
+            )
+        elif "collection" in text or "televisions by" in text:
+            kind, action = (
+                DiscoverySourceKind.CATEGORY_COLLECTION,
+                DiscoveryNextAction.FETCH,
+            )
+        else:
+            kind, action = DiscoverySourceKind.UNCERTAIN, DiscoveryNextAction.IGNORE
+        decisions.append(
+            DiscoverySourceDecision(
+                source_id=result.source_id,
+                classification=kind,
+                confidence=0.8 if kind != DiscoverySourceKind.UNCERTAIN else 0.3,
+                reasons=("Fixture-scripted mock classification from title/snippet.",),
+                intended_treatment="Inspect page"
+                if action != DiscoveryNextAction.IGNORE
+                else "Ignore",
+                candidate_model_hints=("Aurora A55", "Northstar N65")
+                if "Aurora A55 and Northstar N65" in result.title
+                else (),
+                next_action=action,
+            )
+        )
+    selected = _inspection_order(tuple(decisions))
+    return DiscoveryAgentOutput(
+        source_decisions=tuple(decisions),
+        selected_source_ids=selected,
+        outcome=DiscoveryAgentOutcome.SELECTED
+        if selected
+        else DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES,
+    )

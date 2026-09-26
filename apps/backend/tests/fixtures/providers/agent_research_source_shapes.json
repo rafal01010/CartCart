@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "purpose": "Synthetic agent research input, not a recorded provider response",
+  "shopper_query": "Which TV should I buy?",
+  "results": [
+    {
+      "source_type": "professional_review",
+      "title": "Best TVs for bright rooms",
+      "url": "https://reviews.example.com/best-tvs",
+      "snippet": "Compares the fictional Aurora A55 and Northstar N65 TVs."
+    },
+    {
+      "source_type": "search_result",
+      "title": "Aurora A55 television at an established retailer",
+      "url": "https://retailer.example.com/aurora-a55",
+      "snippet": "An individual product offer with seller and price details."
+    },
+    {
+      "source_type": "search_result",
+      "title": "Televisions by size",
+      "url": "https://retailer.example.com/tvs",
+      "snippet": "A collection of distinct televisions, not one product page."
+    },
+    {
+      "source_type": "search_result",
+      "title": "Unrelated home theater article",
+      "url": "https://articles.example.com/home-theater-history",
+      "snippet": "A historical article with no purchasable product evidence."
+    },
+    {
+      "source_type": "search_result",
+      "title": "Unrelated credit offer, not a TV listing",
+      "url": "https://retailer.example.com/unrelated-credit-offer",
+      "snippet": "A plausible shopping domain with unrelated page content."
+    },
+    {
+      "source_type": "search_result",
+      "title": "Aurora A55 at retailer checkout",
+      "url": "https://reviews.example.com/aurora-a55-buy",
+      "snippet": "A product offer on a review-looking domain; page intent is uncertain until inspection."
+    }
+  ]
+}

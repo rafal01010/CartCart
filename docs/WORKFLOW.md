@@ -1,7 +1,7 @@
 # CartCart Workflow
 
-Status: Fixture-first full workflow with opt-in live-agent orchestration
-Last updated: 2026-06-21
+Status: Transitional runtime; agent-first research target documented below
+Last updated: 2026-09-25
 
 ## Scope
 
@@ -11,6 +11,32 @@ configured fixture-first. The normal run path can opt into live OpenAI agents
 with `CARTCART_AGENT_WORKFLOW_MODE=live`,
 `CARTCART_LIVE_AGENTS_ENABLED=true`, and a local `OPENAI_API_KEY`. Fixture mode
 remains the default and does not make live model calls.
+
+The target research cycle is bounded: agent query planning; typed provider
+search; `DiscoveryAgent` classification/relevance and source decisions;
+approved fetch with persisted snapshot IDs; primary `ExtractionAgent` semantic
+interpretation of zero/one/many products and review evidence; cited candidate
+and evidence validation; then agent-requested targeted follow-up when needed.
+The backend owns provider credentials, URL/content safety, budgets, schema and
+evidence-ID integrity, persistence, and policy. Search-provider source labels,
+domain scores, and parsing helpers are signals only. A review may identify
+several candidate models, but it is not itself a shop listing. An unknown or
+generic search-result type must reach the agent for judgment.
+
+The approved `search_sources` and `fetch_source` SDK tool boundary is attached
+to live `DiscoveryAgent`. It persists same-run source/snapshot IDs,
+enforces call and content limits, and reports provider gaps without exposing
+vendor arguments or arbitrary-URL retrieval. Live discovery may make bounded
+follow-up searches; seed and tool-returned results receive per-source decisions.
+Live `ExtractionAgent` has a separate read-only `read_source_snapshot` SDK tool.
+It can read only assigned same-run persisted snapshots, with a bounded text
+excerpt and read budget. Invalid structured output becomes an explicit gap.
+
+The full cycle is **not yet implemented** in the current run path. Live
+extraction now uses the agent as the primary interpreter, but review mentions
+are not yet routed back into targeted discovery. Fixture normalization remains
+single-listing oriented and fixture fallback can be category-incompatible.
+The following run lifecycle describes the current transitional behavior.
 
 Related docs:
 
@@ -51,13 +77,14 @@ The orchestrator:
    user-added product names/descriptions are added as scoped lookup queries so
    they can be found without asking the shopper for links.
 5. Calls the configured search provider and persists policy-scored search
-   results. In live workflow mode, `DiscoveryAgent` selects source IDs only from
-   those supplied search results, including search results that match a
-   user-added name/description.
-6. Sends eligible selected page results, selected user-added name/description
-   matches, and session user-added product URLs through the configured extraction
-   provider, persists linked snapshots, and creates normalized candidate data
-   from usable extraction outcomes. User-added URL snapshots are tied directly
+   results. Live `DiscoveryAgent` receives those seeds and may use approved
+   search/fetch tools for bounded follow-up. Its structured output classifies
+   every observed source and selects pages by ID, including generic results.
+6. Sends selected pages and user-added URLs through
+   the configured extraction provider, persists linked snapshots, and uses the
+   legacy single-listing normalizer for candidates. Generic pages can reach
+   extraction, but the normalizer may not yet turn them into useful listings.
+   User-added URL snapshots are tied directly
    to the user-supplied candidate rather than to a search-result record;
    name/description matches retain their provider search-result link.
 7. Deduplicates extracted generated and user-added candidates together,
@@ -73,9 +100,9 @@ The orchestrator:
 9. Runs listing trust, category routing/analysis, comparison, and verification
    either through fixture stages or the configured live typed agents.
 10. Persists one run event and one agent trace record per executable stage.
-11. Persists the resulting analysis output, falling back to the monitor-shopping
-   fixture bundle when live agents are not enabled or a deterministic fallback is
-   selected.
+11. Persists the resulting analysis output. Current fixture/fallback behavior
+    may include monitor-shopping products regardless of the request; this is a
+    known incorrect transitional limitation, not an approved target fallback.
 12. Appends the final `complete` event.
 
 Long-running background orchestration, retries, cancellation, and partial-result
@@ -141,12 +168,14 @@ page results are then passed to the configured `ExtractionProvider`. Each
 returned `SourceSnapshot` is linked to its originating search result and
 persisted with extraction-provider metadata.
 
-Candidate creation requires a usable snapshot status. Product, retailer, and
-official-brand pages normalize from extracted page content. Other usable page
-types can use the persisted search-result metadata supported by the deterministic
-listing normalizer. The extraction event reports how many sources were checked
-and products were added to the comparison set. Fixture and disabled modes remain
-network-free; configured HTTP/static mode uses this same provider boundary.
+Fixture candidate creation still uses legacy listing-eligible source types and
+the deterministic one-listing normalizer. In live mode, selected generic results
+and other source types are persisted before `ExtractionAgent` reads their
+snapshots. Its validated listings feed the current shortlist path, including
+multiple listings from one page; its evidence is persisted and passed to later
+analysis. Mentions and gaps remain in run context, but review-to-listing
+follow-up and durable mention/gap records await the bounded research loop.
+Fixture and disabled provider modes remain network-free.
 
 The deduplication stage then groups those normalized candidates before source
 intelligence, trust, analysis, and recommendations run. It uses deterministic

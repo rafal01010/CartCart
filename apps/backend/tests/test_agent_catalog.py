@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -8,6 +11,37 @@ from app.agents import (
     AgentStatus,
     InvocationMode,
 )
+from app.agents.catalog import ApprovedSDKTool, ResearchDecision
+from app.core.agent_run_profiles import AgentRunProfileName
+
+
+def test_agent_catalog_assigns_workload_profiles() -> None:
+    assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").run_profile == (
+        AgentRunProfileName.FAST
+    )
+    assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").run_profile == (
+        AgentRunProfileName.FAST
+    )
+    assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").run_profile == (
+        AgentRunProfileName.STRONG
+    )
+    assert DEFAULT_AGENT_CATALOG.require("ComparisonDecisionAgent").run_profile == (
+        AgentRunProfileName.STRONG
+    )
+    assert DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent").run_profile == (
+        AgentRunProfileName.STRONG
+    )
+
+
+def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
+    assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").approved_sdk_tools == (
+        ApprovedSDKTool.SEARCH_SOURCES,
+        ApprovedSDKTool.FETCH_SOURCE,
+    )
+    assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
+    assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
+        ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
+    )
 
 
 def test_agent_catalog_routes_unknown_categories_to_generic_fallback() -> None:
@@ -90,7 +124,9 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     assert "youtube_video_metadata_provider_optional" not in (
         provider_requirement_names
     )
-    assert "marketplace_availability_provider_optional" not in provider_requirement_names
+    assert (
+        "marketplace_availability_provider_optional" not in provider_requirement_names
+    )
 
 
 def test_agent_catalog_exposes_guided_intake_and_guardrail_contracts() -> None:
@@ -118,6 +154,53 @@ def test_agent_catalog_exposes_category_router_contract() -> None:
     assert router.invocation_mode == InvocationMode.TYPED_STEP
     assert router.contract_name == "CategoryRouterAgent"
     assert router.output_schema == "ProductAnalysisRoute"
+
+
+def test_agent_catalog_declares_agent_owned_research_and_extraction() -> None:
+    discovery = DEFAULT_AGENT_CATALOG.require("DiscoveryAgent")
+    extraction = DEFAULT_AGENT_CATALOG.require("ExtractionAgent")
+    legacy = DEFAULT_AGENT_CATALOG.require("ExtractionReviewAgent")
+
+    assert set(discovery.target_research_decisions) == {
+        ResearchDecision.SOURCE_CLASSIFICATION,
+        ResearchDecision.SOURCE_RELEVANCE,
+        ResearchDecision.CANDIDATE_IDENTIFICATION,
+        ResearchDecision.FOLLOW_UP_SEARCH,
+    }
+    assert discovery.planned_tool_boundaries == (
+        "SearchProvider",
+        "ExtractionProvider",
+    )
+    assert set(extraction.target_research_decisions) == {
+        ResearchDecision.PAGE_SHAPE_INTERPRETATION,
+        ResearchDecision.MULTI_PRODUCT_EXTRACTION,
+        ResearchDecision.REVIEW_TO_CANDIDATE,
+        ResearchDecision.EVIDENCE_INTERPRETATION,
+    }
+    assert extraction.invocation_mode == InvocationMode.TYPED_STEP
+    assert extraction.contract_name == "ExtractionAgent"
+    assert extraction.output_schema == "ExtractionAgentOutput"
+    assert extraction.planned_tool_boundaries == (
+        "SourceSnapshotReader",
+        "MechanicalExtractionHelpers",
+    )
+    assert legacy.status == AgentStatus.TRANSITIONAL
+    assert legacy.superseded_by == extraction.agent_name
+    assert legacy.target_research_decisions == ()
+
+
+def test_research_fixture_preserves_review_and_generic_provider_shapes() -> None:
+    fixture_path = (
+        Path(__file__).parent / "fixtures/providers/agent_research_source_shapes.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    assert fixture["shopper_query"] == "Which TV should I buy?"
+    assert [result["source_type"] for result in fixture["results"]] == [
+        "professional_review",
+        *("search_result",) * 5,
+    ]
+    assert all(result["url"].startswith("https://") for result in fixture["results"])
 
 
 def test_agent_catalog_requires_explicit_entries_for_specialist_routes() -> None:

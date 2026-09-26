@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import AnyHttpUrl, Field, ValidationError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.agents.catalog import DEFAULT_AGENT_CATALOG, AgentCatalog, AgentCatalogEntry
 from app.agents.contracts import (
@@ -14,6 +15,9 @@ from app.agents.contracts import (
     ComparisonDecisionAgentInput,
     DeduplicationReviewAgentInput,
     DiscoveryAgentInput,
+    ExtractionAgentInput,
+    ExtractionAgentOutput,
+    ExtractionEvidenceGap,
     ExtractionReviewAgentInput,
     IKEAStoreIntelligenceAgentInput,
     IntakeAgentInput,
@@ -98,6 +102,8 @@ from app.agents.live_technology_domain_analyst import (
 from app.agents.live_guide import LiveShoppingGuideAgent, MockShoppingGuideModelRunner
 from app.agents.live_intake import LiveIntakeAgent, MockIntakeModelRunner
 from app.agents.live_discovery import LiveDiscoveryAgent, MockDiscoveryModelRunner
+from app.agents.live_extraction import LiveExtractionAgent, MockExtractionModelRunner
+from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_query_planner import (
     LiveQueryPlannerAgent,
     MockQueryPlannerModelRunner,
@@ -123,7 +129,20 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
     require_live_openai_agent_configuration,
 )
+from app.agents.research_tools import (
+    AgentResearchTools,
+    FetchSourceRequest,
+    FetchSourceResult,
+    SearchSourcesRequest,
+    SearchSourcesResult,
+)
+from app.core.agent_run_profiles import AgentRunProfileName
 from app.core.settings import EnvironmentMode, Settings
+from app.db.base import Base
+from app.db.repositories.runs import RunRepository
+from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.repositories.sessions import SessionRepository
+from app.db.session import create_session_factory
 from app.providers import (
     AmazonProductIntelligenceProviderOptions,
     AmazonProductIntelligenceProviderResult,
@@ -137,6 +156,7 @@ from app.providers import (
     TranscriptProviderOptions,
     TranscriptProviderResult,
 )
+from app.providers.fakes import FakeExtractionProvider, FakeSearchProvider
 from app.schemas.analysis import (
     CategoryAnalysis,
     ComparisonCriterion,
@@ -184,6 +204,7 @@ from app.schemas.search_sources import (
     EvidenceTarget,
     EvidenceTargetType,
     EvidenceType,
+    ExtractedPageContent,
     ExtractionStatus,
     IKEAStoreContext,
     IKEAStoreEvidenceBundle,
@@ -277,6 +298,9 @@ class AgentWorkbenchAgentSummary(CartCartBaseModel):
     agent_name: str = Field(min_length=1, max_length=200)
     kind: str = Field(min_length=1, max_length=80)
     invocation_mode: str = Field(min_length=1, max_length=80)
+    run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
+    resolved_model: str = Field(min_length=1, max_length=200)
+    approved_sdk_tools: tuple[str, ...] = Field(default_factory=tuple)
     input_schema: str = Field(min_length=1, max_length=200)
     output_schema: str = Field(min_length=1, max_length=200)
     modes: tuple[AgentWorkbenchMode, ...]
@@ -314,8 +338,20 @@ class AgentWorkbenchRunResult(VersionedSchema):
     trace_id: str = Field(min_length=1, max_length=120)
     usage: WorkbenchUsage | None = None
     model: str = Field(min_length=1, max_length=200)
+    run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
+    timeout_seconds: float = Field(gt=0, le=300)
+    max_turns: int = Field(ge=1, le=50)
+    reasoning_effort: str | None = None
     elapsed_ms: float = Field(ge=0)
     live_mode_notice: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ResearchToolWorkbenchProbeResult(VersionedSchema):
+    agent_name: str = "DiscoveryAgent"
+    mode: str = "fixture"
+    search: SearchSourcesResult
+    fetch: FetchSourceResult | None = None
+    allowed_tool_activity: tuple[WorkbenchToolActivity, ...]
 
 
 class AgentWorkbenchScenario(CartCartBaseModel):
@@ -382,6 +418,14 @@ class AgentWorkbenchRunner:
                     agent_name=definition.entry.agent_name,
                     kind=definition.entry.kind.value,
                     invocation_mode=definition.entry.invocation_mode.value,
+                    run_profile=definition.entry.run_profile,
+                    resolved_model=build_openai_agent_run_configuration(
+                        self._settings,
+                        agent_name=definition.entry.agent_name,
+                    ).model,
+                    approved_sdk_tools=tuple(
+                        tool.value for tool in definition.entry.approved_sdk_tools
+                    ),
                     input_schema=definition.input_model.__name__,
                     output_schema=definition.output_schema_name,
                     modes=definition.available_modes(),
@@ -398,6 +442,47 @@ class AgentWorkbenchRunner:
                 for definition in self._definitions.values()
             ),
         )
+
+    async def probe_research_tools(
+        self, request: SearchSourcesRequest
+    ) -> ResearchToolWorkbenchProbeResult:
+        """Exercise the approved tool boundary offline with real ID persistence."""
+        self._require_available()
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            session_factory = create_session_factory(engine)
+            async with session_factory() as session:
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(query=request.query),
+                    current_brief=ShoppingBrief(original_query=request.query),
+                )
+                run = await RunRepository(session).create(shopping_session.session_id)
+                await session.commit()
+
+            tools = AgentResearchTools(
+                agent_name="DiscoveryAgent",
+                run_id=run.run_id,
+                session_factory=session_factory,
+                search_provider=FakeSearchProvider(),
+                extraction_provider=FakeExtractionProvider(),
+            )
+            search = await tools.search(request)
+            fetch = (
+                await tools.fetch(
+                    FetchSourceRequest(source_id=search.sources[0].source_id)
+                )
+                if search.sources
+                else None
+            )
+            return ResearchToolWorkbenchProbeResult(
+                search=search,
+                fetch=fetch,
+                allowed_tool_activity=_workbench_activity(tools),
+            )
+        finally:
+            await engine.dispose()
 
     async def run(self, request: AgentWorkbenchRunRequest) -> AgentWorkbenchRunResult:
         self._require_available()
@@ -447,6 +532,10 @@ class AgentWorkbenchRunner:
             trace_id=trace_id,
             usage=None,
             model=configuration.model,
+            run_profile=configuration.run_profile,
+            timeout_seconds=configuration.timeout_seconds,
+            max_turns=configuration.max_turns,
+            reasoning_effort=configuration.reasoning_effort,
             elapsed_ms=elapsed_ms,
             live_mode_notice=live_notice,
         )
@@ -485,6 +574,8 @@ class AgentWorkbenchRunner:
         definition: _AgentWorkbenchDefinition,
         input_data: CartCartBaseModel,
     ) -> _WorkbenchExecution:
+        if definition.entry.agent_name == "ExtractionAgent":
+            return await self._run_extraction(input_data, mock=True)
         if definition.fixture_agent_factory is None:
             raise AgentWorkbenchError(
                 "agent_workbench_mode_unavailable",
@@ -504,6 +595,8 @@ class AgentWorkbenchRunner:
         definition: _AgentWorkbenchDefinition,
         input_data: CartCartBaseModel,
     ) -> _WorkbenchExecution:
+        if definition.entry.agent_name == "ExtractionAgent":
+            return await self._run_extraction(input_data, mock=True)
         agent_factory = (
             definition.mock_agent_factory or definition.fixture_agent_factory
         )
@@ -553,12 +646,100 @@ class AgentWorkbenchRunner:
                 status_code=400,
                 details={"agent_name": definition.entry.agent_name},
             )
+        if definition.entry.agent_name == "DiscoveryAgent":
+            return await self._run_live_discovery(input_data)
+        if definition.entry.agent_name == "ExtractionAgent":
+            return await self._run_extraction(input_data, mock=False)
         agent = definition.live_agent_factory(self._settings)
         output = await agent.run(input_data)
         return _WorkbenchExecution(
             output=output,
             allowed_tool_activity=_workbench_activity(agent),
         )
+
+    async def _run_live_discovery(
+        self, input_data: CartCartBaseModel
+    ) -> _WorkbenchExecution:
+        assert isinstance(input_data, DiscoveryAgentInput)
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            factory = create_session_factory(engine)
+            async with factory() as session:
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(
+                        query=input_data.brief.original_query
+                    ),
+                    current_brief=input_data.brief,
+                )
+                await RunRepository(session).create(
+                    shopping_session.session_id, run_id=input_data.run_id
+                )
+                repository = SearchSourceRepository(session)
+                for result in input_data.seed_results:
+                    await repository.add_search_result(input_data.run_id, result)
+                await session.commit()
+            agent = LiveDiscoveryAgent(
+                settings=self._settings,
+                research_tools_factory=lambda run_id: AgentResearchTools(
+                    agent_name="DiscoveryAgent",
+                    run_id=run_id,
+                    session_factory=factory,
+                    search_provider=FakeSearchProvider(),
+                    extraction_provider=FakeExtractionProvider(),
+                ),
+            )
+            output = await agent.run(input_data)
+            return _WorkbenchExecution(
+                output=output,
+                allowed_tool_activity=_workbench_activity(agent),
+            )
+        finally:
+            await engine.dispose()
+
+    async def _run_extraction(
+        self, input_data: CartCartBaseModel, *, mock: bool
+    ) -> _WorkbenchExecution:
+        assert isinstance(input_data, ExtractionAgentInput)
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            factory = create_session_factory(engine)
+            async with factory() as session:
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(query="Compare these products"),
+                    current_brief=_brief(input_data.category or "product"),
+                )
+                await RunRepository(session).create(
+                    shopping_session.session_id, run_id=input_data.run_id
+                )
+                repository = SearchSourceRepository(session)
+                for snapshot in input_data.workbench_snapshots:
+                    await repository.add_source_snapshot(input_data.run_id, snapshot)
+                await session.commit()
+            runner = (
+                MockExtractionModelRunner(output=_mock_extraction_output(input_data))
+                if mock
+                else None
+            )
+            agent = LiveExtractionAgent(
+                settings=self._settings,
+                snapshot_tools_factory=lambda request: SnapshotInterpretationTools(
+                    run_id=request.run_id,
+                    allowed_snapshot_ids=request.snapshot_ids,
+                    session_factory=factory,
+                ),
+                **({"model_runner": runner} if runner is not None else {}),
+            )
+            output = await agent.run(input_data)
+            return _WorkbenchExecution(
+                output=output,
+                allowed_tool_activity=_workbench_activity(agent),
+            )
+        finally:
+            await engine.dispose()
 
 
 def _validate_input(
@@ -660,6 +841,8 @@ def _build_workbench_definitions(
                 _scenario_discovery_no_good_results,
                 _scenario_discovery_with_seed,
                 _scenario_discovery_empty_seed,
+                _scenario_discovery_tv_review_and_generic_results,
+                _scenario_discovery_misleading_domains,
             ),
             mock_agent_factory=_mock_discovery_agent,
             live_agent_factory=LiveDiscoveryAgent,
@@ -684,6 +867,20 @@ def _build_workbench_definitions(
             "ExtractionReviewAgentOutput",
             FakeExtractionReviewAgent,
             (_scenario_extraction_snapshot, _scenario_extraction_empty),
+        ),
+        "ExtractionAgent": _definition(
+            catalog,
+            "ExtractionAgent",
+            ExtractionAgentInput,
+            "ExtractionAgentOutput",
+            None,
+            (
+                _scenario_extraction_product_page,
+                _scenario_extraction_ambiguous_page,
+                _scenario_extraction_malformed_output,
+                _scenario_extraction_multiple_products,
+            ),
+            live_agent_factory=LiveExtractionAgent,
         ),
         "DeduplicationReviewAgent": _definition(
             catalog,
@@ -879,7 +1076,7 @@ def _definition(
     agent_name: str,
     input_model: type[CartCartBaseModel],
     output_schema_name: str,
-    fixture_agent_factory: Callable[[], Any],
+    fixture_agent_factory: Callable[[], Any] | None,
     scenario_builders: tuple[Callable[[], AgentWorkbenchScenario], ...],
     *,
     mock_agent_factory: Callable[[Settings], Any] | None = None,
@@ -1063,9 +1260,7 @@ def _mock_reddit_community_intelligence_agent(
     )
 
 
-def _fixture_amazon_product_intelligence_agent() -> (
-    LiveAmazonProductIntelligenceAgent
-):
+def _fixture_amazon_product_intelligence_agent() -> LiveAmazonProductIntelligenceAgent:
     return LiveAmazonProductIntelligenceAgent(
         amazon_provider=_WorkbenchAmazonProductIntelligenceProvider(),
     )
@@ -1293,9 +1488,7 @@ class _WorkbenchIKEAStoreIntelligenceProvider:
                             "The workbench fixture has no official IKEA country or "
                             "region path for this target."
                         ),
-                        source_quality=SourceQuality(
-                            level=SourceQualityLevel.UNKNOWN
-                        ),
+                        source_quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
                         confidence=_confidence(0.8),
                     ),
                 ),
@@ -1309,9 +1502,7 @@ class _WorkbenchIKEAStoreIntelligenceProvider:
             status=ProviderRunStatus.SUCCEEDED,
             capabilities=self.capabilities,
             bundle=bundle,
-            notes=(
-                "IKEA official-store evidence is scoped to the requested region.",
-            ),
+            notes=("IKEA official-store evidence is scoped to the requested region.",),
         )
 
 
@@ -2136,6 +2327,75 @@ def _scenario_discovery_empty_seed() -> AgentWorkbenchScenario:
     )
 
 
+def _scenario_discovery_tv_review_and_generic_results() -> AgentWorkbenchScenario:
+    plan = _search_plan("tv")
+    reviews = tuple(
+        _discovery_result(
+            plan.queries[0],
+            url=f"https://reviews.example.com/best-tvs-{index}",
+            title=f"Best TVs: Aurora A55 and Northstar N65 review {index}",
+            source_type=SourceType.PROFESSIONAL_REVIEW,
+            source_class="review_editorial",
+        )
+        for index in range(8)
+    )
+    shopping = tuple(
+        _discovery_result(
+            plan.queries[0],
+            url=f"https://retailer.example.com/tvs/{index}",
+            title=(
+                f"Aurora A55 at retailer {index}"
+                if index < 10
+                else f"Televisions by size collection {index}"
+            ),
+            source_type=SourceType.SEARCH_RESULT,
+            source_class="unknown",
+        )
+        for index in range(18)
+    )
+    return _scenario(
+        "discovery/tv-review-and-generic-results",
+        "Regression input with eight reviews and eighteen generic shopping results.",
+        DiscoveryAgentInput(
+            run_id=new_id(),
+            brief=_brief("tv", query="Which TV should I buy?"),
+            search_plan=plan,
+            seed_results=(*reviews, *shopping),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_discovery_misleading_domains() -> AgentWorkbenchScenario:
+    plan = _search_plan("tv")
+    return _scenario(
+        "discovery/misleading-domains",
+        "Titles and snippets must outweigh a plausible-looking domain or query hint.",
+        DiscoveryAgentInput(
+            run_id=new_id(),
+            brief=_brief("tv", query="Which TV should I buy?"),
+            search_plan=plan,
+            seed_results=(
+                _discovery_result(
+                    plan.queries[0],
+                    url="https://retailer.example.com/unrelated-credit-offer",
+                    title="Unrelated credit offer, not a TV listing",
+                    source_type=SourceType.SEARCH_RESULT,
+                    source_class="established_retailer_first_party",
+                ),
+                _discovery_result(
+                    plan.queries[0],
+                    url="https://reviews.example.com/aurora-a55-buy",
+                    title="Aurora A55 at retailer checkout",
+                    source_type=SourceType.SEARCH_RESULT,
+                    source_class="review_editorial",
+                ),
+            ),
+        ),
+        boundary=True,
+    )
+
+
 def _scenario_router_monitor_to_specialist() -> AgentWorkbenchScenario:
     brief, product, listing, _, evidence = _seed_objects("monitor")
     return _scenario(
@@ -2171,7 +2431,7 @@ def _scenario_extraction_snapshot() -> AgentWorkbenchScenario:
     _, _, _, snapshot, _ = _seed_objects("monitor")
     return _scenario(
         "extraction/retailer-snapshot",
-        "Fixture extraction review uses a supplied source snapshot.",
+        "Transitional fixture extraction contract uses a supplied source snapshot; it is not the target ExtractionAgent.",
         ExtractionReviewAgentInput(run_id=new_id(), source_snapshots=(snapshot,)),
     )
 
@@ -2179,9 +2439,139 @@ def _scenario_extraction_snapshot() -> AgentWorkbenchScenario:
 def _scenario_extraction_empty() -> AgentWorkbenchScenario:
     return _scenario(
         "extraction/no-snapshots",
-        "Boundary extraction review uses safe fixture output when no snapshots exist.",
+        "Legacy boundary fixture only; current no-snapshot monitor output is not a safe target fallback.",
         ExtractionReviewAgentInput(run_id=new_id()),
         boundary=True,
+    )
+
+
+def _extraction_snapshot(title: str, text: str) -> SourceSnapshot:
+    return SourceSnapshot(
+        url=(
+            "https://example.com/shop/a1"
+            if title in {"individual-product-page", "malformed-output"}
+            else "https://example.com/shop/televisions"
+        ),
+        source_type=SourceType.SEARCH_RESULT,
+        provider=ProviderMetadata(provider_name="workbench_fixture"),
+        title=title,
+        extraction_status=ExtractionStatus.SUCCEEDED,
+        extracted_content=ExtractedPageContent(
+            text=text,
+            extractor="workbench_fixture",
+            word_count=len(text.split()),
+        ),
+    )
+
+
+def _extraction_scenario(
+    title: str, text: str, *, boundary: bool = False
+) -> AgentWorkbenchScenario:
+    snapshot = _extraction_snapshot(title, text)
+    return _scenario(
+        f"extraction-agent/{title}",
+        "Persisted-page interpretation with a mocked structured model response.",
+        ExtractionAgentInput(
+            run_id=new_id(),
+            snapshot_ids=(snapshot.source_id,),
+            category="tv",
+            workbench_snapshots=(snapshot,),
+        ),
+        boundary=boundary,
+    )
+
+
+def _scenario_extraction_product_page() -> AgentWorkbenchScenario:
+    return _extraction_scenario(
+        "individual-product-page",
+        "Acme Vision A1 television. Official Acme Store. Price $499.00 USD.",
+    )
+
+
+def _scenario_extraction_ambiguous_page() -> AgentWorkbenchScenario:
+    return _extraction_scenario(
+        "ambiguous-page",
+        "Our televisions are coming soon. Ask us about the latest range.",
+        boundary=True,
+    )
+
+
+def _scenario_extraction_malformed_output() -> AgentWorkbenchScenario:
+    return _extraction_scenario(
+        "malformed-output",
+        "Acme Vision A1 television. Official Acme Store. Price $499.00 USD.",
+        boundary=True,
+    )
+
+
+def _scenario_extraction_multiple_products() -> AgentWorkbenchScenario:
+    return _extraction_scenario(
+        "multiple-products",
+        "Acme Vision A1 television $499.00 USD https://example.com/shop/a1. Acme Vision B2 television $699.00 USD https://example.com/shop/b2. Official Acme Store.",
+    )
+
+
+def _mock_extraction_output(
+    input_data: ExtractionAgentInput,
+) -> ExtractionAgentOutput | dict[str, Any]:
+    snapshot = input_data.workbench_snapshots[0]
+    source_id = snapshot.source_id
+    title = snapshot.title or ""
+    if title == "malformed-output":
+        return {"products": [{"name": "Uncited TV", "source_ids": []}]}
+    if title == "ambiguous-page":
+        return ExtractionAgentOutput(
+            evidence_gaps=(
+                ExtractionEvidenceGap(
+                    source_id=source_id, summary="No identifiable product or listing."
+                ),
+            )
+        )
+    names = (
+        ("Acme Vision A1", "Acme Vision B2")
+        if title == "multiple-products"
+        else ("Acme Vision A1",)
+    )
+    products: list[CanonicalProduct] = []
+    listings: list[ProductListing] = []
+    evidence: list[SourceEvidence] = []
+    for index, name in enumerate(names):
+        product = CanonicalProduct(
+            name=name,
+            brand="Acme",
+            model=name.rsplit(" ", 1)[1],
+            category="tv",
+            source_ids=(source_id,),
+        )
+        listing = ProductListing(
+            product_id=product.product_id,
+            title=name,
+            url=f"https://example.com/shop/{name.rsplit(' ', 1)[1].lower()}",
+            seller=SellerProfile(
+                seller_name="Official Acme Store", source_ids=(source_id,)
+            ),
+            price=Money(amount="499.00" if index == 0 else "699.00", currency="USD"),
+            source_ids=(source_id,),
+        )
+        products.append(product)
+        listings.append(listing)
+        evidence.append(
+            SourceEvidence(
+                source_id=source_id,
+                target=EvidenceTarget(
+                    target_type=EvidenceTargetType.PRODUCT,
+                    product_id=product.product_id,
+                ),
+                evidence_type=EvidenceType.LISTING_IDENTITY,
+                claim=f"Page identifies {name} as a television.",
+                confidence=_confidence(),
+                source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
+            )
+        )
+    return ExtractionAgentOutput(
+        products=tuple(products),
+        listings=tuple(listings),
+        source_evidence=tuple(evidence),
     )
 
 
@@ -2419,8 +2809,7 @@ def _scenario_monitor_analysis() -> AgentWorkbenchScenario:
             run_id=new_id(),
             brief=ShoppingBrief(
                 original_query=(
-                    "I need a 27-inch 1440p monitor for coding and movies "
-                    "under $400."
+                    "I need a 27-inch 1440p monitor for coding and movies under $400."
                 ),
                 category="monitor",
                 category_source=FieldSource.INFERRED,
@@ -3884,7 +4273,9 @@ def _comparison_analysis(
         strengths=("Source-backed monitor facts are available.",)
         if fit_score >= 0.5
         else (),
-        weaknesses=("Practical tradeoffs remain around value, trust, or evidence depth.",),
+        weaknesses=(
+            "Practical tradeoffs remain around value, trust, or evidence depth.",
+        ),
         warnings=warnings,
         confidence=_confidence(fit_score),
         evidence_ids=(evidence.evidence_id,),
@@ -3944,9 +4335,9 @@ def _scenario_verifier_unsupported_claim_block() -> AgentWorkbenchScenario:
                 "burn-in warranty."
             ),
             "mode_results": (
-                _recommendation_bundle(product, listing, evidence).mode_results[
-                    0
-                ].model_copy(
+                _recommendation_bundle(product, listing, evidence)
+                .mode_results[0]
+                .model_copy(
                     update={
                         "rationale": (
                             "Choose it for 240Hz OLED gaming performance and "

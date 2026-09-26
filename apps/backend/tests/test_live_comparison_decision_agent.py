@@ -56,6 +56,13 @@ class RecordingComparisonDecisionRunner:
     delay_seconds: float = 0
     calls: int = 0
     observed_tool_count: int | None = None
+    observed_agent_model: str | None = None
+    observed_run_model: str | None = None
+    observed_max_turns: int | None = None
+    observed_agent_temperature: float | None = None
+    observed_run_temperature: float | None = None
+    observed_reasoning_effort: str | None = None
+    observed_run_reasoning_effort: str | None = None
 
     async def run(
         self,
@@ -65,9 +72,30 @@ class RecordingComparisonDecisionRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        del model_input, run_config, max_turns
+        del model_input
         self.calls += 1
         self.observed_tool_count = len(getattr(agent, "tools", ()))
+        self.observed_agent_model = str(agent.model)
+        self.observed_run_model = (
+            str(run_config.model) if run_config.model is not None else None
+        )
+        self.observed_max_turns = max_turns
+        self.observed_agent_temperature = agent.model_settings.temperature
+        self.observed_run_temperature = (
+            run_config.model_settings.temperature
+            if run_config.model_settings is not None
+            else None
+        )
+        reasoning = agent.model_settings.reasoning
+        self.observed_reasoning_effort = reasoning.effort if reasoning else None
+        run_reasoning = (
+            run_config.model_settings.reasoning
+            if run_config.model_settings is not None
+            else None
+        )
+        self.observed_run_reasoning_effort = (
+            run_reasoning.effort if run_reasoning else None
+        )
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
         if self.error is not None:
@@ -407,6 +435,34 @@ async def test_live_comparison_decision_accepts_valid_monitor_bundle() -> None:
     assert result.rejected_items == ()
     assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
     assert agent.workbench_activity[0]["input"]["allowed_tools"] == []
+
+
+@pytest.mark.asyncio
+async def test_live_comparison_runner_receives_strong_profile() -> None:
+    input_data = _monitor_shortlist_input()
+    runner = RecordingComparisonDecisionRunner(output=_valid_bundle(input_data))
+    agent = LiveComparisonDecisionAgent(
+        settings=_settings(
+            openai_run_profiles={
+                "strong": {
+                    "model": "strong-model",
+                    "reasoning_effort": "medium",
+                    "max_turns": 10,
+                }
+            }
+        ),
+        model_runner=runner,
+    )
+
+    await agent.run(input_data)
+
+    assert runner.observed_agent_model == "strong-model"
+    assert runner.observed_run_model is None
+    assert runner.observed_max_turns == 10
+    assert runner.observed_agent_temperature is None
+    assert runner.observed_run_temperature is None
+    assert runner.observed_reasoning_effort == "medium"
+    assert runner.observed_run_reasoning_effort is None
 
 
 @pytest.mark.asyncio

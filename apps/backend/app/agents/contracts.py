@@ -72,8 +72,38 @@ class DiscoveryAgentOutcome(StrEnum):
     INSUFFICIENT_CANDIDATES = "insufficient_candidates"
 
 
+class DiscoverySourceKind(StrEnum):
+    PROFESSIONAL_REVIEW = "professional_review"
+    PRODUCT_PAGE = "product_page"
+    RETAILER_LISTING = "retailer_listing"
+    OFFICIAL_BRAND_PAGE = "official_brand_page"
+    MARKETPLACE_LISTING = "marketplace_listing"
+    CATEGORY_COLLECTION = "category_collection"
+    COMMUNITY_SOURCE = "community_source"
+    IRRELEVANT = "irrelevant"
+    UNCERTAIN = "uncertain"
+
+
+class DiscoveryNextAction(StrEnum):
+    FETCH = "fetch"
+    RETAIN_AS_EVIDENCE = "retain_as_evidence"
+    SEARCH_NAMED_PRODUCT = "search_named_product"
+    IGNORE = "ignore"
+
+
+class DiscoverySourceDecision(VersionedSchema):
+    source_id: SourceId
+    classification: DiscoverySourceKind
+    confidence: float = Field(ge=0, le=1)
+    reasons: tuple[str, ...] = Field(min_length=1)
+    intended_treatment: str = Field(min_length=1, max_length=300)
+    candidate_model_hints: tuple[str, ...] = Field(default_factory=tuple)
+    next_action: DiscoveryNextAction
+
+
 class DiscoveryAgentOutput(VersionedSchema):
     search_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
+    source_decisions: tuple[DiscoverySourceDecision, ...] = Field(default_factory=tuple)
     selected_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     outcome: DiscoveryAgentOutcome = DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
     notes: tuple[str, ...] = Field(default_factory=tuple)
@@ -95,6 +125,10 @@ class DiscoveryAgentOutput(VersionedSchema):
     def _validate_selected_ids(self) -> "DiscoveryAgentOutput":
         if len(set(self.selected_source_ids)) != len(self.selected_source_ids):
             raise ValueError("selected source IDs must be unique.")
+
+        decision_ids = tuple(item.source_id for item in self.source_decisions)
+        if len(set(decision_ids)) != len(decision_ids):
+            raise ValueError("discovery source decisions must have unique IDs.")
 
         result_source_ids = {item.source_id for item in self.search_results}
         if result_source_ids:
@@ -141,6 +175,68 @@ class ExtractionReviewAgentOutput(VersionedSchema):
     source_evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
     products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
+
+
+class ExtractedProductMention(VersionedSchema):
+    source_id: SourceId
+    name: str = Field(min_length=1, max_length=300)
+    brand: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, max_length=200)
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+
+
+class ExtractionEvidenceGap(VersionedSchema):
+    source_id: SourceId
+    summary: str = Field(min_length=1, max_length=1000)
+
+
+class ExtractionAgentInput(VersionedSchema):
+    run_id: RunId
+    snapshot_ids: tuple[SourceId, ...] = Field(min_length=1, max_length=8)
+    category: str | None = None
+    workbench_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
+
+
+class ExtractionAgentOutput(VersionedSchema):
+    products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
+    listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
+    source_evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    product_mentions: tuple[ExtractedProductMention, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[ExtractionEvidenceGap, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_entity_links(self) -> "ExtractionAgentOutput":
+        products = {item.product_id: item for item in self.products}
+        listings = {item.listing_id: item for item in self.listings}
+        evidence_ids = {item.evidence_id for item in self.source_evidence}
+        if len(products) != len(self.products) or len(listings) != len(self.listings):
+            raise ValueError("extraction entity IDs must be unique")
+        if len(evidence_ids) != len(self.source_evidence):
+            raise ValueError("extraction evidence IDs must be unique")
+        for listing in self.listings:
+            if listing.product_id not in products:
+                raise ValueError(
+                    "extracted listing must reference an extracted product"
+                )
+        for product in self.products:
+            if not set(product.listing_ids).issubset(listings):
+                raise ValueError("product references an unknown extracted listing")
+        for evidence in self.source_evidence:
+            target = evidence.target
+            if target.product_id and target.product_id not in products:
+                raise ValueError("evidence references an unknown product")
+            if target.listing_id and target.listing_id not in listings:
+                raise ValueError("evidence references an unknown listing")
+        for mention in self.product_mentions:
+            if not set(mention.evidence_ids).issubset(evidence_ids):
+                raise ValueError("product mention references unknown evidence")
+            if any(
+                evidence.source_id != mention.source_id
+                for evidence in self.source_evidence
+                if evidence.evidence_id in mention.evidence_ids
+            ):
+                raise ValueError("product mention evidence must cite its source")
+        return self
 
 
 class DeduplicationReviewAgentInput(VersionedSchema):
@@ -270,6 +366,11 @@ class ExtractionReviewAgent(Protocol):
         input_data: ExtractionReviewAgentInput,
     ) -> ExtractionReviewAgentOutput:
         """Review fixture extraction output without model calls."""
+
+
+class ExtractionAgent(Protocol):
+    async def run(self, input_data: ExtractionAgentInput) -> ExtractionAgentOutput:
+        """Interpret persisted snapshots into cited entities and explicit gaps."""
 
 
 class DeduplicationReviewAgent(Protocol):

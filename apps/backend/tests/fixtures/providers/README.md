@@ -6,6 +6,13 @@ query parameters or sanitized JSON request, status code, and sanitized JSON
 response. A provider may replay multiple cassettes when one logical operation
 requires more than one HTTP request.
 
+`agent_research_source_shapes.json` is an exception: it is a synthetic,
+provider-shaped research input for agent-classification, review-lead,
+misleading-domain, and future multi-product tests, not a recorded HTTP cassette. Its generic
+`search_result` records must remain available for agent judgment; the included
+review must not become a retailer listing. Discovery classification now handles
+these source shapes; multi-product extraction is still future work.
+
 See `docs/PROVIDERS.md` for the complete provider setup, replay, compliance, and
 raw-artifact storage policy.
 

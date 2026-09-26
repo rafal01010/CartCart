@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
@@ -14,6 +14,10 @@ from app.agents import (
     ComparisonDecisionAgentInput,
     DiscoveryAgent,
     DiscoveryAgentInput,
+    ExtractionAgent,
+    ExtractionAgentInput,
+    ExtractedProductMention,
+    ExtractionEvidenceGap,
     FakeQueryPlannerAgent,
     FakeSellerListingTrustAgent,
     GenericProductAnalystAgent,
@@ -80,9 +84,21 @@ from app.providers import (
     VideoSearchProviderOptions,
     score_source_quality,
 )
-from app.schemas.analysis import CategoryAnalysis, ListingTrustAssessment, RecommendationBundle
+from app.schemas.analysis import (
+    CategoryAnalysis,
+    ListingTrustAssessment,
+    RecommendationBundle,
+)
 from app.schemas.errors import ErrorBody, ErrorEnvelope
-from app.schemas.ids import CandidateId, ListingId, ProductId, RunId, SessionId, SourceId
+from app.schemas.ids import (
+    CandidateId,
+    ListingId,
+    ProductId,
+    RunId,
+    SessionId,
+    SourceId,
+)
+from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.products import (
     CanonicalProduct,
@@ -263,6 +279,9 @@ class ShoppingRunContext:
     search_results: tuple[SearchResult, ...] = ()
     selected_source_ids: tuple[SourceId, ...] = ()
     source_extractions: tuple[DiscoveredSourceExtraction, ...] = ()
+    extraction_evidence: tuple[SourceEvidence, ...] = ()
+    extraction_mentions: tuple[ExtractedProductMention, ...] = ()
+    extraction_gaps: tuple[ExtractionEvidenceGap, ...] = ()
     user_added_products: tuple[UserAddedProduct, ...] = ()
     deduplication: CandidateDeduplicationRunOutput | None = None
     source_intelligence: SourceIntelligenceRunOutput | None = None
@@ -344,6 +363,11 @@ class ShoppingRunPersistenceHooks(Protocol):
         extractions: tuple[DiscoveredSourceExtraction, ...],
     ) -> None:
         """Persist extracted snapshots before candidate grouping."""
+
+    async def persist_extraction_evidence(
+        self, context: ShoppingRunContext, evidence: tuple[SourceEvidence, ...]
+    ) -> None:
+        """Persist evidence returned by the primary extraction agent."""
 
     async def load_user_added_products(
         self,
@@ -557,6 +581,16 @@ class RepositoryShoppingRunPersistenceHooks:
                     if _is_direct_user_added_url_extraction(item)
                     else item.search_result.source_id
                 ),
+            )
+
+    async def persist_extraction_evidence(
+        self, context: ShoppingRunContext, evidence: tuple[SourceEvidence, ...]
+    ) -> None:
+        if self._search_source_repository is None:
+            raise ValueError("extraction evidence persistence requires a repository")
+        for item in evidence:
+            await self._search_source_repository.add_source_evidence(
+                context.run_id, item
             )
 
     async def load_user_added_products(
@@ -792,9 +826,11 @@ class ShoppingRunOrchestrator:
         *,
         agent_workflow_mode: AgentWorkflowMode = AgentWorkflowMode.FIXTURE,
         agent_model_name: str | None = None,
+        agent_model_resolver: Callable[[str], str] | None = None,
         intake_agent: IntakeAgent | None = None,
         query_planner: QueryPlannerAgent | None = None,
         discovery_agent: DiscoveryAgent | None = None,
+        extraction_agent: ExtractionAgent | None = None,
         category_router_agent: CategoryRouterAgent | None = None,
         generic_product_analyst_agent: GenericProductAnalystAgent | None = None,
         technology_domain_analyst_agent: TechnologyDomainAnalystAgent | None = None,
@@ -830,9 +866,11 @@ class ShoppingRunOrchestrator:
         self._persistence_hooks = persistence_hooks
         self._agent_workflow_mode = agent_workflow_mode
         self._agent_model_name = agent_model_name
+        self._agent_model_resolver = agent_model_resolver
         self._intake_agent = intake_agent
         self._query_planner = query_planner or FakeQueryPlannerAgent()
         self._discovery_agent = discovery_agent
+        self._extraction_agent = extraction_agent
         self._category_router_agent = category_router_agent
         self._generic_product_analyst_agent = generic_product_analyst_agent
         self._technology_domain_analyst_agent = technology_domain_analyst_agent
@@ -1151,7 +1189,7 @@ class ShoppingRunOrchestrator:
                 _score_search_results(
                     tuple(
                         _mark_user_added_lookup_result(
-                            _apply_planned_source_type(result, query),
+                            result,
                             user_added,
                         )
                         for result in provider_results
@@ -1161,6 +1199,11 @@ class ShoppingRunOrchestrator:
             )
 
         context.search_results = tuple(discovered)
+        await self._persistence_hooks.persist_search_results(
+            context,
+            context.search_results,
+            plan_id=context.search_plan_id,
+        )
         activity: tuple[dict[str, Any], ...] = ()
         if (
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
@@ -1175,13 +1218,8 @@ class ShoppingRunOrchestrator:
                 )
             )
             context.selected_source_ids = discovery_output.selected_source_ids
+            context.search_results = discovery_output.search_results
             activity = _agent_tool_activity(self._discovery_agent)
-
-        await self._persistence_hooks.persist_search_results(
-            context,
-            context.search_results,
-            plan_id=context.search_plan_id,
-        )
         provider_name = getattr(
             self._search_provider,
             "provider_name",
@@ -1220,7 +1258,7 @@ class ShoppingRunOrchestrator:
             selected_source_ids=(
                 context.selected_source_ids
                 if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and self._discovery_agent is not None
+                and (self._discovery_agent is not None or context.selected_source_ids)
                 else None
             ),
         ):
@@ -1233,18 +1271,25 @@ class ShoppingRunOrchestrator:
                 result,
                 region_code=region_code,
             )
-            user_added_candidate_id = _user_added_candidate_id_from_search_result(result)
+            user_added_candidate_id = _user_added_candidate_id_from_search_result(
+                result
+            )
             if user_added_candidate_id is not None:
                 snapshot = _link_snapshot_to_user_added_lookup(
                     snapshot,
                     result,
                     user_added_candidate_id=user_added_candidate_id,
                 )
-            listing_extraction = _listing_from_extracted_source(
-                self._listing_extractor,
-                result=result,
-                snapshot=snapshot,
-                category=brief.category,
+            listing_extraction = (
+                None
+                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                and self._extraction_agent is not None
+                else _listing_from_extracted_source(
+                    self._listing_extractor,
+                    result=result,
+                    snapshot=snapshot,
+                    category=brief.category,
+                )
             )
             extracted_sources.append(
                 DiscoveredSourceExtraction(
@@ -1268,6 +1313,55 @@ class ShoppingRunOrchestrator:
             context,
             context.source_extractions,
         )
+        activity: list[dict[str, Any]] = []
+        if (
+            self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            and self._extraction_agent is not None
+        ):
+            interpreted: list[DiscoveredSourceExtraction] = []
+            evidence: list[SourceEvidence] = []
+            mentions: list[ExtractedProductMention] = []
+            gaps: list[ExtractionEvidenceGap] = []
+            for item in extracted_sources:
+                output = await self._extraction_agent.run(
+                    ExtractionAgentInput(
+                        run_id=context.run_id,
+                        snapshot_ids=(item.snapshot.source_id,),
+                        category=brief.category,
+                    )
+                )
+                activity.extend(_agent_tool_activity(self._extraction_agent))
+                evidence.extend(output.source_evidence)
+                mentions.extend(output.product_mentions)
+                gaps.extend(output.evidence_gaps)
+                products = {product.product_id: product for product in output.products}
+                for listing in output.listings:
+                    product = products[listing.product_id]
+                    interpreted.append(
+                        DiscoveredSourceExtraction(
+                            search_result=item.search_result,
+                            snapshot=item.snapshot,
+                            listing_extraction=ProductListingExtraction(
+                                product=product,
+                                listing=listing,
+                                confidence=Confidence(
+                                    score=0.5,
+                                    level=ConfidenceLevel.MEDIUM,
+                                    rationale="Agent-extracted, cited page interpretation.",
+                                ),
+                            ),
+                            user_added_candidate_id=item.user_added_candidate_id,
+                        )
+                    )
+                if not output.listings:
+                    interpreted.append(item)
+            context.source_extractions = tuple(interpreted)
+            context.extraction_evidence = tuple(evidence)
+            context.extraction_mentions = tuple(mentions)
+            context.extraction_gaps = tuple(gaps)
+            await self._persistence_hooks.persist_extraction_evidence(
+                context, context.extraction_evidence
+            )
         listing_count = sum(
             item.listing_extraction is not None for item in context.source_extractions
         )
@@ -1303,8 +1397,20 @@ class ShoppingRunOrchestrator:
                 "listing_count": str(listing_count),
                 "failed_count": str(failed_count),
                 "excluded_count": str(excluded_count),
+                "evidence_gap_count": str(len(context.extraction_gaps)),
             },
             runtime_mode=self._agent_workflow_mode.value,
+            agent_name=(
+                "ExtractionAgent"
+                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                and self._extraction_agent is not None
+                else "ProductListingExtractor"
+            ),
+            model_name=self._model_name_for_agent("ExtractionAgent")
+            if activity
+            else None,
+            tool_activity=tuple(activity),
+            fallback_outcome=_fallback_outcome(tuple(activity)),
         )
 
     async def _extract_user_added_url_products(
@@ -1333,11 +1439,16 @@ class ShoppingRunOrchestrator:
                 snapshot=snapshot,
                 region_code=region_code,
             )
-            listing_extraction = _listing_from_extracted_source(
-                self._listing_extractor,
-                result=result,
-                snapshot=snapshot,
-                category=brief.category,
+            listing_extraction = (
+                None
+                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                and self._extraction_agent is not None
+                else _listing_from_extracted_source(
+                    self._listing_extractor,
+                    result=result,
+                    snapshot=snapshot,
+                    category=brief.category,
+                )
             )
             extracted_sources.append(
                 DiscoveredSourceExtraction(
@@ -1612,9 +1723,8 @@ class ShoppingRunOrchestrator:
         source_snapshots = tuple(item.snapshot for item in context.source_extractions)
         query_hints = request.query_hints
 
-        if (
-            self._youtube_review_intelligence_agent is not None
-            and _capability_allowed(request, SourceIntelligenceCapability.VIDEO_REVIEW)
+        if self._youtube_review_intelligence_agent is not None and _capability_allowed(
+            request, SourceIntelligenceCapability.VIDEO_REVIEW
         ):
             video_bundles.append(
                 await self._youtube_review_intelligence_agent.run(
@@ -1628,7 +1738,9 @@ class ShoppingRunOrchestrator:
                     )
                 )
             )
-            activity.extend(_agent_tool_activity(self._youtube_review_intelligence_agent))
+            activity.extend(
+                _agent_tool_activity(self._youtube_review_intelligence_agent)
+            )
 
         if (
             self._reddit_community_intelligence_agent is not None
@@ -1653,12 +1765,9 @@ class ShoppingRunOrchestrator:
                 _agent_tool_activity(self._reddit_community_intelligence_agent)
             )
 
-        if (
-            self._amazon_product_intelligence_agent is not None
-            and _capability_allowed(
-                request,
-                SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
-            )
+        if self._amazon_product_intelligence_agent is not None and _capability_allowed(
+            request,
+            SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
         ):
             amazon_bundles.append(
                 await self._amazon_product_intelligence_agent.run(
@@ -1673,7 +1782,9 @@ class ShoppingRunOrchestrator:
                     )
                 )
             )
-            activity.extend(_agent_tool_activity(self._amazon_product_intelligence_agent))
+            activity.extend(
+                _agent_tool_activity(self._amazon_product_intelligence_agent)
+            )
 
         if (
             self._ikea_store_intelligence_agent is not None
@@ -1681,7 +1792,9 @@ class ShoppingRunOrchestrator:
                 request,
                 SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
             )
-            and _ikea_source_relevant(brief, candidates.products, context.search_results)
+            and _ikea_source_relevant(
+                brief, candidates.products, context.search_results
+            )
         ):
             ikea_bundles.append(
                 await self._ikea_store_intelligence_agent.run(
@@ -1811,9 +1924,13 @@ class ShoppingRunOrchestrator:
                 )
 
             product_listings = tuple(
-                listing for listing in listings if listing.product_id == product.product_id
+                listing
+                for listing in listings
+                if listing.product_id == product.product_id
             )
-            product_evidence = _evidence_for_product(product, product_listings, evidence)
+            product_evidence = _evidence_for_product(
+                product, product_listings, evidence
+            )
             analyses.append(
                 await analyst.run(
                     ProductAnalysisAgentInput(
@@ -1839,10 +1956,12 @@ class ShoppingRunOrchestrator:
             payload={
                 "analysis_count": str(len(analyses)),
                 "route": " -> ".join(route.agent_path),
+                "router_model": self._model_name_for_agent("CategoryRouterAgent") or "",
+                "analyst_model": self._model_name_for_agent(route.agent_path[-1]) or "",
             },
             agent_name="CategoryRouterAgent+ProductAnalysisAgents",
             runtime_mode=self._agent_workflow_mode.value,
-            model_name=self._model_name_for_stage(RunStage.CATEGORY_ANALYSIS),
+            model_name=self._model_name_for_agent(route.agent_path[-1]),
             tool_activity=activity_tuple,
             fallback_outcome=_fallback_outcome(activity_tuple),
         )
@@ -1983,7 +2102,9 @@ class ShoppingRunOrchestrator:
         evidence: tuple[SourceEvidence, ...],
     ) -> ProductAnalysisRoute:
         if self._category_router_agent is None:
-            return self._agent_catalog.route_product_analysis(context.active_brief.category)
+            return self._agent_catalog.route_product_analysis(
+                context.active_brief.category
+            )
         return await self._category_router_agent.run(
             CategoryRouterAgentInput(
                 run_id=context.run_id,
@@ -2024,17 +2145,23 @@ class ShoppingRunOrchestrator:
     def _model_name_for_stage(self, stage: RunStage) -> str | None:
         if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
             return None
-        if stage in {
-            RunStage.INTAKE,
-            RunStage.QUERY_PLANNING,
-            RunStage.DISCOVERY,
-            RunStage.LISTING_TRUST,
-            RunStage.CATEGORY_ANALYSIS,
-            RunStage.COMPARISON_DECISION,
-            RunStage.VERIFICATION,
-        }:
-            return self._agent_model_name
-        return None
+        agent_name = {
+            RunStage.INTAKE: "IntakeAgent",
+            RunStage.QUERY_PLANNING: "QueryPlannerAgent",
+            RunStage.DISCOVERY: "DiscoveryAgent",
+            RunStage.LISTING_TRUST: "SellerListingTrustAgent",
+            RunStage.CATEGORY_ANALYSIS: "CategoryRouterAgent",
+            RunStage.COMPARISON_DECISION: "ComparisonDecisionAgent",
+            RunStage.VERIFICATION: "VerifierCriticAgent",
+        }.get(stage)
+        return self._model_name_for_agent(agent_name) if agent_name else None
+
+    def _model_name_for_agent(self, agent_name: str | None) -> str | None:
+        if self._agent_workflow_mode != AgentWorkflowMode.LIVE or agent_name is None:
+            return None
+        if self._agent_model_resolver is not None:
+            return self._agent_model_resolver(agent_name)
+        return self._agent_model_name
 
     def _run_trace_id(self, run_id: RunId) -> str:
         prefix = (
@@ -2088,9 +2215,10 @@ def _analysis_listings(context: ShoppingRunContext) -> tuple[ProductListing, ...
 
 
 def _analysis_evidence(context: ShoppingRunContext) -> tuple[SourceEvidence, ...]:
-    if context.fixture_output is None:
-        return ()
-    return context.fixture_output.source_evidence
+    return (
+        *context.extraction_evidence,
+        *(context.fixture_output.source_evidence if context.fixture_output else ()),
+    )
 
 
 def _user_added_products(context: ShoppingRunContext):
@@ -2121,7 +2249,9 @@ def _evidence_for_product(
         item
         for item in evidence
         if item.target.product_id == product.product_id
-        or (item.target.listing_id is not None and item.target.listing_id in listing_ids)
+        or (
+            item.target.listing_id is not None and item.target.listing_id in listing_ids
+        )
         or item.source_id in source_ids
     )
     return selected or evidence
@@ -2246,18 +2376,6 @@ def _score_search_results(
     return tuple(scored)
 
 
-def _apply_planned_source_type(
-    result: SearchResult,
-    query: SearchQuery,
-) -> SearchResult:
-    if (
-        result.source_type == SourceType.SEARCH_RESULT
-        and len(query.required_source_types) == 1
-    ):
-        return result.model_copy(update={"source_type": query.required_source_types[0]})
-    return result
-
-
 def _dedupe_search_queries(queries: tuple[SearchQuery, ...]) -> tuple[SearchQuery, ...]:
     deduped: list[SearchQuery] = []
     seen: set[tuple[str, str, tuple[str, ...], str | None]] = set()
@@ -2341,9 +2459,7 @@ def _mark_user_added_lookup_result(
                 "user_added_candidate_id": str(user_added.candidate_id),
                 "user_supplied_query": user_added.input_text
                 or (
-                    user_added.product.name
-                    if user_added.product is not None
-                    else None
+                    user_added.product.name if user_added.product is not None else None
                 ),
             }
         }
@@ -2373,7 +2489,10 @@ def _selected_extraction_results(
     selected_results: list[SearchResult] = []
     seen_urls: set[str] = set()
     for result in results:
-        if result.source_type in {SourceType.SEARCH_RESULT, SourceType.VIDEO}:
+        if selected_source_ids is None and result.source_type in {
+            SourceType.SEARCH_RESULT,
+            SourceType.VIDEO,
+        }:
             continue
         normalized_url = str(result.url).casefold().rstrip("/")
         if normalized_url in seen_urls:

@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+import re
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -52,6 +53,12 @@ from app.agents import (
     EarphonesHeadphonesSpecialistAgent,
 )
 from app.agents.catalog import ProductAnalysisRoute, build_default_agent_catalog
+from app.agents.fixture_research import (
+    FixtureDiscoveryAgent,
+    FixtureExtractionAgent,
+    FixtureSearchReplayProvider,
+    FixtureSnapshotReplayProvider,
+)
 from app.core.settings import AgentWorkflowMode
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
@@ -92,6 +99,7 @@ from app.providers import (
 )
 from app.schemas.analysis import (
     CategoryAnalysis,
+    ComparisonMatrix,
     ListingTrustAssessment,
     RecommendationBundle,
 )
@@ -507,24 +515,8 @@ class RepositoryShoppingRunPersistenceHooks:
         if self._search_source_repository is None or self._product_repository is None:
             raise ValueError("fixture output persistence requires all repositories.")
 
-        for snapshot in output.source_snapshots:
-            await self._search_source_repository.add_source_snapshot(
-                context.run_id,
-                snapshot,
-            )
-        for evidence in output.source_evidence:
-            await self._search_source_repository.add_source_evidence(
-                context.run_id,
-                evidence,
-            )
-
-        for product in output.products:
-            await self._product_repository.add_canonical_product(
-                context.run_id,
-                product,
-            )
-        for listing in output.listings:
-            await self._product_repository.add_product_listing(context.run_id, listing)
+        # Research entities were already persisted from the typed fixture-agent
+        # replay. This compatibility bundle supplies only downstream analysis.
         if not any(
             item.listing_extraction is not None for item in context.source_extractions
         ):
@@ -952,7 +944,6 @@ class ShoppingRunOrchestrator:
         self._reddit_community_intelligence_agent = reddit_community_intelligence_agent
         self._amazon_product_intelligence_agent = amazon_product_intelligence_agent
         self._ikea_store_intelligence_agent = ikea_store_intelligence_agent
-        self._listing_extractor = ProductListingExtractor()
         self._product_deduplicator = (
             product_deduplicator or DeterministicProductDeduplicator()
         )
@@ -984,21 +975,47 @@ class ShoppingRunOrchestrator:
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
 
-        fixture_output = (
-            build_monitor_fixture_run_output(run_id=run_id, session_id=run.session_id)
-            if self._agent_workflow_mode != AgentWorkflowMode.LIVE
-            else None
-        )
         if brief is not None:
             active_brief = brief
         elif original_input is not None:
             active_brief = ShoppingBrief(original_query=original_input.query)
-        elif fixture_output is not None:
-            active_brief = ShoppingBrief(
-                original_query=fixture_output.search_plan.queries[0].query
-            )
+        elif self._agent_workflow_mode == AgentWorkflowMode.FIXTURE:
+            active_brief = ShoppingBrief(original_query="Need a monitor")
         else:
             raise ValueError("Live shopping runs require a shopping brief or request.")
+        fixture_output = (
+            build_monitor_fixture_run_output(run_id=run_id, session_id=run.session_id)
+            if self._agent_workflow_mode == AgentWorkflowMode.FIXTURE
+            and _fixture_replay_category(active_brief) == "monitor"
+            and isinstance(self._search_provider, FakeSearchProvider)
+            and self._search_provider.results is None
+            and isinstance(self._extraction_provider, FakeExtractionProvider)
+            and self._extraction_provider.snapshot is None
+            else None
+        )
+        if self._agent_workflow_mode == AgentWorkflowMode.FIXTURE:
+            self._discovery_agent = self._discovery_agent or FixtureDiscoveryAgent(
+                fixture_output
+            )
+            self._extraction_agent = self._extraction_agent or FixtureExtractionAgent(
+                fixture_output
+            )
+            if fixture_output is not None:
+                self._search_provider = FixtureSearchReplayProvider(
+                    results=tuple(
+                        item.model_copy(
+                            update={
+                                "provider": item.provider.model_copy(
+                                    update={"provider_name": "fixture-search"}
+                                )
+                            }
+                        )
+                        for item in fixture_output.search_results
+                    )
+                )
+                self._extraction_provider = FixtureSnapshotReplayProvider(
+                    fixture_output
+                )
         context = ShoppingRunContext(
             run_id=run_id,
             session_id=run.session_id,
@@ -1014,9 +1031,9 @@ class ShoppingRunOrchestrator:
                 context.active_stage = definition.stage
                 await self._run_stage(context, definition)
 
-            if fixture_output is not None:
+            if context.fixture_output is not None:
                 await self._persistence_hooks.persist_fixture_output(
-                    context, fixture_output
+                    context, context.fixture_output
                 )
             else:
                 await self._persistence_hooks.persist_live_output(context)
@@ -1284,10 +1301,7 @@ class ShoppingRunOrchestrator:
             plan_id=context.search_plan_id,
         )
         activity: tuple[dict[str, Any], ...] = tuple(discovery_gaps)
-        if (
-            self._agent_workflow_mode == AgentWorkflowMode.LIVE
-            and self._discovery_agent is not None
-        ):
+        if self._discovery_agent is not None:
             discovery_output = await self._discovery_agent.run(
                 DiscoveryAgentInput(
                     run_id=context.run_id,
@@ -1334,7 +1348,7 @@ class ShoppingRunOrchestrator:
                 "selected_source_count": str(len(context.selected_source_ids)),
             },
             agent_name="DiscoveryAgent"
-            if self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            if self._discovery_agent is not None
             else "SearchProviderDiscoveryStage",
             runtime_mode=self._agent_workflow_mode.value,
             model_name=self._model_name_for_stage(RunStage.DISCOVERY),
@@ -1346,66 +1360,18 @@ class ShoppingRunOrchestrator:
         self,
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
-        if self._agent_workflow_mode == AgentWorkflowMode.LIVE and (
-            self._discovery_agent is None or self._extraction_agent is None
-        ):
-            raise ValueError(
-                "Live research requires DiscoveryAgent and ExtractionAgent."
-            )
+        if self._discovery_agent is None or self._extraction_agent is None:
+            raise ValueError("Research requires DiscoveryAgent and ExtractionAgent.")
         brief = context.active_brief
         region_code = _effective_region_code(brief, self._default_region_code)
         context.user_added_products = (
             await self._persistence_hooks.load_user_added_products(context.session_id)
         )
         extracted_sources: list[DiscoveredSourceExtraction] = []
-        initial_results = (
-            ()
-            if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-            and self._extraction_agent is not None
-            else _selected_extraction_results(context.search_results)
-        )
-        for result in initial_results:
-            snapshot = await self._extract_source_or_failure(
-                result.url,
-                source_type=result.source_type,
-            )
-            snapshot = _link_snapshot_to_search_result(
-                snapshot,
-                result,
-                region_code=region_code,
-            )
-            user_added_candidate_id = _user_added_candidate_id_from_search_result(
-                result
-            )
-            if user_added_candidate_id is not None:
-                snapshot = _link_snapshot_to_user_added_lookup(
-                    snapshot,
-                    result,
-                    user_added_candidate_id=user_added_candidate_id,
-                )
-            listing_extraction = (
-                None
-                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                else _listing_from_extracted_source(
-                    self._listing_extractor,
-                    result=result,
-                    snapshot=snapshot,
-                    category=brief.category,
-                )
-            )
-            extracted_sources.append(
-                DiscoveredSourceExtraction(
-                    search_result=result,
-                    snapshot=snapshot,
-                    listing_extraction=listing_extraction,
-                    user_added_candidate_id=user_added_candidate_id,
-                )
-            )
 
         extracted_sources.extend(
             await self._extract_user_added_url_products(
                 context.user_added_products,
-                brief=brief,
                 region_code=region_code,
             )
         )
@@ -1416,10 +1382,7 @@ class ShoppingRunOrchestrator:
             context.source_extractions,
         )
         activity: list[dict[str, Any]] = []
-        if (
-            self._agent_workflow_mode == AgentWorkflowMode.LIVE
-            and self._extraction_agent is not None
-        ):
+        if self._extraction_agent is not None:
             activity.extend(
                 await self._run_agent_research_loop(
                     context, extracted_sources, region_code=region_code
@@ -1428,6 +1391,17 @@ class ShoppingRunOrchestrator:
             await self._persistence_hooks.persist_extraction_evidence(
                 context, context.extraction_evidence
             )
+        if context.fixture_output is not None:
+            extracted_listing_ids = {
+                item.listing_extraction.listing.listing_id
+                for item in context.source_extractions
+                if item.listing_extraction is not None
+            }
+            expected_listing_ids = {
+                listing.listing_id for listing in context.fixture_output.listings
+            }
+            if extracted_listing_ids != expected_listing_ids:
+                context.fixture_output = None
         listing_count = sum(
             item.listing_extraction is not None for item in context.source_extractions
         )
@@ -1466,12 +1440,7 @@ class ShoppingRunOrchestrator:
                 "evidence_gap_count": str(len(context.extraction_gaps)),
             },
             runtime_mode=self._agent_workflow_mode.value,
-            agent_name=(
-                "ExtractionAgent"
-                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                and self._extraction_agent is not None
-                else "ProductListingExtractor"
-            ),
+            agent_name="ExtractionAgent",
             model_name=self._model_name_for_agent("ExtractionAgent")
             if activity
             else None,
@@ -1805,7 +1774,6 @@ class ShoppingRunOrchestrator:
         self,
         user_added_products: tuple[UserAddedProduct, ...],
         *,
-        brief: ShoppingBrief,
         region_code: RegionCode,
     ) -> tuple[DiscoveredSourceExtraction, ...]:
         extracted_sources: list[DiscoveredSourceExtraction] = []
@@ -1827,21 +1795,10 @@ class ShoppingRunOrchestrator:
                 snapshot=snapshot,
                 region_code=region_code,
             )
-            listing_extraction = (
-                None
-                if self._agent_workflow_mode == AgentWorkflowMode.LIVE
-                else _listing_from_extracted_source(
-                    self._listing_extractor,
-                    result=result,
-                    snapshot=snapshot,
-                    category=brief.category,
-                )
-            )
             extracted_sources.append(
                 DiscoveredSourceExtraction(
                     search_result=result,
                     snapshot=snapshot,
-                    listing_extraction=listing_extraction,
                     user_added_candidate_id=user_added.candidate_id,
                 )
             )
@@ -1967,7 +1924,7 @@ class ShoppingRunOrchestrator:
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
             and not candidates.products
         ):
-            return self._live_insufficient_stage_output(
+            return self._insufficient_stage_output(
                 context, RunStage.SOURCE_INTELLIGENCE
             )
         if (
@@ -2325,9 +2282,7 @@ class ShoppingRunOrchestrator:
         listings = _analysis_listings(context)
         evidence = _analysis_evidence(context)
         if not products:
-            return self._live_insufficient_stage_output(
-                context, RunStage.CATEGORY_ANALYSIS
-            )
+            return self._insufficient_stage_output(context, RunStage.CATEGORY_ANALYSIS)
 
         route = await self._category_route(context, products, listings, evidence)
         route_activity = _agent_tool_activity(self._category_router_agent)
@@ -2389,6 +2344,14 @@ class ShoppingRunOrchestrator:
         self,
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
+        if not _analysis_products(context) or (
+            self._agent_workflow_mode == AgentWorkflowMode.FIXTURE
+            and context.fixture_output is None
+        ):
+            context.recommendation_bundle = _no_product_recommendation(context)
+            return self._insufficient_stage_output(
+                context, RunStage.COMPARISON_DECISION
+            )
         if (
             self._agent_workflow_mode != AgentWorkflowMode.LIVE
             or self._comparison_decision_agent is None
@@ -2398,11 +2361,6 @@ class ShoppingRunOrchestrator:
         products = _analysis_products(context)
         listings = _analysis_listings(context)
         evidence = _analysis_evidence(context)
-        if not products:
-            return self._live_insufficient_stage_output(
-                context, RunStage.COMPARISON_DECISION
-            )
-
         bundle = await self._comparison_decision_agent.run(
             ComparisonDecisionAgentInput(
                 run_id=context.run_id,
@@ -2448,7 +2406,7 @@ class ShoppingRunOrchestrator:
 
         bundle = context.recommendation_bundle
         if bundle is None:
-            return self._live_insufficient_stage_output(context, RunStage.VERIFICATION)
+            return self._insufficient_stage_output(context, RunStage.VERIFICATION)
 
         report = await self._verifier_critic_agent.run(
             VerificationAgentInput(
@@ -2500,7 +2458,7 @@ class ShoppingRunOrchestrator:
             fallback_outcome=fallback_outcome,
         )
 
-    def _live_insufficient_stage_output(
+    def _insufficient_stage_output(
         self, context: ShoppingRunContext, stage: RunStage
     ) -> FixtureStageOutput:
         return FixtureStageOutput(
@@ -2508,7 +2466,7 @@ class ShoppingRunOrchestrator:
             trace_id=self._stage_trace_id(context.trace_id, stage),
             summary="Not enough verified product offers to continue comparison.",
             payload={"reason": "insufficient_agent_validated_candidates"},
-            runtime_mode=AgentWorkflowMode.LIVE.value,
+            runtime_mode=self._agent_workflow_mode.value,
             fallback_outcome="insufficient_research_evidence",
         )
 
@@ -2599,6 +2557,55 @@ class ShoppingRunOrchestrator:
     @staticmethod
     def _stage_trace_id(run_trace_id: str, stage: RunStage) -> str:
         return f"{run_trace_id}:{stage.value}"
+
+
+def _fixture_replay_category(brief: ShoppingBrief) -> str | None:
+    """Route only an explicit fixture scenario, never infer a product from it."""
+    if brief.category:
+        return brief.category.casefold()
+    query = brief.original_query.casefold()
+    matches = tuple(
+        category
+        for category, pattern in (
+            ("monitor", r"\b(monitors?|displays?)\b"),
+            ("tv", r"\b(tvs?|televisions?)\b"),
+            ("furniture", r"\b(furniture|sofas?|chairs?|desks?)\b"),
+        )
+        if re.search(pattern, query)
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _no_product_recommendation(context: ShoppingRunContext) -> RecommendationBundle:
+    category = _fixture_replay_category(context.active_brief)
+    subject = f"{category} products" if category else "products"
+    has_listings = any(
+        item.listing_extraction is not None for item in context.source_extractions
+    )
+    next_step = "Try a more specific request or check again later."
+    reason = (
+        f"We found some {subject}, but not enough verified offers to compare them "
+        f"reliably. {next_step}"
+        if has_listings
+        else f"Not enough verified {subject} and seller information was found to "
+        f"make a reliable recommendation. {next_step}"
+    )
+    return RecommendationBundle(
+        no_strong_buy=True,
+        no_strong_buy_reason=reason,
+        comparison_matrix=ComparisonMatrix(),
+        evidence_ids=tuple(
+            record.evidence_id for record in context.extraction_evidence
+        ),
+        source_ids=tuple(
+            dict.fromkeys(record.source_id for record in context.extraction_evidence)
+        ),
+        warnings=(
+            "There is not enough information to compare the available products."
+            if has_listings
+            else "No product listing was verified for this request.",
+        ),
+    )
 
 
 def _listing_trust_targets(

@@ -296,6 +296,25 @@ class Settings(BaseSettings):
 
     def agent_readiness_warnings(self) -> tuple[ProviderReadinessWarning, ...]:
         warnings: list[ProviderReadinessWarning] = []
+        if self.agent_workflow_mode == AgentWorkflowMode.FIXTURE and (
+            self.search_provider_enabled
+            and self.search_provider != SearchProviderName.FIXTURE
+            or self.extraction_provider_enabled
+            and self.extraction_provider != ExtractionProviderName.FIXTURE
+        ):
+            warnings.append(
+                ProviderReadinessWarning(
+                    provider="agents:workflow",
+                    code="fixture_agents_with_live_providers",
+                    message=(
+                        "Live search or page retrieval is enabled, but the shopping "
+                        "workflow still uses fixture agents. Provider results may "
+                        "be gathered, but this mode cannot test agent-owned "
+                        "research. Set CARTCART_AGENT_WORKFLOW_MODE=live and "
+                        "enable live agents to test that path."
+                    ),
+                )
+            )
         if (
             self.agent_workflow_mode == AgentWorkflowMode.LIVE
             and not self.live_agents_enabled

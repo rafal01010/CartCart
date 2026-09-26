@@ -42,8 +42,9 @@ call. ExtractionAgent can explicitly link earlier review
 evidence to a found product; unmatched review claims stay source-scoped, never
 becoming store offers. Source results, snapshots, and evidence are persisted;
 agent decisions, extracted entities, gaps, and follow-up matches are recorded
-in the run's research activity. Fixture normalization remains single-listing
-oriented and fixture behavior remains Task 89H work.
+in the run's research activity. Fixture runs replay the same typed discovery
+and extraction contracts without model calls; only the monitor fixture has a
+complete product/decision replay today.
 The following run lifecycle describes the current transitional behavior.
 
 Related docs:
@@ -85,14 +86,15 @@ The orchestrator:
    user-added product names/descriptions are added as scoped lookup queries so
    they can be found without asking the shopper for links.
 5. Calls the configured search provider and persists policy-scored search
-   results. Live `DiscoveryAgent` receives those seeds and may use approved
-   search/fetch tools for bounded follow-up. Its structured output classifies
-   every observed source and selects pages by ID, including generic results.
-6. In live mode, fetches DiscoveryAgent-selected pages in bounded batches,
+   results. `DiscoveryAgent` receives those seeds in both modes; the live agent
+   may use approved search/fetch tools for bounded follow-up, while fixture
+   mode replays explicit decisions or marks unknown results uncertain.
+6. Fetches DiscoveryAgent-selected pages in bounded batches,
    persists linked snapshots, asks ExtractionAgent to interpret each readable
    page, reviews cited candidates/gaps, and lets DiscoveryAgent search again
    when research remains insufficient. Generic provider types are not a veto.
-   Fixture mode retains the legacy single-listing normalizer.
+   Fixture `ExtractionAgent` replays cited entities only for known fixture
+   snapshots; other pages produce explicit gaps, not guessed listings.
    User-added URL snapshots are tied directly
    to the user-supplied candidate rather than to a search-result record;
    name/description matches retain their provider search-result link.
@@ -110,9 +112,9 @@ The orchestrator:
    either through fixture stages or the configured live typed agents.
 10. Persists one run event and one agent trace record per executable stage.
 11. Persists the resulting analysis output. Live runs persist only their
-    agent-validated shortlist and recommendation, never monitor fixture
-    products. Fixture mode still has category-incompatible fallback behavior;
-    Task 89H addresses it.
+    agent-validated shortlist. Fixture runs use the monitor analysis replay
+    only after its full listing set was returned through the typed agents;
+    other requests get a no-strong-buy result with no unrelated products.
 12. Appends the final `complete` event.
 
 Long-running background orchestration, retries, cancellation, and partial-result
@@ -178,8 +180,7 @@ page results are then passed to the configured `ExtractionProvider`. Each
 returned `SourceSnapshot` is linked to its originating search result and
 persisted with extraction-provider metadata.
 
-Fixture candidate creation still uses legacy listing-eligible source types and
-the deterministic one-listing normalizer. In live mode, selected generic results
+Fixture candidate creation now uses typed agent replay. In live mode, selected generic results
 and other source types are persisted before `ExtractionAgent` reads their
 snapshots. Its validated listings feed the current shortlist path, including
 multiple listings from one page; its evidence is persisted and passed to later
@@ -229,12 +230,10 @@ trust assessments into the persisted recommendation bundle: suspicious or weak
 listings become listing-level warnings or avoid items, and a suspicious final
 listing becomes no-strong-buy unless a safer listing is selected.
 
-When fixture workflow mode is selected, the downstream fixture analysis output remains a
-monitor-shopping scenario. It persists:
+For the explicit monitor scenario, downstream fixture analysis persists:
 
 - Source snapshots and source evidence.
-- Fixture products and listings used by the current analysis bundle. Fixture
-  shortlist memberships are used only when extraction yields no candidates.
+- Agent-replayed products and listings used by the current analysis bundle.
 - A user-added monitor candidate.
 - Duplicate Dell listings that preserve listing identity.
 - Suspicious seller/listing trust assessments.
@@ -249,6 +248,12 @@ fixture includes a suspicious duplicate marketplace listing for the same Dell
 monitor and rejects that duplicate as a bad listing rather than a bad product.
 It also rejects the user-added ViewPro listing because seller/source signals are
 weak.
+
+TV, furniture, and other categories do not inherit that monitor replay. With
+no category-specific product replay, they persist an honest no-strong-buy
+result with an empty comparison and a plain evidence limitation. Fixture agents
+may use configured live providers, but that mixed mode cannot test live
+agent-owned research and emits a readiness warning.
 
 Recommendation modes are stored inside the persisted `RecommendationBundle`.
 Switching between best overall, best value, within-budget, and stretch-upgrade

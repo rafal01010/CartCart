@@ -302,7 +302,10 @@ class RecordingExtractionAgent:
         snapshot = self.provider.snapshots[input_data.snapshot_ids[0]]
         extraction = ProductListingExtractor().extract_source_snapshot(snapshot)
         return ExtractionAgentOutput(
-            products=(extraction.product,), listings=(extraction.listing,)
+            products=(
+                extraction.product.model_copy(update={"category": input_data.category}),
+            ),
+            listings=(extraction.listing,),
         )
 
 
@@ -791,18 +794,16 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
             for result in search_results
         )
         assert len(source_snapshots) == (
-            len(fixture.source_snapshots)
-            + len(context.source_extractions)
-            + source_intelligence_source_count
+            len(fixture.source_snapshots) + source_intelligence_source_count
         )
         assert len(source_evidence) == len(fixture.source_evidence)
         assert video_sources
         assert community_evidence
         assert amazon_evidence
         assert len(shortlist) == len(fixture.shortlist_items)
-        assert all(
-            item.listing_extraction is None for item in context.source_extractions
-        )
+        assert sum(
+            item.listing_extraction is not None for item in context.source_extractions
+        ) == len(fixture.listings)
         assert len(user_added) == 1
         assert user_added[0].listing is not None
         assert user_added[0].listing.seller.seller_name == "FlashDealz Outlet"
@@ -839,6 +840,128 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         )
         assert any(count > 1 for count in listing_counts)
 
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "category", "expected_subject"),
+    [
+        ("Which TV should I buy?", None, "tv"),
+        ("Which TV should I buy?", "tv", "tv"),
+        ("Need a durable office chair", "office chair", "office chair"),
+    ],
+)
+async def test_fixture_research_never_injects_monitor_products_for_other_categories(
+    tmp_path: Path, query: str, category: str | None, expected_subject: str
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "category-safe-fixture.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query=query),
+                current_brief=ShoppingBrief(
+                    original_query=query,
+                    category=category,
+                    category_source=FieldSource.USER_PROVIDED if category else None,
+                ),
+            )
+            run = await RunRepository(db_session).create(session.session_id)
+            await db_session.commit()
+        async with session_factory() as db_session:
+            context = await ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                )
+            ).run(run.run_id, session.current_brief)
+            await db_session.commit()
+        async with session_factory() as db_session:
+            products = await ProductRepository(
+                db_session
+            ).list_canonical_products_for_run(run.run_id)
+            result = await ResultRepository(db_session).load_latest_result_bundle(
+                run.run_id
+            )
+        assert context.fixture_output is None
+        assert context.stage_outputs[RunStage.DISCOVERY].agent_name == "DiscoveryAgent"
+        assert (
+            context.stage_outputs[RunStage.EXTRACTION].agent_name == "ExtractionAgent"
+        )
+        assert products == ()
+        assert result is not None
+        assert result.recommendation_bundle.no_strong_buy
+        assert result.recommendation_bundle.final_product_id is None
+        assert expected_subject in result.recommendation_bundle.no_strong_buy_reason
+        assert result.comparison_matrix.rows == ()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mock_discovery_with_no_products_cannot_activate_monitor_replay(
+    tmp_path: Path,
+) -> None:
+    class NoSelectionsDiscoveryAgent:
+        async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
+            return DiscoveryAgentOutput(search_results=input_data.seed_results)
+
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "empty-mock-discovery.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a monitor"),
+                current_brief=ShoppingBrief(original_query="Need a monitor"),
+            )
+            run = await RunRepository(db_session).create(session.session_id)
+            await db_session.commit()
+        async with session_factory() as db_session:
+            context = await ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                discovery_agent=NoSelectionsDiscoveryAgent(),
+            ).run(run.run_id, session.current_brief)
+            await db_session.commit()
+        async with session_factory() as db_session:
+            products = await ProductRepository(
+                db_session
+            ).list_canonical_products_for_run(run.run_id)
+            result = await ResultRepository(db_session).load_latest_result_bundle(
+                run.run_id
+            )
+        assert context.fixture_output is None
+        assert products == ()
+        assert result is not None
+        assert result.recommendation_bundle.no_strong_buy
     finally:
         await engine.dispose()
 
@@ -1035,6 +1158,7 @@ async def test_extraction_provider_creates_persisted_generated_shortlist(
                 ),
                 search_provider=ListingSearchProvider(),
                 extraction_provider=extraction_provider,
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
                 default_region_code="US",
             )
             context = await orchestrator.run(
@@ -1119,6 +1243,7 @@ async def test_extraction_continues_and_persists_failed_source_snapshot(
             run = await RunRepository(db_session).create(shopping_session.session_id)
             await db_session.commit()
 
+        extraction_provider = PartiallyFailingExtractionProvider()
         async with session_factory() as db_session:
             context = await ShoppingRunOrchestrator(
                 RepositoryShoppingRunPersistenceHooks(
@@ -1132,7 +1257,8 @@ async def test_extraction_continues_and_persists_failed_source_snapshot(
                     video_review_repository=VideoReviewRepository(db_session),
                 ),
                 search_provider=MixedListingSearchProvider(),
-                extraction_provider=PartiallyFailingExtractionProvider(),
+                extraction_provider=extraction_provider,
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
             ).run(run.run_id, shopping_session.current_brief)
 
         async with session_factory() as db_session:
@@ -1255,6 +1381,7 @@ async def test_extraction_deduplicates_urls_before_candidate_grouping(
                 ),
                 search_provider=DuplicateListingSearchProvider(),
                 extraction_provider=extraction_provider,
+                extraction_agent=RecordingExtractionAgent(extraction_provider),
                 default_region_code="US",
             )
             context = await orchestrator.run(
@@ -1560,7 +1687,7 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
 
 
 @pytest.mark.asyncio
-async def test_source_intelligence_stage_persists_required_fixture_bundles(
+async def test_source_intelligence_stage_does_not_inject_unrelated_fixture_products(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -1641,23 +1768,21 @@ async def test_source_intelligence_stage_persists_required_fixture_bundles(
         assert transcript_provider.calls[0][1] is not None
         assert len(context.source_intelligence.video_bundles) == 1
         assert len(context.source_intelligence.community_bundles) == 1
-        assert len(context.source_intelligence.amazon_bundles) == 1
-        assert len(context.source_intelligence.ikea_bundles) == 1
+        assert context.source_intelligence.amazon_bundles == ()
+        assert context.source_intelligence.ikea_bundles == ()
         assert (
             video_sources[0].transcript_availability == TranscriptAvailability.AVAILABLE
         )
         assert transcript_segments[0].text is not None
         assert community_evidence
-        assert amazon_evidence
-        assert ikea_evidence
+        assert not amazon_evidence
+        assert not ikea_evidence
         assert reusable_gaps
 
         source_intelligence_event = next(
             event for event in events if event.stage == RunStage.SOURCE_INTELLIGENCE
         )
-        assert source_intelligence_event.message.startswith(
-            "Checked review videos, community discussions, Amazon listings"
-        )
+        assert source_intelligence_event.message.startswith("Checked review videos")
 
     finally:
         await engine.dispose()

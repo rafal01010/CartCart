@@ -21,7 +21,7 @@ or dependency to be configured explicitly.
 | Boundary | Contract | Current implementation and limits |
 | --- | --- | --- |
 | General search | `SearchProvider` | Deterministic fake provider and live Tavily HTTP adapter. `brave` is reserved in settings but has no runtime adapter yet. Search returns normalized `SearchResult` records; it does not fetch or extract pages. |
-| Extraction/retrieval | `ExtractionProvider` | Fixture and disabled modes plus `HttpStaticExtractionProvider`. It fetches a bounded, URL-deduplicated current selection and persists successful, failed, or excluded snapshots. HTTP/public-network checks, retries, content limits, and Trafilatura text extraction are mechanical provider work, not product/listing interpretation. The live path sends persisted snapshots through a bounded `ExtractionAgent` reader and accepts validated zero/one/many entities; fixture mode retains the legacy one-listing normalizer. No browser runtime is installed or invoked. |
+| Extraction/retrieval | `ExtractionProvider` | Fixture and disabled modes plus `HttpStaticExtractionProvider`. It fetches a bounded, URL-deduplicated current selection and persists successful, failed, or excluded snapshots. HTTP/public-network checks, retries, content limits, and Trafilatura text extraction are mechanical provider work, not product/listing interpretation. Live mode sends snapshots to `ExtractionAgent`; fixture mode replays the same output contract only for explicit fixture snapshots and otherwise records a gap. No browser runtime is installed or invoked. |
 | Shopping search | `ShoppingProvider` | Typed optional contract and fake provider for direct test substitution only. There is no generic shopping runtime setting. The SerpApi Amazon adapter is source-specific product intelligence, not the generic shopping provider. |
 | Video metadata | `VideoSearchProvider` | Fake provider plus the official YouTube Data API metadata adapter. It uses `search.list` and `videos.list`; transcript availability remains unchecked. |
 | Video transcripts | `TranscriptProvider` | Deterministic fake plus `YtDlpTranscriptProvider` for explicitly enabled public-caption retrieval. The live adapter requests manual subtitles before automatic captions, parses bounded WebVTT into timestamped language-aware segments, and returns explicit gaps instead of fixture text when access fails. |
@@ -136,7 +136,7 @@ Agent runtime settings:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CARTCART_AGENT_WORKFLOW_MODE` | `fixture` | Selects fixture or live-agent mode for normal shopping runs. |
+| `CARTCART_AGENT_WORKFLOW_MODE` | `fixture` | Selects typed fixture-agent replay or live-agent mode for normal shopping runs. Fixture agents never make model calls; live providers can be configured independently but cannot make fixture mode test agent-owned research. |
 | `CARTCART_LIVE_AGENTS_ENABLED` | `false` | Opt-in gate for live OpenAI agent calls. |
 | `OPENAI_API_KEY` | unset | Standard OpenAI API key used only for explicitly requested live-agent mode. |
 | `CARTCART_OPENAI_MODEL` | `gpt-5.4-mini` | Default model string passed to implemented OpenAI Agents SDK runs unless an agent task narrows it. |
@@ -157,9 +157,13 @@ review intelligence, provider-backed Reddit community intelligence,
 provider-backed Amazon product intelligence, and provider-backed IKEA regional
 store intelligence. The normal shopping-run orchestrator can call these typed
 agents when `CARTCART_AGENT_WORKFLOW_MODE=live`; fixture mode remains default.
-Current discovery mode selects only source IDs from supplied search results and returns
-`insufficient_candidates` when no credible source remains; it does not yet own
-search or semantic classification. Generic product
+Live DiscoveryAgent can search and classify sources through approved tools;
+fixture DiscoveryAgent replays explicit decisions and marks unknown results
+uncertain. Fixture ExtractionAgent returns only replayed, cited entities; a
+missing category-specific replay yields an honest no-strong-buy result, never
+monitor products for TV or furniture. Readiness emits
+`fixture_agents_with_live_providers` when enabled live search/retrieval is paired
+with fixture workflow mode. Generic product
 analysis consumes only supplied product/listing/evidence bundles, uses no direct
 tools, and returns evidence limitations for weak inputs instead of blocking
 ordinary categories. Technology-domain analysis also uses no direct tools,

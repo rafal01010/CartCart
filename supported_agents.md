@@ -49,8 +49,10 @@ interprets persisted snapshots and can return multiple listings. One bounded
 extraction-to-discovery handoff now sends up to twelve cited leads still
 needing direct offers; Discovery chooses targeted official/retailer searches within
 its four-call budget. The run inspects up to four new pages, and extraction
-explicitly matches review evidence to found products. The fixture path still
-uses the one-listing `ProductListingExtractor`. The fixture-only
+explicitly matches review evidence to found products. The fixture path now
+replays typed `DiscoveryAgent` and `ExtractionAgent` outputs; unknown results
+are inspected as uncertain and produce explicit gaps, not guessed listings.
+The fixture-only
 `ExtractionReviewAgent` is transitional compatibility, superseded by
 `ExtractionAgent`; it is not the target extraction architecture. The catalog's
 `planned_tool_boundaries` are design declarations; `approved_sdk_tools` is the
@@ -58,8 +60,11 @@ active allowlist. The live shopping run now repeats discovery, selected fetch,
 extraction, and candidate/evidence review within four cycles, two follow-up
 discovery calls, and twelve discovery-selected fetched pages (direct user-added
 URLs are a separate input path). Live result persistence does not
-inject monitor fixture products. Category-safe fixture behavior remains
-implementation work in Task 89H.
+inject monitor fixture products. Only the complete monitor replay is eligible
+for its downstream comparison bundle. TV, furniture, and other unsupported
+fixture categories receive no-strong-buy without unrelated products. Mixed
+live-provider/fixture-agent mode emits a readiness warning because it cannot
+test live agent-owned research.
 
 The executable catalog now also assigns `fast`, `strong`, or `default` run
 profiles. Strong is assigned to complex research/analysis, listing trust,

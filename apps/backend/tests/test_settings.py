@@ -148,9 +148,7 @@ def test_settings_read_prefixed_environment_overrides(
     monkeypatch.setenv("CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS", "55")
     monkeypatch.setenv("CARTCART_OPENAI_AGENT_MAX_TURNS", "12")
     monkeypatch.setenv("CARTCART_OPENAI_AGENT_TRACING_ENABLED", "true")
-    monkeypatch.setenv(
-        "CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA", "false"
-    )
+    monkeypatch.setenv("CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA", "false")
     monkeypatch.setenv(
         "CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME", "cartcart-test-agents"
     )
@@ -403,10 +401,7 @@ def test_openai_key_accepts_standard_and_prefixed_environment(
     prefixed_settings = make_settings()
 
     assert prefixed_settings.openai_api_key is not None
-    assert (
-        prefixed_settings.openai_api_key.get_secret_value()
-        == "prefixed-openai-key"
-    )
+    assert prefixed_settings.openai_api_key.get_secret_value() == "prefixed-openai-key"
 
     monkeypatch.setenv("OPENAI_API_KEY", "standard-openai-key")
     standard_settings = make_settings()
@@ -423,8 +418,7 @@ def test_openai_key_accepts_standard_env_file(
     monkeypatch.delenv("CARTCART_OPENAI_API_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "CARTCART_LIVE_AGENTS_ENABLED=true\n"
-        "OPENAI_API_KEY=env-file-openai-key\n",
+        "CARTCART_LIVE_AGENTS_ENABLED=true\nOPENAI_API_KEY=env-file-openai-key\n",
         encoding="utf-8",
     )
 
@@ -449,6 +443,21 @@ def test_live_agent_workflow_warns_when_live_agent_gate_is_disabled(
     assert len(warnings) == 1
     assert warnings[0].provider == "agents:workflow"
     assert warnings[0].code == "live_agents_disabled"
+
+
+def test_fixture_agents_warn_when_live_search_cannot_exercise_agent_research() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        agent_workflow_mode=AgentWorkflowMode.FIXTURE,
+        search_provider=SearchProviderName.TAVILY,
+        search_provider_enabled=True,
+    )
+
+    warnings = settings.agent_readiness_warnings()
+
+    assert len(warnings) == 1
+    assert warnings[0].code == "fixture_agents_with_live_providers"
+    assert "CARTCART_AGENT_WORKFLOW_MODE=live" in warnings[0].message
 
 
 def test_settings_reject_cross_session_preference_profiling(

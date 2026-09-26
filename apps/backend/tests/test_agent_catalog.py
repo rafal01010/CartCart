@@ -11,7 +11,7 @@ from app.agents import (
     AgentStatus,
     InvocationMode,
 )
-from app.agents.catalog import ApprovedSDKTool, ResearchDecision
+from app.agents.catalog import ApprovedSDKTool, FixtureFallback, ResearchDecision
 from app.core.agent_run_profiles import AgentRunProfileName
 
 
@@ -41,6 +41,15 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
+    )
+
+
+def test_fixture_research_fallbacks_are_explicit_in_catalog() -> None:
+    assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").fixture_fallback == (
+        FixtureFallback.UNCERTAIN_SOURCE
+    )
+    assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").fixture_fallback == (
+        FixtureFallback.EVIDENCE_GAP
     )
 
 

@@ -160,6 +160,10 @@ one blocked, timed-out, oversized, or non-HTML source is persisted as a failed
 snapshot while other sources and the run continue. Security cases must reject
 loopback, private, link-local, and redirect-to-private targets before a request,
 and professional-review pages must never be normalized as store listings.
+Fixture research regressions additionally assert typed DiscoveryAgent and
+ExtractionAgent replay, explicit uncertain/gap outcomes for unknown pages,
+and TV/office-chair no-product results that never inherit Dell/ASUS monitor
+candidates. The complete monitor replay remains the positive fixture case.
 
 ## Planned Agent-First Research Cases
 

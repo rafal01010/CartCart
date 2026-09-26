@@ -31,6 +31,11 @@ class ApprovedSDKTool(StrEnum):
     READ_SOURCE_SNAPSHOT = "read_source_snapshot"
 
 
+class FixtureFallback(StrEnum):
+    UNCERTAIN_SOURCE = "uncertain_source"
+    EVIDENCE_GAP = "evidence_gap"
+
+
 class AgentKind(StrEnum):
     ORCHESTRATOR = "orchestrator"
     GUIDE = "guide"
@@ -73,6 +78,7 @@ class AgentCatalogEntry(VersionedSchema):
     )
     planned_tool_boundaries: tuple[str, ...] = Field(default_factory=tuple)
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
+    fixture_fallback: FixtureFallback | None = None
     superseded_by: str | None = Field(default=None, min_length=1, max_length=200)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
 
@@ -231,6 +237,7 @@ def _entry(
     target_research_decisions: tuple[ResearchDecision, ...] = (),
     planned_tool_boundaries: tuple[str, ...] = (),
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
+    fixture_fallback: FixtureFallback | None = None,
     superseded_by: str | None = None,
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
 ) -> AgentCatalogEntry:
@@ -249,6 +256,7 @@ def _entry(
         target_research_decisions=target_research_decisions,
         planned_tool_boundaries=planned_tool_boundaries,
         approved_sdk_tools=approved_sdk_tools,
+        fixture_fallback=fixture_fallback,
         superseded_by=superseded_by,
         run_profile=run_profile,
     )
@@ -379,6 +387,7 @@ _DEFAULT_AGENT_ENTRIES = {
             ApprovedSDKTool.SEARCH_SOURCES,
             ApprovedSDKTool.FETCH_SOURCE,
         ),
+        fixture_fallback=FixtureFallback.UNCERTAIN_SOURCE,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "ExtractionAgent": _entry(
@@ -396,6 +405,7 @@ _DEFAULT_AGENT_ENTRIES = {
         ),
         planned_tool_boundaries=("SourceSnapshotReader", "MechanicalExtractionHelpers"),
         approved_sdk_tools=(ApprovedSDKTool.READ_SOURCE_SNAPSHOT,),
+        fixture_fallback=FixtureFallback.EVIDENCE_GAP,
         run_profile=AgentRunProfileName.FAST,
     ),
     "ExtractionReviewAgent": _entry(

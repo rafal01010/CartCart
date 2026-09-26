@@ -525,6 +525,11 @@ OPENAI_API_KEY=replace-with-your-real-key
 
 Without `OPENAI_API_KEY`, readiness reports `agents:openai` with
 `missing_openai_api_key`, while fixture and mocked agent modes remain available.
+If live search or page retrieval is enabled while the workflow remains
+`fixture`, readiness reports `fixture_agents_with_live_providers`. That mixed
+mode can gather provider results but uses network-free fixture agent decisions;
+it cannot validate live agent-owned research. For a no-product TV or furniture
+fixture run, expect a no-strong-buy result rather than monitor candidates.
 Model, reasoning effort, timeout, and max turns resolve independently in this order: exact
 registered-agent override, catalog-assigned profile, `default` profile, then
 the three global `CARTCART_OPENAI_*` fallbacks. For example,

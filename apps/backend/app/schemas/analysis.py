@@ -133,8 +133,8 @@ class ComparisonRow(CartCartBaseModel):
 
 
 class ComparisonMatrix(VersionedSchema):
-    criteria: tuple[ComparisonCriterion, ...] = Field(min_length=1)
-    rows: tuple[ComparisonRow, ...] = Field(min_length=1)
+    criteria: tuple[ComparisonCriterion, ...] = Field(default_factory=tuple)
+    rows: tuple[ComparisonRow, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
     def _rows_must_use_known_criteria(self) -> "ComparisonMatrix":
@@ -201,7 +201,7 @@ class RecommendationBundle(VersionedSchema):
     comparison_matrix: ComparisonMatrix
     rejected_items: tuple[RejectedItem, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
@@ -219,6 +219,10 @@ class RecommendationBundle(VersionedSchema):
             if self.no_strong_buy_reason is None:
                 raise ValueError("no_strong_buy bundles require a reason.")
             return self
+        if not self.comparison_matrix.rows or not self.comparison_matrix.criteria:
+            raise ValueError("a best pick requires compared candidates.")
+        if not self.evidence_ids:
+            raise ValueError("a best pick requires cited evidence.")
         if not has_best_pick:
             raise ValueError(
                 "recommendation bundles require one final best pick or no_strong_buy=true."

@@ -324,8 +324,13 @@ Provider-type labels cannot veto a
 selected generic result. Search results, snapshots, and evidence are stored;
 per-source decisions, extracted entities, gaps, and lead matches are retained
 in stage research activity. Live result persistence uses only the grouped
-agent-validated shortlist, never the monitor fixture. Fixture runs still
-contain monitor data and are aligned in Task 89H. The normal run path remains
+agent-validated shortlist, never the monitor fixture. Fixture mode now invokes
+network-free `DiscoveryAgent` and `ExtractionAgent` contract replays through the
+same bounded research loop. The complete monitor replay is activated only for
+monitor requests with fixture providers; TV, furniture, and other unsupported
+fixture categories receive an honest no-strong-buy result without monitor
+products. Mixed live-provider/fixture-agent mode is allowed but warns that it
+cannot exercise live agent-owned research. The normal run path remains
 fixture-first; live typed agents require explicit configuration.
 
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
@@ -574,8 +579,8 @@ optional even when enabled; the policy returns a decision but does not launch
 Playwright, Crawl4AI, or any other browser runtime. Sparse static results are marked
 partial and retain the policy decision metadata.
 
-`ProductListingExtractor` is fixture/legacy normalization code, not the live
-semantic extraction authority. It can propose mechanical fields from a
+`ProductListingExtractor` is a legacy/test helper, not a shopping-run semantic
+extraction authority in either fixture or live mode. It can propose mechanical fields from a
 snippet or static page, including exact model/SKU/UPC/EAN, URL, price, currency,
 seller and region hints, but yields at most one linked
 `CanonicalProduct`/`ProductListing` and declines review pages. Live

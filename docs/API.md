@@ -228,7 +228,7 @@ background orchestration is a later milestone.
 
 Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, runner-ups, alternate modes, comparison data, trust notes, warnings, source references, and result version.
 
-Current implementation returns the latest persisted fixture result bundle for the
+Current implementation returns the latest persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
 recommendation bundle, plus the run's canonical products, preserved listings,
@@ -241,6 +241,9 @@ is blocked instead of being returned as an unqualified best buy. When
 responsible recommendation and include a plain-language next step for the
 shopper. If the session exists but no result has been saved yet, the API
 returns `404` with `result_not_ready`.
+When research yields no verified product, the persisted no-strong-buy bundle
+has no final product, empty comparison rows, and may have no evidence IDs.
+It is an honest result, not a monitor-fixture fallback.
 
 `POST /api/sessions/{session_id}/products`
 

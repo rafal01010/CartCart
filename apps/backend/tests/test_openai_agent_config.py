@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -9,7 +11,8 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
     require_live_openai_agent_configuration,
 )
-from app.core.settings import DEFAULT_OPENAI_AGENT_MODEL, Settings
+from app.core import settings as settings_module
+from app.core.settings import Settings, UNCONFIGURED_OPENAI_AGENT_MODEL
 from app.core.agent_run_profiles import AgentRunProfileName
 
 
@@ -18,6 +21,7 @@ def test_fixture_agent_configuration_does_not_require_openai_key(
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CARTCART_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("CARTCART_OPENAI_MODEL", "fixture-test-model")
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     configuration = build_openai_agent_run_configuration(
@@ -31,19 +35,35 @@ def test_fixture_agent_configuration_does_not_require_openai_key(
     assert configuration.live_agents_enabled is False
     assert configuration.api_key_configured is False
     assert configuration.missing_env_var is None
-    assert configuration.model == DEFAULT_OPENAI_AGENT_MODEL
+    assert configuration.model == "fixture-test-model"
     assert configuration.run_profile == AgentRunProfileName.FAST
     assert configuration.timeout_seconds == 45.0
     assert configuration.trace_metadata == {
         "app": "cartcart",
         "environment": "local",
         "agent_runtime_mode": "fixture",
-        "model": DEFAULT_OPENAI_AGENT_MODEL,
+        "model": "fixture-test-model",
         "run_profile": "fast",
         "agent_name": "IntakeAgent",
         "session_id": "session_test",
         "run_id": "run_test",
     }
+
+
+def test_live_configuration_without_any_model_fails_before_sdk_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CARTCART_OPENAI_MODEL", raising=False)
+    monkeypatch.setattr(settings_module, "BACKEND_ROOT", tmp_path)
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        live_agents_enabled=True,
+        openai_api_key="test-openai-key",
+    )
+
+    assert settings.openai_model == UNCONFIGURED_OPENAI_AGENT_MODEL
+    with pytest.raises(OpenAIAgentConfigurationError, match="CARTCART_OPENAI_MODEL"):
+        build_openai_agent_run_configuration(settings, agent_name="IntakeAgent")
 
 
 def test_live_agent_configuration_requires_enabled_flag() -> None:
@@ -154,7 +174,7 @@ def test_catalog_profiles_resolve_different_models_in_one_fixture_run() -> None:
         "small-model", "large-model", "small-model"
     )
     assert (extraction.timeout_seconds, extraction.max_turns) == (20, 4)
-    assert (decision.timeout_seconds, decision.max_turns) == (70, 8)
+    assert (decision.timeout_seconds, decision.max_turns) == (70, 12)
     assert extraction.reasoning is not None
     assert extraction.reasoning.effort == "none"
     assert decision.reasoning is not None

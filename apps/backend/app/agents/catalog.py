@@ -26,8 +26,15 @@ class ResearchDecision(StrEnum):
 
 
 class ApprovedSDKTool(StrEnum):
+    HOSTED_WEB_SEARCH = "hosted_web_search"
     SEARCH_SOURCES = "search_sources"
     FETCH_SOURCE = "fetch_source"
+    RECORD_SOURCE_QUOTE = "record_source_quote"
+    READ_RUN_EVIDENCE = "read_run_evidence"
+    COMPARE_EVIDENCE = "compare_evidence"
+    COMPARE_CANDIDATES = "compare_candidates"
+    CHECK_LISTING_TRUST = "check_listing_trust"
+    CONSULT_SOURCE_INTELLIGENCE = "consult_source_intelligence"
     READ_SOURCE_SNAPSHOT = "read_source_snapshot"
     SEARCH_VIDEOS = "search_videos"
     READ_VIDEO_METADATA = "read_video_metadata"
@@ -51,6 +58,7 @@ class FixtureFallback(StrEnum):
 
 class AgentKind(StrEnum):
     ORCHESTRATOR = "orchestrator"
+    SHOPPER_OWNER = "shopper_owner"
     GUIDE = "guide"
     GUARDRAIL = "guardrail"
     WORKFLOW_STEP = "workflow_step"
@@ -92,6 +100,8 @@ class AgentCatalogEntry(VersionedSchema):
     planned_tool_boundaries: tuple[str, ...] = Field(default_factory=tuple)
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
     planned_sdk_tools: tuple[ApprovedSDKTool, ...] = Field(default_factory=tuple)
+    target_handoff_agent_names: tuple[str, ...] = Field(default_factory=tuple)
+    target_can_finish_shopper_request: bool = False
     sdk_implementation_pending: bool = False
     agent_as_tool_available: bool = False
     provider_service_name: str | None = Field(
@@ -115,6 +125,15 @@ class AgentCatalogEntry(VersionedSchema):
             raise ValueError("approved SDK tools must be unique per agent.")
         if len(set(self.planned_sdk_tools)) != len(self.planned_sdk_tools):
             raise ValueError("planned SDK tools must be unique per agent.")
+        if len(set(self.target_handoff_agent_names)) != len(
+            self.target_handoff_agent_names
+        ):
+            raise ValueError("target handoffs must be unique per agent.")
+        if (
+            self.target_handoff_agent_names
+            and not self.target_can_finish_shopper_request
+        ):
+            raise ValueError("only shopper-request owners may declare target handoffs.")
         if self.sdk_implementation_pending and (
             self.invocation_mode != InvocationMode.NOT_IMPLEMENTED
             or self.agent_as_tool_available
@@ -132,6 +151,8 @@ class AgentCatalogEntry(VersionedSchema):
 
 
 class ProductAnalysisRoute(CartCartBaseModel):
+    """Current application-code analysis route; never an SDK handoff trace."""
+
     category: str | None = None
     agent_path: tuple[str, ...] = Field(min_length=1)
     fallback_agent_names: tuple[str, ...] = Field(default_factory=tuple)
@@ -144,6 +165,7 @@ class AgentCatalog(VersionedSchema):
     reusable_source_agent_names: tuple[str, ...] = Field(default_factory=tuple)
     generic_fallback_agent_name: str = "GenericProductAnalystAgent"
     technology_domain_agent_name: str = "TechnologyDomainAnalystAgent"
+    target_general_owner_agent_name: str = "GeneralShoppingAgent"
 
     @model_validator(mode="after")
     def _validate_catalog_references(self) -> "AgentCatalog":
@@ -159,11 +181,49 @@ class AgentCatalog(VersionedSchema):
         self._require_known_agent(
             self.technology_domain_agent_name, "technology domain"
         )
+        self._require_known_agent(self.target_general_owner_agent_name, "general owner")
+        for entry in self.entries.values():
+            for target_name in entry.target_handoff_agent_names:
+                self._require_known_agent(target_name, "target handoff")
+                if not self.entries[target_name].target_can_finish_shopper_request:
+                    raise ValueError(
+                        "target handoffs must transfer to a shopper-request owner."
+                    )
+        visited: set[str] = set()
+        active: set[str] = set()
+
+        def check_handoff_graph(agent_name: str) -> None:
+            if agent_name in active:
+                raise ValueError("shopper-owner handoff graph must be acyclic.")
+            if agent_name in visited:
+                return
+            active.add(agent_name)
+            for target_name in self.entries[agent_name].target_handoff_agent_names:
+                check_handoff_graph(target_name)
+            active.remove(agent_name)
+            visited.add(agent_name)
+
+        for agent_name in self.entries:
+            check_handoff_graph(agent_name)
 
         for route_target in self.product_category_routes.values():
             self._require_known_agent(route_target, "category route")
             if self.entries[route_target].kind != AgentKind.SPECIALIST_ANALYST:
                 raise ValueError("product category routes must target specialists.")
+            if (
+                route_target
+                not in self.entries[
+                    self.technology_domain_agent_name
+                ].target_handoff_agent_names
+            ):
+                raise ValueError(
+                    "routed specialists require an approved domain handoff."
+                )
+            if not self.entries[route_target].fallback_agent_names or (
+                self.entries[route_target].fallback_agent_names[0]
+                != self.technology_domain_agent_name
+            ):
+                raise ValueError("routed specialists must fall back to their domain.")
 
         for source_agent_name in self.reusable_source_agent_names:
             self._require_known_agent(source_agent_name, "source agent")
@@ -183,6 +243,7 @@ class AgentCatalog(VersionedSchema):
         return entry
 
     def route_product_analysis(self, category: str | None) -> ProductAnalysisRoute:
+        """Return today's Python-selected analysis route, not a target SDK handoff."""
         normalized_category = _normalize_category(category)
         if normalized_category is None:
             return self._generic_route(category)
@@ -272,6 +333,8 @@ def _entry(
     planned_tool_boundaries: tuple[str, ...] = (),
     approved_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
     planned_sdk_tools: tuple[ApprovedSDKTool, ...] = (),
+    target_handoff_agent_names: tuple[str, ...] = (),
+    target_can_finish_shopper_request: bool = False,
     sdk_implementation_pending: bool = False,
     agent_as_tool_available: bool = False,
     provider_service_name: str | None = None,
@@ -295,6 +358,8 @@ def _entry(
         planned_tool_boundaries=planned_tool_boundaries,
         approved_sdk_tools=approved_sdk_tools,
         planned_sdk_tools=planned_sdk_tools,
+        target_handoff_agent_names=target_handoff_agent_names,
+        target_can_finish_shopper_request=target_can_finish_shopper_request,
         sdk_implementation_pending=sdk_implementation_pending,
         agent_as_tool_available=agent_as_tool_available,
         provider_service_name=provider_service_name,
@@ -366,6 +431,27 @@ _DEFAULT_PRODUCT_CATEGORY_ROUTES = {
 }
 
 
+_TARGET_OWNER_RESEARCH_BOUNDARIES = (
+    "PersistedResearchContext",
+    "ApprovedProviderResearch",
+    "SourceIntelligenceManagerAgent",
+    "SellerListingTrustAgent",
+    "ComparisonHelpers",
+)
+
+_OWNER_APPROVED_TOOLS = (
+    ApprovedSDKTool.HOSTED_WEB_SEARCH,
+    ApprovedSDKTool.SEARCH_SOURCES,
+    ApprovedSDKTool.FETCH_SOURCE,
+    ApprovedSDKTool.RECORD_SOURCE_QUOTE,
+    ApprovedSDKTool.READ_RUN_EVIDENCE,
+    ApprovedSDKTool.COMPARE_EVIDENCE,
+    ApprovedSDKTool.COMPARE_CANDIDATES,
+    ApprovedSDKTool.CHECK_LISTING_TRUST,
+    ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE,
+)
+
+
 _DEFAULT_AGENT_ENTRIES = {
     "ShoppingRunOrchestrator": _entry(
         "ShoppingRunOrchestrator",
@@ -383,6 +469,29 @@ _DEFAULT_AGENT_ENTRIES = {
         contract_name="ShoppingGuideAgent",
         output_schema="GuidedIntakeState",
         run_profile=AgentRunProfileName.FAST,
+    ),
+    "GeneralShoppingAgent": _entry(
+        "GeneralShoppingAgent",
+        status=AgentStatus.REQUIRED_MVP,
+        kind=AgentKind.SHOPPER_OWNER,
+        invocation_mode=InvocationMode.TYPED_STEP,
+        contract_name="GeneralShoppingAgent",
+        output_schema="GeneralShoppingDecisionDraft",
+        target_can_finish_shopper_request=True,
+        target_handoff_agent_names=("TechnologyDomainAnalystAgent",),
+        approved_sdk_tools=(
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
+            ApprovedSDKTool.SEARCH_SOURCES,
+            ApprovedSDKTool.FETCH_SOURCE,
+            ApprovedSDKTool.RECORD_SOURCE_QUOTE,
+            ApprovedSDKTool.READ_RUN_EVIDENCE,
+            ApprovedSDKTool.COMPARE_EVIDENCE,
+            ApprovedSDKTool.COMPARE_CANDIDATES,
+            ApprovedSDKTool.CHECK_LISTING_TRUST,
+            ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE,
+        ),
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        run_profile=AgentRunProfileName.STRONG,
     ),
     "ShoppingScopeGuardrail": _entry(
         "ShoppingScopeGuardrail",
@@ -428,6 +537,7 @@ _DEFAULT_AGENT_ENTRIES = {
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_SOURCES,
             ApprovedSDKTool.FETCH_SOURCE,
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
         ),
         fixture_fallback=FixtureFallback.UNCERTAIN_SOURCE,
         run_profile=AgentRunProfileName.STRONG,
@@ -497,6 +607,27 @@ _DEFAULT_AGENT_ENTRIES = {
         routing_categories=_DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS,
         fallback_agent_names=("GenericProductAnalystAgent",),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        target_handoff_agent_names=(
+            "MonitorSpecialistAgent",
+            "SmartphoneSpecialistAgent",
+            "LaptopSpecialistAgent",
+            "EarphonesHeadphonesSpecialistAgent",
+            "TVSpecialistAgent",
+            "SmartwatchSpecialistAgent",
+        ),
+        approved_sdk_tools=(
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
+            ApprovedSDKTool.SEARCH_SOURCES,
+            ApprovedSDKTool.FETCH_SOURCE,
+            ApprovedSDKTool.RECORD_SOURCE_QUOTE,
+            ApprovedSDKTool.READ_RUN_EVIDENCE,
+            ApprovedSDKTool.COMPARE_EVIDENCE,
+            ApprovedSDKTool.COMPARE_CANDIDATES,
+            ApprovedSDKTool.CHECK_LISTING_TRUST,
+            ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE,
+        ),
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "MonitorSpecialistAgent": _entry(
@@ -512,6 +643,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartphoneSpecialistAgent": _entry(
@@ -527,6 +661,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "LaptopSpecialistAgent": _entry(
@@ -542,6 +679,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "EarphonesHeadphonesSpecialistAgent": _entry(
@@ -557,6 +697,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "TVSpecialistAgent": _entry(
@@ -572,6 +715,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartwatchSpecialistAgent": _entry(
@@ -587,6 +733,9 @@ _DEFAULT_AGENT_ENTRIES = {
             "GenericProductAnalystAgent",
         ),
         output_schema="CategoryAnalysis",
+        target_can_finish_shopper_request=True,
+        approved_sdk_tools=_OWNER_APPROVED_TOOLS,
+        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SellerListingTrustAgent": _entry(
@@ -596,6 +745,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="SellerListingTrustAgent",
         output_schema="ListingTrustAssessment",
+        approved_sdk_tools=(ApprovedSDKTool.HOSTED_WEB_SEARCH,),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SourceIntelligenceManagerAgent": _entry(
@@ -625,6 +775,7 @@ _DEFAULT_AGENT_ENTRIES = {
             ApprovedSDKTool.SEARCH_VIDEOS,
             ApprovedSDKTool.READ_VIDEO_METADATA,
             ApprovedSDKTool.READ_VIDEO_TRANSCRIPT,
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
         ),
         contract_name="YouTubeReviewIntelligenceAgent",
         provider_requirements=(
@@ -646,6 +797,7 @@ _DEFAULT_AGENT_ENTRIES = {
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_COMMUNITY_DISCUSSIONS,
             ApprovedSDKTool.READ_COMMUNITY_DISCUSSION,
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
         ),
         contract_name="RedditCommunityIntelligenceAgent",
         provider_requirements=(
@@ -668,6 +820,7 @@ _DEFAULT_AGENT_ENTRIES = {
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
             ApprovedSDKTool.READ_AMAZON_PRODUCT,
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
         ),
         contract_name="AmazonProductIntelligenceAgent",
         provider_requirements=(
@@ -692,6 +845,7 @@ _DEFAULT_AGENT_ENTRIES = {
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
             ApprovedSDKTool.READ_IKEA_PRODUCT,
+            ApprovedSDKTool.HOSTED_WEB_SEARCH,
         ),
         contract_name="IKEAStoreIntelligenceAgent",
         provider_requirements=(

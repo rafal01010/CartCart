@@ -57,6 +57,22 @@ OpenAI Agents SDK `ShoppingGuideAgent` now implements the same structured
 guided-intake API remains fixture-backed; the normal run workflow can opt into
 live guarded intake and `IntakeAgent` processing after run start.
 
+The existing guided endpoints supply the corrected brief and start the same
+`/runs` resource. After scope/safety preflight and scoped intake, each opt-in
+live run enters `GeneralShoppingAgent` before category routing. The run records
+General's draft and research trace; its existing typed decision stages still
+author the persisted result until active-owner result integration. General
+receives the saved corrected brief and user-added product leads from the same
+session; those leads still need source checks. General can now use a real SDK
+handoff to Technology for a matching technology request. Technology can then
+SDK-handoff to a matching monitor, phone, laptop, audio, TV, or watch specialist.
+The completed transfer chain and last owner are recorded internally.
+`ProductAnalysisRoute` remains a Python-selected analysis route; source
+agents-as-tools do not transfer shopper ownership. Shopper-facing endpoints do
+not expose tool calls or agent names; internal activity can report an actual
+Discovery, source-specialist, trust, General, Technology, or product-specialist `web_search_call`
+separately from application-provider searches.
+
 ## Implemented Endpoints
 
 ```text
@@ -99,6 +115,14 @@ The local workbench also has isolated `ExtractionAgent` cases for an individual
 product page, an ambiguous page, malformed model output, and a multi-product
 page. Mock mode uses disposable persisted snapshots and no live model calls;
 live mode is explicit and may incur OpenAI usage.
+The isolated `GeneralShoppingAgent` workbench accepts a run ID and shopping
+brief and returns a `GeneralShoppingDecisionDraft` with a selected candidate
+only when fetched product/listing and independent review excerpts support it;
+otherwise it returns `insufficient_evidence` and gaps. Candidate evidence
+contains persisted source, snapshot, and evidence IDs. Its fixture case makes
+no model or provider call; mock cases cover a wooden cane, an ambiguous request,
+and weak search results. The same owner now runs first after intake in opt-in
+live `/runs`; fixture runs do not call its model.
 The YouTube specialist now exposes approved video search, metadata, and
 transcript tools with fixture/mock/live workbench modes. Fixture remains a
 provider-service run with no model; mock exercises the SDK contract offline;
@@ -212,7 +236,8 @@ fail the run. Fixture workflow mode remains the default and
 returns the deterministic monitor-shopping result bundle without live model
 calls. When `CARTCART_AGENT_WORKFLOW_MODE=live`,
 `CARTCART_LIVE_AGENTS_ENABLED=true`, and `OPENAI_API_KEY` are configured, the
-normal run path uses live typed agents for intake, planning, discovery
+normal run path uses live typed agents for scoped intake, General ownership,
+planning, discovery
 selection, source-intelligence wrappers, trust, analysis, comparison, and
 verification while keeping provider access behind typed service boundaries. If
 the session question is blocked by shopping-scope or safe-product guardrails,
@@ -234,7 +259,8 @@ Streams ordered progress events using Server-Sent Events. Events should include 
 Current implementation streams persisted `RunEvent` records for the requested run
 in sequence order as `text/event-stream` events named `run_event`, then closes the
 response. In fixture mode, `POST /runs` produces the events synchronously before
-the client opens the stream. The current stage sequence runs `deduplication`
+the client opens the stream. A `general_owner` event follows intake and precedes
+planning and category routing. The current stage sequence runs `deduplication`
 after `extraction` and before `source_intelligence`. The deduplication event
 uses a user-safe count summary with pre-dedupe extracted products, post-dedupe
 product groups, preserved listings, and collapsed duplicates. The
@@ -364,7 +390,9 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - `ListingTrustAssessment`, including deterministic signal rows for seller
   identity, established retailer/source type, review count, return/warranty
   clarity, suspicious price from plausibility comparison, missing metadata, and
-  contradictory listing data.
+  contradictory listing data. Live trust research may add neutral unverified
+  web leads with persisted
+  `source_ids` and `evidence_ids`; those leads do not change the trust level.
 - `CategoryAnalysis`
 - `ComparisonMatrix`
 - `RecommendationMode`

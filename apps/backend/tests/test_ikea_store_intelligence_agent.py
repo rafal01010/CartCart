@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from agents import Agent
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import ValidationError
 
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.agents.ikea_regional_tools import IKEARegionalStoreTools
@@ -52,6 +55,35 @@ def _agent(runner: Any) -> IKEAStoreIntelligenceAgent:
         ikea_provider=_WorkbenchIKEAStoreIntelligenceProvider(),
         model_runner=runner,
     )
+
+
+def test_sdk_output_price_schema_is_supported_and_money_stays_validated() -> None:
+    schema = to_strict_json_schema(IKEAStoreModelOutput)
+    assert "Money" not in schema.get("$defs", {})
+    assert "(?" not in json.dumps(schema)
+    selected = schema["$defs"]["SelectedIKEARegionalSource"]
+    price_schema = selected["properties"]["price"]
+    assert price_schema["anyOf"][0]["properties"]["amount"] == {
+        "type": "string"
+    }
+
+    payload = {
+        "selected_sources": [
+            {
+                "product_id": str(_input().products[0].product_id),
+                "source_id": str(new_id()),
+                "identity": "match",
+                "identity_reason": "Recorded official regional source.",
+                "price": {"amount": "3990.00", "currency": "PHP"},
+            }
+        ],
+        "evidence_gaps": [],
+    }
+    output = IKEAStoreModelOutput.model_validate(payload)
+    assert output.selected_sources[0].price == Money(amount="3990", currency="PHP")
+    payload["selected_sources"][0]["price"]["amount"] = "-1"
+    with pytest.raises(ValidationError):
+        IKEAStoreModelOutput.model_validate(payload)
 
 
 @dataclass

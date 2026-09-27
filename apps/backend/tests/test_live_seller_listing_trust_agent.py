@@ -6,13 +6,24 @@ from typing import Any
 import pytest
 
 from agents import Agent, RunConfig
+from agents import WebSearchTool
+from pydantic import AnyHttpUrl
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.agents import (
     LiveSellerListingTrustAgent,
     MockSellerListingTrustModelRunner,
     SellerListingTrustAgentInput,
 )
+from app.agents.openai_config import OpenAIAgentConfigurationError
+from app.agents.research_tools import HostedCitationStore
+from app.agents.trust_hosted_search import trust_citation_matches_target
 from app.core.settings import Settings
+from app.db.base import Base
+from app.db.repositories.runs import RunRepository
+from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.repositories.sessions import SessionRepository
+from app.db.session import create_session_factory
 from app.schemas.analysis import (
     ListingTrustAssessment,
     ListingTrustLevel,
@@ -22,6 +33,7 @@ from app.schemas.analysis import (
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import new_id
+from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.money import Money
 from app.schemas.products import (
     ProductListing,
@@ -38,6 +50,7 @@ from app.schemas.search_sources import (
     SourceQualityLevel,
 )
 from app.services.listing_trust import ListingTrustRuleContext, assess_listing_trust
+import app.db.models  # noqa: F401
 
 
 @dataclass
@@ -46,6 +59,8 @@ class RecordingSellerListingTrustRunner:
     error: BaseException | None = None
     delay_seconds: float = 0
     calls: int = 0
+    raw_responses: list[Any] | None = None
+    seen_agent: Agent[Any] | None = None
 
     async def run(
         self,
@@ -55,18 +70,22 @@ class RecordingSellerListingTrustRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        del agent, model_input, run_config, max_turns
+        del model_input, run_config, max_turns
+        self.seen_agent = agent
         self.calls += 1
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
         if self.error is not None:
             raise self.error
-        return _RunResult(final_output=self.output)
+        return _RunResult(
+            final_output=self.output, raw_responses=self.raw_responses or []
+        )
 
 
 @dataclass
 class _RunResult:
     final_output: Any
+    raw_responses: list[Any]
 
 
 def _settings(**overrides: object) -> Settings:
@@ -198,18 +217,24 @@ def _reasonable_assessment(
     explain_price: bool = False,
 ) -> ListingTrustAssessment:
     red_flags = (
-        "The price is too low to treat as safe without stronger seller evidence.",
-    ) if explain_price else ()
+        ("The price is too low to treat as safe without stronger seller evidence.",)
+        if explain_price
+        else ()
+    )
     signals = (
-        ListingTrustSignal(
-            kind=ListingTrustSignalKind.SUSPICIOUS_PRICE,
-            polarity=ListingTrustSignalPolarity.NEGATIVE,
-            strength=0.9,
-            summary="The price is too low versus comparable listings.",
-            evidence_ids=tuple(item.evidence_id for item in input_data.evidence),
-            source_ids=input_data.listing.source_ids,
-        ),
-    ) if explain_price else ()
+        (
+            ListingTrustSignal(
+                kind=ListingTrustSignalKind.SUSPICIOUS_PRICE,
+                polarity=ListingTrustSignalPolarity.NEGATIVE,
+                strength=0.9,
+                summary="The price is too low versus comparable listings.",
+                evidence_ids=tuple(item.evidence_id for item in input_data.evidence),
+                source_ids=input_data.listing.source_ids,
+            ),
+        )
+        if explain_price
+        else ()
+    )
     return ListingTrustAssessment(
         listing_id=input_data.listing.listing_id,
         level=ListingTrustLevel.REASONABLE,
@@ -224,6 +249,97 @@ def _reasonable_assessment(
         positive_signals=("Seller identity is visible.",),
         evidence_ids=tuple(item.evidence_id for item in input_data.evidence),
         source_ids=input_data.listing.source_ids,
+    )
+
+
+def _hosted_input() -> SellerListingTrustAgentInput:
+    input_data = _cheap_marketplace_input()
+    listing = input_data.listing.model_copy(
+        update={
+            "url": AnyHttpUrl("https://www.amazon.com/dp/B000000442"),
+            "seller": input_data.listing.seller.model_copy(
+                update={
+                    "seller_url": AnyHttpUrl(
+                        "https://www.amazon.com/stores/dealhub442"
+                    ),
+                    "marketplace_name": "Amazon",
+                }
+            ),
+        }
+    )
+    return input_data.model_copy(
+        update={"listing": listing, "target_region_code": "US"}
+    )
+
+
+def _hosted_response(url: str, *, status: str = "completed") -> list[Any]:
+    return [
+        {
+            "output": [
+                {
+                    "type": "web_search_call",
+                    "id": "ws_trust_1",
+                    "status": status,
+                    "action": {"type": "search", "sources": [{"url": url}]},
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "text": "Seller policy page",
+                            "annotations": [
+                                {
+                                    "type": "url_citation",
+                                    "url": url,
+                                    "title": "Seller policy page",
+                                    "start_index": 0,
+                                    "end_index": 18,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ]
+        }
+    ]
+
+
+async def _hosted_database(input_data: SellerListingTrustAgentInput):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = create_session_factory(engine)
+    async with factory() as session:
+        brief = ShoppingBrief(original_query=input_data.listing.title)
+        shopping_session = await SessionRepository(session).create(
+            original_input=CreateSessionRequest(query=input_data.listing.title),
+            current_brief=brief,
+        )
+        await RunRepository(session).create(
+            shopping_session.session_id, run_id=input_data.run_id
+        )
+        await session.commit()
+    return engine, factory
+
+
+def _live_settings(**overrides: object) -> Settings:
+    return _settings(
+        live_agents_enabled=True,
+        openai_api_key="mock-only-no-call",
+        openai_model="gpt-6-luna",
+        **overrides,
+    )
+
+
+def test_trust_hosted_region_path_rejects_other_country_policy_page() -> None:
+    listing = _established_input().listing.model_copy(
+        update={"url": AnyHttpUrl("https://www.ikea.com/ph/en/p/desk-123")}
+    )
+    assert trust_citation_matches_target(
+        "https://www.ikea.com/ph/en/customer-service/returns", listing, "PH"
+    )
+    assert not trust_citation_matches_target(
+        "https://www.ikea.com/us/en/customer-service/returns", listing, "PH"
     )
 
 
@@ -287,7 +403,9 @@ async def test_live_seller_listing_trust_preserves_explained_hard_flags() -> Non
 
 
 @pytest.mark.asyncio
-async def test_live_seller_listing_trust_falls_back_when_hard_flags_are_silent() -> None:
+async def test_live_seller_listing_trust_falls_back_when_hard_flags_are_silent() -> (
+    None
+):
     input_data = _cheap_marketplace_input()
     runner = RecordingSellerListingTrustRunner(
         output=_reasonable_assessment(input_data),
@@ -356,21 +474,300 @@ async def test_live_seller_listing_trust_falls_back_on_model_error() -> None:
     assert agent.workbench_activity[0]["status"] == "error_rule_based_fallback"
 
 
+@pytest.mark.asyncio
+async def test_hosted_trust_call_persists_cited_lead_without_clearing_hard_flag() -> (
+    None
+):
+    input_data = _hosted_input()
+    url = str(input_data.listing.seller.seller_url)
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": _reasonable_assessment(
+                input_data, explain_price=True
+            ).model_dump(mode="json"),
+            "web_leads": [{"url": url, "question": "seller_identity"}],
+        },
+        raw_responses=_hosted_response(url),
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+            model_runner=runner,
+        )
+        assessment = await agent.run(input_data)
+        assert runner.seen_agent is not None
+        tool = next(
+            tool for tool in runner.seen_agent.tools if isinstance(tool, WebSearchTool)
+        )
+        assert tool.user_location["country"] == "US"
+        assert tool.filters["allowed_domains"] == ["amazon.com"]
+        assert runner.seen_agent.model_settings.tool_choice == "auto"
+        assert assessment.level == ListingTrustLevel.SUSPICIOUS
+        lead = next(
+            signal
+            for signal in assessment.trust_signals
+            if signal.polarity == ListingTrustSignalPolarity.NEUTRAL
+            and signal.evidence_ids
+            and signal.evidence_ids[0]
+            not in {item.evidence_id for item in input_data.evidence}
+        )
+        assert lead.kind == ListingTrustSignalKind.SELLER_IDENTITY
+        assert lead.strength == 0.2
+        assert lead.evidence_ids[0] in assessment.evidence_ids
+        assert lead.source_ids[0] in assessment.source_ids
+        async with factory() as session:
+            repo = SearchSourceRepository(session)
+            sources = await repo.list_search_results(input_data.run_id)
+            evidence = await repo.list_source_evidence(input_data.run_id)
+        assert any(str(item.url) == url for item in sources)
+        assert any(item.evidence_id == lead.evidence_ids[0] for item in evidence)
+        assert any(
+            item["tool_name"] == "web_search_citation"
+            and item["status"] == "retained"
+            and item["output"]["evidence_id"] == str(lead.evidence_ids[0])
+            for item in agent.workbench_activity
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_hosted_trust_can_skip_search_when_supplied_evidence_suffices() -> None:
+    input_data = _established_input()
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": _reasonable_assessment(input_data).model_dump(mode="json"),
+            "web_leads": [],
+        },
+        raw_responses=[],
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+            model_runner=runner,
+        )
+        assessment = await agent.run(input_data)
+        assert assessment.level == ListingTrustLevel.REASONABLE
+        assert runner.seen_agent is not None
+        assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+        assert all(
+            item["tool_name"] != "web_search" for item in agent.workbench_activity
+        )
+        async with factory() as session:
+            assert not await SearchSourceRepository(session).list_search_results(
+                input_data.run_id
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_hosted_trust_rejects_other_seller_url_and_uncited_assertion() -> None:
+    input_data = _hosted_input()
+    url = "https://www.amazon.com/stores/other-seller"
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": _reasonable_assessment(
+                input_data, explain_price=True
+            ).model_dump(mode="json"),
+            "web_leads": [{"url": url, "question": "return_warranty"}],
+        },
+        raw_responses=_hosted_response(url),
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+            model_runner=runner,
+        )
+        assessment = await agent.run(input_data)
+        assert assessment.level == ListingTrustLevel.SUSPICIOUS
+        assert not any(
+            item["tool_name"] == "web_search_citation" and item["status"] == "retained"
+            for item in agent.workbench_activity
+        )
+        assert any(
+            item["tool_name"] == "web_search_gap" for item in agent.workbench_activity
+        )
+        async with factory() as session:
+            assert not await SearchSourceRepository(session).list_search_results(
+                input_data.run_id
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_hosted_rating_cannot_upgrade_unknown_seller_to_trusted() -> None:
+    source_id = new_id()
+    listing = ProductListing(
+        product_id=new_id(),
+        title="Unverified marketplace item",
+        url="https://shop.example.com/listing/item-42",
+        seller=SellerProfile(seller_name="Unknown Seller"),
+        region_availability=(RegionAvailability(region_code="US"),),
+        source_ids=(source_id,),
+    )
+    input_data = SellerListingTrustAgentInput(
+        run_id=new_id(), listing=listing, target_region_code="US"
+    )
+    rule = assess_listing_trust(listing)
+    assert rule.level == ListingTrustLevel.UNKNOWN
+    url = str(listing.url)
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": rule.model_copy(
+                update={
+                    "level": ListingTrustLevel.STRONG,
+                    "summary": "A five-star rating proves this seller is trusted.",
+                    "positive_signals": ("Five-star marketplace rating",),
+                }
+            ).model_dump(mode="json"),
+            "web_leads": [{"url": url, "question": "seller_identity"}],
+        },
+        raw_responses=_hosted_response(url),
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+            model_runner=runner,
+        )
+        result = await agent.run(input_data)
+        assert result.level == ListingTrustLevel.UNKNOWN
+        assert "five-star" not in result.summary.lower()
+        assert "Five-star marketplace rating" not in result.positive_signals
+        assert any(
+            signal.polarity == ListingTrustSignalPolarity.NEUTRAL
+            and signal.evidence_ids
+            for signal in result.trust_signals
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_failed_hosted_trust_call_records_gap_and_no_new_evidence() -> None:
+    input_data = _hosted_input()
+    url = str(input_data.listing.seller.seller_url)
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": _reasonable_assessment(
+                input_data, explain_price=True
+            ).model_dump(mode="json"),
+            "web_leads": [{"url": url, "question": "seller_identity"}],
+        },
+        raw_responses=_hosted_response(url, status="failed"),
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+            model_runner=runner,
+        )
+        result = await agent.run(input_data)
+        assert result.level == ListingTrustLevel.SUSPICIOUS
+        assert any(
+            item["tool_name"] == "web_search_gap" for item in agent.workbench_activity
+        )
+        async with factory() as session:
+            assert not await SearchSourceRepository(session).list_search_results(
+                input_data.run_id
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_hosted_trust_uncited_url_falls_back_and_unknown_model_fails_closed() -> (
+    None
+):
+    input_data = _hosted_input()
+    runner = RecordingSellerListingTrustRunner(
+        output={
+            "assessment": _reasonable_assessment(
+                input_data, explain_price=True
+            ).model_dump(mode="json"),
+            "web_leads": [
+                {
+                    "url": "https://www.amazon.com/stores/dealhub442",
+                    "question": "seller_identity",
+                }
+            ],
+        },
+        raw_responses=_hosted_response("https://www.amazon.com/dp/B000000442"),
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+
+        def store_factory(run_id):
+            return HostedCitationStore(run_id=run_id, session_factory=factory)
+
+        agent = LiveSellerListingTrustAgent(
+            settings=_live_settings(),
+            citation_store_factory=store_factory,
+            model_runner=runner,
+        )
+        assessment = await agent.run(input_data)
+        assert assessment == input_data.rule_based_assessment
+        assert (
+            agent.workbench_activity[0]["status"]
+            == "schema_invalid_rule_based_fallback"
+        )
+        incompatible = LiveSellerListingTrustAgent(
+            settings=_live_settings(
+                openai_agent_overrides={
+                    "SellerListingTrustAgent": {"model": "unsupported-web-model"}
+                }
+            ),
+            citation_store_factory=store_factory,
+            model_runner=runner,
+        )
+        with pytest.raises(OpenAIAgentConfigurationError):
+            await incompatible.run(input_data)
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.live_provider
 @pytest.mark.asyncio
 async def test_live_seller_listing_trust_agent_live_opt_in() -> None:
     if os.getenv("CARTCART_RUN_LIVE_PROVIDER_TESTS") != "1":
         pytest.skip("Set CARTCART_RUN_LIVE_PROVIDER_TESTS=1 to allow live calls.")
 
-    settings = Settings(_env_file=None, live_agents_enabled=True)  # type: ignore[call-arg]
-    if settings.openai_api_key is None:
-        pytest.skip("OPENAI_API_KEY is not configured.")
+    settings = Settings()
+    if not settings.live_agents_enabled or settings.openai_api_key is None:
+        pytest.skip("Live agents and OPENAI_API_KEY must be configured in .env.")
 
-    result = await LiveSellerListingTrustAgent(settings=settings).run(
-        _established_input()
-    )
-
-    assert result.level in ListingTrustLevel
+    input_data = _established_input()
+    engine, factory = await _hosted_database(input_data)
+    try:
+        result = await LiveSellerListingTrustAgent(
+            settings=settings,
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
+        ).run(input_data)
+        assert result.level in ListingTrustLevel
+    finally:
+        await engine.dispose()
 
 
 def _combined_text(assessment: ListingTrustAssessment) -> str:

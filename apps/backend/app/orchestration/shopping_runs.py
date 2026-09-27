@@ -27,6 +27,10 @@ from app.agents import (
     FakeQueryPlannerAgent,
     FakeSellerListingTrustAgent,
     GenericProductAnalystAgent,
+    GeneralShoppingAgent,
+    GeneralShoppingAgentInput,
+    GeneralShoppingDecisionDraft,
+    GeneralShoppingOutcome,
     IKEAStoreIntelligenceAgentInput,
     IntakeAgent,
     IntakeAgentInput,
@@ -318,6 +322,7 @@ class ShoppingRunContext:
     recommendation_bundle: RecommendationBundle | None = None
     verification_report: VerificationReport | None = None
     fixture_output: MonitorFixtureRunOutput | None = None
+    general_owner_draft: GeneralShoppingDecisionDraft | None = None
     active_stage: RunStage | None = None
 
 
@@ -824,6 +829,11 @@ class ShoppingRunOrchestrator:
             "Fixture intake stage recorded.",
         ),
         _StageDefinition(
+            RunStage.GENERAL_OWNER,
+            "GeneralShoppingAgent",
+            "Shopping request reviewed.",
+        ),
+        _StageDefinition(
             RunStage.QUERY_PLANNING,
             "QueryPlanningStage",
             "Search queries planned.",
@@ -878,6 +888,7 @@ class ShoppingRunOrchestrator:
         agent_model_name: str | None = None,
         agent_model_resolver: Callable[[str], str] | None = None,
         intake_agent: IntakeAgent | None = None,
+        general_shopping_agent: GeneralShoppingAgent | None = None,
         query_planner: QueryPlannerAgent | None = None,
         discovery_agent: DiscoveryAgent | None = None,
         extraction_agent: ExtractionAgent | None = None,
@@ -901,11 +912,13 @@ class ShoppingRunOrchestrator:
             AmazonProductIntelligenceProvider | None
         ) = None,
         ikea_store_intelligence_provider: IKEAStoreIntelligenceProvider | None = None,
-        youtube_review_intelligence_service: YouTubeReviewIntelligenceServicePort | None = None,
+        youtube_review_intelligence_service: YouTubeReviewIntelligenceServicePort
+        | None = None,
         reddit_community_intelligence_service: (
             RedditCommunityIntelligenceServicePort | None
         ) = None,
-        amazon_product_intelligence_service: AmazonProductIntelligenceServicePort | None = None,
+        amazon_product_intelligence_service: AmazonProductIntelligenceServicePort
+        | None = None,
         ikea_store_intelligence_service: IKEAStoreIntelligenceServicePort | None = None,
         source_intelligence_manager: SourceIntelligenceManagerAgent | None = None,
         product_deduplicator: DeterministicProductDeduplicator | None = None,
@@ -919,6 +932,7 @@ class ShoppingRunOrchestrator:
         self._agent_model_name = agent_model_name
         self._agent_model_resolver = agent_model_resolver
         self._intake_agent = intake_agent
+        self._general_shopping_agent = general_shopping_agent
         self._query_planner = query_planner or FakeQueryPlannerAgent()
         self._discovery_agent = discovery_agent
         self._extraction_agent = extraction_agent
@@ -948,7 +962,9 @@ class ShoppingRunOrchestrator:
             ikea_store_intelligence_provider or FakeIKEAStoreIntelligenceProvider()
         )
         self._youtube_review_intelligence_service = youtube_review_intelligence_service
-        self._reddit_community_intelligence_service = reddit_community_intelligence_service
+        self._reddit_community_intelligence_service = (
+            reddit_community_intelligence_service
+        )
         self._amazon_product_intelligence_service = amazon_product_intelligence_service
         self._ikea_store_intelligence_service = ikea_store_intelligence_service
         self._source_intelligence_manager = source_intelligence_manager
@@ -1082,6 +1098,8 @@ class ShoppingRunOrchestrator:
         try:
             if definition.stage == RunStage.INTAKE:
                 stage_output = await self._run_intake(context)
+            elif definition.stage == RunStage.GENERAL_OWNER:
+                stage_output = await self._run_general_owner(context)
             elif definition.stage == RunStage.QUERY_PLANNING:
                 stage_output = await self._plan_queries(context)
             elif definition.stage == RunStage.DISCOVERY:
@@ -1220,6 +1238,86 @@ class ShoppingRunOrchestrator:
             model_name=self._model_name_for_stage(RunStage.INTAKE),
             tool_activity=activity,
             fallback_outcome=_fallback_outcome(activity),
+        )
+
+    async def _run_general_owner(
+        self, context: ShoppingRunContext
+    ) -> FixtureStageOutput:
+        if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+            return self._fixture_stage_output(context, RunStage.GENERAL_OWNER)
+        if self._general_shopping_agent is None:
+            raise ValueError("Live shopping runs require GeneralShoppingAgent.")
+
+        context.user_added_products = (
+            await self._persistence_hooks.load_user_added_products(context.session_id)
+        )
+        draft = await self._general_shopping_agent.run(
+            GeneralShoppingAgentInput(
+                run_id=context.run_id,
+                brief=context.active_brief,
+                user_added_products=context.user_added_products,
+            )
+        )
+        context.general_owner_draft = draft
+        activity = (
+            *_agent_tool_activity(self._general_shopping_agent),
+            {
+                "tool_name": "general_owner_draft",
+                "status": draft.outcome.value,
+                "input": {"run_id": str(context.run_id)},
+                "output": {
+                    "category": draft.category,
+                    "specialist_helpful": draft.specialist_helpful,
+                    "selected_candidate_name": draft.selected_candidate_name,
+                    "evidence_ids": [
+                        str(item.evidence_id)
+                        for candidate in draft.candidates
+                        for item in candidate.evidence
+                    ],
+                    "hosted_lead_source_ids": [
+                        str(source_id) for source_id in draft.hosted_lead_source_ids
+                    ],
+                    "evidence_gaps": list(draft.evidence_gaps),
+                    "owner_agent_name": draft.owner_agent_name,
+                    "result_author": "transitional_decision_stages",
+                },
+            },
+        )
+        usage = next(
+            (
+                item.get("output", {}).get("usage", {})
+                for item in reversed(activity)
+                if item.get("tool_name") == "general_owner"
+            ),
+            {},
+        )
+        return FixtureStageOutput(
+            stage=RunStage.GENERAL_OWNER,
+            trace_id=self._stage_trace_id(context.trace_id, RunStage.GENERAL_OWNER),
+            summary="Shopping question reviewed.",
+            payload={
+                "outcome": draft.outcome.value,
+                "result_author": "transitional_decision_stages",
+            },
+            agent_name=draft.owner_agent_name,
+            runtime_mode=AgentWorkflowMode.LIVE.value,
+            model_name=next(
+                (
+                    item.get("output", {}).get("last_agent_model")
+                    for item in reversed(activity)
+                    if item.get("tool_name") == "general_owner"
+                ),
+                self._model_name_for_stage(RunStage.GENERAL_OWNER),
+            ),
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            total_tokens=usage.get("total_tokens"),
+            tool_activity=activity,
+            fallback_outcome=(
+                "insufficient_evidence"
+                if draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+                else _fallback_outcome(activity)
+            ),
         )
 
     async def _plan_queries(
@@ -2139,7 +2237,9 @@ class ShoppingRunOrchestrator:
                 brief=brief,
                 products=candidates.products,
                 listings=candidates.listings,
-                source_snapshots=tuple(item.snapshot for item in context.source_extractions),
+                source_snapshots=tuple(
+                    item.snapshot for item in context.source_extractions
+                ),
                 query_hints=request.query_hints,
                 region_code=region_code,
                 allowed_capabilities=allowed,
@@ -2157,7 +2257,9 @@ class ShoppingRunOrchestrator:
         await self._persistence_hooks.persist_source_intelligence(context, output)
         return FixtureStageOutput(
             stage=RunStage.SOURCE_INTELLIGENCE,
-            trace_id=self._stage_trace_id(context.trace_id, RunStage.SOURCE_INTELLIGENCE),
+            trace_id=self._stage_trace_id(
+                context.trace_id, RunStage.SOURCE_INTELLIGENCE
+            ),
             summary=_source_intelligence_summary(output),
             payload={
                 "bundle_count": str(output.bundle_count),
@@ -2175,7 +2277,8 @@ class ShoppingRunOrchestrator:
                 (
                     str(item["status"])
                     for item in result.activity
-                    if item.get("status") in {"model_or_validation_failure", "evidence_gap"}
+                    if item.get("status")
+                    in {"model_or_validation_failure", "evidence_gap"}
                 ),
                 _fallback_outcome(result.activity),
             ),
@@ -2198,8 +2301,9 @@ class ShoppingRunOrchestrator:
         source_snapshots = tuple(item.snapshot for item in context.source_extractions)
         query_hints = request.query_hints
 
-        if self._youtube_review_intelligence_service is not None and _capability_allowed(
-            request, SourceIntelligenceCapability.VIDEO_REVIEW
+        if (
+            self._youtube_review_intelligence_service is not None
+            and _capability_allowed(request, SourceIntelligenceCapability.VIDEO_REVIEW)
         ):
             video_bundles.append(
                 await self._youtube_review_intelligence_service.run(
@@ -2240,9 +2344,12 @@ class ShoppingRunOrchestrator:
                 _agent_tool_activity(self._reddit_community_intelligence_service)
             )
 
-        if self._amazon_product_intelligence_service is not None and _capability_allowed(
-            request,
-            SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+        if (
+            self._amazon_product_intelligence_service is not None
+            and _capability_allowed(
+                request,
+                SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
+            )
         ):
             amazon_bundles.append(
                 await self._amazon_product_intelligence_service.run(
@@ -2333,6 +2440,9 @@ class ShoppingRunOrchestrator:
                     SellerListingTrustAgentInput(
                         run_id=context.run_id,
                         listing=listing,
+                        target_region_code=_effective_region_code(
+                            context.active_brief, self._default_region_code
+                        ),
                         evidence=evidence,
                         rule_based_assessment=rule_based_assessment,
                     )
@@ -2621,6 +2731,7 @@ class ShoppingRunOrchestrator:
             return None
         agent_name = {
             RunStage.INTAKE: "IntakeAgent",
+            RunStage.GENERAL_OWNER: "GeneralShoppingAgent",
             RunStage.QUERY_PLANNING: "QueryPlannerAgent",
             RunStage.DISCOVERY: "DiscoveryAgent",
             RunStage.LISTING_TRUST: "SellerListingTrustAgent",

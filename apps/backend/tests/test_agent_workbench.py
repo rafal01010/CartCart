@@ -147,7 +147,11 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     discovery = next(
         agent for agent in body["agents"] if agent["agent_name"] == "DiscoveryAgent"
     )
-    assert discovery["approved_sdk_tools"] == ["search_sources", "fetch_source"]
+    assert discovery["approved_sdk_tools"] == [
+        "search_sources",
+        "fetch_source",
+        "hosted_web_search",
+    ]
     assert {scenario["name"] for scenario in discovery["scenarios"]} >= {
         "discovery/select-valid-sources",
         "discovery/no-good-results",
@@ -253,6 +257,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "trust/established-retailer",
     }
     assert trust["modes"] == ["fixture", "mock", "live"]
+    assert trust["approved_sdk_tools"] == ["hosted_web_search"]
     youtube = next(
         agent
         for agent in body["agents"]
@@ -270,6 +275,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "search_videos",
         "read_video_metadata",
         "read_video_transcript",
+        "hosted_web_search",
     ]
     assert youtube["resolved_model"]
     assert youtube["planned_model"] is None
@@ -288,6 +294,7 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert reddit["approved_sdk_tools"] == [
         "search_community_discussions",
         "read_community_discussion",
+        "hosted_web_search",
     ]
     assert reddit["resolved_model"]
     amazon = next(
@@ -1221,6 +1228,25 @@ def test_workbench_mock_trust_flags_unknown_cheap_marketplace_listing() -> None:
     assert activity["status"] == "hard_suspicious_flag_preserved"
     assert activity["input"]["allowed_tools"] == []
     assert "suspicious_price" in activity["input"]["hard_suspicious_signal_kinds"]
+
+
+def test_workbench_mock_trust_stays_offline_with_live_settings() -> None:
+    client = make_test_client(
+        agent_workbench_enabled=True,
+        live_agents_enabled=True,
+        openai_api_key="synthetic-no-call",
+        openai_model="gpt-6-luna",
+    )
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "SellerListingTrustAgent",
+            "scenario_name": "trust/established-retailer",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["allowed_tool_activity"][0]["input"]["allowed_tools"] == []
 
 
 def test_workbench_mock_trust_accepts_established_retailer_listing() -> None:

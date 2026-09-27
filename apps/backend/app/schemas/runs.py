@@ -20,6 +20,7 @@ class RunStatus(StrEnum):
 
 class RunStage(StrEnum):
     INTAKE = "intake"
+    GENERAL_OWNER = "general_owner"
     QUERY_PLANNING = "query_planning"
     DISCOVERY = "discovery"
     EXTRACTION = "extraction"
@@ -138,11 +139,15 @@ class ShoppingRunRecord(VersionedSchema):
             raise ValueError("pending runs cannot have started_at.")
         if self.status == RunStatus.RUNNING and self.started_at is None:
             raise ValueError("running runs require started_at.")
-        if self.status in {
-            RunStatus.SUCCEEDED,
-            RunStatus.FAILED,
-            RunStatus.CANCELLED,
-        } and self.completed_at is None:
+        if (
+            self.status
+            in {
+                RunStatus.SUCCEEDED,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            }
+            and self.completed_at is None
+        ):
             raise ValueError("terminal runs require completed_at.")
         if self.status == RunStatus.FAILED and self.error is None:
             raise ValueError("failed runs require an error envelope.")

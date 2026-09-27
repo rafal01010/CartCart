@@ -2,15 +2,23 @@ import asyncio
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from agents import Agent, ModelSettings, RunConfig, Runner
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from app.agents.contracts import SellerListingTrustAgentInput
+from app.agents.hosted_web_search import build_hosted_web_search_tool
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
+    OpenAIAgentRuntimeMode,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.trust_hosted_search import (
+    persist_trust_search_leads,
+    trust_search_policy,
 )
 from app.core.settings import Settings
 from app.schemas.analysis import (
@@ -18,9 +26,12 @@ from app.schemas.analysis import (
     ListingTrustLevel,
     ListingTrustSignal,
     ListingTrustSignalKind,
+    ListingTrustSignalPolarity,
 )
+from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.ids import SourceId, new_id
+from app.schemas.ids import RunId, SourceId, new_id
+from app.schemas.regions import RegionCode
 from app.services.listing_trust import ListingTrustRuleContext, assess_listing_trust
 
 
@@ -30,6 +41,16 @@ _HARD_SUSPICIOUS_SIGNAL_KINDS = frozenset(
         ListingTrustSignalKind.CONTRADICTORY_LISTING_DATA,
     }
 )
+
+
+class TrustWebLead(CartCartBaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    question: Literal["seller_identity", "return_warranty", "listing_claim"]
+
+
+class SellerListingTrustModelOutput(CartCartBaseModel):
+    assessment: ListingTrustAssessment
+    web_leads: tuple[TrustWebLead, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class SellerListingTrustModelRunner(Protocol):
@@ -87,6 +108,7 @@ class MockSellerListingTrustModelRunner:
 @dataclass
 class LiveSellerListingTrustAgent:
     settings: Settings
+    citation_store_factory: Callable[[RunId], HostedCitationStore] | None = None
     model_runner: SellerListingTrustModelRunner = field(
         default_factory=OpenAIAgentsSDKSellerListingTrustModelRunner,
     )
@@ -106,19 +128,41 @@ class LiveSellerListingTrustAgent:
             agent_name="SellerListingTrustAgent",
             run_id=str(input_data.run_id),
         )
-        agent = _build_seller_listing_trust_agent(configuration.model)
+        hosted_tool = None
+        citation_store = None
+        region_code = input_data.target_region_code or _listing_region(input_data)
+        if configuration.mode == OpenAIAgentRuntimeMode.LIVE:
+            if region_code is None:
+                raise OpenAIAgentConfigurationError(
+                    "Seller/listing hosted search requires a buyer region."
+                )
+            if self.citation_store_factory is None:
+                raise OpenAIAgentConfigurationError(
+                    "Live SellerListingTrustAgent requires run-scoped citation persistence."
+                )
+            citation_store = self.citation_store_factory(input_data.run_id)
+            if citation_store.run_id != input_data.run_id:
+                raise OpenAIAgentConfigurationError(
+                    "Seller/listing citation store belongs to another run."
+                )
+            hosted_tool = build_hosted_web_search_tool(
+                agent_name="SellerListingTrustAgent",
+                model=configuration.model,
+                region_code=region_code,
+                source_policy=trust_search_policy(input_data.listing),
+            )
+        agent = _build_seller_listing_trust_agent(
+            configuration.model, hosted_tool=hosted_tool
+        )
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model_settings=ModelSettings(
-                max_tokens=800,
-                include_usage=True,
-            ),
             tracing_disabled=not configuration.tracing_enabled,
             trace_include_sensitive_data=configuration.trace_include_sensitive_data,
             workflow_name=configuration.trace_workflow_name,
             trace_metadata=configuration.trace_metadata,
         )
 
+        hosted_activity: tuple[dict[str, Any], ...] = ()
         try:
             raw_result = await asyncio.wait_for(
                 self.model_runner.run(
@@ -129,14 +173,60 @@ class LiveSellerListingTrustAgent:
                 ),
                 timeout=configuration.timeout_seconds,
             )
+            final_output = getattr(raw_result, "final_output", raw_result)
+            if isinstance(final_output, SellerListingTrustModelOutput):
+                model_output = final_output
+            elif isinstance(final_output, dict) and "assessment" in final_output:
+                model_output = SellerListingTrustModelOutput.model_validate(
+                    final_output
+                )
+            else:
+                model_output = SellerListingTrustModelOutput(
+                    assessment=ListingTrustAssessment.model_validate(final_output)
+                )
             assessment = _coerce_listing_trust_result(
-                getattr(raw_result, "final_output", raw_result),
+                model_output.assessment,
                 input_data,
                 rule_based,
             )
+            persisted = {}
+            gap = None
+            if citation_store is not None:
+                assert region_code is not None
+                persisted, hosted_activity, gap = await persist_trust_search_leads(
+                    raw=raw_result,
+                    selected_urls=tuple(lead.url for lead in model_output.web_leads),
+                    listing=input_data.listing,
+                    run_id=input_data.run_id,
+                    region_code=region_code,
+                    citation_store=citation_store,
+                    source_policy=trust_search_policy(input_data.listing),
+                    require_sdk_metadata=True,
+                )
+            assessment = _attach_web_leads(
+                assessment, model_output.web_leads, persisted
+            )
+            if gap:
+                hosted_activity = (
+                    *hosted_activity,
+                    {
+                        "tool_name": "web_search_gap",
+                        "status": "gap",
+                        "input": {"agent": "SellerListingTrustAgent"},
+                        "output": {"reason": gap},
+                    },
+                )
+        except OpenAIAgentConfigurationError:
+            raise
         except TimeoutError:
             assessment = rule_based
-            self._set_activity("timeout_rule_based_fallback", input_data, assessment)
+            self._set_activity(
+                "timeout_rule_based_fallback",
+                input_data,
+                assessment,
+                hosted_activity,
+                hosted_tool is not None,
+            )
             return assessment
         except (ValidationError, ValueError, TypeError):
             assessment = rule_based
@@ -144,11 +234,19 @@ class LiveSellerListingTrustAgent:
                 "schema_invalid_rule_based_fallback",
                 input_data,
                 assessment,
+                hosted_activity,
+                hosted_tool is not None,
             )
             return assessment
         except Exception:
             assessment = rule_based
-            self._set_activity("error_rule_based_fallback", input_data, assessment)
+            self._set_activity(
+                "error_rule_based_fallback",
+                input_data,
+                assessment,
+                hosted_activity,
+                hosted_tool is not None,
+            )
             return assessment
 
         status = (
@@ -157,7 +255,9 @@ class LiveSellerListingTrustAgent:
             and assessment.level == ListingTrustLevel.SUSPICIOUS
             else "model_listing_trust_completed"
         )
-        self._set_activity(status, input_data, assessment)
+        self._set_activity(
+            status, input_data, assessment, hosted_activity, hosted_tool is not None
+        )
         return assessment
 
     @property
@@ -169,6 +269,8 @@ class LiveSellerListingTrustAgent:
         status: str,
         input_data: SellerListingTrustAgentInput,
         assessment: ListingTrustAssessment,
+        hosted_activity: tuple[dict[str, Any], ...] = (),
+        hosted_enabled: bool = False,
     ) -> None:
         rule_based = _rule_based_assessment(input_data)
         self._workbench_activity = (
@@ -177,7 +279,7 @@ class LiveSellerListingTrustAgent:
                 "status": status,
                 "input": {
                     "agent": "SellerListingTrustAgent",
-                    "allowed_tools": [],
+                    "allowed_tools": ["hosted_web_search"] if hosted_enabled else [],
                     "listing_id": str(input_data.listing.listing_id),
                     "seller_name": input_data.listing.seller.seller_name,
                     "evidence_count": len(input_data.evidence),
@@ -189,6 +291,7 @@ class LiveSellerListingTrustAgent:
                 },
                 "output": assessment.model_dump(mode="json"),
             },
+            *hosted_activity,
         )
 
 
@@ -197,22 +300,31 @@ class _MockRunResult:
     final_output: Any
 
 
-def _build_seller_listing_trust_agent(model: str) -> Agent[Any]:
+def _build_seller_listing_trust_agent(
+    model: str, *, hosted_tool: Any | None = None
+) -> Agent[Any]:
     return Agent(
         name="CartCartSellerListingTrustAgent",
         model=model,
         model_settings=ModelSettings(
             max_tokens=800,
             include_usage=True,
+            tool_choice="auto",
         ),
         instructions=(
             "Review one supplied product listing for buyer-safety trust and "
-            "return only a structured ListingTrustAssessment. Assess listing "
+            "return a structured assessment and optional cited web_leads. Assess listing "
             "and seller trust independently of product quality or product fit. "
-            "Use only the supplied listing, source evidence, and deterministic "
-            "rule-based assessment. Do not browse, call tools, fetch seller "
-            "pages, or invent seller, price, return, warranty, review, source, "
-            "or evidence facts. Preserve supplied listing_id, evidence_ids, "
+            "Use the supplied listing, source evidence, and deterministic "
+            "rule-based assessment. When supplied trust evidence is weak, you may "
+            "use web_search to inspect the exact seller, listing, or return/warranty "
+            "question for the supplied buyer region; skip it when evidence suffices. "
+            "Search only the supplied listing or seller sites. Put useful exact "
+            "cited URLs and their question in web_leads. A search snippet, "
+            "marketplace rating, or uncited assertion cannot establish a trusted "
+            "seller or a verified return/warranty policy. Never infer product "
+            "quality from seller reputation. Do not invent seller, price, return, "
+            "warranty, review, source, or evidence facts. Preserve supplied listing_id, evidence_ids, "
             "source_ids, and deterministic trust signals. If deterministic "
             "rules mark suspicious price or contradictory listing data, do not "
             "silently downgrade or override those hard suspicious flags; keep a "
@@ -222,8 +334,8 @@ def _build_seller_listing_trust_agent(model: str) -> Agent[Any]:
             "Do not recommend products or expose agents, providers, prompts, "
             "traces, policies, or schemas to shoppers."
         ),
-        tools=[],
-        output_type=ListingTrustAssessment,
+        tools=[hosted_tool] if hosted_tool else [],
+        output_type=SellerListingTrustModelOutput,
     )
 
 
@@ -235,6 +347,8 @@ def _model_input(
         {
             "run_id": str(input_data.run_id),
             "listing": input_data.listing.model_dump(mode="json"),
+            "target_region_code": input_data.target_region_code
+            or _listing_region(input_data),
             "evidence": [
                 evidence.model_dump(mode="json") for evidence in input_data.evidence
             ],
@@ -244,6 +358,60 @@ def _model_input(
             ],
         },
         sort_keys=True,
+    )
+
+
+def _listing_region(input_data: SellerListingTrustAgentInput) -> RegionCode | None:
+    regions = {item.region_code for item in input_data.listing.region_availability}
+    return next(iter(regions)) if len(regions) == 1 else None
+
+
+def _attach_web_leads(
+    assessment: ListingTrustAssessment,
+    web_leads: tuple[TrustWebLead, ...],
+    persisted: dict[str, Any],
+) -> ListingTrustAssessment:
+    kinds = {
+        "seller_identity": ListingTrustSignalKind.SELLER_IDENTITY,
+        "return_warranty": ListingTrustSignalKind.RETURN_WARRANTY_CLARITY,
+        "listing_claim": ListingTrustSignalKind.MISSING_METADATA,
+    }
+    summaries = {
+        "seller_identity": "A page related to this seller was found, but its details are unverified.",
+        "return_warranty": "A page about returns or warranty was found, but its terms are unverified.",
+        "listing_claim": "A page related to this listing was found, but its claims are unverified.",
+    }
+    signals = []
+    for lead in web_leads:
+        citation = persisted.get(lead.url)
+        if citation is None:
+            continue
+        signals.append(
+            ListingTrustSignal(
+                kind=kinds[lead.question],
+                polarity=ListingTrustSignalPolarity.NEUTRAL,
+                strength=0.2,
+                summary=summaries[lead.question],
+                evidence_ids=(citation.evidence_id,),
+                source_ids=(citation.snapshot_id,),
+            )
+        )
+    if not signals:
+        return assessment
+    return assessment.model_copy(
+        update={
+            "trust_signals": (*assessment.trust_signals, *signals),
+            "evidence_ids": _dedupe_source_ids(
+                (*assessment.evidence_ids, *(item.evidence_ids[0] for item in signals))
+            ),
+            "source_ids": _dedupe_source_ids(
+                (*assessment.source_ids, *(item.source_ids[0] for item in signals))
+            ),
+            "summary": (
+                assessment.summary
+                + " Related pages need checking before they affect seller trust."
+            )[:1000],
+        }
     )
 
 
@@ -279,6 +447,12 @@ def _validate_listing_trust_policy(
     if unknown_source_ids:
         raise ValueError("listing trust output used unknown source IDs.")
 
+    for signal in assessment.trust_signals:
+        if set(signal.evidence_ids) - known_evidence_ids:
+            raise ValueError("listing trust signal used unknown evidence IDs.")
+        if set(signal.source_ids) - known_source_ids:
+            raise ValueError("listing trust signal used unknown source IDs.")
+
     if _has_hard_suspicious_flags(rule_based):
         if not _model_output_explains_hard_flags(assessment, rule_based):
             raise ValueError(
@@ -297,21 +471,16 @@ def _normalize_listing_trust_assessment(
     source_ids = _dedupe_source_ids(
         (*assessment.source_ids, *_fallback_source_ids(input_data, rule_based))
     )
-    trust_signals = _merge_signals(
-        assessment.trust_signals,
-        rule_based.trust_signals,
-    )
-    red_flags = _merge_strings(assessment.red_flags, rule_based.red_flags)
-    positive_signals = _merge_strings(
-        assessment.positive_signals,
-        rule_based.positive_signals,
-    )
+    trust_signals = rule_based.trust_signals
+    red_flags = rule_based.red_flags
+    positive_signals = rule_based.positive_signals
     update: dict[str, Any] = {
         "evidence_ids": evidence_ids,
         "source_ids": source_ids,
         "trust_signals": trust_signals,
         "red_flags": red_flags,
         "positive_signals": positive_signals,
+        "summary": rule_based.summary,
     }
 
     if _has_hard_suspicious_flags(rule_based):
@@ -322,14 +491,12 @@ def _normalize_listing_trust_assessment(
                     assessment.confidence,
                     rule_based.confidence,
                 ),
-                "summary": _hard_flag_summary(assessment, rule_based),
             }
         )
     elif _more_severe(rule_based.level, assessment.level):
         update.update(
             {
                 "level": rule_based.level,
-                "summary": _merge_summary(assessment.summary, rule_based.summary),
                 "confidence": _lower_confidence(
                     assessment.confidence,
                     rule_based.confidence,
@@ -375,7 +542,8 @@ def _rule_based_assessment(
     return assess_listing_trust(
         input_data.listing,
         ListingTrustRuleContext(
-            evidence_ids=_input_evidence_ids(input_data) or input_data.listing.source_ids,
+            evidence_ids=_input_evidence_ids(input_data)
+            or input_data.listing.source_ids,
             source_ids=input_data.listing.source_ids,
         ),
     )
@@ -475,25 +643,6 @@ def _model_output_explains_hard_flags(
     return True
 
 
-def _merge_signals(
-    primary: Iterable[ListingTrustSignal],
-    fallback: Iterable[ListingTrustSignal],
-) -> tuple[ListingTrustSignal, ...]:
-    merged: list[ListingTrustSignal] = []
-    seen: set[tuple[ListingTrustSignalKind, str]] = set()
-    for signal in (*tuple(primary), *tuple(fallback)):
-        key = (signal.kind, signal.summary)
-        if key in seen:
-            continue
-        merged.append(signal)
-        seen.add(key)
-    return tuple(merged)
-
-
-def _merge_strings(primary: Iterable[str], fallback: Iterable[str]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys((*tuple(primary), *tuple(fallback))))
-
-
 def _dedupe_source_ids(source_ids: Iterable[SourceId]) -> tuple[SourceId, ...]:
     return tuple(dict.fromkeys(source_ids))
 
@@ -545,19 +694,3 @@ def _lower_confidence(
         level=level,
         rationale=rule_confidence.rationale or model_confidence.rationale,
     )
-
-
-def _hard_flag_summary(
-    assessment: ListingTrustAssessment,
-    rule_based: ListingTrustAssessment,
-) -> str:
-    return _merge_summary(
-        "Suspicious deterministic listing signals remain blocking.",
-        _merge_summary(assessment.summary, rule_based.summary),
-    )
-
-
-def _merge_summary(primary: str, fallback: str) -> str:
-    if primary == fallback:
-        return primary
-    return f"{primary} {fallback}"

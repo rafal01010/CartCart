@@ -37,7 +37,9 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
     assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").approved_sdk_tools == (
         ApprovedSDKTool.SEARCH_SOURCES,
         ApprovedSDKTool.FETCH_SOURCE,
+        ApprovedSDKTool.HOSTED_WEB_SEARCH,
     )
+    assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").planned_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
@@ -92,6 +94,27 @@ def test_agent_catalog_routes_configured_mvp_technology_specialists(
     )
 
 
+def test_technology_handoff_targets_are_terminal_approved_specialists() -> None:
+    technology = DEFAULT_AGENT_CATALOG.require("TechnologyDomainAnalystAgent")
+    assert len(technology.target_handoff_agent_names) == 6
+    for name in technology.target_handoff_agent_names:
+        specialist = DEFAULT_AGENT_CATALOG.require(name)
+        assert specialist.parent_agent_name == technology.agent_name
+        assert specialist.target_can_finish_shopper_request
+        assert specialist.target_handoff_agent_names == ()
+        assert specialist.fallback_agent_names[0] == technology.agent_name
+        assert specialist.run_profile == AgentRunProfileName.STRONG
+
+
+def test_catalog_rejects_cyclic_shopper_owner_handoffs() -> None:
+    payload = DEFAULT_AGENT_CATALOG.model_dump(mode="python")
+    payload["entries"]["SmartphoneSpecialistAgent"]["target_handoff_agent_names"] = (
+        "TechnologyDomainAnalystAgent",
+    )
+    with pytest.raises(ValidationError, match="acyclic"):
+        AgentCatalog.model_validate(payload)
+
+
 def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     source_agents = DEFAULT_AGENT_CATALOG.reusable_source_agents()
 
@@ -110,28 +133,32 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "search_videos",
         "read_video_metadata",
         "read_video_transcript",
+        "hosted_web_search",
     }
     assert reddit.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert reddit.sdk_implementation_pending is False
     assert {tool.value for tool in reddit.approved_sdk_tools} == {
         "search_community_discussions",
         "read_community_discussion",
+        "hosted_web_search",
     }
     assert amazon.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert amazon.sdk_implementation_pending is False
     assert {tool.value for tool in amazon.approved_sdk_tools} == {
         "search_amazon_products",
         "read_amazon_product",
+        "hosted_web_search",
     }
     assert ikea.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert ikea.sdk_implementation_pending is False
     assert {tool.value for tool in ikea.approved_sdk_tools} == {
         "search_ikea_products",
         "read_ikea_product",
+        "hosted_web_search",
     }
     assert all(agent.agent_as_tool_available for agent in source_agents)
     assert all(agent.approved_sdk_tools for agent in source_agents)
-    assert all(not agent.planned_sdk_tools for agent in source_agents)
+    assert all(agent.planned_sdk_tools == () for agent in source_agents)
     assert all(agent.provider_service_name for agent in source_agents)
     assert all(agent.run_profile == AgentRunProfileName.FAST for agent in source_agents)
     assert all(agent.is_reusable_source_agent is True for agent in source_agents)
@@ -185,8 +212,88 @@ def test_ikea_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None
     assert entry.approved_sdk_tools == (
         ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
         ApprovedSDKTool.READ_IKEA_PRODUCT,
+        ApprovedSDKTool.HOSTED_WEB_SEARCH,
     )
     assert entry.agent_as_tool_available is True
+
+
+def test_target_owner_graph_is_distinct_from_current_analysis_routes() -> None:
+    catalog = DEFAULT_AGENT_CATALOG
+    general = catalog.require(catalog.target_general_owner_agent_name)
+    technology = catalog.require(catalog.technology_domain_agent_name)
+    specialists = technology.target_handoff_agent_names
+
+    assert general.invocation_mode == InvocationMode.TYPED_STEP
+    assert general.sdk_implementation_pending is False
+    assert general.target_handoff_agent_names == (technology.agent_name,)
+    assert general.target_can_finish_shopper_request
+    assert technology.target_can_finish_shopper_request
+    assert len(specialists) == 6
+    assert all(
+        catalog.require(name).target_can_finish_shopper_request for name in specialists
+    )
+    assert all(
+        not catalog.require(name).target_handoff_agent_names for name in specialists
+    )
+    assert catalog.route_product_analysis("wooden cane").agent_path == (
+        "GenericProductAnalystAgent",
+    )
+    assert catalog.route_product_analysis("smartphone").agent_path == (
+        "TechnologyDomainAnalystAgent",
+        "SmartphoneSpecialistAgent",
+    )
+
+
+def test_hosted_search_access_by_role() -> None:
+    catalog = DEFAULT_AGENT_CATALOG
+    research_roles = {
+        "DiscoveryAgent",
+        "GeneralShoppingAgent",
+        "TechnologyDomainAnalystAgent",
+        "MonitorSpecialistAgent",
+        "SmartphoneSpecialistAgent",
+        "LaptopSpecialistAgent",
+        "EarphonesHeadphonesSpecialistAgent",
+        "TVSpecialistAgent",
+        "SmartwatchSpecialistAgent",
+        "SellerListingTrustAgent",
+        *catalog.reusable_source_agent_names,
+    }
+    for name, entry in catalog.entries.items():
+        assert ApprovedSDKTool.HOSTED_WEB_SEARCH not in entry.planned_sdk_tools
+        assert (ApprovedSDKTool.HOSTED_WEB_SEARCH in entry.approved_sdk_tools) == (
+            name in research_roles
+        )
+    assert (
+        ApprovedSDKTool.RECORD_SOURCE_QUOTE
+        in catalog.require("GeneralShoppingAgent").approved_sdk_tools
+    )
+    technology = catalog.require("TechnologyDomainAnalystAgent")
+    assert {
+        ApprovedSDKTool.SEARCH_SOURCES,
+        ApprovedSDKTool.FETCH_SOURCE,
+        ApprovedSDKTool.RECORD_SOURCE_QUOTE,
+    }.issubset(set(technology.approved_sdk_tools))
+    assert ApprovedSDKTool.HOSTED_WEB_SEARCH in technology.approved_sdk_tools
+    assert not catalog.require(
+        "SourceIntelligenceManagerAgent"
+    ).target_can_finish_shopper_request
+    assert not catalog.require(
+        "ComparisonDecisionAgent"
+    ).target_can_finish_shopper_request
+    assert not catalog.require(
+        "GenericProductAnalystAgent"
+    ).target_can_finish_shopper_request
+
+
+def test_target_handoffs_must_point_to_request_owners() -> None:
+    catalog = DEFAULT_AGENT_CATALOG
+    entries = {name: entry.model_dump() for name, entry in catalog.entries.items()}
+    entries["GeneralShoppingAgent"]["target_handoff_agent_names"] = (
+        "SourceIntelligenceManagerAgent",
+    )
+    with pytest.raises(ValidationError, match="shopper-request owner"):
+        AgentCatalog.model_validate({**catalog.model_dump(), "entries": entries})
 
 
 def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None:
@@ -197,6 +304,7 @@ def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> No
     assert entry.approved_sdk_tools == (
         ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
         ApprovedSDKTool.READ_AMAZON_PRODUCT,
+        ApprovedSDKTool.HOSTED_WEB_SEARCH,
     )
     assert entry.agent_as_tool_available is True
 

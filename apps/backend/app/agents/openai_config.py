@@ -12,7 +12,7 @@ from app.core.agent_run_profiles import (
     AgentRunProfileOptions,
     ReasoningEffort,
 )
-from app.core.settings import Settings
+from app.core.settings import Settings, UNCONFIGURED_OPENAI_AGENT_MODEL
 from app.schemas.base import CartCartBaseModel
 
 
@@ -108,6 +108,12 @@ def build_openai_agent_run_configuration(
     )
     api_key_configured = settings.openai_api_key is not None
     live_ready = settings.live_agents_enabled and api_key_configured
+    if live_ready and model == UNCONFIGURED_OPENAI_AGENT_MODEL:
+        raise OpenAIAgentConfigurationError(
+            "Live OpenAI agents require CARTCART_OPENAI_MODEL in the process "
+            "environment or apps/backend/.env, or a model in the selected "
+            "agent run profile."
+        )
     mode = (
         OpenAIAgentRuntimeMode.LIVE
         if live_ready

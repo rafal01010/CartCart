@@ -618,8 +618,8 @@ class EvidenceConflict(CartCartBaseModel):
 
 class VideoReviewEvidenceBundle(VersionedSchema):
     bundle_id: SourceId = Field(default_factory=new_id)
-    videos: tuple[VideoSource, ...] = Field(min_length=1)
-    source_references: tuple[SourceReference, ...] = Field(min_length=1)
+    videos: tuple[VideoSource, ...] = Field(default_factory=tuple)
+    source_references: tuple[SourceReference, ...] = Field(default_factory=tuple)
     transcript_segments: tuple[VideoTranscriptSegment, ...] = Field(
         default_factory=tuple
     )
@@ -628,6 +628,8 @@ class VideoReviewEvidenceBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_bundle_relationships(self) -> "VideoReviewEvidenceBundle":
+        if not self.videos and not self.transcript_gap_notes:
+            raise ValueError("an empty video bundle requires an explicit evidence gap.")
         if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
             raise ValueError("video review evidence IDs must be unique.")
         video_ids = {video.video_id for video in self.videos}

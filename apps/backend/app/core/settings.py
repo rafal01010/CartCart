@@ -1,9 +1,11 @@
 from enum import StrEnum
 from functools import lru_cache
+import os
 from pathlib import Path
 import re
 from typing import Literal
 
+from dotenv import dotenv_values
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +17,15 @@ from app.schemas.regions import RegionCode
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_ROOT.parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data"
-DEFAULT_OPENAI_AGENT_MODEL = "gpt-5.4-mini"
+UNCONFIGURED_OPENAI_AGENT_MODEL = "<unconfigured>"
+
+
+def _configured_openai_agent_model() -> str:
+    """Use the owner's model choice even when a caller disables Pydantic's env file."""
+    model = os.environ.get("CARTCART_OPENAI_MODEL")
+    if model is None:
+        model = dotenv_values(BACKEND_ROOT / ".env").get("CARTCART_OPENAI_MODEL")
+    return model if model is not None else UNCONFIGURED_OPENAI_AGENT_MODEL
 
 
 class EnvironmentMode(StrEnum):
@@ -102,12 +112,12 @@ class Settings(BaseSettings):
     live_agents_enabled: bool = False
     agent_workflow_mode: AgentWorkflowMode = AgentWorkflowMode.FIXTURE
     openai_model: str = Field(
-        default=DEFAULT_OPENAI_AGENT_MODEL,
+        default_factory=_configured_openai_agent_model,
         min_length=1,
         max_length=200,
     )
     openai_agent_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
-    openai_agent_max_turns: int = Field(default=8, ge=1, le=50)
+    openai_agent_max_turns: int = Field(default=12, ge=1, le=50)
     openai_run_profiles: dict[AgentRunProfileName, AgentRunProfileOptions] = Field(
         default_factory=dict
     )

@@ -1,5 +1,5 @@
 from app.core.errors import ApplicationError
-from app.agents.research_tools import AgentResearchTools
+from app.agents.research_tools import AgentResearchTools, HostedCitationStore
 from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_extraction import LiveExtractionAgent
 from app.agents.live_source_intelligence_manager import SourceIntelligenceManagerAgent
@@ -11,6 +11,7 @@ from app.agents import (
     LiveDiscoveryAgent,
     LiveEarphonesHeadphonesSpecialistAgent,
     LiveGenericProductAnalystAgent,
+    LiveGeneralShoppingAgent,
     IKEAStoreIntelligenceService,
     LiveIntakeAgent,
     LiveLaptopSpecialistAgent,
@@ -240,8 +241,61 @@ class RunService:
         ):
             return {}
 
+        source_manager = SourceIntelligenceManagerAgent(
+            settings=self._settings,
+            video_provider=self._video_search_provider,
+            transcript_provider=self._transcript_provider,
+            community_provider=self._community_discussion_provider,
+            amazon_provider=self._amazon_product_intelligence_provider,
+            ikea_provider=self._ikea_store_intelligence_provider,
+            citation_store_factory=(
+                lambda run_id: HostedCitationStore(
+                    run_id=run_id,
+                    shared_session=self._search_source_repository.session,
+                )
+            )
+            if self._search_source_repository is not None
+            else None,
+        )
         return {
             "intake_agent": LiveIntakeAgent(settings=self._settings),
+            "general_shopping_agent": LiveGeneralShoppingAgent(
+                settings=self._settings,
+                source_intelligence_manager=source_manager,
+                shared_session=self._search_source_repository.session
+                if self._search_source_repository is not None
+                else None,
+                regional_research_tools_factory=(
+                    lambda run_id, region_code: AgentResearchTools(
+                        agent_name="GeneralShoppingAgent",
+                        run_id=run_id,
+                        session_factory=None,
+                        shared_session=self._search_source_repository.session,
+                        search_provider=self._search_provider,
+                        extraction_provider=self._extraction_provider,
+                        required_region_code=region_code,
+                    )
+                )
+                if self._search_source_repository is not None
+                and self._search_provider is not None
+                and self._extraction_provider is not None
+                else None,
+                technology_research_tools_factory=(
+                    lambda run_id, region_code: AgentResearchTools(
+                        agent_name="TechnologyDomainAnalystAgent",
+                        run_id=run_id,
+                        session_factory=None,
+                        shared_session=self._search_source_repository.session,
+                        search_provider=self._search_provider,
+                        extraction_provider=self._extraction_provider,
+                        required_region_code=region_code,
+                    )
+                )
+                if self._search_source_repository is not None
+                and self._search_provider is not None
+                and self._extraction_provider is not None
+                else None,
+            ),
             "query_planner": LiveQueryPlannerAgent(settings=self._settings),
             "discovery_agent": LiveDiscoveryAgent(
                 settings=self._settings,
@@ -294,20 +348,21 @@ class RunService:
                 settings=self._settings
             ),
             "seller_listing_trust_agent": LiveSellerListingTrustAgent(
-                settings=self._settings
+                settings=self._settings,
+                citation_store_factory=(
+                    lambda run_id: HostedCitationStore(
+                        run_id=run_id,
+                        shared_session=self._search_source_repository.session,
+                    )
+                )
+                if self._search_source_repository is not None
+                else None,
             ),
             "comparison_decision_agent": LiveComparisonDecisionAgent(
                 settings=self._settings
             ),
             "verifier_critic_agent": LiveVerifierCriticAgent(settings=self._settings),
-            "source_intelligence_manager": SourceIntelligenceManagerAgent(
-                settings=self._settings,
-                video_provider=self._video_search_provider,
-                transcript_provider=self._transcript_provider,
-                community_provider=self._community_discussion_provider,
-                amazon_provider=self._amazon_product_intelligence_provider,
-                ikea_provider=self._ikea_store_intelligence_provider,
-            ),
+            "source_intelligence_manager": source_manager,
             "youtube_review_intelligence_service": YouTubeReviewIntelligenceService(
                 settings=self._settings,
                 video_search_provider=self._video_search_provider,

@@ -47,6 +47,50 @@ and extraction contracts without model calls; only the monitor fixture has a
 complete product/decision replay today.
 The following run lifecycle describes the current transitional behavior.
 
+## Target Shopper Owner Flow (Task 89Q contract)
+
+The guided UI continues to collect one question at a time, allow skip and
+reanswer, and persist brief corrections. `ShoppingGuideAgent`/`IntakeAgent`
+handle intake; backend scope and safe-product checks run before costly work.
+After those checks, the live run enters `GeneralShoppingAgent` first
+for every ordinary request. General can finish a broad category itself or
+use an actual SDK handoff to `TechnologyDomainAnalystAgent`. Technology can
+finish a broad technology request or hand off to one implemented,
+catalog-approved technology specialist. A specialist that receives control
+drafts the final recommendation; its parent does not issue a second draft.
+
+General currently records a bounded evidence-backed draft and tool trace
+before the existing research stages. It may transfer the model decision to
+Technology through one validated SDK handoff. A completed SDK handoff item,
+reason, resolved models, and `last_agent` appear in the internal run trace;
+Technology can finish a broad technology request without a product specialist,
+or transfer to a matching one of the six implemented product specialists.
+The terminal specialist originates `GeneralModelOutput`; its parent does not
+rewrite that output. A failed specialist can be followed by a bounded, separate
+Technology recovery run, recorded as recovery rather than an SDK handoff.
+The current persisted result still uses
+Python-selected `ProductAnalysisRoute` and typed analyst sub-runs, then
+`ComparisonDecisionAgent` synthesis. Those routes are
+not SDK handoffs.
+The source manager's four nested SDK agents-as-tools supply
+evidence, not shopper ownership. General, Technology, and the six active
+specialists can each choose hosted search, bounded provider search/fetch/quote,
+same-run evidence lookup, candidate comparison, deterministic listing-risk
+checks, or one scoped source-manager consultation. A product can be supplied to
+that manager from a persisted run record or from an exact page quote recorded
+by the owner chain; the latter does not create a verified product listing.
+The backend validates source/evidence IDs, blocks suspicious cited listings,
+and retains source policy and buyer-region restrictions. Hosted citations are
+weak leads until fetched and quoted. The source manager delegates to its
+specialists as tools, never as shopper-owner handoffs. The backend will
+validate/persist the actual last owner, handoff chain, verification changes,
+and versioned result in the later result-integration task. General's draft is
+recorded in the live run trace but does
+not yet author the persisted recommendation. An actual SDK
+`web_search_call` is recorded separately from provider
+`search_sources`/`fetch_source` activity. `docs/ARCHITECTURE.md` and `supported_agents.md` define the role and
+tool matrix.
+
 Related docs:
 
 - `docs/API.md` covers endpoint contracts.
@@ -106,10 +150,9 @@ The orchestrator:
    deduped product/listing.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
-   workflow mode, the reusable source-intelligence provider services are called
-   directly through typed boundaries; the four SDK source agents and nested
-   agent-as-tool delegation are not yet implemented. The source stage trace is
-   labeled as provider-service execution, with no source-specialist model usage.
+   workflow mode, the SDK source manager may delegate to four scoped source
+   agents as tools. Fixture mode keeps provider-service execution, without
+   source-specialist model usage.
 9. Runs listing trust, category routing/analysis, comparison, and verification
    either through fixture stages or the configured live typed agents.
 10. Persists one run event and one agent trace record per executable stage.
@@ -127,19 +170,20 @@ resumption are later milestones.
 The executable stages are:
 
 1. `intake`
-2. `query_planning`
-3. `discovery`
-4. `extraction`
-5. `deduplication`
-6. `source_intelligence`
-7. `listing_trust`
-8. `category_analysis`
-9. `comparison_decision`
-10. `verification`
+2. `general_owner` (live model; fixture stage is offline)
+3. `query_planning`
+4. `discovery`
+5. `extraction`
+6. `deduplication`
+7. `source_intelligence`
+8. `listing_trust`
+9. `category_analysis`
+10. `comparison_decision`
+11. `verification`
 
 The terminal stage is:
 
-11. `complete`
+12. `complete`
 
 Each executable stage persists an `AgentRunRecord` with a local trace ID,
 runtime mode, stage timing, model name where a model-backed agent was used,
@@ -231,6 +275,14 @@ final fixture recommendation bundle is stored. Result assembly then folds those
 trust assessments into the persisted recommendation bundle: suspicious or weak
 listings become listing-level warnings or avoid items, and a suspicious final
 listing becomes no-strong-buy unless a safer listing is selected.
+
+In live-agent mode the same trust step may call hosted web search for the
+current listing/seller and buyer region. It can also finish from supplied
+evidence without searching. Exact SDK citation URLs selected by the model are
+stored as weak run-scoped source metadata and linked to neutral, unverified
+trust leads by source/evidence ID. Search hits do not establish seller
+reputation, policy terms, or listing claims, and cannot override deterministic
+suspicious flags or upgrade weak/unknown trust.
 
 For the explicit monitor scenario, downstream fixture analysis persists:
 

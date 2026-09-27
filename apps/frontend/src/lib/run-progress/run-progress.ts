@@ -24,6 +24,7 @@ export interface ShopperProgressItem {
 
 export const RUN_STAGE_ORDER: RunStage[] = [
 	'intake',
+	'general_owner',
 	'query_planning',
 	'discovery',
 	'extraction',
@@ -38,6 +39,7 @@ export const RUN_STAGE_ORDER: RunStage[] = [
 
 const STAGE_LABELS: Record<RunStage, string> = {
 	intake: 'Intake',
+	general_owner: 'Shopping review',
 	query_planning: 'Query planning',
 	discovery: 'Discovery/search',
 	extraction: 'Source extraction',
@@ -52,6 +54,7 @@ const STAGE_LABELS: Record<RunStage, string> = {
 
 const PENDING_MESSAGES: Record<RunStage, string> = {
 	intake: 'Session must be created first',
+	general_owner: 'Waiting to review your shopping question',
 	query_planning: 'Waiting for a run',
 	discovery: 'Waiting for a run',
 	extraction: 'Waiting for source snapshots',
@@ -90,6 +93,7 @@ const SHOPPER_PROGRESS_MESSAGES: Record<ShopperProgressKind, string> = {
 
 const SHOPPER_STAGE_MAP: Record<RunStage, ShopperProgressKind> = {
 	intake: 'checking_options',
+	general_owner: 'checking_options',
 	query_planning: 'checking_options',
 	discovery: 'checking_options',
 	extraction: 'checking_options',

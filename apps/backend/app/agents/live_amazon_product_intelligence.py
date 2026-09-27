@@ -14,8 +14,15 @@ from pydantic import Field
 from app.agents.amazon_marketplace_tools import AmazonMarketplaceTools
 from app.agents.contracts import AmazonProductIntelligenceAgentInput
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.source_hosted_search import (
+    process_source_specialist_output,
+    source_hosted_tool,
+    source_tool_activity,
 )
 from app.core.settings import Settings
 from app.providers import (
@@ -49,6 +56,7 @@ class SelectedMarketplaceSource(CartCartBaseModel):
 class AmazonProductModelOutput(CartCartBaseModel):
     selected_sources: tuple[SelectedMarketplaceSource, ...] = Field(max_length=5)
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=5)
+    retained_web_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class AmazonProductModelRunner(Protocol):
@@ -134,6 +142,7 @@ class _MockResult:
 class AmazonProductIntelligenceAgent:
     settings: Settings
     amazon_provider: AmazonProductIntelligenceProvider | None = None
+    citation_store: HostedCitationStore | None = None
     model_runner: AmazonProductModelRunner = field(
         default_factory=OpenAIAgentsSDKAmazonProductModelRunner
     )
@@ -158,10 +167,18 @@ class AmazonProductIntelligenceAgent:
             amazon_provider=self.amazon_provider
             or build_amazon_product_intelligence_provider(self.settings),
         )
+        hosted_tool = source_hosted_tool(
+            config=config,
+            input_data=input_data,
+            agent_name="AmazonProductIntelligenceAgent",
+            citation_store=self.citation_store,
+        )
         agent = Agent(
             name="AmazonProductIntelligenceAgent",
             model=config.model,
-            model_settings=ModelSettings(max_tokens=3000, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=3000, include_usage=True, tool_choice="auto"
+            ),
             instructions=(
                 "You are an Amazon marketplace evidence specialist, not a purchase recommender. "
                 "Choose relevant candidate product IDs and call search_amazon_products. Search hits may be candidate-only; read_amazon_product with the returned candidate/source ID before selecting. Use the read result's authoritative source_reference.source_id in final output. "
@@ -169,9 +186,11 @@ class AmazonProductIntelligenceAgent:
                 "Select only evidence IDs returned by the read tool. Distinguish product-page claims from each offer's seller, fulfillment, price, availability, and shipping; these are not product-quality facts. "
                 "Treat ratings, counts, and review summaries as marketplace-provided signals, not authenticated review quality. Preserve variant-mixing warnings and region/ship-to uncertainty. "
                 "Never invent prices, review counts, delivery promises, seller legitimacy, source IDs, or evidence IDs. "
-                "Do not fetch arbitrary URLs or use affiliate links. Return gaps when source or identity evidence is insufficient."
+                "Do not fetch arbitrary URLs or use affiliate links. Return gaps when source or identity evidence is insufficient. "
+                "You may use web_search for regional Amazon offer discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
+                "A hosted snippet is only a lead; only search_amazon_products and read_amazon_product can establish marketplace evidence."
             ),
-            tools=list(tools.sdk_tools()),
+            tools=[*tools.sdk_tools(), *([hosted_tool] if hosted_tool else [])],
             output_type=AmazonProductModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
@@ -181,6 +200,7 @@ class AmazonProductIntelligenceAgent:
         self, input_data: AmazonProductIntelligenceAgentInput
     ) -> AmazonProductEvidenceBundle:
         agent, tools, config = self.prepare_delegated_run(input_data)
+        hosted_activity: tuple[dict[str, Any], ...] = ()
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,
@@ -201,15 +221,36 @@ class AmazonProductIntelligenceAgent:
             decision = AmazonProductModelOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
+            decision, hosted_activity = await process_source_specialist_output(
+                raw=raw,
+                decision=decision,
+                input_data=input_data,
+                agent_name=agent.name,
+                citation_store=self.citation_store,
+                require_sdk_metadata=isinstance(
+                    self.model_runner, OpenAIAgentsSDKAmazonProductModelRunner
+                ),
+            )
             output = _validated_bundle(tools, decision)
             status = "model_evidence_completed"
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, OpenAIAgentConfigurationError):
+                hosted_activity = (
+                    *hosted_activity,
+                    {
+                        "tool_name": "web_search",
+                        "status": "metadata_or_persistence_failed",
+                        "input": {"agent": agent.name},
+                        "output": {"reason": str(exc)},
+                    },
+                )
             output = _gap_bundle(
                 tools, "Model interpretation failed; no marketplace claim was accepted."
             )
             status = "model_or_validation_failure_gap"
         self._workbench_activity = (
-            *tools.workbench_activity,
+            *source_tool_activity(tools.workbench_activity, agent.name),
+            *hosted_activity,
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,

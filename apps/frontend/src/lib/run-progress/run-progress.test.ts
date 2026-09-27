@@ -17,6 +17,7 @@ describe('run progress helpers', () => {
 		);
 
 		expect(progress.find((item) => item.stage === 'intake')?.status).toBe('succeeded');
+		expect(progress.find((item) => item.stage === 'general_owner')?.status).toBe('succeeded');
 		expect(progress.find((item) => item.stage === 'query_planning')?.status).toBe('succeeded');
 		expect(progress.find((item) => item.stage === 'discovery')).toMatchObject({
 			status: 'running',
@@ -53,6 +54,14 @@ describe('run progress helpers', () => {
 	it('maps technical run stages to shopper-safe progress copy', () => {
 		let progress = createInitialShopperProgress();
 
+		progress = applyShopperProgressEvent(
+			progress,
+			runEvent({
+				stage: 'general_owner',
+				status: 'running',
+				message: 'GeneralShoppingAgent is researching.',
+			}),
+		);
 		progress = applyShopperProgressEvent(
 			progress,
 			runEvent({

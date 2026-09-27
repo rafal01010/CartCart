@@ -11,6 +11,9 @@ from app.agents import (
     DiscoveryAgentOutput,
     ExtractionAgentInput,
     ExtractionAgentOutput,
+    GeneralShoppingAgentInput,
+    GeneralShoppingDecisionDraft,
+    GeneralShoppingOutcome,
     IntakeAgentInput,
     ProductAnalysisAgentInput,
     QueryPlannerAgentInput,
@@ -395,6 +398,23 @@ class RecordingIntakeAgent:
             category="monitor",
             category_source=FieldSource.INFERRED,
             region=input_data.request.region,
+        )
+
+
+class RecordingGeneralShoppingAgent:
+    def __init__(self) -> None:
+        self.calls: list[GeneralShoppingAgentInput] = []
+        self.workbench_activity: tuple[dict[str, object], ...] = ()
+
+    async def run(
+        self, input_data: GeneralShoppingAgentInput
+    ) -> GeneralShoppingDecisionDraft:
+        self.calls.append(input_data)
+        return GeneralShoppingDecisionDraft(
+            category=input_data.brief.category or "general shopping",
+            outcome=GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE,
+            evidence_gaps=("Offline test has no checked research.",),
+            rationale="There is not enough checked evidence to choose a product yet.",
         )
 
 
@@ -1451,6 +1471,7 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
     engine = create_database_engine(settings)
     extraction_provider = RecordingExtractionProvider()
     analyst = RecordingGenericAnalystAgent()
+    general = RecordingGeneralShoppingAgent()
     comparison_agent = RecordingComparisonDecisionAgent()
 
     try:
@@ -1495,6 +1516,7 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 agent_model_name="gpt-recording",
                 intake_agent=RecordingIntakeAgent(),
+                general_shopping_agent=general,
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
                 extraction_agent=RecordingExtractionAgent(extraction_provider),
@@ -1525,6 +1547,10 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
             snapshots = await search_repository.list_source_snapshots(run.run_id)
 
         assert len(extraction_provider.calls) == 2
+        assert len(general.calls) == 1
+        assert general.calls[0].user_added_products[0].candidate_id == (
+            user_added.candidate_id
+        )
         assert context.deduplication is not None
         assert context.deduplication.pre_dedupe_count == 2
         assert context.deduplication.post_dedupe_count == 1
@@ -1610,6 +1636,7 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 agent_model_name="gpt-recording",
                 intake_agent=RecordingIntakeAgent(),
+                general_shopping_agent=RecordingGeneralShoppingAgent(),
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingGeneratedAndUserAddedDiscoveryAgent(),
                 extraction_agent=RecordingExtractionAgent(extraction_provider),
@@ -1802,6 +1829,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
     )
     engine = create_database_engine(settings)
     analyst = RecordingGenericAnalystAgent()
+    general = RecordingGeneralShoppingAgent()
     extraction_provider = RecordingExtractionProvider()
 
     try:
@@ -1838,6 +1866,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
                     ).model
                 ),
                 intake_agent=RecordingIntakeAgent(),
+                general_shopping_agent=general,
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
                 extraction_agent=RecordingExtractionAgent(extraction_provider),
@@ -1871,6 +1900,13 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert len(stored_products) == 1
         assert stored_products[0].name == "Northstar Arc 27 USB-C Monitor"
         assert context.active_brief.category == "monitor"
+        assert len(general.calls) == 1
+        assert general.calls[0].brief.category == "monitor"
+        assert context.general_owner_draft is not None
+        assert (
+            context.stage_outputs[RunStage.GENERAL_OWNER].payload["result_author"]
+            == "transitional_decision_stages"
+        )
         assert len(context.selected_source_ids) == 1
         assert len(analyst.calls) == 1
         assert context.category_analyses
@@ -1884,6 +1920,10 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
 
         records_by_stage = {record.stage: record for record in agent_records}
         assert records_by_stage[RunStage.INTAKE].runtime_mode == "live"
+        assert records_by_stage[RunStage.GENERAL_OWNER].agent_name == (
+            "GeneralShoppingAgent"
+        )
+        assert records_by_stage[RunStage.GENERAL_OWNER].model_name == "large-model"
         assert records_by_stage[RunStage.INTAKE].model_name == "small-model"
         assert records_by_stage[RunStage.QUERY_PLANNING].model_name == "small-model"
         assert (
@@ -1891,8 +1931,14 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
             == "model_query_plan_completed"
         )
         assert records_by_stage[RunStage.DISCOVERY].agent_name == "DiscoveryAgent"
-        assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].agent_name == "ProviderSourceIntelligenceServices"
-        assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].runtime_mode == "provider_service"
+        assert (
+            records_by_stage[RunStage.SOURCE_INTELLIGENCE].agent_name
+            == "ProviderSourceIntelligenceServices"
+        )
+        assert (
+            records_by_stage[RunStage.SOURCE_INTELLIGENCE].runtime_mode
+            == "provider_service"
+        )
         assert records_by_stage[RunStage.SOURCE_INTELLIGENCE].model_name is None
         assert records_by_stage[RunStage.EXTRACTION].model_name == "small-model"
         assert any(

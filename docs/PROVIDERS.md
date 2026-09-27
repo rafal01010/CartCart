@@ -35,10 +35,13 @@ timeout and rate-limit defaults live in runtime settings. Adapters return typed
 records or explicit evidence gaps. Agents and workflow code must not call vendor
 SDKs, scrape sites, or invent a second provider path around these boundaries.
 
-The run-scoped `AgentResearchTools` adapter now supplies two OpenAI Agents SDK
-function tools approved only for `DiscoveryAgent`: `search_sources` accepts a
+The run-scoped `AgentResearchTools` adapter supplies OpenAI Agents SDK
+function tools to approved research agents: `search_sources` accepts a
 validated query, search intent, two-letter region, and bounded result count;
 `fetch_source` accepts only a persisted search-result ID from the same run.
+For every live shopper owner, `record_source_quote` accepts only an exact,
+bounded excerpt from a successfully fetched same-run page and persists a new
+source-metadata evidence ID. Its search region is fixed to the buyer's region.
 Neither tool accepts vendor parameters, credentials, source policy, or an
 arbitrary URL. The backend injects approved provider adapters and policy,
 applies call/result/text budgets, rejects obviously private or credentialed
@@ -55,6 +58,40 @@ lists approved names. Live `DiscoveryAgent` can invoke them with bounded calls
 and classify every observed source; the shopping run now repeats selected
 fetch, agent extraction, evidence review, and targeted discovery within explicit
 cycle/page/follow-up budgets.
+Separately, live `DiscoveryAgent` now has OpenAI's hosted `WebSearchTool` with
+automatic tool choice. SDK `web_search_call` items establish actual hosted
+activity; URL citations are checked against public-URL and source-domain policy,
+then saved as weak search results, unextracted snapshots, and source-metadata
+evidence. Region is an approximate search hint, not proof of local stock.
+Hosted citations never become verified listings or product claims by themselves.
+The provider tools remain available, and fixture runs make no hosted call.
+General, Technology, and all six product handoff owners share these approved
+provider boundaries and each has a role-scoped optional hosted web-search
+tool. The active owner can also inspect a persisted same-run source by ID,
+compare recorded sources or persisted products, check deterministic listing
+risk, and ask the source manager for one site-specific research bundle.
+The source request accepts only a persisted run product or a candidate name
+matched to an exact page quote recorded by this owner chain. The source
+manager supplies provider arguments and delegates to its site specialists as
+SDK tools; it returns explicit gaps on failure. A source bundle is context,
+not automatic candidate evidence. Hosted citations are attributed to the
+calling owner and retained as weak, unextracted run records only when selected
+and policy-allowed.
+Live YouTube, Reddit, Amazon, and IKEA source specialists also receive optional
+SDK hosted search alongside their existing typed site tools. Hosted domain
+filters follow the site remit and Amazon marketplace region; IKEA additionally
+checks the official country path after the call. Actual SDK citations can be
+retained as weak run-scoped source metadata, with rejected URLs and the calling
+agent recorded. Snippets do not establish transcripts, discussion content,
+offers, or official regional IKEA price and stock.
+
+Live seller/listing trust uses hosted search only for its current seller/listing
+and buyer region. Its allowed domains come from the public listing and seller
+URLs; marketplace citations must match that listing or seller path. Retained
+URLs are persisted as weak, unextracted source metadata. Neither a hosted
+snippet nor a marketplace rating verifies seller reputation, returns, warranty,
+or listing claims, and no arbitrary URL fetch is exposed to this agent.
+
 `ExtractionAgent` now has a separately approved, read-only, run-scoped
 snapshot-reader boundary. Generic `SearchResult` records remain available to
 agents, not grounds for automatic rejection. In live mode, cited product leads
@@ -149,9 +186,9 @@ Agent runtime settings:
 | `CARTCART_AGENT_WORKFLOW_MODE` | `fixture` | Selects typed fixture-agent replay or live-agent mode for normal shopping runs. Fixture agents never make model calls; live providers can be configured independently but cannot make fixture mode test agent-owned research. |
 | `CARTCART_LIVE_AGENTS_ENABLED` | `false` | Opt-in gate for live OpenAI agent calls. |
 | `OPENAI_API_KEY` | unset | Standard OpenAI API key used only for explicitly requested live-agent mode. |
-| `CARTCART_OPENAI_MODEL` | `gpt-5.4-mini` | Default model string passed to implemented OpenAI Agents SDK runs unless an agent task narrows it. |
+| `CARTCART_OPENAI_MODEL` | unset | Global model fallback from process environment or `apps/backend/.env`; live runs without any configured model fail before calling OpenAI. |
 | `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS` | `45` | Per-agent run timeout budget for live-agent runners. |
-| `CARTCART_OPENAI_AGENT_MAX_TURNS` | `8` | Upper bound for later SDK runner turns. |
+| `CARTCART_OPENAI_AGENT_MAX_TURNS` | `12` | Upper bound for later SDK runner turns. |
 | `CARTCART_OPENAI_AGENT_TRACING_ENABLED` | `false` | Enables OpenAI Agents SDK tracing only when a live-agent runner uses it. |
 | `CARTCART_OPENAI_AGENT_TRACE_INCLUDE_SENSITIVE_DATA` | `false` | Keeps inputs and outputs out of OpenAI trace payloads by default. |
 | `CARTCART_OPENAI_AGENT_TRACE_WORKFLOW_NAME` | `cartcart-agent-run` | Trace workflow name used by live-agent runners. |
@@ -238,7 +275,7 @@ and key.
 ```dotenv
 CARTCART_AGENT_WORKFLOW_MODE=live
 CARTCART_LIVE_AGENTS_ENABLED=true
-CARTCART_OPENAI_MODEL=gpt-5.5
+CARTCART_OPENAI_MODEL=gpt-6-sol
 OPENAI_API_KEY=replace-with-your-real-key
 ```
 

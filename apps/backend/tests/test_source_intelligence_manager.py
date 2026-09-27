@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from agents import Runner
+from agents import MaxTurnsExceeded, Runner
 from agents.tool_context import ToolContext
 
 from app.agents.catalog import DEFAULT_AGENT_CATALOG, InvocationMode
@@ -79,9 +79,10 @@ class _ParentRunner:
     async def run(
         self, agent: Any, model_input: str, *, run_config: Any, max_turns: int
     ) -> Any:
-        del model_input, run_config, max_turns
+        del model_input, run_config
         self.calls += 1
         assert agent.name == "SourceIntelligenceManagerAgent"
+        assert max_turns == 15
         by_name = {tool.name: tool for tool in agent.tools}
         assert len(by_name) == 4
         for name in (
@@ -116,9 +117,10 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
     monkeypatch: Any, tmp_path: Path
 ) -> None:
     nested_names: list[str] = []
+    nested_turns: list[int] = []
 
     async def nested_run(*, starting_agent: Any, input: str, **kwargs: Any) -> Any:
-        del kwargs
+        nested_turns.append(kwargs["max_turns"])
         agent = starting_agent
         model_input = input
         nested_names.append(agent.name)
@@ -176,8 +178,8 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         openai_run_profiles={
-            "fast": {"model": "mock-fast-model"},
-            "strong": {"model": "mock-strong-model"},
+            "fast": {"model": "mock-fast-model", "max_turns": 9},
+            "strong": {"model": "mock-strong-model", "max_turns": 15},
         },
     )
     runner = _ParentRunner()
@@ -204,8 +206,25 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
         "AmazonProductIntelligenceAgent",
         "IKEAStoreIntelligenceAgent",
     ], (result.notes, result.activity)
+    assert nested_turns == [9, 9]
     assert result.amazon_bundles[0].evidence
     assert result.ikea_bundles[0].evidence
+    assert all(
+        item["input"]["agent"]
+        == (
+            "AmazonProductIntelligenceAgent"
+            if "amazon" in item["tool_name"]
+            else "IKEAStoreIntelligenceAgent"
+        )
+        for item in result.activity
+        if item["tool_name"]
+        in {
+            "search_amazon_products",
+            "read_amazon_product",
+            "search_ikea_products",
+            "read_ikea_product",
+        }
+    )
     assert all(
         item.source_id
         in {ref.source_id for ref in result.amazon_bundles[0].source_references}
@@ -217,11 +236,17 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
         == 2
     )
     assert result.model_name == "mock-strong-model"
+    assert result.activity[0]["input"]["max_turns"] == 15
     assert {
         item["input"]["model"]
         for item in result.activity
         if item["tool_name"] == "agent_as_tool"
     } == {"mock-fast-model"}
+    assert {
+        item["input"]["max_turns"]
+        for item in result.activity
+        if item["tool_name"] == "agent_as_tool"
+    } == {9}
 
     # The existing repository boundary must persist the validated nested bundles,
     # retaining source/evidence relationships used by downstream stages.
@@ -348,6 +373,44 @@ async def test_parent_model_failure_returns_only_explicit_source_gaps() -> None:
     assert result.ikea_bundles[0].evidence_gaps
     assert result.model_name
     assert result.activity[0]["status"] == "model_or_validation_failure"
+
+
+@pytest.mark.asyncio
+async def test_parent_turn_limit_reports_limit_without_accepting_evidence() -> None:
+    payload = IKEAStoreIntelligenceAgentInput.model_validate(
+        _scenario_ikea_available_regional_product().input
+    )
+
+    class _TurnLimitedRunner:
+        async def run(self, agent: Any, model_input: str, **kwargs: Any) -> Any:
+            del agent, model_input, kwargs
+            raise MaxTurnsExceeded("Max turns (15) exceeded")
+
+    manager = SourceIntelligenceManagerAgent(
+        settings=Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            openai_agent_max_turns=15,
+        ),
+        model_runner=_TurnLimitedRunner(),
+    )
+    result = await manager.run(
+        SourceManagerInput(
+            run_id=payload.run_id,
+            brief=payload.brief,
+            products=payload.products,
+            listings=payload.listings,
+            source_snapshots=(),
+            query_hints=(),
+            region_code="PH",
+            allowed_capabilities=(
+                SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
+            ),
+        )
+    )
+    assert result.ikea_bundles[0].evidence == ()
+    assert result.ikea_bundles[0].evidence_gaps
+    assert "Max turns (15) exceeded" in result.notes[0]
+    assert result.activity[0]["input"]["max_turns"] == 15
 
 
 @pytest.mark.asyncio

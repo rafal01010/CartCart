@@ -4,10 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.providers.youtube_transcript import TranscriptRuntimeIssue
+from app.core import settings as settings_module
 from app.core.settings import (
     AgentWorkflowMode,
     AmazonProductIntelligenceProviderName,
-    DEFAULT_OPENAI_AGENT_MODEL,
     EnvironmentMode,
     ExtractionProviderName,
     IKEAStoreIntelligenceProviderName,
@@ -27,6 +27,7 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CARTCART_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("CARTCART_OPENAI_MODEL", "fixture-test-model")
 
     settings = make_settings()
 
@@ -44,9 +45,9 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
     assert settings.provider_rate_limit_per_minute == 60
     assert settings.live_agents_enabled is False
     assert settings.agent_workflow_mode == AgentWorkflowMode.FIXTURE
-    assert settings.openai_model == DEFAULT_OPENAI_AGENT_MODEL
+    assert settings.openai_model == "fixture-test-model"
     assert settings.openai_agent_timeout_seconds == 45.0
-    assert settings.openai_agent_max_turns == 8
+    assert settings.openai_agent_max_turns == 12
     assert settings.openai_run_profiles == {}
     assert settings.openai_agent_overrides == {}
     assert settings.openai_agent_tracing_enabled is False
@@ -119,6 +120,30 @@ def test_settings_defaults_use_local_mode_and_repo_data_dir(
     assert (
         settings.resolved_eval_artifact_dir == settings.resolved_artifact_dir / "evals"
     )
+
+
+def test_model_fallback_reads_local_dotenv_when_pydantic_env_file_is_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("CARTCART_OPENAI_MODEL", raising=False)
+    monkeypatch.setattr(settings_module, "BACKEND_ROOT", tmp_path)
+    (tmp_path / ".env").write_text("CARTCART_OPENAI_MODEL=gpt-6-sol\n")
+
+    settings = make_settings()
+
+    assert settings.openai_model == "gpt-6-sol"
+
+
+def test_model_fallback_prefers_process_env_over_local_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CARTCART_OPENAI_MODEL", "gpt-6-luna")
+    monkeypatch.setattr(settings_module, "BACKEND_ROOT", tmp_path)
+    (tmp_path / ".env").write_text("CARTCART_OPENAI_MODEL=gpt-6-sol\n")
+
+    settings = make_settings()
+
+    assert settings.openai_model == "gpt-6-luna"
 
 
 def test_settings_read_prefixed_environment_overrides(

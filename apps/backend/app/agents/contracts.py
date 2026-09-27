@@ -10,7 +10,7 @@ from app.schemas.analysis import (
     ListingTrustAssessment,
     RecommendationBundle,
 )
-from app.schemas.base import VersionedSchema
+from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.ids import ProductId, RunId, SourceId
 from app.schemas.guided_intake import (
     GuidedAnswerSubmission,
@@ -32,6 +32,7 @@ from app.schemas.search_sources import (
     SearchResult,
     SourceEvidence,
     SourceSnapshot,
+    SourceType,
     VideoReviewEvidenceBundle,
 )
 
@@ -53,6 +54,43 @@ class ShoppingGuideAgentInput(VersionedSchema):
     skipped_question_ids: tuple[QuestionId, ...] = Field(default_factory=tuple)
     reanswer_question_id: QuestionId | None = None
     start_analysis_requested: bool = False
+
+
+class GeneralShoppingAgentInput(VersionedSchema):
+    run_id: RunId
+    brief: ShoppingBrief
+    user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
+
+
+class GeneralShoppingOutcome(StrEnum):
+    DRAFT = "draft"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class GeneralShoppingEvidence(CartCartBaseModel):
+    source_id: SourceId
+    snapshot_id: SourceId
+    evidence_id: SourceId
+    url: AnyHttpUrl
+    source_type: SourceType
+    quote: str = Field(min_length=1, max_length=400)
+
+
+class GeneralShoppingCandidate(CartCartBaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    evidence: tuple[GeneralShoppingEvidence, ...] = Field(min_length=1)
+
+
+class GeneralShoppingDecisionDraft(VersionedSchema):
+    owner_agent_name: str = "GeneralShoppingAgent"
+    category: str = Field(min_length=1, max_length=200)
+    specialist_helpful: bool = False
+    outcome: GeneralShoppingOutcome
+    candidates: tuple[GeneralShoppingCandidate, ...] = Field(default_factory=tuple)
+    selected_candidate_name: str | None = None
+    evidence_gaps: tuple[str, ...] = Field(default_factory=tuple)
+    hosted_lead_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    rationale: str = Field(min_length=1, max_length=1500)
 
 
 class QueryPlannerAgentInput(VersionedSchema):
@@ -337,6 +375,7 @@ class ProductAnalysisAgentInput(VersionedSchema):
 class SellerListingTrustAgentInput(VersionedSchema):
     run_id: RunId
     listing: ProductListing
+    target_region_code: RegionCode | None = None
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
     rule_based_assessment: ListingTrustAssessment | None = None
 
@@ -357,7 +396,9 @@ class SourceIntelligenceAgentInput(VersionedSchema):
         if len(listing_ids) != len(self.listings):
             raise ValueError("source-specialist listing IDs must be unique.")
         if any(listing.product_id not in product_ids for listing in self.listings):
-            raise ValueError("source-specialist listings must reference supplied products.")
+            raise ValueError(
+                "source-specialist listings must reference supplied products."
+            )
         snapshot_ids = {snapshot.source_id for snapshot in self.source_snapshots}
         if len(snapshot_ids) != len(self.source_snapshots):
             raise ValueError("source-specialist snapshot IDs must be unique.")
@@ -371,10 +412,12 @@ class SourceIntelligenceAgentOutput(VersionedSchema):
 
 class YouTubeReviewIntelligenceAgentInput(SourceIntelligenceAgentInput):
     video_queries: tuple[str, ...] = Field(default_factory=tuple)
+    target_region_code: RegionCode | None = None
 
 
 class RedditCommunityIntelligenceAgentInput(SourceIntelligenceAgentInput):
     community_queries: tuple[str, ...] = Field(default_factory=tuple)
+    target_region_code: RegionCode | None = None
 
 
 class AmazonProductIntelligenceAgentInput(SourceIntelligenceAgentInput):
@@ -448,6 +491,13 @@ class QueryPlannerAgent(Protocol):
 class DiscoveryAgent(Protocol):
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         """Produce fixture discovery selections without provider calls."""
+
+
+class GeneralShoppingAgent(Protocol):
+    async def run(
+        self, input_data: GeneralShoppingAgentInput
+    ) -> GeneralShoppingDecisionDraft:
+        """Own a broad live shopping request with checked evidence."""
 
 
 class CategoryRouterAgent(Protocol):

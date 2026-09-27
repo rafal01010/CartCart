@@ -38,6 +38,7 @@ export type InlineChoiceControlType = 'yes_no' | 'two_option' | 'two_option_plus
 export type RegionSetupStatus = 'not_needed' | 'needs_answer' | 'provided' | 'refused';
 export type RunStage =
 	| 'intake'
+	| 'general_owner'
 	| 'query_planning'
 	| 'discovery'
 	| 'extraction'

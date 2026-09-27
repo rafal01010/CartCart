@@ -4,7 +4,16 @@ from enum import StrEnum
 from time import perf_counter
 from typing import Any
 
+from agents import Runner
+from agents.items import ModelResponse
+from agents.models.interface import Model
+from agents.usage import Usage
 from fastapi.encoders import jsonable_encoder
+from openai.types.responses import (
+    ResponseFunctionToolCall,
+    ResponseOutputMessage,
+    ResponseOutputText,
+)
 from pydantic import AnyHttpUrl, Field, ValidationError
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -16,6 +25,9 @@ from app.agents.contracts import (
     DeduplicationReviewAgentInput,
     DiscoveryAgentInput,
     ExtractionAgentInput,
+    GeneralShoppingAgentInput,
+    GeneralShoppingDecisionDraft,
+    GeneralShoppingOutcome,
     ExtractionAgentOutput,
     ExtractedProductMention,
     ExtractionEvidenceGap,
@@ -103,6 +115,14 @@ from app.agents.live_technology_domain_analyst import (
 from app.agents.live_guide import LiveShoppingGuideAgent, MockShoppingGuideModelRunner
 from app.agents.live_intake import LiveIntakeAgent, MockIntakeModelRunner
 from app.agents.live_discovery import LiveDiscoveryAgent, MockDiscoveryModelRunner
+from app.agents.live_general_shopping import (
+    GeneralModelOutput,
+    LiveGeneralShoppingAgent,
+    MockGeneralShoppingModelRunner,
+    OpenAIAgentsSDKGeneralShoppingModelRunner,
+    ProductSpecialistHandoffContext,
+    TechnologyHandoffContext,
+)
 from app.agents.live_extraction import LiveExtractionAgent, MockExtractionModelRunner
 from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_query_planner import (
@@ -148,6 +168,7 @@ from app.agents.openai_config import (
 )
 from app.agents.research_tools import (
     AgentResearchTools,
+    HostedCitationStore,
     FetchSourceRequest,
     FetchSourceResult,
     SearchSourcesRequest,
@@ -389,6 +410,8 @@ class AgentWorkbenchScenario(CartCartBaseModel):
 class _WorkbenchExecution:
     output: Any
     allowed_tool_activity: tuple[WorkbenchToolActivity, ...] = ()
+    usage: WorkbenchUsage | None = None
+    fallback: WorkbenchFallbackOutcome | None = None
 
 
 @dataclass(frozen=True)
@@ -592,11 +615,13 @@ class AgentWorkbenchRunner:
                 else "mock_sdk_agent"
                 if definition.entry.agent_name
                 in {
+                    "GeneralShoppingAgent",
                     "YouTubeReviewIntelligenceAgent",
                     "RedditCommunityIntelligenceAgent",
                     "AmazonProductIntelligenceAgent",
                     "IKEAStoreIntelligenceAgent",
                 }
+                and request.mode == AgentWorkbenchMode.MOCK
                 else "fixture_or_mock"
             ),
             input_schema=definition.input_model.__name__,
@@ -604,9 +629,9 @@ class AgentWorkbenchRunner:
             input=input_data.model_dump(mode="json"),
             output=_dump_output(execution.output),
             allowed_tool_activity=execution.allowed_tool_activity,
-            fallback=WorkbenchFallbackOutcome(used=False),
+            fallback=execution.fallback or WorkbenchFallbackOutcome(used=False),
             trace_id=trace_id,
-            usage=None,
+            usage=execution.usage,
             model=None
             if definition.entry.sdk_implementation_pending
             or (
@@ -685,6 +710,8 @@ class AgentWorkbenchRunner:
     ) -> _WorkbenchExecution:
         if definition.entry.agent_name == "ExtractionAgent":
             return await self._run_extraction(input_data, mock=True)
+        if definition.entry.agent_name == "GeneralShoppingAgent":
+            return await self._run_isolated_general(input_data, mock=True)
         agent_factory = (
             definition.mock_agent_factory or definition.fixture_agent_factory
         )
@@ -736,6 +763,17 @@ class AgentWorkbenchRunner:
             )
         if definition.entry.agent_name == "DiscoveryAgent":
             return await self._run_live_discovery(input_data)
+        if definition.entry.agent_name == "GeneralShoppingAgent":
+            return await self._run_isolated_general(input_data, mock=False)
+        if definition.entry.agent_name in {
+            "YouTubeReviewIntelligenceAgent",
+            "RedditCommunityIntelligenceAgent",
+            "AmazonProductIntelligenceAgent",
+            "IKEAStoreIntelligenceAgent",
+        }:
+            return await self._run_live_source_specialist(definition, input_data)
+        if definition.entry.agent_name == "SellerListingTrustAgent":
+            return await self._run_live_trust(definition, input_data)
         if definition.entry.agent_name == "ExtractionAgent":
             return await self._run_extraction(input_data, mock=False)
         agent = definition.live_agent_factory(self._settings)
@@ -744,6 +782,68 @@ class AgentWorkbenchRunner:
             output=output,
             allowed_tool_activity=_workbench_activity(agent),
         )
+
+    async def _run_live_source_specialist(
+        self, definition: _AgentWorkbenchDefinition, input_data: CartCartBaseModel
+    ) -> _WorkbenchExecution:
+        assert definition.live_agent_factory is not None
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            factory = create_session_factory(engine)
+            async with factory() as session:
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(
+                        query=input_data.brief.original_query
+                    ),
+                    current_brief=input_data.brief,
+                )
+                await RunRepository(session).create(
+                    shopping_session.session_id, run_id=input_data.run_id
+                )
+                await session.commit()
+            agent = definition.live_agent_factory(self._settings)
+            agent.citation_store = HostedCitationStore(
+                run_id=input_data.run_id, session_factory=factory
+            )
+            output = await agent.run(input_data)
+            return _WorkbenchExecution(
+                output=output, allowed_tool_activity=_workbench_activity(agent)
+            )
+        finally:
+            await engine.dispose()
+
+    async def _run_live_trust(
+        self, definition: _AgentWorkbenchDefinition, input_data: CartCartBaseModel
+    ) -> _WorkbenchExecution:
+        assert definition.live_agent_factory is not None
+        assert isinstance(input_data, SellerListingTrustAgentInput)
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            factory = create_session_factory(engine)
+            async with factory() as session:
+                brief = ShoppingBrief(original_query=input_data.listing.title)
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(query=input_data.listing.title),
+                    current_brief=brief,
+                )
+                await RunRepository(session).create(
+                    shopping_session.session_id, run_id=input_data.run_id
+                )
+                await session.commit()
+            agent = definition.live_agent_factory(self._settings)
+            agent.citation_store_factory = lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            )
+            output = await agent.run(input_data)
+            return _WorkbenchExecution(
+                output=output, allowed_tool_activity=_workbench_activity(agent)
+            )
+        finally:
+            await engine.dispose()
 
     async def _run_live_discovery(
         self, input_data: CartCartBaseModel
@@ -782,6 +882,99 @@ class AgentWorkbenchRunner:
             return _WorkbenchExecution(
                 output=output,
                 allowed_tool_activity=_workbench_activity(agent),
+            )
+        finally:
+            await engine.dispose()
+
+    async def _run_isolated_general(
+        self, input_data: CartCartBaseModel, *, mock: bool
+    ) -> _WorkbenchExecution:
+        assert isinstance(input_data, GeneralShoppingAgentInput)
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            factory = create_session_factory(engine)
+            async with factory() as session:
+                shopping_session = await SessionRepository(session).create(
+                    original_input=CreateSessionRequest(
+                        query=input_data.brief.original_query
+                    ),
+                    current_brief=input_data.brief,
+                )
+                await RunRepository(session).create(
+                    shopping_session.session_id, run_id=input_data.run_id
+                )
+                await session.commit()
+            settings = (
+                self._settings.model_copy(
+                    update={
+                        "live_agents_enabled": True,
+                        "openai_api_key": "offline-workbench-only",
+                        "openai_model": "gpt-6-sol",
+                    }
+                )
+                if mock
+                and input_data.brief.original_query.casefold()
+                in {"find a keyboard", "find a smartphone"}
+                else self._settings.model_copy(update={"live_agents_enabled": False})
+                if mock
+                else self._settings
+            )
+            provider = _general_fixture_search_provider(
+                weak="garden seat" in input_data.brief.original_query.casefold()
+            )
+            agent = LiveGeneralShoppingAgent(
+                settings=settings,
+                session_factory=factory,
+                research_tools_factory=lambda run_id: AgentResearchTools(
+                    agent_name="GeneralShoppingAgent",
+                    run_id=run_id,
+                    session_factory=factory,
+                    search_provider=provider,
+                    extraction_provider=_GeneralFixtureExtractionProvider(),
+                    required_region_code=(
+                        input_data.brief.region.region.country_code
+                        if input_data.brief.region is not None
+                        else None
+                    ),
+                ),
+                technology_research_tools_factory=lambda run_id, region_code: (
+                    AgentResearchTools(
+                        agent_name="TechnologyDomainAnalystAgent",
+                        run_id=run_id,
+                        session_factory=factory,
+                        search_provider=provider,
+                        extraction_provider=_GeneralFixtureExtractionProvider(),
+                        required_region_code=region_code,
+                    )
+                ),
+                model_runner=_WorkbenchOwnerHandoffRunner()
+                if mock
+                and input_data.brief.original_query.casefold()
+                in {"find a keyboard", "find a smartphone"}
+                else MockGeneralShoppingModelRunner(exercise_tools=True)
+                if mock
+                else OpenAIAgentsSDKGeneralShoppingModelRunner(),
+            )
+            output = await agent.run(input_data)
+            activity = _workbench_activity(agent)
+            usage_data = (
+                activity[-1].output.get("usage") if activity[-1].output else None
+            )
+            failure_gap = (
+                activity[-1].output.get("gap") if activity[-1].output else None
+            )
+            return _WorkbenchExecution(
+                output,
+                activity,
+                WorkbenchUsage.model_validate(usage_data)
+                if usage_data
+                and any(value is not None for value in usage_data.values())
+                else None,
+                WorkbenchFallbackOutcome(used=True, reason=failure_gap)
+                if failure_gap
+                else None,
             )
         finally:
             await engine.dispose()
@@ -860,6 +1053,22 @@ def _build_workbench_definitions(
     catalog: AgentCatalog,
 ) -> dict[str, _AgentWorkbenchDefinition]:
     definitions = {
+        "GeneralShoppingAgent": _definition(
+            catalog,
+            "GeneralShoppingAgent",
+            GeneralShoppingAgentInput,
+            "GeneralShoppingDecisionDraft",
+            _FixtureGeneralShoppingAgent,
+            (
+                _scenario_general_wooden_cane,
+                _scenario_general_keyboard_domain,
+                _scenario_general_smartphone_two_hop,
+                _scenario_general_ambiguous_product,
+                _scenario_general_weak_results,
+            ),
+            mock_agent_factory=_mock_general_shopping_agent,
+            live_agent_factory=LiveGeneralShoppingAgent,
+        ),
         "ShoppingScopeGuardrail": _definition(
             catalog,
             "ShoppingScopeGuardrail",
@@ -1219,6 +1428,246 @@ def _mock_discovery_agent(settings: Settings) -> LiveDiscoveryAgent:
     )
 
 
+class _FixtureGeneralShoppingAgent:
+    async def run(
+        self, input_data: GeneralShoppingAgentInput
+    ) -> GeneralShoppingDecisionDraft:
+        return GeneralShoppingDecisionDraft(
+            category=input_data.brief.category or "general shopping",
+            outcome=GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE,
+            evidence_gaps=("No source research runs in fixture mode.",),
+            rationale="There is not enough checked evidence to choose a product yet.",
+        )
+
+
+class _WorkbenchOwnerModel(Model):
+    """Offline SDK model that exercises the declared owner graph in workbench mock mode."""
+
+    def __init__(self, role: str, category: str):
+        self.role = role
+        self.category = category
+
+    async def get_response(
+        self,
+        system_instructions,
+        input,
+        model_settings,
+        tools,
+        output_schema,
+        handoffs,
+        tracing,
+        *,
+        previous_response_id,
+        conversation_id,
+        prompt,
+    ) -> ModelResponse:
+        del (
+            system_instructions,
+            input,
+            model_settings,
+            tools,
+            output_schema,
+            tracing,
+            previous_response_id,
+            conversation_id,
+            prompt,
+        )
+        if self.role == "general":
+            selected_handoff = handoffs[0]
+            arguments = TechnologyHandoffContext(
+                technology_category=self.category,
+                reason="Technology ownership is useful for this product request.",
+            ).model_dump_json()
+        elif self.role == "technology" and self.category == "smartphone":
+            selected_handoff = next(
+                item
+                for item in handoffs
+                if item.agent_name == "SmartphoneSpecialistAgent"
+            )
+            arguments = ProductSpecialistHandoffContext(
+                product_category="smartphone",
+                reason="Phone-specific camera and support analysis would help.",
+            ).model_dump_json()
+        else:
+            selected_handoff = None
+            arguments = ""
+        if selected_handoff is not None:
+            output = ResponseFunctionToolCall(
+                type="function_call",
+                call_id=f"offline-{self.role}",
+                name=selected_handoff.tool_name,
+                arguments=arguments,
+            )
+        else:
+            output = ResponseOutputMessage(
+                id=f"offline-{self.role}-final",
+                type="message",
+                role="assistant",
+                status="completed",
+                content=[
+                    ResponseOutputText(
+                        type="output_text",
+                        annotations=[],
+                        text=GeneralModelOutput(
+                            category=self.category,
+                            evidence_gap="No verified product and independent review pair was supplied.",
+                        ).model_dump_json(),
+                    )
+                ],
+            )
+        return ModelResponse(
+            output=[output],
+            usage=Usage(requests=1, input_tokens=20, output_tokens=30, total_tokens=50),
+            response_id=None,
+        )
+
+    async def stream_response(self, *args, **kwargs):
+        raise AssertionError("Offline workbench owner does not stream")
+        yield
+
+
+class _WorkbenchOwnerHandoffRunner:
+    async def run(self, agent, model_input, *, run_config, max_turns):
+        category = (
+            "smartphone" if "smartphone" in model_input.casefold() else "keyboard"
+        )
+        technology = agent.handoffs[0]._agent_ref()
+        assert technology is not None
+        agent.model = _WorkbenchOwnerModel("general", category)
+        technology.model = _WorkbenchOwnerModel("technology", category)
+        for specialist_handoff in technology.handoffs:
+            specialist = specialist_handoff._agent_ref()
+            assert specialist is not None
+            specialist.model = _WorkbenchOwnerModel("specialist", category)
+        return await Runner.run(
+            agent, model_input, run_config=run_config, max_turns=max_turns
+        )
+
+
+def _mock_general_shopping_agent(settings: Settings) -> LiveGeneralShoppingAgent:
+    return LiveGeneralShoppingAgent(
+        settings=settings.model_copy(update={"live_agents_enabled": False}),
+        model_runner=MockGeneralShoppingModelRunner(),
+    )
+
+
+def _general_fixture_search_provider(*, weak: bool = False) -> FakeSearchProvider:
+    query = SearchQuery(query="Oak walking cane", intent=SearchIntent.DISCOVERY)
+    if weak:
+        return FakeSearchProvider(
+            results=(
+                SearchResult(
+                    query=query,
+                    url="https://example.com/garden-seat",
+                    title="Folding garden seat search hit",
+                    source_type=SourceType.PRODUCT_PAGE,
+                    provider=ProviderMetadata(provider_name="workbench_fixture"),
+                    quality=SourceQuality(level=SourceQualityLevel.WEAK, score=0.2),
+                ),
+            )
+        )
+    return FakeSearchProvider(
+        results=(
+            SearchResult(
+                query=query,
+                url="https://example.com/canes/oak-walking-cane",
+                title="Oak walking cane product page",
+                source_type=SourceType.PRODUCT_PAGE,
+                provider=ProviderMetadata(provider_name="workbench_fixture"),
+                quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
+            ),
+            SearchResult(
+                query=query,
+                url="https://reviews.example.org/oak-walking-cane",
+                title="Oak walking cane review",
+                source_type=SourceType.PROFESSIONAL_REVIEW,
+                provider=ProviderMetadata(provider_name="workbench_fixture"),
+                quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
+            ),
+        )
+    )
+
+
+class _GeneralFixtureExtractionProvider:
+    provider_name = "workbench_fixture"
+
+    async def extract(self, url: AnyHttpUrl, options: Any = None) -> SourceSnapshot:
+        del options
+        if "garden-seat" in str(url):
+            text = "Folding garden seat is mentioned on this unverified page."
+            return SourceSnapshot(
+                url=url,
+                source_type=SourceType.PRODUCT_PAGE,
+                title="Folding garden seat page",
+                provider=ProviderMetadata(provider_name=self.provider_name),
+                extraction_status=ExtractionStatus.SUCCEEDED,
+                extracted_content=ExtractedPageContent(
+                    text=text,
+                    extractor="workbench_fixture",
+                    word_count=len(text.split()),
+                ),
+                quality=SourceQuality(level=SourceQualityLevel.WEAK, score=0.2),
+            )
+        review = "reviews.example.org" in str(url) or "goodhousekeeping.com" in str(url)
+        text = (
+            "Oak walking cane was comfortable in the reviewer's walking test."
+            if review
+            else "Oak walking cane is described as a wooden walking aid."
+        )
+        return SourceSnapshot(
+            url=url,
+            source_type=SourceType.PROFESSIONAL_REVIEW
+            if review
+            else SourceType.PRODUCT_PAGE,
+            title="Oak walking cane review"
+            if review
+            else "Oak walking cane product page",
+            provider=ProviderMetadata(provider_name=self.provider_name),
+            extraction_status=ExtractionStatus.SUCCEEDED,
+            extracted_content=ExtractedPageContent(
+                text=text, extractor="workbench_fixture", word_count=len(text.split())
+            ),
+            quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
+        )
+
+
+def _general_scenario(
+    name: str, query: str, *, boundary: bool = False
+) -> AgentWorkbenchScenario:
+    return AgentWorkbenchScenario(
+        name=name,
+        description="Isolated general shopping owner research case.",
+        input=GeneralShoppingAgentInput(
+            run_id=new_id(), brief=ShoppingBrief(original_query=query)
+        ).model_dump(mode="json"),
+        boundary=boundary,
+    )
+
+
+def _scenario_general_wooden_cane() -> AgentWorkbenchScenario:
+    return _general_scenario("wooden_cane", "Find a comfortable wooden cane")
+
+
+def _scenario_general_keyboard_domain() -> AgentWorkbenchScenario:
+    return _general_scenario("keyboard_domain", "Find a keyboard")
+
+
+def _scenario_general_smartphone_two_hop() -> AgentWorkbenchScenario:
+    return _general_scenario("smartphone_two_hop", "Find a smartphone")
+
+
+def _scenario_general_ambiguous_product() -> AgentWorkbenchScenario:
+    return _general_scenario(
+        "ambiguous_product", "I need something useful for my workshop", boundary=True
+    )
+
+
+def _scenario_general_weak_results() -> AgentWorkbenchScenario:
+    return _general_scenario(
+        "weak_search_results", "Find a niche folding garden seat", boundary=True
+    )
+
+
 def _mock_query_planner_agent(settings: Settings) -> LiveQueryPlannerAgent:
     return LiveQueryPlannerAgent(
         settings=settings,
@@ -1303,7 +1752,7 @@ def _mock_seller_listing_trust_agent(
     settings: Settings,
 ) -> LiveSellerListingTrustAgent:
     return LiveSellerListingTrustAgent(
-        settings=settings,
+        settings=settings.model_copy(update={"live_agents_enabled": False}),
         model_runner=MockSellerListingTrustModelRunner(),
     )
 
@@ -3984,6 +4433,7 @@ def _scenario_trust_established() -> AgentWorkbenchScenario:
         SellerListingTrustAgentInput(
             run_id=new_id(),
             listing=listing.model_copy(update={"product_id": product.product_id}),
+            target_region_code="US",
             evidence=(evidence,),
             rule_based_assessment=rule_based_assessment,
         ),
@@ -3997,12 +4447,11 @@ def _scenario_trust_unknown_marketplace_cheap() -> AgentWorkbenchScenario:
         update={
             "product_id": product.product_id,
             "title": "ViewBright 27Q Monitor - DealHub marketplace seller",
-            "url": AnyHttpUrl(
-                "https://deals.example-market.test/viewbright-27q-warehouse"
-            ),
+            "url": AnyHttpUrl("https://www.amazon.com/dp/B000000442"),
             "seller": SellerProfile(
                 seller_name="DealHub Seller 442",
-                marketplace_name="DealHub",
+                seller_url=AnyHttpUrl("https://www.amazon.com/stores/dealhub442"),
+                marketplace_name="Amazon",
                 is_marketplace_seller=True,
                 trust_signal=SellerTrustSignal.UNKNOWN,
                 source_ids=(source_id,),
@@ -4078,6 +4527,7 @@ def _scenario_trust_unknown_marketplace_cheap() -> AgentWorkbenchScenario:
         SellerListingTrustAgentInput(
             run_id=new_id(),
             listing=weak_listing,
+            target_region_code="US",
             evidence=evidence,
             rule_based_assessment=rule_based_assessment,
         ),

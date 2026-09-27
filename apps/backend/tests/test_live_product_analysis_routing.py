@@ -84,6 +84,21 @@ SPECIALIST_AGENT_FACTORIES: dict[str, tuple[type[Any], type[Any]]] = {
 }
 
 
+def test_current_routes_are_separate_from_target_owner_handoffs() -> None:
+    catalog = DEFAULT_AGENT_CATALOG
+    general = catalog.require(catalog.target_general_owner_agent_name)
+    technology = catalog.require(catalog.technology_domain_agent_name)
+
+    assert general.target_handoff_agent_names == (technology.agent_name,)
+    assert set(technology.target_handoff_agent_names) == set(SPECIALIST_AGENT_FACTORIES)
+    for eval_case in product_analysis_routing_eval_cases():
+        route = catalog.route_product_analysis(eval_case.category)
+        assert "GeneralShoppingAgent" not in route.agent_path
+        if len(route.agent_path) == 2:
+            assert route.agent_path[0] == technology.agent_name
+            assert route.agent_path[1] in technology.target_handoff_agent_names
+
+
 def _settings(**overrides: object) -> Settings:
     return Settings(
         _env_file=None,  # type: ignore[call-arg]

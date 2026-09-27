@@ -56,6 +56,44 @@ Fixture-backed routing eval cases live in
 These are cheap mocked/local regression checks. Live model routing evals remain
 opt-in and are deferred to the Section N live-agents gate.
 
+Task 89Q adds a separate target ownership contract. Existing routing evals
+exercise Python-selected `ProductAnalysisRoute` and analyst fallback, not SDK
+handoffs. Target mocked-SDK cases must prove a broad request finishes with
+General, a broad technology request can finish with Technology, and a phone
+request transfers General -> Technology -> Smartphone with the smartphone as
+last agent and draft author. Source agents must remain agents-as-tools.
+Research cases must distinguish actual OpenAI hosted web-search calls from
+application-provider `search_sources`/`fetch_source`, allow the model to use
+or skip each approved path, persist valid citations/evidence IDs, and reject
+unsupported product/listing claims. Task 89R's focused mocked-SDK cases check
+Discovery's live tool attachment, hosted call and citation-ID mapping, no-call
+choice, rejected URL, missing citation, failure, and incompatible model.
+Task 89R1's focused offline cases cover all four source specialists' live tool
+attachment and optional use, site/region rejection, run-scoped citation IDs,
+and incompatible models. Site evidence contracts still reject snippet-only
+transcript, discussion, offer, and official IKEA claims. General's isolated
+owner now has mocked cane, ambiguous-request, and weak-search cases. Its cane
+draft needs fetched product/listing and review excerpts from independent
+domains with persisted source, snapshot, and evidence IDs; weak or invented
+evidence stays an explicit gap. Focused offline API/routing cases now check
+that both wooden-cane and smartphone guided requests enter General before
+category routing, while fixture runs stay offline. General's draft is traced;
+the transitional stages still persist the result. Task 89U's mocked SDK cases
+now check General finishing a cane request, an actual General -> Technology
+handoff on a keyboard request with Technology as `last_agent`, and rejection of
+a non-technology handoff. Technology's narrower tools and independent model
+instructions are checked. Task 89V adds mocked SDK two-hop phone ownership,
+domain-only and General-only paths, failed-specialist recovery, and offline
+workbench handoff scenarios. Task 89W adds role-scoped hosted search and
+provider/source/trust/comparison tools to Technology and all six specialists.
+Focused offline cases exercise a phone specialist recording product and
+independent-review quotes, receiving a source-manager tool result or explicit
+failure gap, retaining a hosted citation under its own identity, and ending as
+the sole draft author. A separate case accepts a quote-backed candidate before
+product persistence and rejects an unrelated name. The broader evaluation and
+final active-owner result integration remain deferred to the
+Tasks 89Q-89Y section gate.
+
 ## Evaluation Dimensions
 
 Eval cases should check whether the system:
@@ -300,6 +338,14 @@ For Task 75 intake acceptance, use `intake/monitor-ph-budget` in mocked or live
 mode to inspect a structured `ShoppingBrief` with monitor category, PH region,
 budget, and key preferences, and pair it with `intake/ambiguous-category` to
 confirm ambiguous requests preserve category uncertainty.
+For Task 89V ownership checks, use `GeneralShoppingAgent/wooden_cane`,
+`GeneralShoppingAgent/keyboard_domain`, and
+`GeneralShoppingAgent/smartphone_two_hop` in workbench mock mode. The latter two
+run the real SDK handoff engine with offline scripted models: inspect the
+completed transfer items, depth, and last owner. The cane remains with General;
+keyboard ends at Technology; smartphone ends at the phone specialist. These
+workbench drafts may report evidence gaps because the handoff scenarios do not
+seed product and independent-review evidence.
 For Task 76 query-planner acceptance, use `query-planner/coffee-grinder-us` in
 mocked or live mode to inspect region-aware shopping and review queries for a
 non-specialist category, and pair it with
@@ -362,6 +408,14 @@ marketplace seller with a far-below-comparable price and unclear return policy,
 and pair it with `trust/established-retailer` to confirm reasonable trust when
 evidence supports the seller and source. The hard suspicious-flag tests should
 prove deterministic price or contradiction flags cannot be silently overridden.
+Task 89R2 adds mocked SDK branches for those trust fixtures: a concrete
+seller/listing and region can trigger hosted search, the established retailer
+can skip it, and a cited exact seller page yields persisted source/evidence IDs
+for a neutral unverified lead. Wrong-seller URLs, missing citations, failed
+calls, and incompatible model profiles must leave the existing trust level or
+an explicit gap; snippets, marketplace ratings, and model-only positives must
+not upgrade weak or unknown seller trust. Execute the full trust eval set at
+the Tasks 89Q-89Y section gate.
 For Task 81A YouTube review intelligence acceptance, use
 `youtube/monitor-review-transcript` in mocked mode to inspect timestamped
 pros/cons/concerns tied to the fixture video/source IDs, sponsorship and
@@ -417,3 +471,20 @@ Before a workflow capability is considered accepted, verification should show:
 When adding, removing, moving, or changing fallback behavior for an agent or source capability, update `supported_agents.md`, the runtime agent catalog once it exists, related routing tests, provider fixtures where relevant, and eval cases together.
 
 Required reusable source intelligence evals should cover YouTube/video, Reddit/community, Amazon product/listing/review, and IKEA regional store evidence. The provider-service baseline must verify cited bundles and explicit gaps without counting a service call as an SDK model run. All four SDK source specialists have focused mocked-model/tool tests. A focused offline delegation test now exercises one model-running parent invoking two distinct SDK specialist agent tools, accepting cited bundles, and explaining skipped sources. The section-gate eval must additionally check model-selected review relevance, transcript/timestamp grounding, public-community quote/source grounding, independent-thread recurrence versus anecdotes, stale/low-context/manipulation warnings, inaccessible/deleted discussions, bounded tools, wrong IDs, and live model runs over recorded provider data. Amazon cases must also cover ASIN/variant ambiguity, neutral links, region uncertainty, separate seller risk, unknown IDs, and provider failure. IKEA cases cover official-region filtering, item ambiguity, local price/currency and availability grounding, unsupported regions, wrong IDs, and provider/model failure. The parent-to-specialist live model smoke remains a section-gate requirement; a fixture service result does not satisfy it.
+
+Task 89P has an opt-in `live_model` test in
+`tests/test_source_intelligence_live_model_smoke.py`. It injects an in-process
+IKEA fixture provider, so the only permitted network call is to OpenAI. Passing
+requires a completed parent SDK run, one validated nested IKEA agent-as-tool
+call, actual source search/read tool activity, grounded source/evidence IDs, and
+resolved parent/specialist models. Initial 2026-09-27 attempts exposed a turn
+limit, Codex-sandbox DNS restrictions, and an unsupported constrained-decimal
+regex in the IKEA structured-output schema. Those issues were corrected or
+avoided, with backend `Money` and source-grounding validation retained. The
+final authorized unsandboxed rerun passed: a `gpt-6-sol` parent called the
+`gpt-6-luna` IKEA specialist as an SDK agent tool, the specialist searched and
+read fixture data, and the parent accepted a cited bundle with valid
+source/evidence IDs. The focused offline gate passed 266 tests, including the
+schema regression. Task 89P is complete. No live source providers were called;
+their availability and the normal end-to-end live shopping workflow remain
+unverified.

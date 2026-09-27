@@ -12,8 +12,15 @@ from pydantic import Field
 
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.source_hosted_search import (
+    process_source_specialist_output,
+    source_hosted_tool,
+    source_tool_activity,
 )
 from app.agents.reddit_community_tools import RedditCommunityTools
 from app.core.settings import Settings
@@ -62,6 +69,7 @@ class RedditCommunityModelOutput(CartCartBaseModel):
     selected_discussions: tuple[SelectedDiscussion, ...] = Field(max_length=6)
     signals: tuple[InterpretedCommunitySignal, ...] = Field(max_length=6)
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=6)
+    retained_web_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class RedditCommunityModelRunner(Protocol):
@@ -177,6 +185,7 @@ class _MockResult:
 class RedditCommunityIntelligenceAgent:
     settings: Settings
     community_provider: CommunityDiscussionProvider | None = None
+    citation_store: HostedCitationStore | None = None
     model_runner: RedditCommunityModelRunner = field(
         default_factory=OpenAIAgentsSDKRedditCommunityModelRunner
     )
@@ -201,10 +210,18 @@ class RedditCommunityIntelligenceAgent:
             community_provider=self.community_provider
             or build_community_discussion_provider(self.settings),
         )
+        hosted_tool = source_hosted_tool(
+            config=config,
+            input_data=input_data,
+            agent_name="RedditCommunityIntelligenceAgent",
+            citation_store=self.citation_store,
+        )
         agent = Agent(
             name="RedditCommunityIntelligenceAgent",
             model=config.model,
-            model_settings=ModelSettings(max_tokens=3000, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=3000, include_usage=True, tool_choice="auto"
+            ),
             instructions=(
                 "You are a community-evidence specialist, not a product-fact authority or purchase recommender. "
                 "Choose relevant public discussions from supplied source IDs or bounded search_community_discussions. "
@@ -214,9 +231,11 @@ class RedditCommunityIntelligenceAgent:
                 "Treat search snippets as limited context. Never invent a quote, source ID, product ID, subreddit, thread, comment, engagement, or defect rate. "
                 "Do not seek private, logged-in, deleted, or otherwise forbidden content. "
                 "Community discussion cannot establish specifications, warranty, current price, availability, or seller legitimacy. "
-                "If evidence is weak, return honest gaps without a factual product claim."
+                "If evidence is weak, return honest gaps without a factual product claim. "
+                "You may use web_search for public Reddit discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
+                "A hosted snippet is only a lead; use read_community_discussion for owner signals and quotes."
             ),
-            tools=list(tools.sdk_tools()),
+            tools=[*tools.sdk_tools(), *([hosted_tool] if hosted_tool else [])],
             output_type=RedditCommunityModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
@@ -226,6 +245,7 @@ class RedditCommunityIntelligenceAgent:
         self, input_data: RedditCommunityIntelligenceAgentInput
     ) -> CommunityDiscussionEvidenceBundle:
         agent, tools, config = self.prepare_delegated_run(input_data)
+        hosted_activity: tuple[dict[str, Any], ...] = ()
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,
@@ -246,16 +266,37 @@ class RedditCommunityIntelligenceAgent:
             decision = RedditCommunityModelOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
+            decision, hosted_activity = await process_source_specialist_output(
+                raw=raw,
+                decision=decision,
+                input_data=input_data,
+                agent_name=agent.name,
+                citation_store=self.citation_store,
+                require_sdk_metadata=isinstance(
+                    self.model_runner, OpenAIAgentsSDKRedditCommunityModelRunner
+                ),
+            )
             output = _validated_bundle(input_data, tools, decision)
             status = "model_evidence_completed"
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, OpenAIAgentConfigurationError):
+                hosted_activity = (
+                    *hosted_activity,
+                    {
+                        "tool_name": "web_search",
+                        "status": "metadata_or_persistence_failed",
+                        "input": {"agent": agent.name},
+                        "output": {"reason": str(exc)},
+                    },
+                )
             output = _gap_bundle(
                 tools.bundle,
                 "Model interpretation failed; no community claim was accepted.",
             )
             status = "model_or_validation_failure_gap"
         self._workbench_activity = (
-            *tools.workbench_activity,
+            *source_tool_activity(tools.workbench_activity, agent.name),
+            *hosted_activity,
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,
@@ -284,6 +325,7 @@ def _model_input(
                 product.model_dump(mode="json") for product in input_data.products
             ],
             "community_queries": input_data.community_queries,
+            "target_region_code": input_data.target_region_code,
             "supplied_discussions": tools.summaries(),
             "limits": {
                 "searches": tools.max_searches,

@@ -13,8 +13,15 @@ from pydantic import Field
 
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.source_hosted_search import (
+    process_source_specialist_output,
+    source_hosted_tool,
+    source_tool_activity,
 )
 from app.agents.youtube_review_tools import YouTubeReviewTools
 from app.core.settings import Settings
@@ -63,6 +70,7 @@ class YouTubeReviewModelOutput(CartCartBaseModel):
     selected_videos: tuple[SelectedVideo, ...] = Field(max_length=3)
     claims: tuple[InterpretedVideoClaim, ...] = Field(max_length=18)
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    retained_web_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class YouTubeReviewModelRunner(Protocol):
@@ -200,6 +208,7 @@ class YouTubeReviewIntelligenceAgent:
     settings: Settings
     video_search_provider: VideoSearchProvider | None = None
     transcript_provider: TranscriptProvider | None = None
+    citation_store: HostedCitationStore | None = None
     model_runner: YouTubeReviewModelRunner = field(
         default_factory=OpenAIAgentsSDKYouTubeReviewModelRunner
     )
@@ -226,10 +235,18 @@ class YouTubeReviewIntelligenceAgent:
             transcript_provider=self.transcript_provider
             or build_transcript_provider(self.settings),
         )
+        hosted_tool = source_hosted_tool(
+            config=config,
+            input_data=input_data,
+            agent_name="YouTubeReviewIntelligenceAgent",
+            citation_store=self.citation_store,
+        )
         agent = Agent(
             name="YouTubeReviewIntelligenceAgent",
             model=config.model,
-            model_settings=ModelSettings(max_tokens=3000, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=3000, include_usage=True, tool_choice="auto"
+            ),
             instructions=(
                 "You are the YouTube review-evidence specialist, not a purchase recommender. "
                 "Choose at most three relevant review videos for the supplied products and buying brief. "
@@ -238,9 +255,11 @@ class YouTubeReviewIntelligenceAgent:
                 "and visible sponsorship or affiliate disclosures. Return exact transcript excerpts with their segment IDs; "
                 "never invent quotes, timestamps, product IDs, source IDs, prices, or disclosures. "
                 "If captions are inaccessible, select useful metadata only and explain the gap. "
-                "Use only supplied product IDs, and do not attribute a review to a product if identity is unclear."
+                "Use only supplied product IDs, and do not attribute a review to a product if identity is unclear. "
+                "You may use web_search for YouTube review discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
+                "A hosted snippet is only a lead; use video tools and transcript segments for review claims."
             ),
-            tools=list(tools.sdk_tools()),
+            tools=[*tools.sdk_tools(), *([hosted_tool] if hosted_tool else [])],
             output_type=YouTubeReviewModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
@@ -250,6 +269,7 @@ class YouTubeReviewIntelligenceAgent:
         self, input_data: YouTubeReviewIntelligenceAgentInput
     ) -> VideoReviewEvidenceBundle:
         agent, tools, config = self.prepare_delegated_run(input_data)
+        hosted_activity: tuple[dict[str, Any], ...] = ()
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,
@@ -270,25 +290,51 @@ class YouTubeReviewIntelligenceAgent:
             decision = YouTubeReviewModelOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
+            decision, hosted_activity = await process_source_specialist_output(
+                raw=raw,
+                decision=decision,
+                input_data=input_data,
+                agent_name=agent.name,
+                citation_store=self.citation_store,
+                require_sdk_metadata=isinstance(
+                    self.model_runner, OpenAIAgentsSDKYouTubeReviewModelRunner
+                ),
+            )
             output = _validated_bundle(input_data, tools, decision)
             status = "model_evidence_completed"
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, OpenAIAgentConfigurationError):
+                hosted_activity = (
+                    *hosted_activity,
+                    {
+                        "tool_name": "web_search",
+                        "status": "metadata_or_persistence_failed",
+                        "input": {"agent": agent.name},
+                        "output": {"reason": str(exc)},
+                    },
+                )
             if tools.bundle is None:
                 self._workbench_activity = (
-                    *tools.workbench_activity,
+                    *source_tool_activity(tools.workbench_activity, agent.name),
+                    *hosted_activity,
                     {
                         "tool_name": "openai_agents_structured_output",
                         "status": "model_or_provider_failed_no_video",
                     },
                 )
-                raise
+                return VideoReviewEvidenceBundle(
+                    transcript_gap_notes=(
+                        "Model or video provider failed; no review evidence was accepted.",
+                    )
+                )
             output = _metadata_only_bundle(
                 tools.bundle,
                 "Model interpretation failed; no transcript-backed claim was accepted.",
             )
             status = "model_or_validation_failure_metadata_only"
         self._workbench_activity = (
-            *tools.workbench_activity,
+            *source_tool_activity(tools.workbench_activity, agent.name),
+            *hosted_activity,
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,
@@ -314,6 +360,7 @@ def _model_input(
             "brief": input_data.brief.model_dump(mode="json"),
             "products": [p.model_dump(mode="json") for p in input_data.products],
             "video_queries": input_data.video_queries,
+            "target_region_code": input_data.target_region_code,
             "supplied_videos": tools._video_summaries(tools.bundle),
             "limits": {
                 "searches": tools.max_searches,
@@ -332,7 +379,12 @@ def _validated_bundle(
 ) -> VideoReviewEvidenceBundle:
     available = tools.bundle
     if available is None or not decision.selected_videos:
-        raise ValueError("The YouTube specialist selected no available videos.")
+        return VideoReviewEvidenceBundle(
+            transcript_gap_notes=(
+                *decision.evidence_gaps,
+                "No validated review video was selected.",
+            )
+        )
     video_by_id = {v.video_id: v for v in available.videos}
     source_by_url = {str(r.url): r for r in available.source_references}
     product_ids = {p.product_id for p in input_data.products}

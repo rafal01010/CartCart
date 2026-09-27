@@ -11,12 +11,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.db.models  # noqa: F401
 from app.core.settings import Settings
 from app.db.base import Base
+from app.db.repositories.runs import RunRepository
+from app.db.repositories.results import ResultRepository
+from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.repositories.sessions import SessionRepository
 from app.db.session import (
     create_database_engine,
     create_session_factory,
     get_db_session,
 )
 from app.main import create_app
+from app.agents.contracts import (
+    GeneralShoppingAgentInput,
+    GeneralShoppingDecisionDraft,
+    GeneralShoppingOutcome,
+)
+from app.core.settings import AgentWorkflowMode
+from app.orchestration.shopping_runs import ShoppingRunOrchestrator
+from app.services.runs import RunService
+from app.agents.live_general_shopping import LiveGeneralShoppingAgent
+from app.providers import FakeExtractionProvider, FakeSearchProvider
+from app.schemas.runs import RunStage
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -74,6 +89,212 @@ def parse_sse_payloads(body: str) -> list[dict[str, str]]:
     return payloads
 
 
+@pytest.mark.parametrize(
+    "query,corrected_category,expected_owner",
+    (
+        ("Find a comfortable wooden cane", "mobility aid", "GeneralShoppingAgent"),
+        (
+            "Which smartphone should I buy?",
+            "smartphone",
+            "SmartphoneSpecialistAgent",
+        ),
+    ),
+)
+def test_guided_live_run_enters_general_owner_before_category_routing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+    corrected_category: str,
+    expected_owner: str,
+) -> None:
+    class RecordingGeneralOwner:
+        workbench_activity: tuple[dict[str, object], ...] = ()
+
+        def __init__(self) -> None:
+            self.calls: list[GeneralShoppingAgentInput] = []
+
+        async def run(
+            self, input_data: GeneralShoppingAgentInput
+        ) -> GeneralShoppingDecisionDraft:
+            self.calls.append(input_data)
+            if input_data.brief.category == "smartphone":
+                # Synthetic SDK activity tests API persistence; the SDK transfer
+                # itself is exercised in test_live_general_shopping_agent.py.
+                self.workbench_activity = (
+                    {
+                        "tool_name": "sdk_handoff",
+                        "status": "completed",
+                        "input": {
+                            "source_agent": "GeneralShoppingAgent",
+                            "reason": "Technology fit needs review.",
+                        },
+                        "output": {
+                            "target_agent": "TechnologyDomainAnalystAgent",
+                            "last_agent": "TechnologyDomainAnalystAgent",
+                        },
+                    },
+                    {
+                        "tool_name": "sdk_handoff",
+                        "status": "completed",
+                        "input": {
+                            "source_agent": "TechnologyDomainAnalystAgent",
+                            "reason": "Phone-specific review is useful.",
+                        },
+                        "output": {
+                            "target_agent": "SmartphoneSpecialistAgent",
+                            "last_agent": "SmartphoneSpecialistAgent",
+                        },
+                    },
+                    {
+                        "tool_name": "general_owner",
+                        "status": "insufficient_evidence",
+                        "input": {"agent": "GeneralShoppingAgent"},
+                        "output": {"last_agent_model": "gpt-recording", "usage": {}},
+                    },
+                )
+            return GeneralShoppingDecisionDraft(
+                owner_agent_name=(
+                    "SmartphoneSpecialistAgent"
+                    if input_data.brief.category == "smartphone"
+                    else "GeneralShoppingAgent"
+                ),
+                category=input_data.brief.category or "general shopping",
+                outcome=GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE,
+                evidence_gaps=("No research in this offline route test.",),
+                rationale="There is not enough checked evidence to choose a product yet.",
+            )
+
+    owner = RecordingGeneralOwner()
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "general-owner-api.sqlite3",
+        agent_workflow_mode=AgentWorkflowMode.LIVE,
+    )
+    asyncio.run(_create_tables(settings))
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    app = create_app(settings)
+
+    async def override_get_db_session() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
+            yield session
+
+    async def skip_live_scope_model(self: RunService, user_input: str) -> None:
+        del self, user_input
+
+    def owner_only_dependencies(self: RunService) -> dict[str, object]:
+        del self
+        return {"general_shopping_agent": owner}
+
+    async def reject_category_route(self: ShoppingRunOrchestrator, *args: object):
+        del self, args
+        raise AssertionError("Category routing ran before GeneralShoppingAgent.")
+
+    monkeypatch.setattr(RunService, "_check_live_agent_start", skip_live_scope_model)
+    monkeypatch.setattr(RunService, "_live_agent_kwargs", owner_only_dependencies)
+    monkeypatch.setattr(
+        ShoppingRunOrchestrator, "_category_route", reject_category_route
+    )
+    monkeypatch.setattr(
+        ShoppingRunOrchestrator,
+        "_STAGES",
+        ShoppingRunOrchestrator._STAGES[:2],
+    )
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    try:
+        with TestClient(app) as client:
+            created = client.post("/api/sessions/guided", json={"query": query})
+            assert created.status_code == 201
+            session_id = created.json()["session_id"]
+            ready = client.post(f"/api/sessions/{session_id}/guide/skip-all")
+            assert ready.status_code == 200
+            corrected = client.patch(
+                f"/api/sessions/{session_id}/brief",
+                json={
+                    "category": corrected_category,
+                    "category_source": "user_provided",
+                },
+            )
+            assert corrected.status_code == 200
+            run_response = client.post(f"/api/sessions/{session_id}/runs")
+            assert run_response.status_code == 201
+            run_id = run_response.json()["run_id"]
+            events = client.get(f"/api/sessions/{session_id}/runs/{run_id}/events")
+            assert events.status_code == 200
+            stages = [
+                json.loads(item["data"])["stage"]
+                for item in parse_sse_payloads(events.text)
+            ]
+            assert stages == ["intake", "general_owner", "complete"]
+            assert len(owner.calls) == 1
+            assert owner.calls[0].brief.original_query == query
+            assert owner.calls[0].brief.category == corrected_category
+            assert str(owner.calls[0].run_id) == run_id
+
+        async def read_owner_record():
+            async with session_factory() as session:
+                records = await ResultRepository(session).list_agent_records(
+                    UUID(run_id)
+                )
+                return next(
+                    record
+                    for record in records
+                    if record.stage == RunStage.GENERAL_OWNER
+                )
+
+        record = asyncio.run(read_owner_record())
+        assert record.agent_name == expected_owner
+        if expected_owner == "SmartphoneSpecialistAgent":
+            transfers = [
+                item
+                for item in record.tool_activity
+                if item["tool_name"] == "sdk_handoff"
+            ]
+            assert [item["output"]["target_agent"] for item in transfers] == [
+                "TechnologyDomainAnalystAgent",
+                "SmartphoneSpecialistAgent",
+            ]
+            assert transfers[-1]["output"]["last_agent"] == expected_owner
+    finally:
+        asyncio.run(engine.dispose())
+
+
+@pytest.mark.asyncio
+async def test_live_run_service_wires_regional_general_research(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "general-owner-wiring.sqlite3",
+        agent_workflow_mode=AgentWorkflowMode.LIVE,
+    )
+    engine = create_database_engine(settings)
+    try:
+        async with create_session_factory(engine)() as session:
+            service = RunService(
+                session_repository=SessionRepository(session),
+                run_repository=RunRepository(session),
+                search_source_repository=SearchSourceRepository(session),
+                search_provider=FakeSearchProvider(),
+                extraction_provider=FakeExtractionProvider(),
+                settings=settings,
+            )
+            owner = service._live_agent_kwargs()["general_shopping_agent"]
+            assert isinstance(owner, LiveGeneralShoppingAgent)
+            assert owner.shared_session is session
+            assert owner.regional_research_tools_factory is not None
+            tools = owner.regional_research_tools_factory(uuid4(), "PH")
+            assert tools.required_region_code == "PH"
+            assert tools._shared_session is session
+            assert owner.technology_research_tools_factory is not None
+            technology_tools = owner.technology_research_tools_factory(uuid4(), "PH")
+            assert technology_tools.required_region_code == "PH"
+            assert technology_tools._shared_session is session
+    finally:
+        await engine.dispose()
+
+
 def test_create_run_runs_stub_orchestrator_synchronously(
     run_api_client: TestClient,
 ) -> None:
@@ -90,6 +311,22 @@ def test_create_run_runs_stub_orchestrator_synchronously(
     assert body["started_at"] is not None
     assert body["completed_at"] is not None
     assert body["error"] is None
+
+
+def test_default_fixture_run_never_calls_general_model(
+    run_api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def unexpected_live_owner(
+        self: LiveGeneralShoppingAgent, input_data: GeneralShoppingAgentInput
+    ) -> GeneralShoppingDecisionDraft:
+        del self, input_data
+        raise AssertionError("Fixture run called the live GeneralShoppingAgent")
+
+    monkeypatch.setattr(LiveGeneralShoppingAgent, "run", unexpected_live_owner)
+    session_id = create_session(run_api_client)
+    response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+    assert response.status_code == 201
+    assert response.json()["status"] == "succeeded"
 
 
 def test_create_run_uses_user_provided_region_without_failing(

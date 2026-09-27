@@ -300,8 +300,9 @@ Run-scoped OpenAI Agents SDK `search_sources` and `fetch_source` function tools
 now wrap the approved search/extraction providers. They validate bounded agent
 choices, resolve fetches only from persisted same-run search IDs, commit source
 and snapshot records before revealing IDs, and return safe excerpts instead of
-credentials or raw provider metadata. The executable catalog approves search/fetch for
-`DiscoveryAgent` only. Live discovery now receives both tools and emits a
+credentials or raw provider metadata. The executable catalog approves search/fetch
+and hosted OpenAI `web_search` for `DiscoveryAgent`. The four source specialists also receive hosted search alongside their site tools. Live discovery receives
+all three tools with optional model choice and emits a
 structured decision for every observed source, including generic provider
 results; planned query source types are not stamped onto provider results.
 `POST /api/sessions/{session_id}/runs` executes synchronously; search is called by
@@ -333,7 +334,7 @@ products. Mixed live-provider/fixture-agent mode is allowed but warns that it
 cannot exercise live agent-owned research. The normal run path remains
 fixture-first; live typed agents require explicit configuration.
 
-Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. OpenAI Agents SDK handoffs should be used sparingly for specialist ownership, not as the primary control plane.
+Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. The target SDK handoffs are limited to General -> Technology -> eligible specialist ownership; backend code remains responsible for the persisted workflow and hard policy gates.
 
 Recommended stages:
 
@@ -413,7 +414,106 @@ Required MVP agent roles include:
 - `ComparisonDecisionAgent`
 - `VerifierCriticAgent`
 
-`GenericProductAnalystAgent` is the buy-anything fallback for normal shopping categories. `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning. MVP technology specialists cover monitors, smartphones, laptops, earphones/headphones, TVs, and smartwatches. Reusable source intelligence capabilities include required MVP YouTube, Reddit, Amazon, and IKEA source agents plus later marketplace product intelligence, official brand-store lookup, professional review sources, and broader community discussion signals. Generic product analysis must remain available when no narrower specialist exists or when a specialist/domain fallback is needed.
+`GenericProductAnalystAgent` is the current per-product analysis fallback for normal shopping categories. `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning. MVP technology specialists cover monitors, smartphones, laptops, earphones/headphones, TVs, and smartwatches. Reusable source intelligence capabilities include required MVP YouTube, Reddit, Amazon, and IKEA source agents plus later marketplace product intelligence, official brand-store lookup, professional review sources, and broader community discussion signals. Generic product analysis remains available in the current typed-step workflow when no narrower specialist exists or when a specialist/domain fallback is needed.
+
+### General owner and SDK handoff target
+
+The present live workflow invokes independent typed SDK steps after guided
+intake. `CategoryRouterAgent` returns `ProductAnalysisRoute`; Python selects
+analysts that return `CategoryAnalysis`, and `ComparisonDecisionAgent` builds
+`RecommendationBundle`. This is application routing, not an SDK handoff.
+`Agent.as_tool()` source delegation likewise returns bounded evidence, not
+shopper-request ownership. The opt-in live API now enters the SDK
+`GeneralShoppingAgent` after intake, before category routing, and records its
+draft and research trace. Existing decision stages still author the persisted
+result during this transition. General can now make a real SDK handoff to
+Technology when the handoff context matches a technology request. The SDK's
+completed handoff item and last agent determine the recorded draft owner;
+Technology may now SDK-handoff to one matching catalog-approved specialist.
+The specialist returns the owner draft directly, and the run records both
+completed transfer items and the SDK's last agent. The per-product
+Technology `CategoryAnalysis` path remains separate, and
+OpenAI's hosted web-search tool is attached to live `DiscoveryAgent`, scoped
+source specialists, listing trust, and all eight shopper owners.
+Provider `search_sources` and `fetch_source` remain separate tools.
+
+The target keeps the existing guided UI: `ShoppingGuideAgent` asks progressive
+questions, `IntakeAgent` normalizes the brief, and the backend applies
+scope/safe-product checks before a run. Every ordinary request then enters
+`GeneralShoppingAgent` as first model owner. General can research and finish
+any broad request, including one without a specialist, with a cited result or
+an explicit evidence gap. It may SDK-handoff only to
+`TechnologyDomainAnalystAgent`. Technology may finish broad technology
+requests or hand off only to a catalog-approved implemented monitor,
+smartphone, laptop, earphones/headphones, TV, or smartwatch specialist. The
+specialist is the last model owner and authors the shopper-facing draft.
+No source, intake, generic-analysis, comparison, or verification agent is a
+target in this shopper-owner handoff graph. `GenericProductAnalystAgent`
+continues as an evidence-only `CategoryAnalysis` capability in the current
+workflow; it is distinct from General.
+
+Each active owner now gets bounded typed access to persisted discovery/extraction
+artifacts, approved provider research, same-run source lookup, recorded-source
+and persisted-candidate comparison, deterministic listing-risk checks, and one
+source-manager consultation. A persisted product or an exact owner-recorded
+page quote can scope that consultation; the latter is a research candidate,
+not a verified listing. The source manager delegates
+to YouTube, Reddit, Amazon, and IKEA specialists; it does not become a second
+unrestricted researcher. Backend code owns provider credentials, source and
+region policy, budgets, evidence-ID checks, suspicious-listing blocks, and
+persistence. The last owner drafts the result; Task 89X will connect that draft
+to independent result verification and shopper-facing persistence. The parent
+never silently rewrites a transferred owner's answer. Persist
+the actual handoff chain, last owner/author, cited sources and evidence,
+verification changes, models/usage, and result version before UI projection.
+
+Hosted OpenAI web search is implemented alongside existing approved provider
+tools for live `DiscoveryAgent`, all eight shopper owners, and the four
+site/source specialists, and as a scoped optional tool for live
+`SellerListingTrustAgent`. Owners also have typed provider search/fetch and
+exact-page quote recording. Hosted citations remain weak leads; the decision draft
+requires fetched excerpts from two independent domains including a review
+and a product/listing page. It does not assert price, regional availability,
+or seller trust. Hosted search is not planned for the source manager as unrestricted search
+or for intake-only, extraction-only, comparison-only, and verification-only
+roles. The model may choose either research path; a search hit is not a
+verified listing, and only validated persisted citations support claims.
+
+Discovery reads real SDK `web_search_call` items and URL annotations. Public,
+policy-allowed cited URLs are persisted as run-scoped search results and
+unextracted snapshots, with weak source-metadata evidence IDs for the exact
+cited span. Hosted citations have no automatic product/listing authority;
+selected pages still pass approved extraction and backend claim validation.
+The buying region is sent as an approximate country hint, allowed domains are
+passed to hosted search when configured, and all returned URLs are checked
+again before persistence. A missing citation or failed hosted call is recorded
+as a discovery gap; unsupported model overrides fail configuration before a
+model run. Fixture runs remain network-free.
+
+Live listing trust receives a run-scoped citation store and the buyer region.
+Its hosted domain filter permits only the current listing or seller site, and
+backend URL checks further bind marketplace results to the exact listing or
+seller page. Actual URL annotations can become weak source-metadata records;
+their IDs are attached only to neutral, unverified trust leads. Search snippets,
+marketplace ratings, and model-only claims cannot raise trust or establish
+seller reputation, return/warranty coverage, or listing facts. The existing
+deterministic trust assessment remains authoritative for suspicious flags and
+for the trust level when supplied evidence is weak or unknown. The agent can
+finish without a search; missing citations, failed calls, and rejected pages
+leave an explicit gap in internal activity.
+
+Each live source specialist has `tool_choice=auto` and a source-specific hosted
+domain filter: YouTube, Reddit, the target Amazon marketplace, or the official
+IKEA domain. IKEA citation URLs must also match the selected regional path.
+The manager passes one run-scoped citation store to its nested specialists;
+isolated live workbench runs use disposable persistence. SDK call items,
+returned URLs, retained citations with source/snapshot/evidence IDs, and
+rejected URLs are recorded under the specialist's name. A retained citation
+is only weak source metadata. Transcript claims still require validated
+segments, community signals require read discussions, marketplace offers
+require the Amazon read tool, and IKEA prices or stock require official
+regional read evidence. Missing/failed hosted calls yield gaps; incompatible
+model profiles fail configuration before a live run.
 
 Required MVP reusable source intelligence roles include:
 
@@ -476,7 +576,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - IKEA-derived claims must preserve country/region context and must not imply global shipping or availability.
 - Tests should reject unsupported factual claims and verify confidence/evidence-quality separation.
 
-### Broad Category Fallback
+### Current Broad Category Fallback
 
 - Every normal shopping query must be eligible for `GenericProductAnalystAgent`.
 - Technology products should route through `TechnologyDomainAnalystAgent` and then to an MVP technology specialist when the category matches monitors, smartphones, laptops, earphones/headphones, TVs, or smartwatches.

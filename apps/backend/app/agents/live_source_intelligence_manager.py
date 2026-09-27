@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, MaxTurnsExceeded, ModelSettings, RunConfig, Runner
 from pydantic import Field
 
 from app.agents.contracts import (
@@ -40,8 +40,15 @@ from app.agents.live_youtube_review_intelligence import (
     _validated_bundle as validate_youtube,
 )
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
+    OpenAIAgentRuntimeMode,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.source_hosted_search import (
+    process_source_specialist_output,
+    source_tool_activity,
 )
 from app.core.settings import Settings
 from app.providers import (
@@ -74,8 +81,8 @@ _NAMES = {
     SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: "IKEAStoreIntelligenceAgent",
 }
 _MAX_MANAGER_USAGE_TOKENS = 30_000
-_MAX_PARENT_TURNS = 10
-_MAX_SPECIALIST_TURNS = 8
+_MAX_PARENT_TURNS = 15
+_MAX_SPECIALIST_TURNS = 12
 _MAX_PARENT_SECONDS = 90
 
 
@@ -151,6 +158,7 @@ class SourceIntelligenceManagerAgent:
     community_provider: CommunityDiscussionProvider | None = None
     amazon_provider: AmazonProductIntelligenceProvider | None = None
     ikea_provider: IKEAStoreIntelligenceProvider | None = None
+    citation_store_factory: Callable[[RunId], HostedCitationStore] | None = None
     model_runner: SourceManagerModelRunner = field(
         default_factory=OpenAIAgentsSDKSourceManagerRunner
     )
@@ -161,6 +169,13 @@ class SourceIntelligenceManagerAgent:
             agent_name="SourceIntelligenceManagerAgent",
             run_id=str(input_data.run_id),
         )
+        if (
+            config.mode == OpenAIAgentRuntimeMode.LIVE
+            and self.citation_store_factory is None
+        ):
+            raise OpenAIAgentConfigurationError(
+                "Live source specialists require run-scoped hosted citation persistence."
+            )
         if len(input_data.products) > 3 or len(input_data.allowed_capabilities) > 4:
             raise ValueError("Source manager candidate or capability budget exceeded.")
         if len(set(input_data.allowed_capabilities)) != len(
@@ -174,9 +189,17 @@ class SourceIntelligenceManagerAgent:
         activity: list[dict[str, Any]] = []
         nested_models: dict[SourceIntelligenceCapability, str] = {}
         source_states: dict[SourceIntelligenceCapability, Any] = {}
+        citation_store = (
+            self.citation_store_factory(input_data.run_id)
+            if config.mode == OpenAIAgentRuntimeMode.LIVE
+            and self.citation_store_factory is not None
+            else None
+        )
         tools = []
         for capability in input_data.allowed_capabilities:
-            specialist, specialist_input = self._specialist(capability, input_data)
+            specialist, specialist_input = self._specialist(
+                capability, input_data, citation_store
+            )
             sdk_agent, source_tools, nested_config = specialist.prepare_delegated_run(
                 specialist_input
             )
@@ -216,16 +239,45 @@ class SourceIntelligenceManagerAgent:
                 supplied: Any = specialist_input,
                 state: Any = source_tools,
                 model: str = nested_config.model,
+                limit: int = min(nested_config.max_turns, _MAX_SPECIALIST_TURNS),
                 name: str = sdk_agent.name,
+                source_agent: Any = specialist,
             ) -> str:
                 if cap in captured:
                     raise ValueError("Duplicate source specialist invocation.")
                 try:
-                    output = self._validate(cap, supplied, state, raw.final_output)
+                    output_model = {
+                        SourceIntelligenceCapability.VIDEO_REVIEW: YouTubeReviewModelOutput,
+                        SourceIntelligenceCapability.COMMUNITY_DISCUSSION: RedditCommunityModelOutput,
+                        SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: AmazonProductModelOutput,
+                        SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: IKEAStoreModelOutput,
+                    }[cap].model_validate(raw.final_output)
+                    (
+                        output_model,
+                        hosted_activity,
+                    ) = await process_source_specialist_output(
+                        raw=raw,
+                        decision=output_model,
+                        input_data=supplied,
+                        agent_name=name,
+                        citation_store=source_agent.citation_store,
+                        require_sdk_metadata=True,
+                    )
+                    activity.extend(hosted_activity)
+                    output = self._validate(cap, supplied, state, output_model)
                     captured[cap] = output
                     status = "validated"
                     result = {"bundle": output.model_dump(mode="json")}
-                except Exception:
+                except Exception as exc:
+                    if isinstance(exc, OpenAIAgentConfigurationError):
+                        activity.append(
+                            {
+                                "tool_name": "web_search",
+                                "status": "configuration_or_persistence_failed",
+                                "input": {"agent": name},
+                                "output": {"reason": str(exc)},
+                            }
+                        )
                     captured[cap] = self._gap_bundle(
                         cap,
                         "Nested agent output failed validation or source retrieval.",
@@ -248,6 +300,7 @@ class SourceIntelligenceManagerAgent:
                             "parent_agent": "SourceIntelligenceManagerAgent",
                             "agent": name,
                             "model": model,
+                            "max_turns": limit,
                             "capability": cap.value,
                         },
                         "output": {
@@ -273,7 +326,7 @@ class SourceIntelligenceManagerAgent:
                         },
                     }
                 )
-                activity.extend(state.workbench_activity)
+                activity.extend(source_tool_activity(state.workbench_activity, name))
                 return json.dumps(result, sort_keys=True)
 
             tools.append(
@@ -370,9 +423,20 @@ class SourceIntelligenceManagerAgent:
                     notes.append(f"{cap.value} skipped: {skipped[cap]}")
             completed = True
         except Exception as exc:
-            notes.append(
-                f"Source manager model failed ({type(exc).__name__}); no unvalidated source evidence was accepted."
-            )
+            if isinstance(exc, MaxTurnsExceeded):
+                last_agent = getattr(
+                    getattr(getattr(exc, "run_data", None), "last_agent", None),
+                    "name",
+                    "unknown",
+                )
+                notes.append(
+                    f"Source agent turn limit exhausted ({exc}); last SDK agent: "
+                    f"{last_agent}. No unvalidated source evidence was accepted."
+                )
+            else:
+                notes.append(
+                    f"Source manager model failed ({type(exc).__name__}); no unvalidated source evidence was accepted."
+                )
             for cap in input_data.allowed_capabilities:
                 if cap not in captured:
                     if cap in attempted:
@@ -389,7 +453,11 @@ class SourceIntelligenceManagerAgent:
                                 "output": {"source_evidence": []},
                             }
                         )
-                        activity.extend(source_states[cap].workbench_activity)
+                        activity.extend(
+                            source_tool_activity(
+                                source_states[cap].workbench_activity, _NAMES[cap]
+                            )
+                        )
                     captured[cap] = self._gap_bundle(
                         cap,
                         "Specialist model or provider failed."
@@ -404,6 +472,7 @@ class SourceIntelligenceManagerAgent:
                 "input": {
                     "agent": parent.name,
                     "model": config.model,
+                    "max_turns": min(config.max_turns, _MAX_PARENT_TURNS),
                     "available_tools": [t.name for t in tools],
                 },
                 "output": {
@@ -450,7 +519,10 @@ class SourceIntelligenceManagerAgent:
         )
 
     def _specialist(
-        self, capability: SourceIntelligenceCapability, data: SourceManagerInput
+        self,
+        capability: SourceIntelligenceCapability,
+        data: SourceManagerInput,
+        citation_store: HostedCitationStore | None = None,
     ) -> tuple[Any, Any]:
         common = dict(
             run_id=data.run_id,
@@ -461,19 +533,26 @@ class SourceIntelligenceManagerAgent:
         )
         if capability == SourceIntelligenceCapability.VIDEO_REVIEW:
             return YouTubeReviewIntelligenceAgent(
-                self.settings, self.video_provider, self.transcript_provider
+                self.settings,
+                self.video_provider,
+                self.transcript_provider,
+                citation_store=citation_store,
             ), YouTubeReviewIntelligenceAgentInput(
-                **common, video_queries=data.query_hints
+                **common,
+                video_queries=data.query_hints,
+                target_region_code=data.region_code,
             )
         if capability == SourceIntelligenceCapability.COMMUNITY_DISCUSSION:
             return RedditCommunityIntelligenceAgent(
-                self.settings, self.community_provider
+                self.settings, self.community_provider, citation_store=citation_store
             ), RedditCommunityIntelligenceAgentInput(
-                **common, community_queries=data.query_hints
+                **common,
+                community_queries=data.query_hints,
+                target_region_code=data.region_code,
             )
         if capability == SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW:
             return AmazonProductIntelligenceAgent(
-                self.settings, self.amazon_provider
+                self.settings, self.amazon_provider, citation_store=citation_store
             ), AmazonProductIntelligenceAgentInput(
                 **common,
                 product_queries=data.query_hints,
@@ -481,7 +560,7 @@ class SourceIntelligenceManagerAgent:
             )
         if capability == SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE:
             return IKEAStoreIntelligenceAgent(
-                self.settings, self.ikea_provider
+                self.settings, self.ikea_provider, citation_store=citation_store
             ), IKEAStoreIntelligenceAgentInput(
                 **common,
                 product_queries=data.query_hints,
@@ -540,4 +619,4 @@ class SourceIntelligenceManagerAgent:
             return AmazonProductEvidenceBundle(evidence_gaps=(gap,))
         if capability == SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE:
             return IKEAStoreEvidenceBundle(evidence_gaps=(gap,))
-        return None  # Video bundle requires an actual video; caller records a note.
+        return VideoReviewEvidenceBundle(transcript_gap_notes=(reason,))

@@ -7,16 +7,18 @@ arguments, raw metadata, artifact paths, or an arbitrary-URL fetch operation.
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import ip_address
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from agents import FunctionTool, function_tool
 from pydantic import Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
+from app.agents.hosted_web_search import HostedWebCitation
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.providers.contracts import (
     ExtractionProvider,
@@ -26,14 +28,21 @@ from app.providers.contracts import (
     SourceAllowAvoidPolicy,
 )
 from app.schemas.base import CartCartBaseModel
+from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import RunId, SourceId
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
     ExtractionStatus,
+    EvidenceTarget,
+    EvidenceTargetType,
+    EvidenceType,
     ProviderMetadata,
     SearchIntent,
     SearchQuery,
     SearchResult,
+    SourceEvidence,
+    SourceQuality,
+    SourceQualityLevel,
     SourceSnapshot,
     SourceType,
 )
@@ -44,6 +53,7 @@ class ResearchToolLimits(CartCartBaseModel):
     max_fetch_calls: int = Field(default=8, ge=1, le=40)
     max_results_per_search: int = Field(default=10, ge=1, le=20)
     max_page_text_chars: int = Field(default=12000, ge=500, le=50000)
+    max_quote_calls: int = Field(default=8, ge=1, le=20)
 
 
 class ResearchToolStatus(StrEnum):
@@ -103,6 +113,192 @@ class FetchSourceResult(CartCartBaseModel):
     gap: str | None = None
 
 
+class RecordSourceQuoteResult(CartCartBaseModel):
+    status: ResearchToolStatus
+    source_id: SourceId | None = None
+    snapshot_id: SourceId | None = None
+    evidence_id: SourceId | None = None
+    quote: str | None = None
+    gap: str | None = None
+
+
+@dataclass(frozen=True)
+class PersistedHostedCitation:
+    url: str
+    source_id: SourceId
+    snapshot_id: SourceId
+    evidence_id: SourceId
+    call_id: str | None
+
+
+class HostedCitationStore:
+    """Citation-only persistence for SDK agents without provider research tools."""
+
+    def __init__(
+        self,
+        *,
+        run_id: RunId,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
+        shared_session: AsyncSession | None = None,
+    ) -> None:
+        if session_factory is None and shared_session is None:
+            raise ValueError("Hosted citations require a database session.")
+        self.run_id = run_id
+        self.session_factory = session_factory
+        self.shared_session = shared_session
+        self.lock = asyncio.Lock()
+
+    async def persist(
+        self,
+        *,
+        agent_name: str,
+        citations: tuple[HostedWebCitation, ...],
+        query: str,
+        region_code: RegionCode | None,
+        source_policy: SourceAllowAvoidPolicy,
+    ) -> tuple[tuple[PersistedHostedCitation, ...], tuple[tuple[str, str], ...]]:
+        if not citations:
+            return (), ()
+        async with self.lock:
+            if self.shared_session is not None:
+                persisted, _, decisions = await save_hosted_citations(
+                    session=self.shared_session,
+                    agent_name=agent_name,
+                    run_id=self.run_id,
+                    citations=citations,
+                    query=query,
+                    region_code=region_code,
+                    source_policy=source_policy,
+                )
+            else:
+                assert self.session_factory is not None
+                async with self.session_factory() as session:
+                    persisted, _, decisions = await save_hosted_citations(
+                        session=session,
+                        agent_name=agent_name,
+                        run_id=self.run_id,
+                        citations=citations,
+                        query=query,
+                        region_code=region_code,
+                        source_policy=source_policy,
+                    )
+        return persisted, decisions
+
+
+async def save_hosted_citations(
+    *,
+    session: AsyncSession,
+    agent_name: str,
+    run_id: RunId,
+    citations: tuple[HostedWebCitation, ...],
+    query: str,
+    region_code: RegionCode | None,
+    source_policy: SourceAllowAvoidPolicy,
+) -> tuple[
+    tuple[PersistedHostedCitation, ...],
+    tuple[SearchResult, ...],
+    tuple[tuple[str, str], ...],
+]:
+    if (
+        ApprovedSDKTool.HOSTED_WEB_SEARCH
+        not in DEFAULT_AGENT_CATALOG.require(agent_name).approved_sdk_tools
+    ):
+        raise ValueError("Agent is not approved for hosted web search.")
+    selected: list[tuple[SearchResult, SourceSnapshot, SourceEvidence, str | None]] = []
+    decisions: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for citation in citations:
+        try:
+            normalized = _neutral_url(citation.url)
+        except ValueError:
+            decisions.append((citation.url, "source_rejected"))
+            continue
+        if normalized in seen:
+            decisions.append((normalized, "duplicate_rejected"))
+            continue
+        seen.add(normalized)
+        if len(selected) >= 8:
+            decisions.append((normalized, "citation_limit_rejected"))
+            continue
+        if (
+            len(normalized) > 2048
+            or not _safe_public_result_url(citation.url)
+            or not _source_policy_allows(
+                citation.url, SourceType.SEARCH_RESULT, source_policy
+            )
+        ):
+            decisions.append((normalized, "source_rejected"))
+            continue
+        quality = SourceQuality(
+            level=SourceQualityLevel.WEAK,
+            rationale="Hosted citation only; page and product claims are unverified.",
+        )
+        provider = ProviderMetadata(
+            provider_name="openai-hosted-web-search",
+            provider_result_id=citation.call_id,
+            raw={"url_citation": True},
+        )
+        result = SearchResult(
+            query=SearchQuery(
+                query=query[:500],
+                intent=SearchIntent.DISCOVERY,
+                region_code=region_code,
+            ),
+            url=normalized,
+            title=(citation.title.strip() or normalized)[:300],
+            source_type=SourceType.SEARCH_RESULT,
+            provider=provider,
+            quality=quality,
+        )
+        snapshot = SourceSnapshot(
+            url=normalized,
+            source_type=SourceType.SEARCH_RESULT,
+            title=result.title,
+            provider=provider,
+            extraction_status=ExtractionStatus.NOT_ATTEMPTED,
+            quality=quality,
+        )
+        evidence = SourceEvidence(
+            source_id=snapshot.source_id,
+            target=EvidenceTarget(
+                target_type=EvidenceTargetType.SOURCE_METADATA,
+                source_id=snapshot.source_id,
+            ),
+            evidence_type=EvidenceType.OTHER,
+            claim=(
+                citation.cited_text.strip() or f"Hosted response cited {result.title}"
+            )[:2000],
+            confidence=Confidence(
+                score=0.2,
+                level=ConfidenceLevel.LOW,
+                rationale="Citation establishes a referenced URL, not a verified product fact.",
+            ),
+            source_quality=quality,
+        )
+        selected.append((result, snapshot, evidence, citation.call_id))
+        decisions.append((normalized, "retained"))
+    if selected:
+        repository = SearchSourceRepository(session)
+        for result, snapshot, evidence, _ in selected:
+            await repository.add_search_result(run_id, result)
+            await repository.add_source_snapshot(
+                run_id, snapshot, search_result_id=result.source_id
+            )
+            await repository.add_source_evidence(run_id, evidence)
+        await session.commit()
+    persisted = tuple(
+        PersistedHostedCitation(
+            url=_neutral_url(str(result.url)),
+            source_id=result.source_id,
+            snapshot_id=snapshot.source_id,
+            evidence_id=evidence.evidence_id,
+            call_id=call_id,
+        )
+        for result, snapshot, evidence, call_id in selected
+    )
+    return persisted, tuple(item[0] for item in selected), tuple(decisions)
+
+
 class AgentResearchTools:
     """One instance per agent run; provider and database dependencies stay private."""
 
@@ -117,6 +313,7 @@ class AgentResearchTools:
         extraction_provider: ExtractionProvider,
         source_policy: SourceAllowAvoidPolicy | None = None,
         limits: ResearchToolLimits | None = None,
+        required_region_code: RegionCode | None = None,
     ) -> None:
         entry = DEFAULT_AGENT_CATALOG.require(agent_name)
         required_tools = {
@@ -139,12 +336,16 @@ class AgentResearchTools:
         self._extraction_provider = extraction_provider
         self._source_policy = source_policy or SourceAllowAvoidPolicy()
         self._limits = limits or ResearchToolLimits()
+        self._required_region_code = required_region_code
         self._search_calls = 0
         self._fetch_calls = 0
+        self._quote_calls = 0
         self._lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
         self._activity: list[dict[str, Any]] = []
         self._search_results: list[SearchResult] = []
+        self._recorded_quote_ids: set[SourceId] = set()
+        self._recorded_source_ids: set[SourceId] = set()
 
     @property
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
@@ -153,6 +354,36 @@ class AgentResearchTools:
     @property
     def search_results(self) -> tuple[SearchResult, ...]:
         return tuple(self._search_results)
+
+    @property
+    def source_policy(self) -> SourceAllowAvoidPolicy:
+        return self._source_policy
+
+    @property
+    def recorded_quote_ids(self) -> frozenset[SourceId]:
+        return frozenset(self._recorded_quote_ids)
+
+    @property
+    def recorded_source_ids(self) -> frozenset[SourceId]:
+        return frozenset(self._recorded_source_ids)
+
+    @property
+    def required_region_code(self) -> RegionCode | None:
+        return self._required_region_code
+
+    def for_agent(self, agent_name: str) -> "AgentResearchTools":
+        """Give a receiving owner the same run, policy, and providers with its own budget."""
+        return AgentResearchTools(
+            agent_name=agent_name,
+            run_id=self._run_id,
+            session_factory=self._session_factory,
+            shared_session=self._shared_session,
+            search_provider=self._search_provider,
+            extraction_provider=self._extraction_provider,
+            source_policy=self._source_policy,
+            limits=self._limits,
+            required_region_code=self._required_region_code,
+        )
 
     @asynccontextmanager
     async def _session(self) -> AsyncIterator[AsyncSession]:
@@ -218,7 +449,135 @@ class AgentResearchTools:
 
         return search_sources, fetch_source
 
+    def sdk_owner_tools(self) -> tuple[FunctionTool, FunctionTool, FunctionTool]:
+        """General owner may cite exact text from an already fetched page."""
+        if (
+            ApprovedSDKTool.RECORD_SOURCE_QUOTE
+            not in DEFAULT_AGENT_CATALOG.require(self._agent_name).approved_sdk_tools
+        ):
+            raise ValueError("Agent is not approved to record page quotes.")
+
+        @function_tool
+        async def record_source_quote(source_id: str, quote: str) -> str:
+            """Persist an exact quote from a fetched source in this run.
+
+            Args:
+                source_id: ID returned by search_sources, then fetched.
+                quote: Exact page text, at most 400 characters; never a snippet.
+            """
+            try:
+                parsed_id = SourceId(source_id)
+            except ValueError:
+                return RecordSourceQuoteResult(
+                    status=ResearchToolStatus.INVALID_REQUEST,
+                    gap="Source ID failed validation.",
+                ).model_dump_json()
+            return (await self.record_quote(parsed_id, quote)).model_dump_json()
+
+        search, fetch = self.sdk_tools()
+        return search, fetch, record_source_quote
+
+    async def record_quote(
+        self, source_id: SourceId, quote: str
+    ) -> RecordSourceQuoteResult:
+        bounded = quote.strip()
+        if not bounded or len(bounded) > 400:
+            return RecordSourceQuoteResult(
+                status=ResearchToolStatus.INVALID_REQUEST,
+                gap="Quote must contain 1 to 400 exact page characters.",
+            )
+        async with self._session_lock:
+            if self._quote_calls >= self._limits.max_quote_calls:
+                return RecordSourceQuoteResult(
+                    status=ResearchToolStatus.BUDGET_EXHAUSTED,
+                    gap="Quote limit reached.",
+                )
+            self._quote_calls += 1
+            async with self._session() as session:
+                repository = SearchSourceRepository(session)
+                source = await repository.get_search_result_for_run(
+                    self._run_id, source_id
+                )
+                snapshot = await repository.get_snapshot_for_search_result(
+                    self._run_id, source_id
+                )
+                if (
+                    source is None
+                    or not _safe_public_result_url(str(source.url))
+                    or not _source_policy_allows(
+                        str(source.url), source.source_type, self._source_policy
+                    )
+                    or snapshot is None
+                    or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
+                    or snapshot.extracted_content is None
+                    or bounded not in snapshot.extracted_content.text
+                    or bounded
+                    not in snapshot.extracted_content.text[
+                        : self._limits.max_page_text_chars
+                    ]
+                ):
+                    result = RecordSourceQuoteResult(
+                        status=ResearchToolStatus.GAP,
+                        gap="Exact quote was not found in a fetched page in this run.",
+                    )
+                    self._record("record_source_quote", result.status)
+                    return result
+                evidence = SourceEvidence(
+                    source_id=snapshot.source_id,
+                    target=EvidenceTarget(
+                        target_type=EvidenceTargetType.SOURCE_METADATA,
+                        source_id=snapshot.source_id,
+                    ),
+                    evidence_type=(
+                        EvidenceType.REVIEW_CLAIM
+                        if source.source_type == SourceType.PROFESSIONAL_REVIEW
+                        else EvidenceType.OTHER
+                    ),
+                    claim=bounded,
+                    confidence=Confidence(
+                        score=0.5,
+                        level=ConfidenceLevel.MEDIUM,
+                        rationale="Exact text on a fetched page; the claim is not independently verified.",
+                    ),
+                    source_quality=snapshot.quality,
+                )
+                await repository.add_source_evidence(self._run_id, evidence)
+                await self._commit(session)
+                self._recorded_quote_ids.add(evidence.evidence_id)
+                self._recorded_source_ids.add(source_id)
+                result = RecordSourceQuoteResult(
+                    status=ResearchToolStatus.SUCCEEDED,
+                    source_id=source_id,
+                    snapshot_id=snapshot.source_id,
+                    evidence_id=evidence.evidence_id,
+                    quote=bounded,
+                )
+                self._record(
+                    "record_source_quote",
+                    result.status,
+                    source_ids=[
+                        str(source_id),
+                        str(snapshot.source_id),
+                        str(evidence.evidence_id),
+                    ],
+                )
+                return result
+
     async def search(self, request: SearchSourcesRequest) -> SearchSourcesResult:
+        if (
+            self._required_region_code is not None
+            or self._agent_name == "GeneralShoppingAgent"
+        ):
+            if request.region_code not in (None, self._required_region_code):
+                result = SearchSourcesResult(
+                    status=ResearchToolStatus.INVALID_REQUEST,
+                    gap="Search region differs from the shopper's buying region.",
+                )
+                self._record("search_sources", result.status)
+                return result
+            request = request.model_copy(
+                update={"region_code": self._required_region_code}
+            )
         async with self._lock:
             if self._search_calls >= self._limits.max_search_calls:
                 result = SearchSourcesResult(
@@ -297,6 +656,35 @@ class AgentResearchTools:
         )
         return result
 
+    async def persist_hosted_citations(
+        self,
+        citations: tuple[HostedWebCitation, ...],
+        *,
+        query: str,
+        region_code: RegionCode | None,
+    ) -> tuple[PersistedHostedCitation, ...]:
+        """Save actual SDK citations as weak source metadata, never listings."""
+        async with self._session_lock:
+            async with self._session() as session:
+                persisted, results, decisions = await save_hosted_citations(
+                    session=session,
+                    agent_name=self._agent_name,
+                    run_id=self._run_id,
+                    citations=citations,
+                    query=query,
+                    region_code=region_code,
+                    source_policy=self._source_policy,
+                )
+        self._search_results.extend(results)
+        for decision in decisions:
+            self._record("web_search", decision[1], url=decision[0])
+        self._record(
+            "web_search",
+            "citations_persisted",
+            source_ids=[str(item.source_id) for item in persisted],
+        )
+        return persisted
+
     async def fetch(self, request: FetchSourceRequest) -> FetchSourceResult:
         async with self._lock:
             async with self._session_lock:
@@ -327,7 +715,10 @@ class AgentResearchTools:
                     cached = await repository.get_snapshot_for_search_result(
                         self._run_id, request.source_id
                     )
-                    if cached is not None:
+                    if (
+                        cached is not None
+                        and cached.extraction_status != ExtractionStatus.NOT_ATTEMPTED
+                    ):
                         result = self._fetch_result(source, cached)
                         self._record(
                             "fetch_source",
@@ -391,7 +782,11 @@ class AgentResearchTools:
                 async with self._session_lock:
                     async with self._session() as session:
                         repository = SearchSourceRepository(session)
-                        await repository.add_source_snapshot(
+                        if cached is not None:
+                            snapshot = snapshot.model_copy(
+                                update={"source_id": cached.source_id}
+                            )
+                        await repository.save_source_snapshot(
                             self._run_id,
                             snapshot,
                             search_result_id=request.source_id,
@@ -455,13 +850,17 @@ class AgentResearchTools:
         status: ResearchToolStatus | str,
         *,
         source_ids: list[str] | None = None,
+        url: str | None = None,
     ) -> None:
         self._activity.append(
             {
                 "tool_name": tool_name,
                 "status": status,
                 "input": {"agent": self._agent_name, "run_id": str(self._run_id)},
-                "output": {"source_ids": source_ids or []},
+                "output": {
+                    "source_ids": source_ids or [],
+                    **({"url": url} if url is not None else {}),
+                },
             }
         )
 
@@ -535,7 +934,15 @@ def _safe_snapshot_metadata(
 
 def _neutral_url(url: str) -> str:
     parsed = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    query = ""
+    if (parsed.hostname or "").lower() in {
+        "youtube.com",
+        "www.youtube.com",
+    } and parsed.path == "/watch":
+        video_ids = parse_qs(parsed.query).get("v", ())
+        if video_ids:
+            query = urlencode({"v": video_ids[0]})
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
 
 
 def _safe_public_result_url(url: str) -> bool:
@@ -545,7 +952,9 @@ def _safe_public_result_url(url: str) -> bool:
     if parsed.username is not None or parsed.password is not None:
         return False
     host = parsed.hostname.rstrip(".").lower()
-    if host == "localhost" or host.endswith((".localhost", ".local")):
+    if host in {"localhost", "local", "internal", "invalid", "test"} or host.endswith(
+        (".localhost", ".local", ".internal", ".invalid", ".test", ".lan")
+    ):
         return False
     try:
         return ip_address(host).is_global
@@ -564,3 +973,23 @@ def _domain_policy_allows(url: str, policy: SourceAllowAvoidPolicy) -> bool:
         return False
     allowed_domains = [rule.domain for rule in policy.allow if rule.domain]
     return not allowed_domains or any(matches(domain) for domain in allowed_domains)
+
+
+def _source_policy_allows(
+    url: str, source_type: SourceType, policy: SourceAllowAvoidPolicy
+) -> bool:
+    host = (urlsplit(url).hostname or "").rstrip(".").lower().removeprefix("www.")
+
+    def matches(rule: Any) -> bool:
+        domain = (
+            rule.domain.rstrip(".").lower().removeprefix("www.")
+            if rule.domain is not None
+            else None
+        )
+        return (domain is None or host == domain or host.endswith(f".{domain}")) and (
+            rule.source_type is None or rule.source_type == source_type
+        )
+
+    if any(matches(rule) for rule in policy.avoid):
+        return False
+    return not policy.allow or any(matches(rule) for rule in policy.allow)

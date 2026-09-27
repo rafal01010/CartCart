@@ -322,9 +322,9 @@ Current backend variables:
 - `CARTCART_AGENT_WORKBENCH_ENABLED`: enables the local-only isolated agent workbench when `true`. Defaults to `false`.
 - `CARTCART_AGENT_WORKFLOW_MODE`: normal shopping-run agent mode. Allowed values are `fixture` and `live`. Defaults to `fixture`.
 - `CARTCART_LIVE_AGENTS_ENABLED`: opt-in gate for live OpenAI agent calls. Defaults to `false`.
-- `CARTCART_OPENAI_MODEL`: global model fallback for implemented OpenAI Agents SDK runners. Defaults to `gpt-5.4-mini`.
+- `CARTCART_OPENAI_MODEL`: global model fallback for implemented OpenAI Agents SDK runners. Read from the process environment or `apps/backend/.env`; no model name is hard-coded. Missing configuration blocks live calls that lack an explicit profile model.
 - `CARTCART_OPENAI_AGENT_TIMEOUT_SECONDS`: global per-agent timeout fallback. Defaults to `45`.
-- `CARTCART_OPENAI_AGENT_MAX_TURNS`: global max SDK runner turns fallback. Defaults to `8`.
+- `CARTCART_OPENAI_AGENT_MAX_TURNS`: global max SDK runner turns fallback. Defaults to `12`.
 - `CARTCART_OPENAI_RUN_PROFILES`: JSON object keyed by `default`, `fast`, and/or `strong`; each profile may set `model`, `reasoning_effort`, `timeout_seconds`, and `max_turns`. Catalog roles select a profile; omitted fields fall back individually.
 - `CARTCART_OPENAI_AGENT_OVERRIDES`: optional JSON object keyed by exact registered agent name, with the same fields. An exact-agent value takes precedence over its catalog profile.
 - `CARTCART_OPENAI_AGENT_TRACING_ENABLED`: enables OpenAI Agents SDK tracing when live runners use it. Defaults to `false`.
@@ -518,8 +518,8 @@ live-agent workflow mode with:
 ```dotenv
 CARTCART_AGENT_WORKFLOW_MODE=live
 CARTCART_LIVE_AGENTS_ENABLED=true
-CARTCART_OPENAI_MODEL=gpt-5.5
-CARTCART_OPENAI_RUN_PROFILES='{"fast":{"model":"gpt-5.4-mini","reasoning_effort":"none","timeout_seconds":30,"max_turns":6},"strong":{"model":"gpt-5.5","reasoning_effort":"medium","timeout_seconds":60,"max_turns":10}}'
+CARTCART_OPENAI_MODEL=gpt-6-sol
+CARTCART_OPENAI_RUN_PROFILES='{"fast":{"model":"gpt-6-luna","reasoning_effort":"none","timeout_seconds":30,"max_turns":9},"strong":{"model":"gpt-6-sol","reasoning_effort":"medium","timeout_seconds":60,"max_turns":15}}'
 OPENAI_API_KEY=replace-with-your-real-key
 ```
 
@@ -561,11 +561,62 @@ sensitive data by default. The new run-scoped research tool adapter enforces fou
 eight page fetches, ten returned results per search, and 12,000 page-text
 characters per fetch by default. These backend-owned bounds may be narrowed
 when constructing a tool adapter; they are not shopper- or model-controlled.
-The tools are attached to the live `DiscoveryAgent` step; fixture/mock runs
+The provider tools are attached to the live `DiscoveryAgent` step; fixture/mock runs
 remain network-free unless a non-fixture provider was explicitly selected.
+Live Discovery also receives OpenAI's hosted `WebSearchTool` with
+`tool_choice=auto`; a tool attachment does not imply a call. Its `strong`
+profile uses `gpt-6-sol` in `.env.example`, a documented Responses web-search
+model. `gpt-6-astra` and `gpt-6-luna` are also verified profiles; an unknown
+Discovery model override fails before a live call instead of dropping the tool.
+SDK `web_search_call` activity and retained citation/source/evidence IDs appear
+in internal workbench activity. Hosted citations enter persistence as weak,
+unextracted source leads, not verified product listings. Missing annotations
+or failed hosted calls produce a visible discovery gap. Current
+`ProductAnalysisRoute` or nested source agent-tool activity is not an SDK
+handoff. The catalog declares hosted search implemented for Discovery,
+General, Technology, the six product specialists, listing trust, and four
+site/source specialists. It declares
+target General -> Technology -> specialist ownership separately from current
+routes. The opt-in live owner run now supports both SDK transfers. Validated
+categories and reasons accompany each handoff; the trace records completed SDK
+transfer items, source/target models, depth, and the last agent. A failed
+specialist recovery is a separate Technology owner run, not a reverse SDK
+handoff. Invalid targets, mismatched context, failed transfers, or budget
+errors yield an explicit insufficient-evidence gap. The acyclic graph is
+limited to two hops, ten initial turns plus at most two Technology recovery
+turns, the shortest configured owner timeout, and a 90,000-token run ceiling
+checked on completion, including nested source-agent usage. Technology has a
+1,800-token per-turn output cap and specialists have a 1,500-token cap. Every
+owner can use role-scoped hosted/provider search, same-run evidence lookup,
+recorded-source/product comparison, deterministic listing-risk checks, and
+one bounded source-manager consultation. The manager accepts a persisted run
+product or a candidate grounded in an owner-recorded exact page quote; source
+specialists stay nested tools. `GeneralShoppingAgent` runs after scoped intake in the opt-in live
+shopping API and in the isolated workbench. It uses a `strong` profile, up to
+10 initial turns, 2,500 output tokens per turn, bounded provider search/fetch/quote
+tools, optional hosted search,
+and run-scoped citation persistence. Its draft and cited research are recorded
+in the live run trace, while existing typed decision stages still persist the
+result. Fixture mode remains offline; workbench mock mode uses
+in-process providers and a scripted model runner. Active-owner result
+persistence remains a later task.
 The resolved model and optional reasoning effort are set on each SDK `Agent`,
 not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
 caller's model profile.
+The source specialists use the `fast` profile (`gpt-6-luna` in `.env.example`),
+which supports hosted search. An incompatible source-agent override or missing
+run-scoped citation persistence stops live setup. Workbench activity records
+each source agent's actual hosted call, returned URLs, retained weak citation
+IDs, and rejected URLs. Fixture/mock workbench runs attach no hosted tool and
+make no network call.
+Listing trust uses its `strong` profile and also requires a compatible hosted
+search model, a buyer region, a public listing or seller domain, and run-scoped
+citation persistence before a live call. Its workbench activity separates an
+actual `web_search` call from retained/rejected citation URLs and persisted
+source/evidence IDs. Cited pages remain unverified leads; hard suspicious
+flags and weak/unknown trust cannot be upgraded by snippets or ratings. A
+failed or uncited search is recorded as a gap. Fixture/mock runs attach no
+hosted tool.
 
 The isolated agent workbench is a local debugging surface for one typed agent at
 a time. It is disabled by default and is mounted only for `local`, `test`, or
@@ -657,8 +708,12 @@ forced smartwatch analysis for non-watch input. For `SellerListingTrustAgent`,
 a far-below-comparable price and unclear return policy is weak or suspicious,
 while `trust/established-retailer` checks reasonable trust when seller/source
 evidence supports it. Hard deterministic suspicious flags remain visible in the
-final `ListingTrustAssessment` instead of being silently overridden. For
-`YouTubeReviewIntelligenceAgent`, `youtube/monitor-review-transcript` checks
+final `ListingTrustAssessment` instead of being silently overridden.
+For Task 89R2, use these same trust fixtures with mocked SDK search/no-search
+responses: the cheap marketplace case keeps its suspicious price flag when a
+seller page is cited, and the established-retailer case needs no search.
+Off-seller, uncited, or failed hosted results must add no positive trust signal.
+For `YouTubeReviewIntelligenceAgent`, `youtube/monitor-review-transcript` checks
 timestamped transcript evidence while `youtube/no-transcript-gap` checks
 metadata-only gaps. For `RedditCommunityIntelligenceAgent`,
 `reddit/headphones-recurring-complaint` checks recurring qualitative community
@@ -688,8 +743,29 @@ parent can invoke at most one run of each enabled specialist. Fixture runs keep
 the provider-service path without claiming a model call. A legacy directly
 constructed orchestrator with no manager injected still records its live
 provider-service path truthfully.
-For
-`ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
+The Task 89P live delegation smoke is opt-in: from `apps/backend`, run
+`CARTCART_RUN_89P_LIVE_SMOKE=1 .venv/bin/python -m pytest -q -s tests/test_source_intelligence_live_model_smoke.py`
+only with an explicit live-model authorization and `OPENAI_API_KEY`. It uses
+the local `apps/backend/.env` model profiles and an injected in-process IKEA
+fixture provider. The test fails before a model call if the file or expected
+fast/strong profile and turn limits are missing; report resolved models,
+limits, and any process-environment override without exposing keys. It must
+not call Tavily, SerpAPI, YouTube, Reddit, or live IKEA retrieval.
+Initial 2026-09-27 attempts exposed a turn limit, Codex-sandbox DNS
+restrictions, and an unsupported constrained-decimal regex in the nested IKEA
+structured-output schema. The smoke now loads local `.env` profiles; the
+model-facing price schema is compatible with OpenAI while backend `Money` and
+source-grounding validation remain in force. A final authorized unsandboxed
+rerun passed, confirming real SDK parent-to-IKEA-agent delegation, fixture
+search/read tool use, and validated cited evidence. Task 89P is complete. The
+local `.env` turn limits are fallback `12`, fast `9`, strong `15`; the manager's
+hard parent/specialist caps are `15`/`12`. Longer turn limits can consume more
+tokens and do not override timeout or tool-call budgets. Do not retry a failed
+credentialed smoke without renewed authorization. No live source providers
+were called, and the normal local app remains in fixture-agent mode unless
+deliberately changed.
+
+For `ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
 source-backed three-monitor shortlist with best overall, best value,
 within-budget, stretch, and runner-up modes, while
 `comparison/no-strong-buy` checks an explicit no-strong-buy outcome when trust

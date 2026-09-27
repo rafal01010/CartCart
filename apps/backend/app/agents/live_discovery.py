@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig, Runner, WebSearchTool
 from pydantic import Field, ValidationError
 
 from app.agents.contracts import (
@@ -16,8 +16,14 @@ from app.agents.contracts import (
     DiscoverySourceDecision,
     DiscoverySourceKind,
 )
-from app.agents.research_tools import AgentResearchTools
+from app.agents.research_tools import AgentResearchTools, PersistedHostedCitation
+from app.agents.hosted_web_search import (
+    build_hosted_web_search_tool,
+    read_hosted_web_search_activity,
+)
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
+    OpenAIAgentRuntimeMode,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
@@ -55,6 +61,21 @@ class DiscoveryModelOutput(CartCartBaseModel):
     selected_source_ids: tuple[SourceId, ...]
     outcome: DiscoveryAgentOutcome
     notes: tuple[str, ...] = Field(default_factory=tuple)
+    hosted_source_decisions: tuple["HostedSourceDecision", ...] = Field(
+        default_factory=tuple
+    )
+
+
+class HostedSourceDecision(CartCartBaseModel):
+    """Model decision keyed by an SDK-cited URL; backend assigns the source ID."""
+
+    url: str
+    classification: DiscoverySourceKind
+    confidence: float = Field(ge=0, le=1)
+    reasons: tuple[str, ...] = Field(min_length=1)
+    intended_treatment: str = Field(min_length=1, max_length=300)
+    candidate_model_hints: tuple[str, ...] = Field(default_factory=tuple)
+    next_action: DiscoveryNextAction
 
 
 @dataclass
@@ -116,6 +137,11 @@ class LiveDiscoveryAgent:
     _research_tools: AgentResearchTools | None = field(
         default=None, init=False, repr=False
     )
+    _hosted_tool_attached: bool = field(default=False, init=False, repr=False)
+    _hosted_activity: tuple[dict[str, Any], ...] = field(
+        default=(), init=False, repr=False
+    )
+    _hosted_error_status: str | None = field(default=None, init=False, repr=False)
 
     async def run(self, input_data: DiscoveryAgentInput) -> DiscoveryAgentOutput:
         configuration = build_openai_agent_run_configuration(
@@ -128,12 +154,35 @@ class LiveDiscoveryAgent:
             if self.research_tools_factory is not None
             else None
         )
-        agent = _build_discovery_agent(configuration.model, self._research_tools)
+        self._hosted_activity = ()
+        self._hosted_error_status = None
+        hosted_tool = None
+        if configuration.mode == OpenAIAgentRuntimeMode.LIVE:
+            if self._research_tools is None:
+                raise OpenAIAgentConfigurationError(
+                    "Live DiscoveryAgent requires run-scoped research and citation persistence."
+                )
+            region_code = (
+                input_data.brief.region.region.country_code
+                if input_data.brief.region is not None
+                else None
+            )
+            hosted_tool = build_hosted_web_search_tool(
+                agent_name="DiscoveryAgent",
+                model=configuration.model,
+                region_code=region_code,
+                source_policy=self._research_tools.source_policy,
+            )
+        self._hosted_tool_attached = hosted_tool is not None
+        agent = _build_discovery_agent(
+            configuration.model, self._research_tools, hosted_tool
+        )
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
             model_settings=ModelSettings(
                 max_tokens=4000,
                 include_usage=True,
+                tool_choice="auto",
             ),
             tracing_disabled=not configuration.tracing_enabled,
             trace_include_sensitive_data=configuration.trace_include_sensitive_data,
@@ -151,10 +200,85 @@ class LiveDiscoveryAgent:
                 ),
                 timeout=configuration.timeout_seconds,
             )
+            hosted_decisions = ()
+            if hosted_tool is not None:
+                if not hasattr(raw_result, "raw_responses") and isinstance(
+                    self.model_runner, OpenAIAgentsSDKDiscoveryModelRunner
+                ):
+                    self._hosted_error_status = (
+                        "hosted_search_sdk_metadata_missing_fallback"
+                    )
+                    raise ValueError(
+                        "SDK result omitted hosted search activity metadata."
+                    )
+                activity = read_hosted_web_search_activity(raw_result)
+                self._hosted_activity = tuple(
+                    {
+                        "tool_name": "web_search",
+                        "status": call.status,
+                        "input": {
+                            "agent": "DiscoveryAgent",
+                            "run_id": str(input_data.run_id),
+                        },
+                        "output": {
+                            "call_id": call.call_id,
+                            "action": call.action,
+                            "retrieved_source_count": len(call.source_urls),
+                        },
+                    }
+                    for call in activity.calls
+                )
+                if any(call.status != "completed" for call in activity.calls):
+                    self._hosted_error_status = "hosted_search_failed_fallback"
+                    raise ValueError("Hosted web search did not complete.")
+                if activity.calls and not activity.citations:
+                    self._hosted_error_status = (
+                        "hosted_search_missing_citations_fallback"
+                    )
+                    raise ValueError("Hosted web search returned no URL citations.")
+                if activity.calls:
+                    try:
+                        persisted = await self._research_tools.persist_hosted_citations(
+                            activity.citations,
+                            query=input_data.brief.original_query,
+                            region_code=region_code,
+                        )
+                    except Exception as exc:
+                        self._hosted_error_status = (
+                            "hosted_search_persistence_failed_fallback"
+                        )
+                        raise ValueError(
+                            "Hosted web search citations could not be persisted."
+                        ) from exc
+                    hosted_decisions = persisted
+                    self._hosted_activity = (
+                        *self._hosted_activity,
+                        {
+                            "tool_name": "web_search_citations",
+                            "status": "mapped",
+                            "input": {
+                                "agent": "DiscoveryAgent",
+                                "run_id": str(input_data.run_id),
+                            },
+                            "output": {
+                                "citations": [
+                                    {
+                                        "source_id": str(item.source_id),
+                                        "snapshot_id": str(item.snapshot_id),
+                                        "evidence_id": str(item.evidence_id),
+                                    }
+                                    for item in persisted
+                                ],
+                                "rejected_count": len(activity.citations)
+                                - len(persisted),
+                            },
+                        },
+                    )
             output = _coerce_discovery_result(
                 getattr(raw_result, "final_output", raw_result),
                 input_data,
                 self._research_tools.search_results if self._research_tools else (),
+                hosted_decisions,
             )
         except TimeoutError:
             output = _fallback_discovery_output(
@@ -163,19 +287,30 @@ class LiveDiscoveryAgent:
             )
             self._set_activity("timeout_fallback", input_data, output)
             return output
-        except (ValidationError, ValueError, TypeError):
+        except (ValidationError, ValueError, TypeError) as exc:
             output = _fallback_discovery_output(
                 input_data,
                 self._research_tools.search_results if self._research_tools else (),
             )
-            self._set_activity("schema_invalid_fallback", input_data, output)
+            status = self._hosted_error_status or (
+                "hosted_search_invalid_fallback"
+                if "Hosted web search" in str(exc) or "hosted search" in str(exc)
+                else "schema_invalid_fallback"
+            )
+            self._set_activity(status, input_data, output)
             return output
         except Exception:
             output = _fallback_discovery_output(
                 input_data,
                 self._research_tools.search_results if self._research_tools else (),
             )
-            self._set_activity("error_fallback", input_data, output)
+            self._set_activity(
+                "model_or_hosted_error_fallback"
+                if self._hosted_tool_attached
+                else "error_fallback",
+                input_data,
+                output,
+            )
             return output
 
         self._set_activity("model_discovery_completed", input_data, output)
@@ -193,16 +328,18 @@ class LiveDiscoveryAgent:
     ) -> None:
         self._workbench_activity = (
             *(self._research_tools.workbench_activity if self._research_tools else ()),
+            *self._hosted_activity,
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,
                 "input": {
                     "agent": "DiscoveryAgent",
-                    "allowed_tools": [
-                        tool.name for tool in self._research_tools.sdk_tools()
-                    ]
-                    if self._research_tools is not None
-                    else [],
+                    "allowed_tools": (
+                        [tool.name for tool in self._research_tools.sdk_tools()]
+                        if self._research_tools is not None
+                        else []
+                    )
+                    + (["web_search"] if self._hosted_tool_attached else []),
                     "search_result_count": len(input_data.seed_results),
                     "inspected_source_count": len(output.source_decisions),
                 },
@@ -223,7 +360,9 @@ class _MockRunResult:
 
 
 def _build_discovery_agent(
-    model: str, research_tools: AgentResearchTools | None
+    model: str,
+    research_tools: AgentResearchTools | None,
+    hosted_tool: WebSearchTool | None = None,
 ) -> Agent[Any]:
     return Agent(
         name="CartCartDiscoveryAgent",
@@ -231,10 +370,12 @@ def _build_discovery_agent(
         model_settings=ModelSettings(
             max_tokens=4000,
             include_usage=True,
+            tool_choice="auto",
         ),
         instructions=(
             "You own shopping-source research. Inspect the supplied seed results and "
-            "use search_sources for bounded follow-up searches when reviews, broad "
+            "choose hosted web_search or search_sources for bounded follow-up "
+            "research when reviews, broad "
             "collections, weak matches, or too few listings leave the research "
             "incomplete. Use the shopping brief's buying region for follow-up "
             "searches. Search for named models found in reviews when useful. "
@@ -261,11 +402,17 @@ def _build_discovery_agent(
             "review into a listing. Select source IDs needing page inspection "
             "in selected_source_ids (fetch or retain_as_evidence actions). "
             "Use fetch_source by ID to resolve ambiguity when needed. Excluded "
+            "For hosted web citations, classify each useful cited URL in "
+            "hosted_source_decisions; use the exact cited URL, never invent an ID. "
+            "A hosted snippet is an unverified source lead, not a product listing "
+            "or proof of price, availability, or seller trust. You may reject weak "
+            "or irrelevant citations. "
             "or unsafe sources must be ignored. If nothing useful remains, "
             "return insufficient_candidates with explicit reasons. Never invent "
             "IDs, prices, specs, sellers, or product facts."
         ),
-        tools=list(research_tools.sdk_tools()) if research_tools else [],
+        tools=(list(research_tools.sdk_tools()) if research_tools else [])
+        + ([hosted_tool] if hosted_tool else []),
         output_type=DiscoveryModelOutput,
     )
 
@@ -328,16 +475,58 @@ def _coerce_discovery_result(
     value: Any,
     input_data: DiscoveryAgentInput,
     tool_results: tuple[SearchResult, ...],
+    hosted_citations: tuple[PersistedHostedCitation, ...] = (),
 ) -> DiscoveryAgentOutput:
     raw_output = (
         value
         if isinstance(value, (DiscoveryAgentOutput, DiscoveryModelOutput))
         else DiscoveryModelOutput.model_validate(value)
     )
+    hosted_by_url = {item.url: item for item in hosted_citations}
+    model_hosted_decisions = getattr(raw_output, "hosted_source_decisions", ())
+    if len({item.url for item in model_hosted_decisions}) != len(
+        model_hosted_decisions
+    ):
+        raise ValueError("Hosted source decisions contain duplicate URLs.")
+    if any(
+        _neutral_url(item.url) not in hosted_by_url for item in model_hosted_decisions
+    ):
+        raise ValueError("Hosted source decision lacks a persisted SDK citation.")
+    mapped_decisions = tuple(
+        DiscoverySourceDecision(
+            source_id=hosted_by_url[_neutral_url(item.url)].source_id,
+            classification=item.classification,
+            confidence=item.confidence,
+            reasons=item.reasons,
+            intended_treatment=item.intended_treatment,
+            candidate_model_hints=item.candidate_model_hints,
+            next_action=item.next_action,
+        )
+        for item in model_hosted_decisions
+    )
+    decided_hosted_ids = {item.source_id for item in mapped_decisions}
+    mapped_decisions += tuple(
+        DiscoverySourceDecision(
+            source_id=item.source_id,
+            classification=DiscoverySourceKind.UNCERTAIN,
+            confidence=0.0,
+            reasons=("Hosted citation was not retained by the agent.",),
+            intended_treatment="Ignore until independently inspected",
+            next_action=DiscoveryNextAction.IGNORE,
+        )
+        for item in hosted_citations
+        if item.source_id not in decided_hosted_ids
+    )
+    hosted_selected = tuple(
+        item.source_id
+        for item in mapped_decisions
+        if item.next_action
+        in {DiscoveryNextAction.FETCH, DiscoveryNextAction.RETAIN_AS_EVIDENCE}
+    )
     output = DiscoveryAgentOutput(
         search_results=(*input_data.seed_results, *tool_results),
-        source_decisions=raw_output.source_decisions,
-        selected_source_ids=raw_output.selected_source_ids,
+        source_decisions=(*raw_output.source_decisions, *mapped_decisions),
+        selected_source_ids=(*raw_output.selected_source_ids, *hosted_selected),
         outcome=raw_output.outcome,
         notes=raw_output.notes,
     )

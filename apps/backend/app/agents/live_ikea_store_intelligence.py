@@ -8,16 +8,23 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 from agents import Agent, ModelSettings, RunConfig, Runner
-from pydantic import Field
+from pydantic import Field, WithJsonSchema
 
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.agents.ikea_regional_tools import IKEARegionalStoreTools
 from app.agents.openai_config import (
+    OpenAIAgentConfigurationError,
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
+)
+from app.agents.research_tools import HostedCitationStore
+from app.agents.source_hosted_search import (
+    process_source_specialist_output,
+    source_hosted_tool,
+    source_tool_activity,
 )
 from app.core.ikea_regions import IKEA_REGION_PATHS
 from app.core.settings import Settings
@@ -57,7 +64,28 @@ class SelectedIKEARegionalSource(CartCartBaseModel):
     identity_reason: str = Field(min_length=1, max_length=500)
     product_name: str | None = Field(default=None, min_length=1, max_length=300)
     product_code: str | None = Field(default=None, min_length=1, max_length=120)
-    price: Money | None = None
+    # Money's Decimal precision rules generate a lookaround regex that OpenAI
+    # structured outputs reject. Keep Money's runtime validation, but expose a
+    # simple decimal string in this model-facing JSON schema.
+    price: Annotated[
+        Money | None,
+        WithJsonSchema(
+            {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "amount": {"type": "string"},
+                            "currency": {"type": "string"},
+                        },
+                        "required": ["amount", "currency"],
+                        "additionalProperties": False,
+                    },
+                    {"type": "null"},
+                ]
+            }
+        ),
+    ] = None
     availability: RegionalStoreAvailability = RegionalStoreAvailability.UNKNOWN
     store_name: str | None = Field(default=None, min_length=1, max_length=200)
     delivery_area: str | None = Field(default=None, min_length=1, max_length=200)
@@ -66,6 +94,7 @@ class SelectedIKEARegionalSource(CartCartBaseModel):
 class IKEAStoreModelOutput(CartCartBaseModel):
     selected_sources: tuple[SelectedIKEARegionalSource, ...] = Field(max_length=5)
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple, max_length=5)
+    retained_web_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class IKEAStoreModelRunner(Protocol):
@@ -185,6 +214,7 @@ class _MockResult:
 class IKEAStoreIntelligenceAgent:
     settings: Settings
     ikea_provider: IKEAStoreIntelligenceProvider | None = None
+    citation_store: HostedCitationStore | None = None
     model_runner: IKEAStoreModelRunner = field(
         default_factory=OpenAIAgentsSDKIKEAStoreModelRunner
     )
@@ -209,10 +239,18 @@ class IKEAStoreIntelligenceAgent:
             ikea_provider=self.ikea_provider
             or build_ikea_store_intelligence_provider(self.settings),
         )
+        hosted_tool = source_hosted_tool(
+            config=config,
+            input_data=input_data,
+            agent_name="IKEAStoreIntelligenceAgent",
+            citation_store=self.citation_store,
+        )
         agent = Agent(
             name="IKEAStoreIntelligenceAgent",
             model=config.model,
-            model_settings=ModelSettings(max_tokens=3000, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=3000, include_usage=True, tool_choice="auto"
+            ),
             instructions=(
                 "You are a regional official IKEA evidence specialist, not a shopping recommender. "
                 "Choose relevant supplied product IDs, call search_ikea_products and read_ikea_product for selected source IDs. "
@@ -220,9 +258,11 @@ class IKEAStoreIntelligenceAgent:
                 "Only return source IDs actually read and fields explicitly present in that source's text or official product URL. "
                 "Separate item identity from region-specific price, currency, stock, store and delivery. "
                 "Missing or unclear fields must be null or unknown. Do not infer worldwide availability, shipping, local delivery, or store inventory. "
-                "Do not use non-official listings as official evidence; return honest gaps for unsupported regions or no matching sources."
+                "Do not use non-official listings as official evidence; return honest gaps for unsupported regions or no matching sources. "
+                "You may use web_search for official regional IKEA page discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
+                "A hosted snippet is only a lead; use search_ikea_products and read_ikea_product for item, price, stock, and delivery evidence."
             ),
-            tools=list(tools.sdk_tools()),
+            tools=[*tools.sdk_tools(), *([hosted_tool] if hosted_tool else [])],
             output_type=IKEAStoreModelOutput,
         )
         apply_openai_agent_run_profile(agent, config)
@@ -232,6 +272,7 @@ class IKEAStoreIntelligenceAgent:
         self, input_data: IKEAStoreIntelligenceAgentInput
     ) -> IKEAStoreEvidenceBundle:
         agent, tools, config = self.prepare_delegated_run(input_data)
+        hosted_activity: tuple[dict[str, Any], ...] = ()
         run_config = RunConfig(
             tracing_disabled=not config.tracing_enabled,
             trace_include_sensitive_data=config.trace_include_sensitive_data,
@@ -265,15 +306,36 @@ class IKEAStoreIntelligenceAgent:
             decision = IKEAStoreModelOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
+            decision, hosted_activity = await process_source_specialist_output(
+                raw=raw,
+                decision=decision,
+                input_data=input_data,
+                agent_name=agent.name,
+                citation_store=self.citation_store,
+                require_sdk_metadata=isinstance(
+                    self.model_runner, OpenAIAgentsSDKIKEAStoreModelRunner
+                ),
+            )
             output = _validated_bundle(tools, decision)
             status = "model_evidence_completed"
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, OpenAIAgentConfigurationError):
+                hosted_activity = (
+                    *hosted_activity,
+                    {
+                        "tool_name": "web_search",
+                        "status": "metadata_or_persistence_failed",
+                        "input": {"agent": agent.name},
+                        "output": {"reason": str(exc)},
+                    },
+                )
             output = _gap_bundle(
                 tools, "Model interpretation failed; no IKEA claim was accepted."
             )
             status = "model_or_validation_failure_gap"
         self._workbench_activity = (
-            *tools.workbench_activity,
+            *source_tool_activity(tools.workbench_activity, agent.name),
+            *hosted_activity,
             {
                 "tool_name": "openai_agents_structured_output",
                 "status": status,

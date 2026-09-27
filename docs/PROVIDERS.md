@@ -1,7 +1,7 @@
 # CartCart Provider Setup And Fixture Replay
 
 Status: Provider setup and safety reference
-Last updated: 2026-06-21
+Last updated: 2026-09-27
 
 ## Scope And Defaults
 
@@ -42,7 +42,7 @@ validated query, search intent, two-letter region, and bounded result count;
 For every live shopper owner, `record_source_quote` accepts only an exact,
 bounded excerpt from a successfully fetched same-run page and persists a new
 source-metadata evidence ID. Its search region is fixed to the buyer's region.
-Neither tool accepts vendor parameters, credentials, source policy, or an
+These tools do not accept vendor parameters, credentials, source policy, or an
 arbitrary URL. The backend injects approved provider adapters and policy,
 applies call/result/text budgets, rejects obviously private or credentialed
 provider URLs, and commits search results and snapshots before returning IDs.
@@ -128,7 +128,7 @@ caption retrieval fails.
 | Explicit fixture | Selecting `fixture` returns deterministic fake or replay behavior even if an enabled flag is set. |
 | Explicit disabled | Extraction returns an excluded snapshot without fetching. Source-intelligence providers that support `disabled` return typed disabled results with no evidence bundle. General search uses `CARTCART_SEARCH_PROVIDER_ENABLED=false` instead of a `disabled` name. |
 | Live and ready | The live provider name, enabled flag, credential, and provider dependencies are present. An implemented runtime builder returns the live adapter. |
-| Live key missing | Credentialed provider readiness reports the missing variable and existing credentialed builders preserve fixture/stub operation. The live transcript builder never substitutes a fake: it returns `YtDlpTranscriptProvider`, and missing or incompatible local runtime dependencies produce readiness warnings plus explicit transcript gaps. |
+| Live key missing | Credentialed provider readiness reports the missing variable and existing credentialed builders preserve fixture operation. The live transcript builder never substitutes a fake: it returns `YtDlpTranscriptProvider`, and missing or incompatible local runtime dependencies produce readiness warnings plus explicit transcript gaps. |
 | Reserved adapter selected | A configured provider with no runtime adapter, such as live Brave search, raises a clear provider configuration error. Do not document a reserved value as usable live support. |
 
 `GET /readyz` remains HTTP 200 when optional live credentials are missing. Its

@@ -1,14 +1,14 @@
 # CartCart Architecture
 
-Status: Initial public architecture notes with guided intake direction
-Last updated: 2026-06-21
+Status: Current architecture and remaining design direction
+Last updated: 2026-09-27
 
 ## Product Model
 
 CartCart is a shopping discovery, comparison, and decision application. It should help a user answer what to buy, whether a candidate is a bad fit, and whether a listing or seller looks unsafe.
 
 The product should use a guided shopping decision model. The first application
-surface is a focused "Send your question" prompt with a large textbox, not a
+surface is a focused shopping-question prompt with a large textbox, not a
 one-page research workspace. The UI may feel prompt-led, but it should not show
 visible chat history. It should ask one useful question at a time, reveal only
 the next needed step, and keep internal workflow mechanics out of the normal
@@ -73,7 +73,12 @@ Local tooling direction:
 
 ## Repository Shape
 
-The initial monorepo skeleton exists. Backend Python project metadata, initial runtime/test dependencies, typed settings, a FastAPI app factory, health/readiness endpoints, structured request logging, configurable FastAPI OpenTelemetry instrumentation, the async SQLite/Alembic persistence baseline, persisted shopping sessions/briefs, run lifecycle/event records, search plans/results, provider-backed source extraction, source snapshots/evidence, bounded HTTP source fetch and raw snapshot storage, video review evidence, reusable source-intelligence evidence schemas/persistence, product/listing records, result bundle records, a transitional shopping run orchestrator with provider-backed discovery, extraction, reusable source intelligence, and fixture analysis stages, required reusable source-agent contracts/catalog entries, and a SvelteKit TypeScript frontend scaffold with Tailwind CSS, shadcn-svelte configuration, Bits UI dependencies, base UI tokens, and hand-written API client utilities have been added.
+The monorepo has a FastAPI backend, SQLite/Alembic persistence, typed provider
+and agent boundaries, an opt-in live shopping workflow, a fixture workflow, and
+a SvelteKit guided shopping frontend. The backend persists sessions, run events,
+research sources and evidence, products and listings, agent records, and
+versioned results. Local scripts manage setup, migrations, app lifecycle, and
+verification.
 
 Current skeleton:
 
@@ -126,7 +131,7 @@ README.md
 supported_agents.md
 ```
 
-Intended application shape after backend, frontend, and local scripts are scaffolded:
+Application structure by responsibility:
 
 ```text
 apps/
@@ -139,8 +144,9 @@ apps/
       evals/
       schemas/
       services/
-      telemetry/
-      tests/
+      orchestration/
+      providers/
+      tools/
     alembic/
     pyproject.toml
   frontend/
@@ -360,7 +366,8 @@ Recommended stages:
 13. Seller/listing trust analysis evaluates buyer-safety signals.
 14. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
 15. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
-16. The frontend renders staged results and supports targeted refinement from cached artifacts.
+16. The frontend renders staged results. Refinement currently starts another
+    full run; targeted recomputation from cached artifacts remains future work.
 
 ## Agent And Source Capability Model
 
@@ -416,7 +423,7 @@ Required MVP agent roles include:
 
 `GenericProductAnalystAgent` is the current per-product analysis fallback for normal shopping categories. `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning. MVP technology specialists cover monitors, smartphones, laptops, earphones/headphones, TVs, and smartwatches. Reusable source intelligence capabilities include required MVP YouTube, Reddit, Amazon, and IKEA source agents plus later marketplace product intelligence, official brand-store lookup, professional review sources, and broader community discussion signals. Generic product analysis remains available in the current typed-step workflow when no narrower specialist exists or when a specialist/domain fallback is needed.
 
-### General owner and SDK handoff target
+### General owner and SDK handoffs
 
 The live workflow retains typed analysis steps after guided intake.
 `CategoryRouterAgent` returns `ProductAnalysisRoute`; Python selects analysts
@@ -438,7 +445,7 @@ OpenAI's hosted web-search tool is attached to live `DiscoveryAgent`, scoped
 source specialists, listing trust, and all eight shopper owners.
 Provider `search_sources` and `fetch_source` remain separate tools.
 
-The target keeps the existing guided UI: `ShoppingGuideAgent` asks progressive
+The owner design keeps the guided UI: `ShoppingGuideAgent` asks progressive
 questions, `IntakeAgent` normalizes the brief, and the backend applies
 scope/safe-product checks before a run. Every ordinary request then enters
 `GeneralShoppingAgent` as first model owner. General can research and finish
@@ -713,8 +720,9 @@ That stage persists one canonical product per group, preserves every grouped
 listing, writes one shortlist membership per grouped product, and emits pre/post
 dedupe counts before source-intelligence and later analysis stages run.
 
-`SourceEvidenceCreator` currently constructs typed evidence from parsed page
-signals. In the target path, agent interpretation decides which product,
+`SourceEvidenceCreator` constructs typed evidence from parsed page signals in
+the fixture/helper path. In live research, `ExtractionAgent` interpretation
+decides which product,
 listing, warranty, availability, or review claims a source actually supports;
 the backend validates referenced snapshot/target IDs, persists evidence, and
 detects mechanical conflicts without silently choosing a winner. Neither this
@@ -820,10 +828,11 @@ fields remain explicit gaps, and every purchase-context claim warns that it does
 not establish availability or shipping outside the declared region.
 
 Reusable source-intelligence providers are also defined in the provider layer.
-The agent contract and executable catalog layer reserves four required reusable source
-agent roles for YouTube, Reddit, Amazon, and IKEA. Until parent delegation is implemented, provider services return evidence
-bundles for usable source intelligence rather than recommendations or
-availability-only checks. The provider boundary exposes enabled state, supported
+The agent contract and executable catalog define four reusable source roles for
+YouTube, Reddit, Amazon, and IKEA. Live runs delegate to their SDK agents through
+the source manager; fixture runs use provider services without model calls.
+Both paths return evidence bundles rather than final recommendations. The
+provider boundary exposes enabled state, supported
 capabilities, official/user-authorized access, domain-scoped search support,
 public-page extraction support, Amazon product/listing/review support, regional
 ship-to evidence support, IKEA regional official-store support, and compliance
@@ -848,9 +857,11 @@ timeout/rate-limit defaults, a default region, and local secret fields where
 needed. IKEA search mode reuses the configured general search provider rather
 than introducing a separate credential.
 Missing keys for enabled live providers surface as readiness warnings rather
-than blocking fixture or stub operation.
+than blocking fixture operation.
 
-The MVP should start with one general web search provider when implementation reaches provider work. Tavily is preferred if a key is available because search and extraction both matter for agent workflows. Brave is a credible alternative. SerpApi should remain optional because it introduces cost, dependency, and terms considerations.
+Tavily is the implemented live general search adapter. Brave remains reserved
+without a runtime adapter. SerpApi is optional and used only for Amazon product
+intelligence.
 
 Source policy:
 

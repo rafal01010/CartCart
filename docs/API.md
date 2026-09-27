@@ -1,7 +1,7 @@
 # CartCart API
 
-Status: Initial public API shape with guided intake direction
-Last updated: 2026-06-20
+Status: Implemented API and future contract direction
+Last updated: 2026-09-27
 
 ## Contract Direction
 
@@ -24,13 +24,11 @@ Long-running discovery and analysis runs should be asynchronous. Server-Sent Eve
 
 ## Guided Intake Direction
 
-The public user-facing API should support a guided shopping intake layer before
-deeper discovery and analysis starts. The current implemented endpoints preserve
-useful session/run/result plumbing, but future guided frontend work should not
-force the user through one large form or expose `run` as the user's mental
-model.
+The user-facing API supports guided shopping intake before discovery and
+analysis. The frontend asks one question at a time and keeps run mechanics out
+of the normal shopper view.
 
-Planned guided-intake responsibilities:
+Guided-intake responsibilities:
 
 - Start from one natural-language shopping question.
 - Return one current user-facing question at a time.
@@ -149,7 +147,8 @@ claim.
 
 Creates a local shopping session from a natural-language query, region, optional budget, and optional preferences. The response should include the session ID, original input, current inferred or user-provided brief fields when available, and timestamps.
 
-Current implementation accepts `CreateSessionRequest` and returns `ShoppingSession`.
+Current implementation accepts `CreateSessionRequest` and returns
+`SessionStateResponse`.
 The initial `current_brief` preserves the original query plus any user-provided
 region, budget, constraints, and preferences. Category inference is not performed
 by this endpoint yet.
@@ -208,11 +207,9 @@ the response resumes the pending guided state.
 
 `GET /api/sessions/{session_id}`
 
-Loads persisted session state, including current brief, known products, latest run summary, and latest result metadata if available.
-
-Current implementation returns the persisted session fields plus
-`user_added_products`. Run and result summary fields will be added by their later
-endpoint milestones.
+Loads persisted session state: original input, current brief, timestamps, and
+`user_added_products`. Run status and results use their dedicated endpoints;
+this response does not contain a latest-run or latest-result summary.
 
 `PATCH /api/sessions/{session_id}/brief`
 
@@ -222,20 +219,22 @@ Current implementation accepts a partial brief correction body with these fields
 `category`, `category_source`, `region`, `budget`, `constraints`, and
 `preferences`. Omitted fields keep their existing values. Updating `category`
 requires an explicit `category_source`; sending `null` for nullable fields clears
-them. The response returns the updated `ShoppingSession`.
+them. The response returns the updated session state.
 
 `POST /api/sessions/{session_id}/runs`
 
 Starts a discovery/analysis run from the current session state. Runs should persist status, stage summaries, trace IDs, and result versions.
 
 Current implementation creates a persisted `ShoppingRunRecord` and runs the
-`ShoppingRunOrchestrator` synchronously. The response returns the terminal run
-and persisted progress events. Workflow stages are checkpointed so a fatal
+`ShoppingRunOrchestrator` synchronously. The response returns the terminal
+`ShoppingRunRecord`; progress events are available from the SSE endpoint.
+Workflow stages are checkpointed so a fatal
 stage failure remains queryable as a terminal failed run rather than being
 rolled back with the request. Expected individual source-access failures do not
-fail the run. Fixture workflow mode remains the default and
-returns the deterministic monitor-shopping result bundle without live model
-calls. When `CARTCART_AGENT_WORKFLOW_MODE=live`,
+fail the run. Fixture workflow mode remains the default and returns the monitor
+result only for the complete monitor fixture scenario; other unsupported
+fixture categories receive a no-strong-buy result without monitor products.
+Fixture mode makes no live model calls. When `CARTCART_AGENT_WORKFLOW_MODE=live`,
 `CARTCART_LIVE_AGENTS_ENABLED=true`, and `OPENAI_API_KEY` are configured, the
 normal run path uses live typed agents for scoped intake, General ownership,
 planning, discovery
@@ -317,7 +316,7 @@ support is expanded.
 
 Submits a refinement such as changed budget, corrected category, new constraint, or added preference. The backend should start targeted recompute where cached artifacts make that possible.
 
-Current implementation stores a `RefinementRequest`, creates a new stub
+Current implementation stores a `RefinementRequest`, creates a new
 `ShoppingRunRecord`, links the refinement to that run, executes the same fixture
 orchestrator path used by `POST /runs`, and returns both records. It does not
 perform targeted recompute yet. Existing result versions remain attached to
@@ -332,7 +331,7 @@ Liveness check. It should be cheap and not depend on external providers.
 Readiness check. It reports configuration readiness, data directory location,
 provider warnings, and live-agent configuration warnings. Missing keys for
 enabled live providers or live OpenAI agents are returned as warnings while
-fixture/stub mode remains ready.
+fixture mode remains ready.
 
 ## Error Responses
 

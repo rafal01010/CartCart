@@ -1,7 +1,7 @@
 # CartCart Database
 
-Status: Initial SQLite persistence reference
-Last updated: 2026-06-02
+Status: Current SQLite persistence reference
+Last updated: 2026-09-27
 
 This document describes the current local database schema implemented by SQLAlchemy
 ORM models and Alembic migrations `0001_initial_persistence_schema` and
@@ -107,8 +107,8 @@ Constraint: unique `(run_id, sequence)`.
 
 ### `refinement_requests`
 
-Stores user refinement requests and links each request to the new stub run that
-will eventually execute the refinement.
+Stores user refinement requests and links each request to the new fixture run
+that executes the refinement. Targeted recomputation is not implemented.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
@@ -501,4 +501,4 @@ recording/replay, extraction normalization, deduplication decisions, richer
 trust signals, live agent cost/token tracking, eval run summaries, telemetry
 privacy controls, backup/restore metadata, or a future Postgres migration path.
 New shipped schema changes should be represented as incremental Alembic
-migrations after the current `0001` baseline.
+migrations after the current `0002` revision.

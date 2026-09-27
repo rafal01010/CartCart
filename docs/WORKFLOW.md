@@ -1,7 +1,7 @@
 # CartCart Workflow
 
-Status: Transitional fixture runtime; bounded live-agent research implemented
-Last updated: 2026-09-26
+Status: Fixture-default workflow with opt-in live agent ownership
+Last updated: 2026-09-27
 
 ## Scope
 
@@ -47,7 +47,7 @@ and extraction contracts without model calls; only the monitor fixture has a
 complete product/decision replay today.
 The following run lifecycle describes the current transitional behavior.
 
-## Target Shopper Owner Flow (Task 89Q contract)
+## Live Shopper Owner Flow
 
 The guided UI continues to collect one question at a time, allow skip and
 reanswer, and persist brief corrections. `ShoppingGuideAgent`/`IntakeAgent`
@@ -212,8 +212,9 @@ The endpoint streams persisted events as Server-Sent Events named `run_event`.
 Because the current `POST /runs` path is synchronous, clients open the stream
 after all run events are already persisted.
 
-The current successful fixture event sequence has 11 events: ten `running`
-stage events and one terminal `succeeded` event for `complete`.
+The current successful fixture event sequence has 12 events: eleven `running`
+stage events (including the offline `general_owner` stage) and one terminal
+`succeeded` event for `complete`.
 
 ## Discovery, Extraction, And Fixture Output
 
@@ -247,8 +248,10 @@ collapsed duplicate count.
 
 After deduplication, the reusable source-intelligence stage builds a
 `ReusableSourceIntelligenceRequest` from the current brief, target region,
-grouped candidate products, their preserved listings, and source IDs. It then
-calls enabled and source-relevant providers for:
+grouped candidate products, their preserved listings, and source IDs. Fixture
+mode calls relevant provider services without a model. Live-agent mode invokes
+`SourceIntelligenceManagerAgent`, which delegates to relevant SDK source
+specialists as tools, for:
 
 - YouTube/video review metadata plus transcript retrieval through the configured
   `TranscriptProvider` boundary.
@@ -336,8 +339,8 @@ the original run's result versions.
 The schema supports `pending`, `running`, `succeeded`, `failed`, and
 `cancelled`. Failed run events require an `ErrorEnvelope`.
 
-In the current stub orchestrator, an exception during stage execution or fixture
-output persistence appends a failed event for the current stage and re-raises the
+In the current orchestrator, an exception during stage execution or result
+persistence appends a failed event for the current stage and re-raises the
 exception. There is not yet a user-facing retry endpoint, resumable checkpoint
 logic, cancellation path, or background task recovery mechanism.
 

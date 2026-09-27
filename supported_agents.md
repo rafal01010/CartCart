@@ -30,7 +30,7 @@ Reusable source intelligence means retrieving usable source-backed information, 
 
 CartCart uses deterministic workflow orchestration with typed agent steps. The orchestrator owns workflow stages, persisted state, evidence, errors, retries, and tracing.
 
-### Shopper ownership: current and target
+### Shopper ownership
 
 Today the guided API gathers a brief, then the live run enters
 `GeneralShoppingAgent` after intake and before query planning, discovery, or
@@ -46,12 +46,13 @@ reason/context, resolved models, and `last_agent` are recorded in the run trace
 and result provenance.
 `GeneralShoppingAgent` has an SDK runner in
 the normal opt-in live workflow and the isolated workbench. Live
-`DiscoveryAgent`, listing trust, the four source-intelligence specialists, and
-General have the hosted OpenAI `WebSearchTool` in live runs;
+`DiscoveryAgent`, listing trust, the four source-intelligence specialists,
+General, Technology, and all six product specialists have scoped hosted OpenAI
+`WebSearchTool` access in live runs;
 Discovery's separate
 `search_sources` and `fetch_source` tools call application providers only.
 
-The target guided API retains progressive questions, skipping/reanswering,
+The guided API retains progressive questions, skipping/reanswering,
 brief corrections, and preflight scope/safety checks. `ShoppingGuideAgent`
 (with `IntakeAgent` where needed) asks intake questions and produces the brief;
 it never owns the purchase decision. After preflight, each ordinary request
@@ -158,11 +159,13 @@ Specialized product/domain agents should normally be invoked as typed sub-runs o
 
 The YouTube, Reddit, Amazon, and IKEA roles have model-running OpenAI Agents SDK implementations with bounded source-specific tools and optional site-scoped hosted search. In live-agent shopping runs, `SourceIntelligenceManagerAgent` chooses relevant specialists after deduplication and invokes them through SDK agent-as-tool delegation. Default fixture-provider runs remain network-free provider-backed simulations; a service call is never counted as a model run. Source agents return cited evidence, not recommendations. Hosted citations are persisted as weak source leads; only validated site-tool evidence supports transcripts, discussion signals, marketplace offers, or official IKEA claims.
 
-The product must support broad shopping queries even when no deep specialist exists. The current generic analysis fallback remains; the target General owner can finish such requests itself.
+The product supports broad shopping queries when no deep specialist exists. The
+generic per-product analysis fallback remains, and the live General owner can
+finish the shopper request itself.
 
 ## Accepted Scope Decisions
 
-- `GenericProductAnalystAgent` is the current per-product analysis fallback for normal categories; target `GeneralShoppingAgent` owns the whole request and can finish broad categories.
+- `GenericProductAnalystAgent` is the per-product analysis fallback for normal categories; live `GeneralShoppingAgent` owns the whole request and can finish broad categories.
 - `ShoppingGuideAgent` is the user-facing guided intake role. It asks one plain-language question at a time, supports skip/reanswer behavior, and decides when enough information exists to start analysis without exposing internal workflow mechanics.
 - `ShoppingScopeGuardrail` is the shopping-scope and safe-consumer-product guardrail. It blocks or redirects off-topic, unsafe, illegal, or inappropriate requests before discovery or analysis starts.
 - `TechnologyDomainAnalystAgent` is an MVP domain layer so technology routing is modular from the beginning.
@@ -175,7 +178,7 @@ The product must support broad shopping queries even when no deep specialist exi
 - IKEA store intelligence should retrieve official IKEA product/store evidence for the user's region when applicable, including regional product availability, product-page information, price/currency where available, and evidence gaps. It must not assume IKEA ships globally; it should check whether IKEA has a relevant country/region presence and whether the item is available there.
 - The current IKEA adapter uses the configured general search provider with strict official domain and country-path filtering. Fixture mode is the default; unsupported regions and unavailable products return explicit gaps without implying cross-region shipping.
 - Broad non-technology domain layers should remain `proposed-later` until multiple implemented specialists or shared domain rules justify them.
-- Current invocation uses typed steps, tools, and sub-runs. The target live owner graph uses real SDK handoffs only when control transfers to Technology or an eligible specialist.
+- Current invocation uses typed steps, tools, sub-runs, and real SDK handoffs only when live shopper ownership transfers to Technology or an eligible specialist.
 
 ## Status Meanings
 
@@ -251,7 +254,10 @@ Product/category analysts own fit analysis for a product bundle in the context o
 
 `TechnologyDomainAnalystAgent` owns shared technology-product reasoning, routing to MVP technology specialists, and technology-domain fallback when no narrower specialist applies. It should cover technology products broadly enough that adding future specific technology specialists is modular.
 
-The planned reusable source-intelligence agents will own source-specific discovery, extraction review, quality scoring, and evidence summarization. The current provider services package source evidence without model judgment. Both paths must return structured evidence with source references and confidence, not final purchase recommendations.
+The implemented reusable source-intelligence SDK agents own scoped source
+selection and interpretation in live runs; fixture provider services package
+source evidence without model judgment. Both paths return structured evidence
+with source references and confidence, not final purchase recommendations.
 
 `SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Its live SDK agent can choose hosted web search for the supplied seller/listing and buyer region, or use supplied evidence alone. Exact cited URLs are retained as weak, run-scoped trust leads with source/evidence IDs. These leads can identify a question to check but cannot verify seller reputation, policy terms, or a listing claim or raise trust. Suspicious deterministic trust flags cannot be silently overridden by agent output.
 
@@ -408,17 +414,20 @@ guide uses structured output, deterministic guardrail prechecks, mocked/live
 workbench scenarios, and an `IntakeAgent` handoff only when it reaches
 `ready_for_analysis`. The live query planner uses structured output with no
 tools and falls back to a generic region-aware search plan rather than blocking
-categories without specialists. The currently implemented live discovery agent
-uses structured output with no tools and selects IDs from supplied search
-results. This is transitional: it cannot search again or inspect a generic
-result discarded by orchestration. The live category router uses structured output with
+categories without specialists. The live discovery agent uses structured
+output, bounded provider search/fetch tools, and optional hosted web search.
+It can judge generic results and perform bounded follow-up research. The live
+category router uses structured output with
 no tools, normalizes route decisions through the executable catalog, sends MVP
 technology specialist categories through `TechnologyDomainAnalystAgent`, and
 falls back to `GenericProductAnalystAgent` for unsupported or uncertain
 categories. The live generic product analyst uses structured output with no
 tools, analyzes supplied product/listing/evidence bundles for any normal
 consumer category, preserves source and evidence IDs, and returns explicit
-limitations instead of category refusal when evidence is weak. The live
+limitations instead of category refusal when evidence is weak. The following
+technology and specialist descriptions refer to their separate per-product
+`CategoryAnalysis` runs; as handoff owners, they have the scoped research tools
+listed in the tool matrix below. The per-product live
 technology domain analyst uses structured output with no tools, consumes only
 supplied product/listing/evidence bundles plus the executable catalog route,
 declares the MVP specialist route internally when one applies, analyzes broad
@@ -451,22 +460,20 @@ uses structured output with no tools, consumes only supplied smartwatch
 product/listing/evidence bundles, covers phone compatibility, health sensors,
 battery, durability, app ecosystem, and source IDs, and falls back to
 technology-domain or generic analysis for non-watch input or specialist
-failure. The live seller/listing trust agent uses structured output with no
-tools, consumes only the supplied listing, evidence, and deterministic
-rule-based assessment, and preserves hard suspicious deterministic signals such
+failure. The live seller/listing trust agent consumes the supplied listing,
+evidence, and deterministic assessment. It may use seller/listing-scoped
+hosted web search, but preserves hard suspicious deterministic signals such
 as implausibly low price or contradictory listing data rather than silently
 overriding them. The live comparison decision agent uses structured output with
 no tools, consumes only supplied assessed candidates, evidence, trust, and
 dedupe inputs, returns a `RecommendationBundle`, and falls back to an explicit
 no-strong-buy bundle when model output is invalid, times out, or cannot support
-a safe best pick. The live Reddit community intelligence agent is
-provider-backed through typed community-discussion results and
-`CommunityEvidenceCreator`; it selects relevant public Reddit contexts,
-summarizes recurring qualitative signals, keeps source/thread/comment IDs, and
-returns explicit gaps for inaccessible content without making recommendations
-or authoritative product claims. The normal full shopping workflow preserves
-fixture-first behavior by default and can route through live agents only when
-explicitly configured. Local routing eval cases now cover broad generic fallback,
+a safe best pick. In the live source-intelligence stage, a model-running
+manager delegates to YouTube, Reddit, Amazon, and IKEA SDK agents-as-tools.
+Those agents use bounded source tools and return cited evidence bundles;
+fixture runs use provider services without model calls. The normal shopping
+workflow remains fixture-first and uses live agents only when explicitly
+configured. Local routing eval cases cover broad generic fallback,
 technology-domain routing, every MVP technology specialist route, and
 specialist fallback availability to technology-domain and generic analysis
 without live model calls. The current runtime
@@ -475,18 +482,19 @@ the resulting queries
 through the configured `SearchProvider`, and persists accepted, policy-scored
 search results. Eligible result pages then pass through the configured
 `ExtractionProvider`; usable snapshots create persisted app-generated products,
-listings, and shortlist memberships. Reusable source-intelligence providers run
-after deduplication. The seller/listing trust stage now calls the typed
+listings, and shortlist memberships. Reusable source intelligence runs after
+deduplication. The seller/listing trust stage calls the typed
 `SellerListingTrustAgent` contract in fixture mode, seeded by deterministic
 trust rules, and persists `ListingTrustAssessment` rows through result
-persistence. The full-workflow category analysis and recommendation stages
-remain fixture-backed. Fixture mode stays the default when live providers are
-disabled or configured credentials are unavailable.
+persistence. Fixture mode uses fixture category analysis and comparison output;
+live typed analysis supplies evidence to the active owner's result. Fixture
+mode remains the default; live agent and
+provider modes require explicit configuration.
 
 ## Required Routing Rules
 
-Rules 1–5 describe the current Python-selected analysis path. The target
-owner path instead starts every ordinary request at General, which can finish
+Rules 1–5 describe the current Python-selected analysis path. The live
+owner path starts every ordinary request at General, which can finish
 without a specialist; Technology can also finish without a specialist. A
 `ProductAnalysisRoute` is never evidence of an SDK handoff.
 

@@ -1,7 +1,7 @@
 # CartCart UX Information Architecture
 
-Status: Guided shopping intake direction; the earlier one-page workspace shell is superseded
-Last updated: 2026-06-12
+Status: Implemented guided shopping flow and UX guidance
+Last updated: 2026-09-27
 
 ## Purpose
 
@@ -12,14 +12,14 @@ plumbing can remain useful, but the frontend should not make shoppers think in
 terms of starting runs, inspecting workflow mechanics, or managing a dense
 research dashboard before CartCart has guided them.
 
-CartCart should open with a focused shopping question prompt. It should feel
+CartCart opens with a focused shopping question prompt. It should feel
 like a calm guided assistant for deciding what to buy, not a visible chat
 history, a developer console, a raw search page, or a form-heavy comparison
 tool.
 
-See `docs/FRONTEND_REPLACEMENT.md` for the current frontend audit, the
-keep/rewrite/delete map for existing Svelte files, and the planned guided
-route/state structure for the replacement.
+`docs/FRONTEND_REPLACEMENT.md` records the completed frontend replacement and
+the earlier file audit. The current flow lives in `apps/frontend/src/routes/+page.svelte`
+and its guided, progress, and result components.
 
 ## UX Principles
 
@@ -58,14 +58,14 @@ fill space.
 
 ## First Screen
 
-The first screen is a focused "Send your question" prompt with a large textbox.
+The first screen asks "What are you looking for?" above a large textbox.
 It should not show the old workspace regions, progress timeline, source drawer,
 shortlist, comparison table, result cards, or refinement panels before the user
 starts a shopping decision.
 
 Required first-screen elements:
 
-- A clear "Send your question" prompt.
+- A clear shopping-question prompt.
 - A large natural-language textbox.
 - A single primary send/continue action.
 - Starter-question templates animated as part of the large main prompt text,
@@ -294,7 +294,7 @@ Acceptance checklist:
 
 Before the guided frontend is accepted:
 
-- The first route is a focused "Send your question" prompt, not the old
+- The first route is a focused shopping-question prompt, not the old
   all-in-one workspace.
 - The UI is prompt-led but does not show visible chat history.
 - Textboxes do not contain suggested answers or examples.

@@ -1,7 +1,7 @@
 # CartCart Operations
 
-Status: Initial local operations assumptions for planning
-Last updated: 2026-06-21
+Status: Current local operations reference
+Last updated: 2026-09-27
 
 ## Local MVP Assumptions
 
@@ -12,7 +12,8 @@ The MVP is local-first:
 - Local SQLite persistence.
 - Local file artifacts under `data/` when needed.
 - No cross-session user preference profiling.
-- External search, extraction, model, and source-intelligence providers are configured explicitly by environment variables when implementation reaches those milestones.
+- External search, extraction, model, and source-intelligence providers are
+  configured explicitly through environment variables. Fixture mode is the default.
 
 The initial monorepo skeleton exists under `apps/backend`, `apps/frontend`, `docs`, and `scripts/local`. The backend Python project can be initialized with `scripts/local/init-backend.sh`, synced with `scripts/local/sync-backend.sh`, linted with `scripts/local/lint-backend.sh`, type checked with `scripts/local/typecheck-backend.sh`, tested with `scripts/local/test-backend.sh`, migrated with `scripts/local/migrate-backend.sh`, started with `scripts/local/start-backend.sh`, exported to OpenAPI with `scripts/local/export-openapi.sh`, reset with `scripts/local/reset-db.sh`, and cleaned with `scripts/local/cleanup-artifacts.sh`. The frontend can be initialized with `scripts/local/init-frontend.sh`, synced with `scripts/local/sync-frontend.sh`, linted with `scripts/local/lint-frontend.sh`, checked with `scripts/local/check-frontend.sh`, tested with `scripts/local/test-frontend.sh`, built with `scripts/local/build-frontend.sh`, prepared for browser checks with `scripts/local/setup-playwright.sh`, and started with `scripts/local/start-frontend.sh`. The local app can be started, stopped, and restarted with `scripts/local/start-app.sh`, `scripts/local/stop-app.sh`, and `scripts/local/restart-app.sh`.
 
@@ -87,7 +88,7 @@ Run it:
 
 - at the Section I local developer workflow gate
 - after `scripts/local/setup-playwright.sh` has installed browser binaries
-- when the first stubbed browser workflow needs verification
+- when the guided fixture shopping flow needs browser verification
 
 Stop the managed local app first if it is already using the default ports, or override E2E ports and database path with `CARTCART_E2E_BACKEND_HOST`, `CARTCART_E2E_BACKEND_PORT`, `CARTCART_E2E_FRONTEND_HOST`, `CARTCART_E2E_FRONTEND_PORT`, and `CARTCART_E2E_DATABASE_PATH`.
 
@@ -246,7 +247,10 @@ Lifecycle environment variables:
 
 Set backend lifecycle variables in the shell or in `apps/backend/.env`. Set frontend-specific variables in the shell or in `apps/frontend/.env`. Keep `CARTCART_RUN_DIR` and `CARTCART_LOG_DIR` common for the local app so the start and stop scripts agree on managed process locations.
 
-The current local vertical slice is fixture-only. Creating a session, starting a stub run, streaming progress, and rendering the final fixture recommendation do not require external search provider keys, live model credentials, live web access, or OpenAI agent calls.
+The default local workflow is fixture-backed: guided intake, a shopping run,
+progress events, and a result need no provider or model credentials. The normal
+shopping run can opt into live agents and configured providers; the isolated
+workbench has separate explicit live controls.
 
 The Section I local workflow gate covers:
 
@@ -343,7 +347,7 @@ Current backend variables:
 - `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER`: IKEA regional official-store provider. Allowed values are `disabled`, `fixture`, and `search`. Defaults to `fixture`.
 - `CARTCART_IKEA_STORE_INTELLIGENCE_PROVIDER_ENABLED`: enables search-backed IKEA regional discovery when `true`. Defaults to `false`.
 - `CARTCART_TAVILY_API_KEY`: local Tavily API key. Required only when Tavily-backed search is enabled.
-- `CARTCART_BRAVE_SEARCH_API_KEY`: local Brave Search API key. Required only when Brave search is enabled.
+- `CARTCART_BRAVE_SEARCH_API_KEY`: reserved for a future Brave adapter; no Brave runtime adapter is implemented.
 - `CARTCART_SERPAPI_API_KEY`: local SerpApi key. Required only when SerpApi Amazon product intelligence is enabled.
 - `CARTCART_YOUTUBE_DATA_API_KEY`: local YouTube Data API key. Required only when live YouTube metadata search is enabled.
 - `CARTCART_DATA_DIR`: local data directory. Defaults to the repository-level `data/` directory.
@@ -364,7 +368,7 @@ Current backend variables:
 - `CARTCART_SCREENSHOTS_ENABLED`: enables optional screenshot capture when a later provider/extraction workflow supports it. Defaults to `false`.
 - `CARTCART_CROSS_SESSION_PREFERENCE_PROFILING_ENABLED`: must remain `false` for MVP. Attempts to set it to `true` are rejected by settings validation.
 
-No real secrets are required for default fixture/stub operation. The project
+No real secrets are required for default fixture operation. The project
 owner only needs to set variables manually when overriding local paths, changing
 runtime mode, or opting into live provider mode. Use absolute paths for local
 path overrides. Provider and model keys must be supplied locally by the project
@@ -576,8 +580,8 @@ or failed hosted calls produce a visible discovery gap. Current
 handoff. The catalog declares hosted search implemented for Discovery,
 General, Technology, the six product specialists, listing trust, and four
 site/source specialists. It declares
-target General -> Technology -> specialist ownership separately from current
-routes. The opt-in live owner run now supports both SDK transfers. Validated
+General -> Technology -> specialist ownership separately from Python-selected
+analysis routes. The opt-in live owner run supports both SDK transfers. Validated
 categories and reasons accompany each handoff; the trace records completed SDK
 transfer items, source/target models, depth, and the last agent. A failed
 specialist recovery is a separate Technology owner run, not a reverse SDK
@@ -794,7 +798,7 @@ Future configuration areas include:
 - Logfire or OTEL exporter settings.
 - Provider timeout and rate-limit settings.
 
-Missing optional provider keys should produce readiness warnings or disabled-provider behavior, not break fixture or stub mode.
+Missing optional provider keys should produce readiness warnings or disabled-provider behavior, not break fixture mode.
 
 ## Persistence And Artifacts
 
@@ -837,7 +841,11 @@ Retention defaults for local artifacts:
 
 Set a retention value to `0` to delete that artifact class on the next cleanup. Retention settings do not delete SQLite records.
 
-Current persistence implementation stores shopping sessions in SQLite with the original session request, original query, current shopping brief, and create/update timestamps. It also stores shopping runs, ordered run events, and refinement requests linked to their stub runs so the latest run status can be loaded from the run record while the event history and refinement history remain inspectable. Search plans, search results, source snapshots, and source evidence are stored with run links and provider metadata.
+Current persistence stores shopping sessions with the original request, current
+brief, and timestamps. It also stores shopping runs, ordered events, and
+refinement requests linked to new fixture runs. Run status, event history, and
+refinement history remain inspectable. Search plans, results, snapshots, and
+evidence carry run links and provider metadata.
 
 Lookup indexes currently cover session/run/refinement relationships, ordered run events, source and product URLs, provider names and provider result/query IDs, video/source/product/listing target IDs, product brand/model/category identifiers, agent record names/stages/trace IDs, and result version lookup by run/version.
 
@@ -847,7 +855,11 @@ Reusable source-intelligence persistence also stores Reddit/community discussion
 
 Product persistence stores canonical products, distinct product listings, candidate shortlist membership, and user-added products. Multiple listings can point to one canonical product while preserving listing-specific seller, URL, price, availability, and source details.
 
-Result persistence stores listing trust assessments, category analysis outputs, agent run records, comparison matrices, recommendation bundles, and result versions. Result versions point to the saved recommendation bundle and comparison matrix for a run so the latest complete fixture result can be loaded without recomputing analysis.
+Result persistence stores listing trust assessments, category analysis outputs,
+agent run records, comparison matrices, recommendation bundles, and result
+versions. Live bundle JSON includes the last owner, handoff chain, cited IDs,
+and verification changes. Result versions point to saved bundles and matrices
+so the latest result can be loaded without recomputing analysis.
 
 ## Observability
 
@@ -909,7 +921,7 @@ The backend attaches `X-Request-ID` to responses. If a request supplies that hea
 `GET /readyz` reports configuration readiness, provider warnings, and live-agent
 configuration warnings. Missing keys for enabled live providers or live OpenAI
 agents return warning entries while the endpoint still returns HTTP 200 and
-`status: ready`, so fixture/stub mode is not blocked. Enabled `yt_dlp`
+`status: ready`, so fixture mode is not blocked. Enabled `yt_dlp`
 transcript mode also checks the exact pinned `yt-dlp` and `yt-dlp-ejs` packages
 plus Deno `>=2.3.0`; missing or incompatible dependencies are reported without
 replacing live transcript retrieval with fixture text. Database availability

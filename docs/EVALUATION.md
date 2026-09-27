@@ -1,13 +1,16 @@
 # CartCart Evaluation
 
-Status: Initial public evaluation strategy for planning
-Last updated: 2026-09-26
+Status: Evaluation strategy and implemented regression coverage
+Last updated: 2026-09-27
 
 ## Evaluation Direction
 
 CartCart should treat evaluation as an MVP requirement, not polish. The system combines search, extraction, source evidence, agent reasoning, seller/listing trust, and final recommendation logic, so regressions need to be caught at multiple layers.
 
-Use Pydantic Evals first. It aligns with the recommended Python/Pydantic backend, Logfire/OpenTelemetry tracing direction, and code-first evaluation of complex multi-agent workflows.
+Current executable routing cases use local fixtures and pytest under
+`apps/backend/app/evals/` and `apps/backend/tests/`. Pydantic Evals is the
+planned framework for broader scored scenario evaluation; it is not yet an
+installed or running evaluation suite.
 
 DeepEval, OpenAI Evals, and Ragas may be useful later, especially if the system becomes more RAG-like over saved source evidence, but they are not the initial default.
 
@@ -56,12 +59,12 @@ Fixture-backed routing eval cases live in
 These are cheap mocked/local regression checks. Live model routing evals remain
 opt-in and are deferred to the Section N live-agents gate.
 
-Task 89Q adds a separate target ownership contract. Existing routing evals
+The shopper-owner contract has separate mocked SDK tests. Existing routing evals
 exercise Python-selected `ProductAnalysisRoute` and analyst fallback, not SDK
-handoffs. Target mocked-SDK cases must prove a broad request finishes with
+handoffs. Mocked SDK cases cover a broad request finishing with
 General, a broad technology request can finish with Technology, and a phone
-request transfers General -> Technology -> Smartphone with the smartphone as
-last agent and draft author. Source agents must remain agents-as-tools.
+request transferring General -> Technology -> Smartphone with the smartphone as
+last agent and draft author. Source agents remain agents-as-tools.
 Research cases must distinguish actual OpenAI hosted web-search calls from
 application-provider `search_sources`/`fetch_source`, allow the model to use
 or skip each approved path, persist valid citations/evidence IDs, and reject
@@ -274,7 +277,12 @@ suites, extraction checks, E2E tests, and model/eval runs outside that gate.
 
 Contract tests should verify OpenAPI export and generated or hand-maintained frontend API expectations once the backend exists.
 
-End-to-end tests should cover the first stubbed workflow, then the fixture-backed full workflow: create a session, start a run, observe progress, inspect results, add a product, and submit a refinement. The first Playwright smoke test lives at `apps/frontend/tests/e2e/stub-run-smoke.spec.ts` and covers the session creation, fixture run, progress, and final-pick path.
+End-to-end tests should cover the guided fixture workflow: ask a shopping
+question, complete intake, start analysis, observe progress, and inspect the
+result. The current Playwright smoke test is
+`apps/frontend/tests/e2e/guided-flow-smoke.spec.ts`. Product addition and
+refinement remain integration/API coverage rather than claims about that
+browser test.
 
 Eval tests should run against stable local fixtures first. Live provider or live model evals should be opt-in because they require credentials, cost, and network access.
 

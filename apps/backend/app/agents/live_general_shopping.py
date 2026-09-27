@@ -21,6 +21,7 @@ from app.agents.contracts import (
     GeneralShoppingCandidate,
     GeneralShoppingDecisionDraft,
     GeneralShoppingEvidence,
+    GeneralShoppingModeSelection,
     GeneralShoppingOutcome,
 )
 from app.agents.catalog import DEFAULT_AGENT_CATALOG
@@ -41,7 +42,7 @@ from app.core.settings import Settings
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
-from app.schemas.analysis import ListingTrustLevel
+from app.schemas.analysis import ListingTrustLevel, RecommendationMode
 from app.providers.source_quality import (
     SourceClass,
     SourceEvidenceContext,
@@ -64,6 +65,9 @@ class GeneralModelOutput(CartCartBaseModel):
     category: str = Field(min_length=1, max_length=200)
     specialist_helpful: bool = False
     candidates: tuple[GeneralCandidateSelection, ...] = Field(default_factory=tuple)
+    mode_selections: tuple[GeneralShoppingModeSelection, ...] = Field(
+        default_factory=tuple, max_length=4
+    )
     selected_candidate_name: str | None = None
     evidence_gap: str | None = Field(default=None, max_length=500)
     hosted_lead_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
@@ -420,6 +424,7 @@ class LiveGeneralShoppingAgent:
                     "check listing risk, or consult one scoped source specialist as needed. "
                     "Hosted citations are leads until a page is fetched and quoted. "
                     "Use only fetched and recorded page quote evidence IDs for candidates. "
+                    "Optional comparison modes need a named cited candidate; price modes also need a checked listing and quote. "
                     "If those sources do not support a product/listing "
                     "and an independent review, leave the selection empty and explain "
                     "the evidence gap. Never invent a price, availability, seller trust, "
@@ -521,6 +526,7 @@ class LiveGeneralShoppingAgent:
                 "record_source_quote evidence IDs for candidates. Search, fetch, inspect "
                 "persisted evidence, compare, check listing trust, or consult a relevant "
                 "source specialist when useful. Hosted citations are leads until fetched. "
+                "Optional comparison modes need a named cited candidate; price modes also need a checked listing and quote. "
                 "Search and fetch within "
                 "the buyer's region when useful. If product/listing and independent review "
                 "evidence are insufficient, leave the selection empty and explain the gap. "
@@ -598,6 +604,7 @@ class LiveGeneralShoppingAgent:
                 "Hosted web search is optional and its citations are only leads until fetched. "
                 "Organize candidates using only evidence IDs returned by record_source_quote. "
                 "Seek independent product/listing and review evidence before choosing a candidate. "
+                "Optionally name distinct best-value, within-budget, stretch, or runner-up modes only when cited evidence supports them; price modes also need a checked listing and quote. "
                 "If that evidence is missing, leave selected_candidate_name empty and state a gap. "
                 "Never infer current price, regional availability, seller trust, or product facts "
                 "from snippets, ratings, or a cited URL alone. Finish broad or non-technology "
@@ -1120,6 +1127,9 @@ class LiveGeneralShoppingAgent:
                 },
                 "output": {
                     "selected_candidate_name": draft.selected_candidate_name,
+                    "mode_selections": [
+                        item.mode.value for item in draft.mode_selections
+                    ],
                     "evidence_ids": [
                         str(e.evidence_id) for c in draft.candidates for e in c.evidence
                     ],
@@ -1311,11 +1321,28 @@ class LiveGeneralShoppingAgent:
                 )
             )
         if enough and selected is not None:
+            candidates_by_name = {item.name: item for item in candidates}
+            validated_modes = []
+            seen_modes = set()
+            for mode in model.mode_selections:
+                candidate = candidates_by_name.get(mode.candidate_name)
+                if (
+                    candidate is None
+                    or mode.mode in seen_modes
+                    or mode.mode == RecommendationMode.BEST_OVERALL
+                    or not set(mode.evidence_ids).issubset(
+                        {item.evidence_id for item in candidate.evidence}
+                    )
+                ):
+                    continue
+                seen_modes.add(mode.mode)
+                validated_modes.append(mode)
             return GeneralShoppingDecisionDraft(
                 category=model.category,
                 specialist_helpful=model.specialist_helpful,
                 outcome=GeneralShoppingOutcome.DRAFT,
                 candidates=tuple(candidates),
+                mode_selections=tuple(validated_modes),
                 selected_candidate_name=selected.name,
                 hosted_lead_source_ids=tuple(c.source_id for c in citations),
                 rationale=(

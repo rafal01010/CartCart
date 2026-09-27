@@ -34,15 +34,16 @@ CartCart uses deterministic workflow orchestration with typed agent steps. The o
 
 Today the guided API gathers a brief, then the live run enters
 `GeneralShoppingAgent` after intake and before query planning, discovery, or
-category routing. Its cited draft and research activity are recorded with the
-run; the existing typed decision stages still assemble the persisted result.
+category routing. The last SDK owner authors the persisted result after
+independent backend citation checks and verifier review.
 `CategoryRouterAgent` returns a `ProductAnalysisRoute`; domain/specialist calls
-return `CategoryAnalysis`; `ComparisonDecisionAgent` authors the final bundle.
+return `CategoryAnalysis`; `ComparisonDecisionAgent` remains a separate typed
+capability, not the live result author.
 These route strings, Python sub-runs, and source agents-as-tools are **not**
 OpenAI Agents SDK handoffs. General now has one real SDK handoff option to
 `TechnologyDomainAnalystAgent`. The SDK's completed handoff item, validated
-reason/context, resolved models, and `last_agent` are recorded in the run trace;
-the persisted recommendation still comes from the transitional decision stages.
+reason/context, resolved models, and `last_agent` are recorded in the run trace
+and result provenance.
 `GeneralShoppingAgent` has an SDK runner in
 the normal opt-in live workflow and the isolated workbench. Live
 `DiscoveryAgent`, listing trust, the four source-intelligence specialists, and
@@ -65,11 +66,10 @@ shopper-facing draft; it has no further handoff target. A failed or unsuitable
 specialization stays with the current owner under an explicit safe fallback,
 never an invented specialist or a hidden parent rewrite.
 
-`GenericProductAnalystAgent` remains a current, evidence-only per-product
-analysis fallback returning `CategoryAnalysis`; it is distinct from the target
-General owner and is not a shopper-request handoff target. `ComparisonDecisionAgent`
-currently synthesizes `RecommendationBundle`; in the target flow its comparison
-logic is an owner-accessible helper, not a second author after a handoff.
+`GenericProductAnalystAgent` remains an evidence-only per-product analysis
+fallback returning `CategoryAnalysis`; it is distinct from General and is not
+a shopper-request handoff target. `ComparisonDecisionAgent` remains available
+for isolated typed/fixture use; it no longer authors the live owner result.
 `DiscoveryAgent` and `ExtractionAgent` supply bounded research and cited
 entities. `SellerListingTrustAgent` supplies separate listing-risk evidence.
 `SourceIntelligenceManagerAgent` delegates scoped work to the four source SDK
@@ -255,7 +255,7 @@ The planned reusable source-intelligence agents will own source-specific discove
 
 `SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Its live SDK agent can choose hosted web search for the supplied seller/listing and buyer region, or use supplied evidence alone. Exact cited URLs are retained as weak, run-scoped trust leads with source/evidence IDs. These leads can identify a question to check but cannot verify seller reputation, policy terms, or a listing claim or raise trust. Suspicious deterministic trust flags cannot be silently overridden by agent output.
 
-`ComparisonDecisionAgent` owns comparative recommendation modes from the same analysis pass. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint.
+`ComparisonDecisionAgent` can produce comparative modes in its isolated typed path; the active SDK owner authors the live result and any supported modes. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint.
 
 ## Why These Are Source Intelligence Agents
 

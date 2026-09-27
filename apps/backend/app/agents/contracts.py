@@ -9,9 +9,10 @@ from app.schemas.analysis import (
     DeduplicationDecision,
     ListingTrustAssessment,
     RecommendationBundle,
+    RecommendationMode,
 )
 from app.schemas.base import CartCartBaseModel, VersionedSchema
-from app.schemas.ids import ProductId, RunId, SourceId
+from app.schemas.ids import ListingId, ProductId, RunId, SourceId
 from app.schemas.guided_intake import (
     GuidedAnswerSubmission,
     GuidedIntakeState,
@@ -81,12 +82,23 @@ class GeneralShoppingCandidate(CartCartBaseModel):
     evidence: tuple[GeneralShoppingEvidence, ...] = Field(min_length=1)
 
 
+class GeneralShoppingModeSelection(CartCartBaseModel):
+    mode: RecommendationMode
+    candidate_name: str = Field(min_length=1, max_length=200)
+    rationale: str = Field(min_length=1, max_length=1500)
+    evidence_ids: tuple[SourceId, ...] = Field(min_length=1, max_length=8)
+    listing_id: ListingId | None = None
+
+
 class GeneralShoppingDecisionDraft(VersionedSchema):
     owner_agent_name: str = "GeneralShoppingAgent"
     category: str = Field(min_length=1, max_length=200)
     specialist_helpful: bool = False
     outcome: GeneralShoppingOutcome
     candidates: tuple[GeneralShoppingCandidate, ...] = Field(default_factory=tuple)
+    mode_selections: tuple[GeneralShoppingModeSelection, ...] = Field(
+        default_factory=tuple
+    )
     selected_candidate_name: str | None = None
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple)
     hosted_lead_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)

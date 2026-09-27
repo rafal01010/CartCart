@@ -544,6 +544,10 @@ export interface RejectedItem {
 export interface RecommendationBundle {
 	schema_version: number;
 	bundle_id: CandidateId;
+	result_author?: string | null;
+	handoff_chain?: string[];
+	verification_action?: string | null;
+	verification_changes?: string[];
 	final_product_id?: EntityId | null;
 	final_listing_id?: EntityId | null;
 	no_strong_buy: boolean;

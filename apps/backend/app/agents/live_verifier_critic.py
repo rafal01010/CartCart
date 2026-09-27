@@ -143,6 +143,13 @@ _STOPWORDS = frozenset(
     }
 )
 
+_SAFE_UNCITED_GAP_REASONS = frozenset(
+    {
+        "There is not enough checked evidence to choose a product yet. Try a more specific request or check again later.",
+        "We could not confirm enough details to recommend a product safely. Try a more specific request or check again later.",
+    }
+)
+
 
 class VerifierCriticModelRunner(Protocol):
     async def run(
@@ -415,6 +422,13 @@ def _deterministic_verification_report(
     )
 
 
+def verify_recommendation_guardrails(
+    input_data: VerificationAgentInput,
+) -> VerificationReport:
+    """Run non-model evidence and safety checks before and after model verification."""
+    return _deterministic_verification_report(input_data)
+
+
 def _apply_output_guardrails(
     report: VerificationReport,
     input_data: VerificationAgentInput,
@@ -526,11 +540,21 @@ def _citation_issues(
     for label, text, evidence_ids in _cited_text_surfaces(bundle):
         if not text:
             continue
+        if (
+            bundle.no_strong_buy
+            and label == "no-strong-buy reason"
+            and not evidence_ids
+            and text in _SAFE_UNCITED_GAP_REASONS
+        ):
+            # A cautious evidence-gap statement need not fabricate a citation.
+            continue
         if not evidence_ids:
             issues.append(f"{label} needs source evidence before it can be shown.")
             continue
         if not _surface_supported_by_evidence(text, evidence_ids, corpus):
-            issues.append(f"{label} includes a factual claim not backed by its evidence.")
+            issues.append(
+                f"{label} includes a factual claim not backed by its evidence."
+            )
     return tuple(issues)
 
 
@@ -651,7 +675,9 @@ def _guardrail_safe_bundle(
     )
 
 
-def _failure_report(input_data: VerificationAgentInput, issue: str) -> VerificationReport:
+def _failure_report(
+    input_data: VerificationAgentInput, issue: str
+) -> VerificationReport:
     return VerificationReport(
         approved=False,
         recommendation_bundle=_guardrail_safe_bundle(
@@ -692,7 +718,9 @@ def _surface_supported_by_evidence(
     evidence_ids: Sequence[SourceId],
     corpus: dict[SourceId, str],
 ) -> bool:
-    supported_text = " ".join(corpus.get(evidence_id, "") for evidence_id in evidence_ids)
+    supported_text = " ".join(
+        corpus.get(evidence_id, "") for evidence_id in evidence_ids
+    )
     if not supported_text.strip():
         return False
 
@@ -878,7 +906,11 @@ def _validate_product_id(
     product_id: ProductId | None,
     known_product_ids: set[ProductId],
 ) -> None:
-    if product_id is not None and known_product_ids and product_id not in known_product_ids:
+    if (
+        product_id is not None
+        and known_product_ids
+        and product_id not in known_product_ids
+    ):
         raise ValueError("recommendation output used an unknown product ID.")
 
 
@@ -886,7 +918,11 @@ def _validate_listing_id(
     listing_id: ListingId | None,
     known_listing_ids: set[ListingId],
 ) -> None:
-    if listing_id is not None and known_listing_ids and listing_id not in known_listing_ids:
+    if (
+        listing_id is not None
+        and known_listing_ids
+        and listing_id not in known_listing_ids
+    ):
         raise ValueError("recommendation output used an unknown listing ID.")
 
 
@@ -914,8 +950,7 @@ def _trust_by_listing_id(
     input_data: VerificationAgentInput,
 ) -> dict[ListingId, ListingTrustAssessment]:
     return {
-        assessment.listing_id: assessment
-        for assessment in input_data.trust_assessments
+        assessment.listing_id: assessment for assessment in input_data.trust_assessments
     }
 
 

@@ -60,8 +60,9 @@ live guarded intake and `IntakeAgent` processing after run start.
 The existing guided endpoints supply the corrected brief and start the same
 `/runs` resource. After scope/safety preflight and scoped intake, each opt-in
 live run enters `GeneralShoppingAgent` before category routing. The run records
-General's draft and research trace; its existing typed decision stages still
-author the persisted result until active-owner result integration. General
+the active owner's draft and research trace. The last SDK owner now authors the
+persisted recommendation after independent evidence checks and verification;
+the older analysis stages can add evidence but do not rewrite it. General
 receives the saved corrected brief and user-added product leads from the same
 session; those leads still need source checks. General can now use a real SDK
 handoff to Technology for a matching technology request. Technology can then
@@ -273,7 +274,7 @@ agent-tool activity. Fixture mode keeps a provider-service simulation.
 
 `GET /api/sessions/{session_id}/results`
 
-Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, runner-ups, alternate modes, comparison data, trust notes, warnings, source references, and result version.
+Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, supported comparison modes, trust notes, warnings, source references, and result version. Live bundles retain `result_author`, `handoff_chain`, `verification_action`, and `verification_changes` for audit. The shopper view renders the recommendation and evidence without agent or handoff details.
 
 Current implementation returns the latest persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust

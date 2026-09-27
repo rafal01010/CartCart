@@ -595,11 +595,10 @@ specialists stay nested tools. `GeneralShoppingAgent` runs after scoped intake i
 shopping API and in the isolated workbench. It uses a `strong` profile, up to
 10 initial turns, 2,500 output tokens per turn, bounded provider search/fetch/quote
 tools, optional hosted search,
-and run-scoped citation persistence. Its draft and cited research are recorded
-in the live run trace, while existing typed decision stages still persist the
-result. Fixture mode remains offline; workbench mock mode uses
-in-process providers and a scripted model runner. Active-owner result
-persistence remains a later task.
+and run-scoped citation persistence. The last SDK owner's draft is persisted
+after same-run reference checks and verifier review; the bundle records author,
+handoffs, verifier changes, and cited IDs. Fixture mode remains offline;
+workbench mock mode uses in-process providers and a scripted model runner.
 The resolved model and optional reasoning effort are set on each SDK `Agent`,
 not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
 caller's model profile.

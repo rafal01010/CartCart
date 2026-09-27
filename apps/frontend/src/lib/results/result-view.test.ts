@@ -526,4 +526,54 @@ describe('result view helpers', () => {
 		expect(view.finalMode?.rationale).toBe('rationale.');
 		expect(view.warnings.map((warning) => warning.text)).toEqual(['Avoid this seller.']);
 	});
+
+	it('renders a verified owner pick from persisted citations without exposing the handoff', () => {
+		const view = buildResultView({
+			...baseResult,
+			products: [{ ...baseResult.products[0], name: 'Northstar Phone', category: 'smartphone', listing_ids: [] }],
+			listings: [],
+			trust_assessments: [],
+			source_snapshots: [{ ...baseResult.source_snapshots[0], title: 'Northstar Phone product page' }],
+			source_evidence: [{ ...baseResult.source_evidence[0], claim: 'Northstar Phone was described on the product page.' }],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				result_author: 'SmartphoneSpecialistAgent',
+				handoff_chain: ['GeneralShoppingAgent -> TechnologyDomainAnalystAgent', 'TechnologyDomainAnalystAgent -> SmartphoneSpecialistAgent'],
+				verification_action: 'approved',
+				final_listing_id: null,
+				final_rationale: 'Northstar Phone fits the stated needs.',
+				runner_up_product_ids: [],
+				mode_results: [{ ...baseResult.recommendation_bundle.mode_results[0], listing_id: null, rationale: 'Northstar Phone fits the stated needs.' }],
+				evidence_ids: ['evidence-dell'],
+				source_ids: ['source-dell'],
+			},
+		});
+		expect(view.finalMode?.productName).toBe('Northstar Phone');
+		expect(view.finalMode?.purchaseUrl).toBeNull();
+		expect(view.resultEvidence).toHaveLength(1);
+		expect(view.resultSources).toHaveLength(1);
+		expect(JSON.stringify(view)).not.toContain('SmartphoneSpecialistAgent');
+	});
+
+	it('renders an owner no-strong-buy result without a phantom pick', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				result_author: 'GeneralShoppingAgent',
+				verification_action: 'approved',
+				final_product_id: null,
+				final_listing_id: null,
+				no_strong_buy: true,
+				no_strong_buy_reason: 'There is not enough checked evidence to choose a product yet.',
+				mode_results: [],
+				evidence_ids: [],
+				source_ids: [],
+				runner_up_product_ids: [],
+			},
+		});
+		expect(view.finalMode).toBeNull();
+		expect(view.noStrongBuyReason).toContain('not enough checked evidence');
+		expect(JSON.stringify(view)).not.toContain('GeneralShoppingAgent');
+	});
 });

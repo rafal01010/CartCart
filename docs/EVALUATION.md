@@ -77,8 +77,11 @@ draft needs fetched product/listing and review excerpts from independent
 domains with persisted source, snapshot, and evidence IDs; weak or invented
 evidence stays an explicit gap. Focused offline API/routing cases now check
 that both wooden-cane and smartphone guided requests enter General before
-category routing, while fixture runs stay offline. General's draft is traced;
-the transitional stages still persist the result. Task 89U's mocked SDK cases
+category routing, while fixture runs stay offline. Task 89X's focused offline
+result cases check General and Smartphone ownership, cited page records,
+same-run persistence, no inferred listing, a rejected tampered quote,
+verifier revisions and blocks, unverified-output blocking, a cited alternate
+value mode, and an honest no-strong-buy UI projection. Task 89U's mocked SDK cases
 now check General finishing a cane request, an actual General -> Technology
 handoff on a keyboard request with Technology as `last_agent`, and rejection of
 a non-technology handoff. Technology's narrower tools and independent model
@@ -90,9 +93,8 @@ Focused offline cases exercise a phone specialist recording product and
 independent-review quotes, receiving a source-manager tool result or explicit
 failure gap, retaining a hosted citation under its own identity, and ending as
 the sole draft author. A separate case accepts a quote-backed candidate before
-product persistence and rejects an unrelated name. The broader evaluation and
-final active-owner result integration remain deferred to the
-Tasks 89Q-89Y section gate.
+product persistence and rejects an unrelated name. The broader evaluation
+remains deferred to the Tasks 89Q-89Y section gate.
 
 ## Evaluation Dimensions
 

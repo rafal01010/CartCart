@@ -414,6 +414,11 @@ pick when one exists.
 | `no_strong_buy` | `Boolean` | No | True when the result intentionally has no winner. |
 | `bundle` | `JSON` | No | Full `RecommendationBundle` payload. |
 
+Live bundle JSON also keeps the final owner, SDK handoff chain, verification
+action and changes, and cited source/evidence IDs. Model and token usage remain
+in run-scoped agent records. A cited product may have no listing row; that does
+not assert a purchasable offer.
+
 ### `result_versions`
 
 Stores version pointers for run results so later refinements do not silently

@@ -418,15 +418,16 @@ Required MVP agent roles include:
 
 ### General owner and SDK handoff target
 
-The present live workflow invokes independent typed SDK steps after guided
-intake. `CategoryRouterAgent` returns `ProductAnalysisRoute`; Python selects
-analysts that return `CategoryAnalysis`, and `ComparisonDecisionAgent` builds
-`RecommendationBundle`. This is application routing, not an SDK handoff.
+The live workflow retains typed analysis steps after guided intake.
+`CategoryRouterAgent` returns `ProductAnalysisRoute`; Python selects analysts
+that return `CategoryAnalysis`. `ComparisonDecisionAgent` remains a separate
+typed capability but no longer writes the live owner result. Those analysis
+routes are application routing, not SDK handoffs.
 `Agent.as_tool()` source delegation likewise returns bounded evidence, not
 shopper-request ownership. The opt-in live API now enters the SDK
 `GeneralShoppingAgent` after intake, before category routing, and records its
-draft and research trace. Existing decision stages still author the persisted
-result during this transition. General can now make a real SDK handoff to
+draft and research trace. The last SDK owner now authors the persisted result;
+the older typed analysis path remains an evidence input in live runs. General can make a real SDK handoff to
 Technology when the handoff context matches a technology request. The SDK's
 completed handoff item and last agent determine the recorded draft owner;
 Technology may now SDK-handoff to one matching catalog-approved specialist.
@@ -461,8 +462,10 @@ not a verified listing. The source manager delegates
 to YouTube, Reddit, Amazon, and IKEA specialists; it does not become a second
 unrestricted researcher. Backend code owns provider credentials, source and
 region policy, budgets, evidence-ID checks, suspicious-listing blocks, and
-persistence. The last owner drafts the result; Task 89X will connect that draft
-to independent result verification and shopper-facing persistence. The parent
+persistence. The last owner drafts the result; backend code reloads its same-run
+quotes and source links, then the independent verifier approves, revises with
+an auditable change, or blocks it to a no-strong-buy answer. A quote-backed
+product may be persisted without inventing a purchase listing. The parent
 never silently rewrites a transferred owner's answer. Persist
 the actual handoff chain, last owner/author, cited sources and evidence,
 verification changes, models/usage, and result version before UI projection.

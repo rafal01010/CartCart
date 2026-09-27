@@ -68,10 +68,9 @@ or transfer to a matching one of the six implemented product specialists.
 The terminal specialist originates `GeneralModelOutput`; its parent does not
 rewrite that output. A failed specialist can be followed by a bounded, separate
 Technology recovery run, recorded as recovery rather than an SDK handoff.
-The current persisted result still uses
-Python-selected `ProductAnalysisRoute` and typed analyst sub-runs, then
-`ComparisonDecisionAgent` synthesis. Those routes are
-not SDK handoffs.
+The live persisted result now comes from the last SDK owner. Python-selected
+`ProductAnalysisRoute` and typed analyst sub-runs still supply evidence; those
+routes are not SDK handoffs.
 The source manager's four nested SDK agents-as-tools supply
 evidence, not shopper ownership. General, Technology, and the six active
 specialists can each choose hosted search, bounded provider search/fetch/quote,
@@ -82,11 +81,11 @@ by the owner chain; the latter does not create a verified product listing.
 The backend validates source/evidence IDs, blocks suspicious cited listings,
 and retains source policy and buyer-region restrictions. Hosted citations are
 weak leads until fetched and quoted. The source manager delegates to its
-specialists as tools, never as shopper-owner handoffs. The backend will
-validate/persist the actual last owner, handoff chain, verification changes,
-and versioned result in the later result-integration task. General's draft is
-recorded in the live run trace but does
-not yet author the persisted recommendation. An actual SDK
+specialists as tools, never as shopper-owner handoffs. The backend reloads
+cited same-run records, validates the last owner and handoff chain, runs
+independent evidence checks and `VerifierCriticAgent`, then persists the
+verified owner result with an audit trail and version. A blocked draft becomes
+an explicit no-strong-buy result. An actual SDK
 `web_search_call` is recorded separately from provider
 `search_sources`/`fetch_source` activity. `docs/ARCHITECTURE.md` and `supported_agents.md` define the role and
 tool matrix.
@@ -312,6 +311,10 @@ agent-owned research and emits a readiness warning.
 Recommendation modes are stored inside the persisted `RecommendationBundle`.
 Switching between best overall, best value, within-budget, and stretch-upgrade
 views on the frontend reads that stored bundle and does not create a new run.
+Live owner drafts populate best overall when evidence justifies one pick. They
+may also include cited best-value, within-budget, stretch, or runner-up modes;
+price-based modes require a checked listing and price quote. The UI does not
+invent a listing or price for a quote-backed product.
 
 ## Result Versioning
 

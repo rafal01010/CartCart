@@ -189,6 +189,11 @@ class RejectedItem(CartCartBaseModel):
 
 class RecommendationBundle(VersionedSchema):
     bundle_id: CandidateId = Field(default_factory=new_id)
+    # Internal provenance is persisted with the versioned bundle, never used as shopper copy.
+    result_author: str | None = None
+    handoff_chain: tuple[str, ...] = Field(default_factory=tuple)
+    verification_action: str | None = None
+    verification_changes: tuple[str, ...] = Field(default_factory=tuple)
     final_product_id: ProductId | None = None
     final_listing_id: ListingId | None = None
     no_strong_buy: bool = False

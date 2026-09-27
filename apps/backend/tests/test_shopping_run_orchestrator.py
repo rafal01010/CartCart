@@ -1574,11 +1574,10 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
         )
         assert len(analyst.calls) == 1
         assert user_added_snapshot.source_id in analyst.calls[0].product.source_ids
-        assert len(comparison_agent.calls) == 1
-        assert comparison_agent.calls[0].user_added_products[0].candidate_id == (
-            user_added.candidate_id
-        )
-        assert comparison_agent.calls[0].user_added_products[0].listing is not None
+        assert comparison_agent.calls == []
+        assert context.general_owner_draft is not None
+        assert context.recommendation_bundle is not None
+        assert context.recommendation_bundle.no_strong_buy is True
 
     finally:
         await engine.dispose()
@@ -1707,7 +1706,10 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
         )
         assert user_added_snapshot.provider.raw["user_added_match_source_id"]
         assert user_added_snapshot.source_id in analyst.calls[0].product.source_ids
-        assert comparison_agent.calls[0].user_added_products[0].listing is not None
+        assert comparison_agent.calls == []
+        assert context.general_owner_draft is not None
+        assert context.recommendation_bundle is not None
+        assert context.recommendation_bundle.no_strong_buy is True
 
     finally:
         await engine.dispose()
@@ -1905,7 +1907,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert context.general_owner_draft is not None
         assert (
             context.stage_outputs[RunStage.GENERAL_OWNER].payload["result_author"]
-            == "transitional_decision_stages"
+            == "GeneralShoppingAgent"
         )
         assert len(context.selected_source_ids) == 1
         assert len(analyst.calls) == 1
@@ -1914,6 +1916,9 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert context.verification_report is not None
         assert context.verification_report.approved is True
         assert result is not None
+        assert result.recommendation_bundle.no_strong_buy is True
+        assert result.recommendation_bundle.result_author == "GeneralShoppingAgent"
+        assert result.recommendation_bundle.verification_action == "approved"
         assert result.recommendation_bundle.final_product_id == (
             context.recommendation_bundle.final_product_id
         )
@@ -1961,9 +1966,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         )
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].duration_ms is not None
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].model_name == "large-model"
-        assert records_by_stage[RunStage.COMPARISON_DECISION].model_name == (
-            "large-model"
-        )
+        assert records_by_stage[RunStage.COMPARISON_DECISION].model_name is None
         assert records_by_stage[RunStage.VERIFICATION].model_name == "large-model"
         assert (
             records_by_stage[RunStage.VERIFICATION].tool_activity[0]["status"]

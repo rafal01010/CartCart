@@ -768,6 +768,25 @@ credentialed smoke without renewed authorization. No live source providers
 were called, and the normal local app remains in fixture-agent mode unless
 deliberately changed.
 
+The Task 89Y live gate has two opt-in tests in
+`tests/test_general_owner_live_gate_smoke.py`: real General -> Technology ->
+Smartphone SDK handoffs and a real hosted OpenAI web-search call whose citations
+must map to persisted source/evidence IDs. From `apps/backend`, run
+`CARTCART_RUN_89Y_LIVE_SMOKE=1 .venv/bin/python -m pytest -q -s tests/test_general_owner_live_gate_smoke.py`
+only with explicit credentialed authorization. It reads the local `.env`,
+checks non-secret effective models, profiles, turns, and timeouts before a call,
+temporarily enables live-agent execution, and injects fixture application
+providers. The normal local workflow selection remains fixture. The initial
+89Y invocation stopped during fixture validation before any model call; the
+fixture was corrected. An authorized rerun passed the real two-hop handoff and
+a smartphone-authored result. The hosted-search smoke made a real call but
+initially failed an assertion that treated intermediate citation activity as
+completed calls. After the assertion was corrected, a newly authorized rerun
+passed and checked mapped citation IDs against persisted run sources and
+evidence. Task 89Y is complete. Live source-provider availability has not been
+tested; application providers remained fixtures. Do not retry a failed
+credentialed smoke without renewed authorization.
+
 For `ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
 source-backed three-monitor shortlist with best overall, best value,
 within-budget, stretch, and runner-up modes, while

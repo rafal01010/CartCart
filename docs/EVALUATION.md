@@ -480,7 +480,7 @@ Before a workflow capability is considered accepted, verification should show:
 
 When adding, removing, moving, or changing fallback behavior for an agent or source capability, update `supported_agents.md`, the runtime agent catalog once it exists, related routing tests, provider fixtures where relevant, and eval cases together.
 
-Required reusable source intelligence evals should cover YouTube/video, Reddit/community, Amazon product/listing/review, and IKEA regional store evidence. The provider-service baseline must verify cited bundles and explicit gaps without counting a service call as an SDK model run. All four SDK source specialists have focused mocked-model/tool tests. A focused offline delegation test now exercises one model-running parent invoking two distinct SDK specialist agent tools, accepting cited bundles, and explaining skipped sources. The section-gate eval must additionally check model-selected review relevance, transcript/timestamp grounding, public-community quote/source grounding, independent-thread recurrence versus anecdotes, stale/low-context/manipulation warnings, inaccessible/deleted discussions, bounded tools, wrong IDs, and live model runs over recorded provider data. Amazon cases must also cover ASIN/variant ambiguity, neutral links, region uncertainty, separate seller risk, unknown IDs, and provider failure. IKEA cases cover official-region filtering, item ambiguity, local price/currency and availability grounding, unsupported regions, wrong IDs, and provider/model failure. The parent-to-specialist live model smoke remains a section-gate requirement; a fixture service result does not satisfy it.
+Required reusable source intelligence evals should cover YouTube/video, Reddit/community, Amazon product/listing/review, and IKEA regional store evidence. The provider-service baseline must verify cited bundles and explicit gaps without counting a service call as an SDK model run. All four SDK source specialists have focused mocked-model/tool tests. A focused offline delegation test now exercises one model-running parent invoking two distinct SDK specialist agent tools, accepting cited bundles, and explaining skipped sources. The section-gate eval must additionally check model-selected review relevance, transcript/timestamp grounding, public-community quote/source grounding, independent-thread recurrence versus anecdotes, stale/low-context/manipulation warnings, inaccessible/deleted discussions, bounded tools, wrong IDs, and live model runs over recorded provider data. Amazon cases must also cover ASIN/variant ambiguity, neutral links, region uncertainty, separate seller risk, unknown IDs, and provider failure. IKEA cases cover official-region filtering, item ambiguity, local price/currency and availability grounding, unsupported regions, wrong IDs, and provider/model failure. The parent-to-specialist live model smoke passed at Task 89P; a fixture service result alone would not satisfy it.
 
 Task 89P has an opt-in `live_model` test in
 `tests/test_source_intelligence_live_model_smoke.py`. It injects an in-process
@@ -498,3 +498,19 @@ source/evidence IDs. The focused offline gate passed 266 tests, including the
 schema regression. Task 89P is complete. No live source providers were called;
 their availability and the normal end-to-end live shopping workflow remain
 unverified.
+
+Task 89Y's focused offline gate passed 329 backend checks across
+owner contracts, hosted/provider tools, routing, mocked SDK handoffs, workbench,
+persistence, API, trust, and result verification. Four frontend result/guided/API
+unit files pass 31 checks, and the guided fixture browser smoke passes. The
+credentialed smokes in `tests/test_general_owner_live_gate_smoke.py` also
+passed: real General -> Technology -> Smartphone SDK handoffs ended with a
+smartphone-authored result, and a real hosted OpenAI web-search call produced
+citations whose source/evidence IDs were checked against run persistence. The
+first opt-in attempt stopped during local fixture validation before a model
+call. A later hosted attempt failed only because its test treated intermediate
+citation activity as completed calls; that assertion was corrected before the
+authorized passing rerun. The smokes loaded the real backend `.env`, checked
+non-secret model profiles and limits, and used in-process fixture application
+providers. Task 89Y is complete. Live source-provider availability remains
+unverified; no live source-provider calls were made.

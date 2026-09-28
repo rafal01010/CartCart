@@ -439,11 +439,12 @@ def test_stream_run_events_returns_persisted_events_in_order(
     payloads = parse_sse_payloads(body)
     event_data = [json.loads(payload["data"]) for payload in payloads]
     assert [payload["id"] for payload in payloads] == [
-        str(index) for index in range(11)
+        str(index) for index in range(12)
     ]
     assert {payload["event"] for payload in payloads} == {"run_event"}
     assert [event["stage"] for event in event_data] == [
         "intake",
+        "general_owner",
         "query_planning",
         "discovery",
         "extraction",
@@ -475,27 +476,13 @@ def test_create_run_streams_events_and_fetches_fixture_results(
     results_response = run_api_client.get(f"/api/sessions/{session_id}/results")
 
     assert events_response.status_code == 200
-    assert parse_sse_payloads(events_body)[-1]["id"] == "10"
+    assert parse_sse_payloads(events_body)[-1]["id"] == "11"
     assert results_response.status_code == 200
     result_body = results_response.json()
     assert result_body["result_version"]["run_id"] == run_id
     bundle = result_body["recommendation_bundle"]
-    assert bundle["final_rationale"].startswith("Dell UltraSharp U2724DE")
-    assert any(
-        product["name"] == "Dell UltraSharp U2724DE"
-        for product in result_body["products"]
-    )
-    final_listing = next(
-        listing
-        for listing in result_body["listings"]
-        if listing["listing_id"] == bundle["final_listing_id"]
-    )
-    assert final_listing["seller"]["seller_name"] == "Dell Official"
-    assert final_listing["price"]["currency"] == "USD"
-    assert len(bundle["runner_up_product_ids"]) == 2
-    assert bundle["rejected_items"][0]["reason"].startswith("Rejected because")
-    assert any(
-        assessment["level"] == "suspicious"
-        for assessment in result_body["trust_assessments"]
-    )
-    assert len(result_body["agent_records"]) == 10
+    assert bundle["no_strong_buy"] is True
+    assert bundle["no_strong_buy_reason"]
+    assert bundle["final_product_id"] is None
+    assert bundle["final_listing_id"] is None
+    assert len(result_body["agent_records"]) == 11

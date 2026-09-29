@@ -164,6 +164,8 @@ or enough metadata for the frontend to ask for region setup outside the main
 shopping-question flow. It does not ask for product links. The isolated live
 `ShoppingGuideAgent` follows the same response schema and workbench constraints,
 but this endpoint is not routed through it yet.
+An HTTP(S) link included in the first question is currently retained in the
+query text; it is not saved as a user-added URL candidate by guided intake.
 
 `GET /api/sessions/{session_id}/guide`
 
@@ -180,6 +182,9 @@ The fixture implementation updates the in-memory guide state and persists a
 ready `ShoppingBrief` to the session once intake has enough information. Natural
 language known-product mentions are preserved as user-added product text without
 asking the shopper to provide links.
+If an answer includes a link, the current implementation stores it as text,
+not as a `UserAddedProduct.url` for direct URL extraction. Clients that need
+URL extraction currently use the product endpoint below.
 
 `POST /api/sessions/{session_id}/guide/skip`
 
@@ -299,8 +304,8 @@ products should participate in later analysis alongside app-generated
 candidates. Normal guided intake should ask users for product names or
 descriptions instead of asking them to paste product links.
 
-Current implementation accepts URL entries, text-only product names/descriptions,
-and lightweight manual product details, persists them as session-local
+The endpoint accepts URL entries and text-only product names/descriptions,
+persists them as session-local
 `UserAddedProduct` records, and returns the updated session state. On the next
 shopping run, text-only user-added products add scoped lookup queries to the
 query plan. Discovery selects sources by ID, and ExtractionAgent classifies
@@ -310,9 +315,21 @@ through the configured source extraction provider directly. Confirmed matches
 are normalized and deduplicated with app-generated candidates; the user-added
 record gains the canonical product and one linked listing. Ambiguous matches
 remain separate in `possible_product_ids`, while each matched listing retains
-its `user_added_matches`, seller, price, availability, and trust context. Manual
-product-only details remain lower-evidence placeholders until manual-entry
-support is expanded.
+its `user_added_matches`, seller, price, availability, and trust context.
+
+Manual fallback uses `manual_fallback_reason` (`retrieval_unavailable`,
+`retrieval_insufficient`, or `user_correction`), `name`, optional identity fields,
+and optional `manual_details` (seller, price, availability, review, warranty,
+specifications). Retrieval reasons require `fallback_candidate_id` for an
+existing, researched entry with no confirmed listing; correction can create a
+new entry or replace one by ID. Product names alone remain research hints.
+For an unavailable URL, the original link remains a research lead; a correction
+clears the old link.
+Manual details are shopper reports, never verified offers or citations. The
+response exposes `manual_evidence_status` per field as `user_reported` or
+`unknown`, with source always unknown, plus `research_attempted`. A manual-only
+candidate enters the shortlist and comparison without a listing or invented
+evidence; it cannot be selected as a buy until independent research confirms it.
 
 `POST /api/sessions/{session_id}/refinements`
 

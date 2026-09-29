@@ -603,7 +603,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Normal guided intake should ask for product names or descriptions, not product URLs.
 - Name- or description-based user-added products remain hints through scoped lookup queries and DiscoveryAgent selection. ExtractionAgent explicitly links cited listings to a hint as confirmed or possible; a query hit alone is not a match. Ambiguous variants stay separate while each listing keeps its seller and trust context.
 - URL-based user-added products are an advanced or corrective path; the run workflow fetches and extracts them through the normal source/listing pipeline before deduplication, then marks the deduped product/listing as user-supplied.
-- Manual user-added products must preserve missing evidence rather than inventing specs, price, seller, or review claims.
+- Manual fallback is available for an inconclusive researched candidate or an explicit shopper correction. It preserves the shopper's reported identity and optional seller, price, availability, review, warranty, and specification details as unverified input, with per-field unknown/user-reported status. A manual-only candidate gets a source-free, listing-free shortlist row and comparison entry; it cannot become a buying pick without independent evidence.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.
 - User-added products should be marked as user-supplied in stored state and result output so the UI can distinguish them from discovered candidates.
 

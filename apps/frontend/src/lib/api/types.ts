@@ -184,8 +184,21 @@ export interface UserAddedProduct {
 	product?: CanonicalProduct | null;
 	listing?: JsonObject | null;
 	possible_product_ids?: EntityId[];
+	research_attempted?: boolean;
+	manual_fallback_reason?: 'retrieval_unavailable' | 'retrieval_insufficient' | 'user_correction' | null;
+	manual_details?: ManualProductDetails | null;
+	manual_evidence_status?: Record<string, 'unknown' | 'user_reported'> | null;
 	notes?: string | null;
 	created_at: Timestamp;
+}
+
+export interface ManualProductDetails {
+	seller?: string | null;
+	price?: Money | null;
+	availability?: string | null;
+	review?: string | null;
+	warranty?: string | null;
+	specifications?: string | null;
 }
 
 export interface SessionStateResponse {
@@ -351,6 +364,9 @@ export interface CreateUserAddedProductRequest {
 	model?: string | null;
 	category?: string | null;
 	notes?: string | null;
+	fallback_candidate_id?: CandidateId | null;
+	manual_fallback_reason?: 'retrieval_unavailable' | 'retrieval_insufficient' | 'user_correction' | null;
+	manual_details?: ManualProductDetails | null;
 }
 
 export interface ErrorBody {

@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import AnyHttpUrl, Field, field_validator, model_validator
+from pydantic import AnyHttpUrl, Field, computed_field, field_validator, model_validator
 
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence
@@ -10,6 +10,11 @@ from app.schemas.money import Money
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import SourceQuality, SourceQualityLevel
 from app.schemas.timestamps import Timestamp, utc_now
+
+
+MANUAL_UNVERIFIED_SUMMARY = (
+    "Added by you; product and buying details are not independently checked."
+)
 
 
 class ListingAvailabilityStatus(StrEnum):
@@ -41,6 +46,23 @@ class ListingExtractionMissingField(StrEnum):
 class UserAddedMatchConfidence(StrEnum):
     CONFIRMED = "confirmed"
     POSSIBLE = "possible"
+
+
+class ManualFallbackReason(StrEnum):
+    RETRIEVAL_UNAVAILABLE = "retrieval_unavailable"
+    RETRIEVAL_INSUFFICIENT = "retrieval_insufficient"
+    USER_CORRECTION = "user_correction"
+
+
+class ManualProductDetails(CartCartBaseModel):
+    """Shopper reports, never independently verified product or offer evidence."""
+
+    seller: str | None = Field(default=None, min_length=1, max_length=200)
+    price: Money | None = None
+    availability: str | None = Field(default=None, min_length=1, max_length=200)
+    review: str | None = Field(default=None, min_length=1, max_length=1000)
+    warranty: str | None = Field(default=None, min_length=1, max_length=500)
+    specifications: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 class UserAddedListingMatch(CartCartBaseModel):
@@ -154,8 +176,38 @@ class UserAddedProduct(VersionedSchema):
     product: CanonicalProduct | None = None
     listing: ProductListing | None = None
     possible_product_ids: tuple[ProductId, ...] = Field(default_factory=tuple)
+    research_attempted: bool = False
+    manual_fallback_reason: ManualFallbackReason | None = None
+    manual_details: ManualProductDetails | None = None
     notes: str | None = Field(default=None, min_length=1, max_length=1000)
     created_at: Timestamp = Field(default_factory=utc_now)
+
+    @computed_field
+    @property
+    def manual_evidence_status(self) -> dict[str, str] | None:
+        if self.manual_fallback_reason is None:
+            return None
+        product = self.product
+        details = self.manual_details
+        values = {
+            "name": product.name if product else None,
+            "brand": product.brand if product else None,
+            "model": product.model if product else None,
+            "category": product.category if product else None,
+            "seller": details.seller if details else None,
+            "price": details.price if details else None,
+            "availability": details.availability if details else None,
+            "review": details.review if details else None,
+            "warranty": details.warranty if details else None,
+            "specifications": details.specifications if details else None,
+        }
+        return {
+            "source": "unknown",
+            **{
+                field: "user_reported" if value is not None else "unknown"
+                for field, value in values.items()
+            },
+        }
 
     @model_validator(mode="after")
     def _requires_user_supplied_candidate_detail(self) -> "UserAddedProduct":
@@ -171,6 +223,10 @@ class UserAddedProduct(VersionedSchema):
             raise ValueError(
                 "user-added product and listing must reference the same product."
             )
+        if self.manual_fallback_reason is None and self.manual_details is not None:
+            raise ValueError("manual details require a fallback reason.")
+        if self.manual_fallback_reason is not None and self.product is None:
+            raise ValueError("manual fallback requires a named product.")
         return self
 
 

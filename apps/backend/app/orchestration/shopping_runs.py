@@ -133,10 +133,12 @@ from app.schemas.ids import (
     RunId,
     SessionId,
     SourceId,
+    new_id,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.intake import BudgetMode, CreateSessionRequest, ShoppingBrief
 from app.schemas.products import (
+    MANUAL_UNVERIFIED_SUMMARY,
     CanonicalProduct,
     ProductListing,
     ProductListingExtraction,
@@ -179,6 +181,7 @@ from app.schemas.source_references import SourceReference
 from app.schemas.timestamps import Timestamp, utc_now
 from app.services.product_deduplication import (
     DeterministicDeduplicationResult,
+    DeterministicProductGroup,
     DeterministicProductDeduplicator,
 )
 from app.services.product_listing_extraction import ProductListingExtractor
@@ -304,7 +307,7 @@ class CandidateDeduplicationRunOutput:
 
     @property
     def collapsed_count(self) -> int:
-        return self.result.collapsed_count
+        return max(0, self.pre_dedupe_count - self.post_dedupe_count)
 
 
 @dataclass
@@ -744,6 +747,11 @@ class RepositoryShoppingRunPersistenceHooks:
         user_added_candidate_by_listing_id = _user_added_candidate_ids_by_listing_id(
             context.user_added_products
         )
+        manual_candidate_by_product_id = {
+            item.product.product_id: item.candidate_id
+            for item in context.user_added_products
+            if item.manual_fallback_reason is not None and item.product is not None
+        }
         for group in output.result.groups:
             await self._product_repository.add_canonical_product(
                 context.run_id,
@@ -764,18 +772,13 @@ class RepositoryShoppingRunPersistenceHooks:
                 candidate_id=_candidate_id_for_group(
                     group.listings,
                     user_added_candidate_by_listing_id,
-                ),
+                )
+                or manual_candidate_by_product_id.get(group.product.product_id),
                 position=shortlist_position,
             )
             shortlist_position += 1
 
         for user_added in context.user_added_products:
-            if not (
-                user_added.listing is not None
-                or user_added.possible_product_ids
-                or (user_added.input_text is not None and user_added.product is None)
-            ):
-                continue
             await self._product_repository.update_user_added_product_for_run(
                 context.session_id,
                 user_added,
@@ -2099,6 +2102,31 @@ class ShoppingRunOrchestrator:
             if item.listing_extraction is not None
         )
         result = self._product_deduplicator.group(candidate_extractions)
+        matched_candidate_ids = {
+            match.candidate_id
+            for item in context.source_extractions
+            if item.listing_extraction is not None
+            for match in item.listing_extraction.listing.user_added_matches
+            if match.confidence == UserAddedMatchConfidence.CONFIRMED
+        }
+        manual_products_by_candidate_id = {
+            item.candidate_id: item.product.model_copy(
+                update={"product_id": new_id(), "source_ids": (), "listing_ids": ()}
+            )
+            for item in context.user_added_products
+            if item.manual_fallback_reason is not None
+            and item.product is not None
+            and item.candidate_id not in matched_candidate_ids
+        }
+        manual_groups = tuple(
+            DeterministicProductGroup(product=product, listings=())
+            for product in manual_products_by_candidate_id.values()
+        )
+        if manual_groups:
+            result = DeterministicDeduplicationResult(
+                groups=(*result.groups, *manual_groups),
+                fuzzy_decisions=result.fuzzy_decisions,
+            )
         canonical_product_by_listing = {
             listing.listing_id: group.product.product_id
             for group in result.groups
@@ -2134,7 +2162,7 @@ class ShoppingRunOrchestrator:
             )
         output = CandidateDeduplicationRunOutput(
             result=result,
-            pre_dedupe_count=len(candidate_extractions),
+            pre_dedupe_count=len(candidate_extractions) + len(manual_groups),
             post_dedupe_count=len(result.groups),
         )
         context.source_extractions = _deduplicated_source_extractions(
@@ -2144,6 +2172,17 @@ class ShoppingRunOrchestrator:
         context.user_added_products = _deduplicated_user_added_products(
             context.user_added_products,
             context.source_extractions,
+        )
+        context.user_added_products = tuple(
+            item.model_copy(
+                update={
+                    "research_attempted": True,
+                    "product": manual_products_by_candidate_id.get(
+                        item.candidate_id, item.product
+                    ),
+                }
+            )
+            for item in context.user_added_products
         )
         context.deduplication = output
         await self._persistence_hooks.persist_candidate_deduplication(context, output)
@@ -2618,6 +2657,15 @@ class ShoppingRunOrchestrator:
         analyses: list[CategoryAnalysis] = []
         activity: list[dict[str, Any]] = [*route_activity]
         for product in products:
+            if any(
+                item.manual_fallback_reason is not None
+                and item.product is not None
+                and item.product.product_id == product.product_id
+                and not product.source_ids
+                for item in context.user_added_products
+            ):
+                # A shopper report alone cannot satisfy the cited-analysis contract.
+                continue
             agent_name = route.agent_path[-1]
             analyst = self._analysis_agent_for(agent_name)
             if analyst is None:
@@ -2677,7 +2725,9 @@ class ShoppingRunOrchestrator:
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
             and context.general_owner_draft
         ):
-            bundle = await self._owner_recommendation(context)
+            bundle = _with_manual_comparison_rows(
+                await self._owner_recommendation(context), context
+            )
             context.recommendation_bundle = bundle
             return FixtureStageOutput(
                 stage=RunStage.COMPARISON_DECISION,
@@ -2725,6 +2775,7 @@ class ShoppingRunOrchestrator:
                 user_added_products=_user_added_products(context),
             )
         )
+        bundle = _with_manual_comparison_rows(bundle, context)
         context.recommendation_bundle = bundle
         activity = _agent_tool_activity(self._comparison_decision_agent)
         return FixtureStageOutput(
@@ -3192,6 +3243,7 @@ class ShoppingRunOrchestrator:
             trust_assessments=context.trust_assessments,
             category_analyses=context.category_analyses,
             deduplication_decisions=_deduplication_decisions(context),
+            user_added_products=_user_added_products(context),
         )
         backend_report = verify_recommendation_guardrails(verification_input)
         if bundle.verification_action == "blocked":
@@ -3443,6 +3495,46 @@ def _no_product_recommendation(context: ShoppingRunContext) -> RecommendationBun
             if has_listings
             else "No product listing was verified for this request.",
         ),
+    )
+
+
+def _with_manual_comparison_rows(
+    bundle: RecommendationBundle, context: ShoppingRunContext
+) -> RecommendationBundle:
+    manual_ids = tuple(
+        item.product.product_id
+        for item in context.user_added_products
+        if item.manual_fallback_reason is not None
+        and item.product is not None
+        and not item.product.source_ids
+        and not any(
+            listing.product_id == item.product.product_id
+            for listing in _analysis_listings(context)
+        )
+        and not (
+            bundle.final_product_id == item.product.product_id and bundle.evidence_ids
+        )
+    )
+    if not manual_ids:
+        return bundle
+    criteria = bundle.comparison_matrix.criteria or tuple(
+        ComparisonCriterion(name=name)
+        for name in ("fit", "value", "listing_trust", "evidence")
+    )
+    rows_by_id = {row.product_id: row for row in bundle.comparison_matrix.rows}
+    for product_id in manual_ids:
+        rows_by_id[product_id] = ComparisonRow(
+            product_id=product_id,
+            scores={criterion.name: 0.0 for criterion in criteria},
+            summary=MANUAL_UNVERIFIED_SUMMARY,
+        )
+    return bundle.model_copy(
+        update={
+            "comparison_matrix": ComparisonMatrix(
+                criteria=criteria,
+                rows=tuple(rows_by_id.values()),
+            ),
+        }
     )
 
 

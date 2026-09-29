@@ -205,6 +205,9 @@ Acceptance checklist:
 
 - Let users mention considered products in the first question or a follow-up.
 - Ask for product names/descriptions if the app needs clarification.
+- Accept a product link the shopper volunteers in the first question or a
+  follow-up, whether it appears alone or inside a sentence. Preserve the
+  surrounding shopping question and check the linked listing separately.
 - Use CartCart lookup and matching to find candidate listings.
 - Preserve evidence gaps when a product cannot be matched confidently.
 - Let user-considered products win, become runner-up, appear in a recommendation
@@ -212,12 +215,14 @@ Acceptance checklist:
 - Keep product quality separate from listing or seller trust.
 - Keep neutral outbound links when source/listing details are revealed.
 
-URL entry can exist later as an advanced or corrective path, but it is not the
-normal guided intake path.
+An optional link correction path can appear after research, but normal guided
+intake should not ask shoppers to find or paste links.
 
-In the current guided frontend, product mentions are captured from the guided
-answer text as names or descriptions. The existing product endpoint remains
-available behind that guided path rather than as a normal visible URL form.
+The current guided frontend accepts links as textbox text, but guided intake
+does not yet extract them into URL candidates. It captures considered-product
+answer text as a name/description hint; product mentions in the first question
+are not yet saved as user-added candidates. Direct URL submission is available
+through the product API, with no shopper-facing link action yet.
 
 ## Recommendation Surface
 

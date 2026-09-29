@@ -73,6 +73,10 @@ a shopper-request handoff target. `ComparisonDecisionAgent` remains available
 for isolated typed/fixture use; it no longer authors the live owner result.
 `DiscoveryAgent` and `ExtractionAgent` supply bounded research and cited
 entities. `SellerListingTrustAgent` supplies separate listing-risk evidence.
+Manual fallback entries are user reports. A manual-only entry appears as a
+source-free candidate in comparison, skips cited product analysis, and cannot
+become a buying pick through the typed comparison fallback. The active live
+owner also requires independently checked citations before selecting it.
 `SourceIntelligenceManagerAgent` delegates scoped work to the four source SDK
 agents-as-tools; neither the manager nor source specialists take over the
 shopper request. The active owner may consume their validated persisted
@@ -393,7 +397,7 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `OfficialBrandStoreAgent` | `proposed-later` | Locate official brand/store pages by country and assess official price, availability, warranty, and authorized sellers. | Reusable source agent/tool | Brand/product and region | Official-source evidence | Generic search/source extraction fallback. |
 | `ProfessionalReviewSourceAgent` | `proposed-later` | Gather structured evidence from reputable written review sites and lab-test sources where available. | Reusable source agent/tool | Product/category and region | Review evidence | Generic source extraction fallback. |
 | `CommunityDiscussionSignalAgent` | `proposed-later` | Summarize recurring owner complaints/praise from community discussions when allowed and source quality is adequate. | Reusable source agent/tool | Product/category and source set | Community signal evidence | Treat as lower-confidence qualitative signal, not definitive truth. |
-| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates | `RecommendationBundle` | Permit explicit "no strong buy" with next steps; emit avoid/rejected items only with explicit material reason codes, not for ordinary non-winners. |
+| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates, including source-free manual fallback entries | `RecommendationBundle` | Permit explicit "no strong buy" with next steps; keep manual-only entries in comparison with zero verified evidence and never choose them as a buying pick; emit avoid/rejected items only with explicit material reason codes, not for ordinary non-winners. |
 | `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle, products, listings, evidence, trust, analyses, and dedupe context | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
 
 The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent`,

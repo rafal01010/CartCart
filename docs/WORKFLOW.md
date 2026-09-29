@@ -150,6 +150,10 @@ The orchestrator:
    session's `UserAddedProduct` with its deduped product/listing. Possible or
    conflicting matches retain distinct product IDs and listing-level seller,
    price, availability, and trust context instead of choosing a variant.
+   When a researched entry remains unresolved, or a shopper explicitly corrects
+   it, manual fallback details form a separate user-supplied candidate with no
+   verified listing or source. It appears in the shortlist and comparison with
+   unknown evidence fields and cannot win on the shopper's report alone.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
    workflow mode, the SDK source manager may delegate to four scoped source

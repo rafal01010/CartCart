@@ -31,7 +31,11 @@ from app.schemas.analysis import (
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import ListingId, ProductId, SourceId, new_id
 from app.schemas.intake import BudgetMode
-from app.schemas.products import CanonicalProduct, ProductListing
+from app.schemas.products import (
+    MANUAL_UNVERIFIED_SUMMARY,
+    CanonicalProduct,
+    ProductListing,
+)
 from app.schemas.search_sources import SourceQualityLevel
 
 
@@ -156,7 +160,9 @@ class LiveComparisonDecisionAgent:
         repr=False,
     )
 
-    async def run(self, input_data: ComparisonDecisionAgentInput) -> RecommendationBundle:
+    async def run(
+        self, input_data: ComparisonDecisionAgentInput
+    ) -> RecommendationBundle:
         configuration = build_openai_agent_run_configuration(
             self.settings,
             agent_name="ComparisonDecisionAgent",
@@ -256,6 +262,7 @@ class _CandidateDecision:
     unsafe_listing: bool
     evidence_ids: tuple[SourceId, ...]
     source_ids: tuple[SourceId, ...]
+    manual_only: bool = False
 
     @property
     def listing_id(self) -> ListingId | None:
@@ -293,7 +300,10 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
             "known product_id, listing_id, evidence_id, and source_id values; do "
             "not invent candidate IDs, product facts, specs, seller facts, prices, "
             "warranty facts, review claims, or source claims. Keep product quality "
-            "separate from listing trust. Do not recommend a suspicious listing "
+            "separate from listing trust. "
+            "A manual-only shopper report has no verified offer or evidence; show "
+            "its unknowns in comparison, but never select it as a buying pick. "
+            "Do not recommend a suspicious listing "
             "unless the output blocks or excludes it with a clear warning. Respect "
             "hard budget caps; with a preferred budget, include a within-budget "
             "alternative or explicit no-strong-buy reasoning if a stretch pick is "
@@ -382,8 +392,7 @@ def _normalize_recommendation_bundle(
     rejected_items = tuple(
         item
         for item in (
-            _normalize_rejected_item(item, input_data)
-            for item in bundle.rejected_items
+            _normalize_rejected_item(item, input_data) for item in bundle.rejected_items
         )
         if _is_meaningful_rejected_item(item)
     )
@@ -413,13 +422,27 @@ def _normalize_comparison_matrix(
     input_data: ComparisonDecisionAgentInput,
 ) -> ComparisonMatrix:
     rows = []
+    manual_only_ids = _manual_only_product_ids(input_data)
     for row in matrix.rows:
         _validate_known_product_id(row.product_id, input_data)
         _validate_known_listing_id(row.listing_id, input_data)
         if row.listing_id is not None:
-            _validate_listing_matches_product(row.listing_id, row.product_id, input_data)
+            _validate_listing_matches_product(
+                row.listing_id, row.product_id, input_data
+            )
         _validate_known_evidence_ids(row.evidence_ids, input_data)
-        rows.append(row)
+        rows.append(
+            row.model_copy(
+                update={
+                    "listing_id": None,
+                    "scores": {criterion.name: 0.0 for criterion in matrix.criteria},
+                    "evidence_ids": (),
+                    "summary": MANUAL_UNVERIFIED_SUMMARY,
+                }
+            )
+            if row.product_id in manual_only_ids
+            else row
+        )
     return matrix.model_copy(update={"rows": tuple(rows)})
 
 
@@ -430,9 +453,13 @@ def _normalize_mode_result(
     _validate_known_product_id(result.product_id, input_data)
     _validate_known_listing_id(result.listing_id, input_data)
     if result.listing_id is not None:
-        _validate_listing_matches_product(result.listing_id, result.product_id, input_data)
+        _validate_listing_matches_product(
+            result.listing_id, result.product_id, input_data
+        )
     _validate_known_evidence_ids(result.evidence_ids, input_data)
-    source_ids = _normalize_source_ids(result.source_ids, result.evidence_ids, input_data)
+    source_ids = _normalize_source_ids(
+        result.source_ids, result.evidence_ids, input_data
+    )
     return result.model_copy(update={"source_ids": source_ids})
 
 
@@ -450,7 +477,9 @@ def _normalize_rejected_item(
 
 
 def _is_meaningful_rejected_item(item: RejectedItem) -> bool:
-    return bool(item.reason.strip()) and item.severity in _MEANINGFUL_REJECTION_SEVERITIES
+    return (
+        bool(item.reason.strip()) and item.severity in _MEANINGFUL_REJECTION_SEVERITIES
+    )
 
 
 def _complete_mode_results(
@@ -530,7 +559,9 @@ def _recommendable_decisions(
 ) -> tuple[_CandidateDecision, ...]:
     return tuple(
         decision
-        for decision in sorted(decisions, key=lambda item: item.total_score, reverse=True)
+        for decision in sorted(
+            decisions, key=lambda item: item.total_score, reverse=True
+        )
         if _is_recommendable(decision)
     )
 
@@ -540,18 +571,25 @@ def _runner_up_decisions(
     recommendable: tuple[_CandidateDecision, ...],
     best: _CandidateDecision,
 ) -> tuple[_CandidateDecision, ...]:
-    by_product_id = {decision.product.product_id: decision for decision in recommendable}
+    by_product_id = {
+        decision.product.product_id: decision for decision in recommendable
+    }
     ordered: list[_CandidateDecision] = []
     for product_id in bundle.runner_up_product_ids:
         decision = by_product_id.get(product_id)
-        if decision is not None and decision.product.product_id != best.product.product_id:
+        if (
+            decision is not None
+            and decision.product.product_id != best.product.product_id
+        ):
             ordered.append(decision)
     for decision in recommendable:
         if len(ordered) >= 2:
             break
         if decision.product.product_id == best.product.product_id:
             continue
-        if all(item.product.product_id != decision.product.product_id for item in ordered):
+        if all(
+            item.product.product_id != decision.product.product_id for item in ordered
+        ):
             ordered.append(decision)
     return tuple(ordered[:2])
 
@@ -577,6 +615,12 @@ def _validate_recommendation_policy(
     if bundle.no_strong_buy:
         return
 
+    manual_only_ids = _manual_only_product_ids(input_data)
+    if bundle.final_product_id in manual_only_ids or any(
+        result.product_id in manual_only_ids for result in bundle.mode_results
+    ):
+        raise ValueError("manual-only products cannot be recommended without evidence")
+
     decisions = _candidate_decisions(input_data)
     mode_set = {result.mode for result in bundle.mode_results}
     if not _REQUIRED_PICK_MODES.issubset(mode_set):
@@ -588,7 +632,9 @@ def _validate_recommendation_policy(
 
     if input_data.brief.budget is not None and _has_within_budget_candidate(decisions):
         if RecommendationMode.WITHIN_BUDGET not in mode_set:
-            raise ValueError("budgeted comparison output requires a within-budget mode.")
+            raise ValueError(
+                "budgeted comparison output requires a within-budget mode."
+            )
 
     if _has_soft_budget_stretch_candidate(decisions, input_data):
         if RecommendationMode.STRETCH_PICK not in mode_set:
@@ -620,9 +666,7 @@ def _validate_budget_semantics(
     if budget.mode == BudgetMode.HARD_CAP:
         for label, listing_id in _recommendation_listing_surfaces(bundle):
             if _budget_status_for_listing_id(listing_id, input_data).hard_over:
-                raise ValueError(
-                    f"{label} is above the user's hard budget cap."
-                )
+                raise ValueError(f"{label} is above the user's hard budget cap.")
         if any(
             result.mode == RecommendationMode.STRETCH_PICK
             for result in bundle.mode_results
@@ -691,9 +735,8 @@ def _validate_budget_semantics(
 def _recommendation_listing_surfaces(
     bundle: RecommendationBundle,
 ) -> tuple[tuple[str, ListingId | None], ...]:
-    return (
-        (("final pick", bundle.final_listing_id),)
-        + tuple((result.mode.value, result.listing_id) for result in bundle.mode_results)
+    return (("final pick", bundle.final_listing_id),) + tuple(
+        (result.mode.value, result.listing_id) for result in bundle.mode_results
     )
 
 
@@ -768,7 +811,9 @@ def _fallback_recommendation_bundle(
             no_strong_buy_reason=_no_strong_buy_reason(decisions, input_data),
             comparison_matrix=matrix,
             rejected_items=rejected_items,
-            warnings=("No candidate clears the fit, budget, evidence, and listing-trust bar.",),
+            warnings=(
+                "No candidate clears the fit, budget, evidence, and listing-trust bar.",
+            ),
             evidence_ids=evidence_ids,
             source_ids=_source_ids_for_evidence_ids(input_data, evidence_ids),
         )
@@ -829,6 +874,22 @@ def _candidate_decisions(
     return tuple(decisions)
 
 
+def _manual_only_product_ids(
+    input_data: ComparisonDecisionAgentInput,
+) -> set[ProductId]:
+    listed_ids = {listing.product_id for listing in input_data.listings}
+    products = {product.product_id: product for product in input_data.products}
+    return {
+        item.product.product_id
+        for item in input_data.user_added_products
+        if item.manual_fallback_reason is not None
+        and item.product is not None
+        and item.product.product_id in products
+        and not products[item.product.product_id].source_ids
+        and item.product.product_id not in listed_ids
+    }
+
+
 def _candidate_decision(
     product: CanonicalProduct,
     listing: ProductListing | None,
@@ -837,6 +898,7 @@ def _candidate_decision(
     input_data: ComparisonDecisionAgentInput,
 ) -> _CandidateDecision:
     assessment = trust_by_listing.get(listing.listing_id) if listing else None
+    manual_only = product.product_id in _manual_only_product_ids(input_data)
     fit_score = _fit_score(analysis)
     value_score, within_budget, over_budget, hard_over_budget = _value_score(
         listing,
@@ -844,7 +906,11 @@ def _candidate_decision(
     )
     trust_score = _trust_score(assessment, listing)
     evidence_score = _evidence_score(product, listing, analysis, assessment, input_data)
-    unsafe_listing = assessment is not None and assessment.level in _BLOCKING_TRUST_LEVELS
+    if manual_only:
+        fit_score = value_score = trust_score = evidence_score = 0.0
+    unsafe_listing = (
+        assessment is not None and assessment.level in _BLOCKING_TRUST_LEVELS
+    )
     total_score = (
         fit_score * 0.42
         + value_score * 0.24
@@ -862,6 +928,8 @@ def _candidate_decision(
         assessment,
         input_data,
     )
+    if manual_only:
+        evidence_ids = ()
     return _CandidateDecision(
         product=product,
         listing=listing,
@@ -884,6 +952,7 @@ def _candidate_decision(
             assessment,
             input_data,
         ),
+        manual_only=manual_only,
     )
 
 
@@ -943,7 +1012,9 @@ def _evidence_score(
     assessment: ListingTrustAssessment | None,
     input_data: ComparisonDecisionAgentInput,
 ) -> float:
-    source_ids = set(_candidate_source_ids(product, listing, analysis, assessment, input_data))
+    source_ids = set(
+        _candidate_source_ids(product, listing, analysis, assessment, input_data)
+    )
     evidence = [
         item
         for item in input_data.evidence
@@ -1098,9 +1169,13 @@ def _mode_result(
     )
 
 
-def _rejected_items(decisions: tuple[_CandidateDecision, ...]) -> tuple[RejectedItem, ...]:
+def _rejected_items(
+    decisions: tuple[_CandidateDecision, ...],
+) -> tuple[RejectedItem, ...]:
     items = []
     for decision in decisions:
+        if decision.manual_only:
+            continue
         if decision.unsafe_listing:
             items.append(
                 RejectedItem(
@@ -1182,10 +1257,7 @@ def _is_recommendable(decision: _CandidateDecision) -> bool:
         return False
     if decision.trust is not None and decision.trust.level in _WEAK_TRUST_LEVELS:
         return False
-    return (
-        decision.total_score >= 0.56
-        and not _is_weak_evidence_rejection(decision)
-    )
+    return decision.total_score >= 0.56 and not _is_weak_evidence_rejection(decision)
 
 
 def _is_soft_budget_stretch(
@@ -1195,7 +1267,11 @@ def _is_soft_budget_stretch(
     budget = input_data.brief.budget
     if budget is None or budget.mode != BudgetMode.PREFERRED:
         return False
-    return decision.over_budget and not decision.hard_over_budget and not decision.unsafe_listing
+    return (
+        decision.over_budget
+        and not decision.hard_over_budget
+        and not decision.unsafe_listing
+    )
 
 
 def _soft_budget_needs_no_strong_buy(
@@ -1240,7 +1316,9 @@ def _analysis_by_product_id(
 def _trust_by_listing_id(
     input_data: ComparisonDecisionAgentInput,
 ) -> dict[ListingId, ListingTrustAssessment]:
-    return {assessment.listing_id: assessment for assessment in input_data.trust_assessments}
+    return {
+        assessment.listing_id: assessment for assessment in input_data.trust_assessments
+    }
 
 
 def _listings_by_product_id(
@@ -1311,7 +1389,9 @@ def _bundle_evidence_ids(
     return evidence_ids or _fallback_evidence_ids(input_data)
 
 
-def _fallback_evidence_ids(input_data: ComparisonDecisionAgentInput) -> tuple[SourceId, ...]:
+def _fallback_evidence_ids(
+    input_data: ComparisonDecisionAgentInput,
+) -> tuple[SourceId, ...]:
     evidence_ids = [item.evidence_id for item in input_data.evidence]
     for analysis in input_data.category_analyses:
         evidence_ids.extend(analysis.evidence_ids)
@@ -1326,7 +1406,9 @@ def _fallback_evidence_ids(input_data: ComparisonDecisionAgentInput) -> tuple[So
     return source_ids or (new_id(),)
 
 
-def _fallback_source_ids(input_data: ComparisonDecisionAgentInput) -> tuple[SourceId, ...]:
+def _fallback_source_ids(
+    input_data: ComparisonDecisionAgentInput,
+) -> tuple[SourceId, ...]:
     source_ids = [item.source_id for item in input_data.evidence]
     for product in input_data.products:
         source_ids.extend(product.source_ids)
@@ -1436,8 +1518,7 @@ def _has_within_budget_candidate(
     decisions: tuple[_CandidateDecision, ...],
 ) -> bool:
     return any(
-        decision.within_budget and _is_recommendable(decision)
-        for decision in decisions
+        decision.within_budget and _is_recommendable(decision) for decision in decisions
     )
 
 
@@ -1461,7 +1542,14 @@ def _has_blocking_listing_warning(
     warning_text = " ".join((*bundle.warnings, bundle.final_rationale or "")).casefold()
     has_warning = any(
         marker in warning_text
-        for marker in ("suspicious", "unsafe", "avoid", "block", "listing trust", "seller")
+        for marker in (
+            "suspicious",
+            "unsafe",
+            "avoid",
+            "block",
+            "listing trust",
+            "seller",
+        )
     )
     has_rejection = any(item.listing_id == listing_id for item in bundle.rejected_items)
     return has_warning or has_rejection
@@ -1476,6 +1564,8 @@ def _evidence_ids_from_modes(
 
 
 def _row_summary(decision: _CandidateDecision) -> str:
+    if decision.manual_only:
+        return MANUAL_UNVERIFIED_SUMMARY
     if decision.unsafe_listing:
         return "Rejected as a risky listing despite any product fit signals."
     if _has_missing_critical_feature(decision.analysis):
@@ -1500,6 +1590,10 @@ def _final_rationale(decision: _CandidateDecision) -> str:
 
 def _bundle_warnings(decisions: tuple[_CandidateDecision, ...]) -> tuple[str, ...]:
     warnings = []
+    if any(decision.manual_only for decision in decisions):
+        warnings.append(
+            "A product added manually has no independently checked product or buying details."
+        )
     if any(decision.over_budget for decision in decisions):
         warnings.append("At least one candidate is over the stated budget.")
     if any(_has_missing_critical_feature(decision.analysis) for decision in decisions):
@@ -1538,8 +1632,7 @@ def _is_overpaying_rejection(decision: _CandidateDecision) -> bool:
     if decision.hard_over_budget:
         return True
     return (
-        decision.over_budget
-        and decision.value_score < _SOFT_OVERPAYING_VALUE_THRESHOLD
+        decision.over_budget and decision.value_score < _SOFT_OVERPAYING_VALUE_THRESHOLD
     )
 
 

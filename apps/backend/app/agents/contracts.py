@@ -505,6 +505,7 @@ class VerificationAgentInput(VersionedSchema):
     deduplication_decisions: tuple[DeduplicationDecision, ...] = Field(
         default_factory=tuple
     )
+    user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
 
 
 class VerificationReport(VersionedSchema):

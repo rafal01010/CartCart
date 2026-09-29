@@ -11,7 +11,7 @@ from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProd
 def _dump_json(
     value: CanonicalProduct | ProductListing | UserAddedProduct,
 ) -> dict[str, Any]:
-    return value.model_dump(mode="json")
+    return value.model_dump(mode="json", exclude_computed_fields=True)
 
 
 class CanonicalProductRecord(Base):

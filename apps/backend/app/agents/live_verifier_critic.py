@@ -25,6 +25,7 @@ from app.schemas.analysis import (
 )
 from app.schemas.ids import ListingId, ProductId, SourceId
 from app.schemas.intake import BudgetMode
+from app.schemas.products import MANUAL_UNVERIFIED_SUMMARY
 from app.schemas.search_sources import (
     EvidenceType,
     SourceQualityLevel,
@@ -373,6 +374,9 @@ def _model_input(input_data: VerificationAgentInput) -> str:
                 decision.model_dump(mode="json")
                 for decision in input_data.deduplication_decisions
             ],
+            "user_added_products": [
+                item.model_dump(mode="json") for item in input_data.user_added_products
+            ],
         },
         sort_keys=True,
     )
@@ -537,8 +541,24 @@ def _citation_issues(
 ) -> tuple[str, ...]:
     issues: list[str] = []
     corpus = _evidence_corpus(input_data)
+    manual_ids = {
+        item.product.product_id
+        for item in input_data.user_added_products
+        if item.manual_fallback_reason is not None and item.product is not None
+    }
+    safe_manual_rows = {
+        f"comparison row {index}"
+        for index, row in enumerate(bundle.comparison_matrix.rows, start=1)
+        if row.product_id in manual_ids
+        and row.listing_id is None
+        and not row.evidence_ids
+        and row.summary == MANUAL_UNVERIFIED_SUMMARY
+        and all(score == 0 for score in row.scores.values())
+    }
     for label, text, evidence_ids in _cited_text_surfaces(bundle):
         if not text:
+            continue
+        if label in safe_manual_rows:
             continue
         if (
             bundle.no_strong_buy

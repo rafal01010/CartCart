@@ -14,7 +14,9 @@ from app.db.session import (
     create_session_factory,
     get_db_session,
 )
+from app.db.repositories.products import ProductRepository
 from app.main import create_app
+from uuid import UUID
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -108,6 +110,8 @@ def test_add_manual_user_product_details_persist_in_session_state(
             "model": "Mini",
             "category": "electric kettle",
             "notes": "Manual details only; no extraction yet.",
+            "manual_fallback_reason": "user_correction",
+            "manual_details": {"price": {"amount": "49.00", "currency": "USD"}},
         },
     )
 
@@ -121,6 +125,11 @@ def test_add_manual_user_product_details_persist_in_session_state(
     assert added["product"]["brand"] == "Acme"
     assert added["product"]["model"] == "Mini"
     assert added["product"]["category"] == "electric kettle"
+    assert added["listing"] is None
+    assert added["product"]["source_ids"] == []
+    assert added["manual_evidence_status"]["source"] == "unknown"
+    assert added["manual_evidence_status"]["price"] == "user_reported"
+    assert added["manual_evidence_status"]["seller"] == "unknown"
 
     load_response = product_api_client.get(f"/api/sessions/{session_id}")
 
@@ -129,6 +138,87 @@ def test_add_manual_user_product_details_persist_in_session_state(
     assert len(loaded_products) == 1
     assert loaded_products[0]["candidate_id"] == added["candidate_id"]
     assert loaded_products[0]["product"]["name"] == "Acme Mini Kettle"
+
+
+def test_manual_details_require_explicit_fallback_and_research_state(
+    product_api_client: TestClient,
+) -> None:
+    session_id = create_session(product_api_client)
+    path = f"/api/sessions/{session_id}/products"
+    assert (
+        product_api_client.post(
+            path, json={"name": "Acme Mini", "brand": "Acme"}
+        ).status_code
+        == 422
+    )
+    hint = product_api_client.post(path, json={"input_text": "Acme Mini"})
+    assert hint.status_code == 201
+    candidate_id = hint.json()["user_added_products"][0]["candidate_id"]
+    pending = product_api_client.post(
+        path,
+        json={
+            "fallback_candidate_id": candidate_id,
+            "name": "Acme Mini",
+            "manual_fallback_reason": "retrieval_insufficient",
+        },
+    )
+    assert pending.status_code == 409
+    assert pending.json()["error"]["code"] == "manual_fallback_unavailable"
+
+    async def mark_research_inconclusive(candidate_to_mark: str) -> None:
+        settings = product_api_client.app.state.settings
+        engine = create_database_engine(settings)
+        try:
+            session_factory = create_session_factory(engine)
+            async with session_factory() as db_session:
+                repo = ProductRepository(db_session)
+                candidate = await repo.get_user_added_product(
+                    UUID(session_id), UUID(candidate_to_mark)
+                )
+                assert candidate is not None
+                await repo.replace_user_added_product(
+                    UUID(session_id),
+                    candidate.model_copy(update={"research_attempted": True}),
+                )
+                await db_session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(mark_research_inconclusive(candidate_id))
+    manual = product_api_client.post(
+        path,
+        json={
+            "fallback_candidate_id": candidate_id,
+            "name": "Acme Mini Kettle",
+            "manual_fallback_reason": "retrieval_insufficient",
+            "manual_details": {"warranty": "Shop says one year"},
+        },
+    )
+    assert manual.status_code == 201
+    saved = manual.json()["user_added_products"]
+    assert len(saved) == 1
+    assert saved[0]["candidate_id"] == candidate_id
+    assert saved[0]["manual_evidence_status"]["warranty"] == "user_reported"
+
+    url_hint = product_api_client.post(
+        path, json={"url": "https://example.com/products/missing-kettle"}
+    )
+    assert url_hint.status_code == 201
+    url_candidate_id = url_hint.json()["user_added_products"][1]["candidate_id"]
+    asyncio.run(mark_research_inconclusive(url_candidate_id))
+    unavailable = product_api_client.post(
+        path,
+        json={
+            "fallback_candidate_id": url_candidate_id,
+            "name": "Missing Kettle",
+            "manual_fallback_reason": "retrieval_unavailable",
+        },
+    )
+    assert unavailable.status_code == 201
+    url_fallback = unavailable.json()["user_added_products"][1]
+    assert url_fallback["url"] == "https://example.com/products/missing-kettle"
+    assert url_fallback["listing"] is None
+    assert url_fallback["manual_evidence_status"]["source"] == "unknown"
 
 
 def test_add_user_product_rejects_missing_session(

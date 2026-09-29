@@ -331,7 +331,11 @@ session-local candidates. A confirmed extracted match updates `run_id`,
 `product_id`, and `listing_id`; ambiguous matches keep possible canonical
 product IDs in the JSON payload and leave those two foreign keys null. Listing
 JSON preserves per-listing user-added match confidence separately from seller,
-price, availability, and trust context.
+price, availability, and trust context. Manual fallback reason, shopper-reported
+details, and whether research was attempted live in the JSON payload. Its
+per-field evidence status is derived for API responses; manual-only run products
+are canonical shortlist candidates with no listing or source, while the original
+reported price/seller remain outside verified listing records.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |

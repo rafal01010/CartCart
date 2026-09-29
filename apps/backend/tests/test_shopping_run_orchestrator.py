@@ -85,6 +85,8 @@ from app.schemas.search_sources import (
 )
 from app.schemas.products import (
     CanonicalProduct,
+    ManualFallbackReason,
+    ManualProductDetails,
     ProductListing,
     SellerProfile,
     UserAddedProduct,
@@ -1480,6 +1482,100 @@ async def test_extraction_deduplicates_urls_before_candidate_grouping(
             listing.listing_id for listing in listings
         }
 
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_fallback_enters_comparison_without_a_fabricated_listing(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "manual-fallback.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    analyst = RecordingGenericAnalystAgent()
+    comparison = RecordingComparisonDecisionAgent()
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            request = CreateSessionRequest(query="Need a compact kettle")
+            shopping_session = await SessionRepository(db_session).create(
+                original_input=request,
+                current_brief=ShoppingBrief(original_query=request.query),
+            )
+            user_added = await ProductRepository(db_session).add_user_added_product(
+                shopping_session.session_id,
+                UserAddedProduct(
+                    input_text="Acme Mini Kettle",
+                    product=CanonicalProduct(name="Acme Mini Kettle", brand="Acme"),
+                    manual_fallback_reason=ManualFallbackReason.USER_CORRECTION,
+                    manual_details=ManualProductDetails(seller="Local shop"),
+                ),
+            )
+            run = await RunRepository(db_session).create(shopping_session.session_id)
+            await db_session.commit()
+        async with session_factory() as db_session:
+            orchestrator = ShoppingRunOrchestrator(
+                RepositoryShoppingRunPersistenceHooks(
+                    run_repository=RunRepository(db_session),
+                    result_repository=ResultRepository(db_session),
+                    search_source_repository=SearchSourceRepository(db_session),
+                    product_repository=ProductRepository(db_session),
+                    source_intelligence_repository=SourceIntelligenceRepository(
+                        db_session
+                    ),
+                    video_review_repository=VideoReviewRepository(db_session),
+                ),
+                agent_workflow_mode=AgentWorkflowMode.LIVE,
+                agent_model_name="gpt-recording",
+                intake_agent=RecordingIntakeAgent(),
+                general_shopping_agent=RecordingGeneralShoppingAgent(),
+                query_planner=RecordingQueryPlannerAgent(),
+                discovery_agent=SelectingDiscoveryAgent(),
+                extraction_agent=RecordingExtractionAgent(
+                    RecordingExtractionProvider()
+                ),
+                category_router_agent=RecordingCategoryRouterAgent(),
+                generic_product_analyst_agent=analyst,
+                seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
+                comparison_decision_agent=comparison,
+                verifier_critic_agent=RecordingVerifierCriticAgent(),
+                search_provider=FailingSearchProvider(),
+                extraction_provider=RecordingExtractionProvider(),
+                default_region_code="US",
+            )
+            context = await orchestrator.run(
+                run.run_id,
+                shopping_session.current_brief,
+                original_input=shopping_session.original_input,
+            )
+            await db_session.commit()
+        async with session_factory() as db_session:
+            repo = ProductRepository(db_session)
+            shortlist = await repo.list_shortlist_memberships(run.run_id)
+            listings = await repo.list_product_listings_for_run(run.run_id)
+            saved = (await repo.list_user_added_products(shopping_session.session_id))[
+                0
+            ]
+        assert len(shortlist) == 1
+        assert shortlist[0].candidate_id == user_added.candidate_id
+        assert shortlist[0].listing_id is None
+        assert listings == ()
+        assert saved.research_attempted is True
+        assert saved.manual_evidence_status["seller"] == "user_reported"
+        assert saved.manual_evidence_status["source"] == "unknown"
+        assert analyst.calls == []
+        assert comparison.calls == []  # The active owner finishes the live decision.
+        assert context.recommendation_bundle is not None
+        assert context.recommendation_bundle.no_strong_buy is True
+        manual_row = context.recommendation_bundle.comparison_matrix.rows[0]
+        assert manual_row.product_id == shortlist[0].product_id
+        assert manual_row.listing_id is None
+        assert manual_row.scores["evidence"] == 0.0
     finally:
         await engine.dispose()
 

@@ -107,6 +107,7 @@ Eval cases should check whether the system:
 - Produces an app-generated shortlist.
 - Includes user-added products when supplied.
 - Finds named user-added products without links, refuses unrelated lookup hits, preserves ambiguous variants and separate seller risk, and merges only strongly evidenced product duplicates.
+- Allows manual fallback only after inconclusive research or explicit correction; keeps reported price, seller, availability, review, warranty, and specifications unverified, shows a manual-only candidate in comparison, and returns no strong buy when no independent evidence supports a purchase.
 - Uses source-backed claims.
 - Avoids reseller-only platforms.
 - Handles mixed marketplaces only with seller/listing trust analysis.

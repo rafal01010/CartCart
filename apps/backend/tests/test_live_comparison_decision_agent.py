@@ -12,6 +12,10 @@ from app.agents import (
     LiveComparisonDecisionAgent,
     MockComparisonDecisionModelRunner,
 )
+from app.agents.live_comparison_decision import (
+    _fallback_recommendation_bundle,
+    _validate_recommendation_policy,
+)
 from app.core.settings import Settings
 from app.schemas.analysis import (
     CategoryAnalysis,
@@ -37,7 +41,14 @@ from app.schemas.intake import (
     ShoppingBrief,
 )
 from app.schemas.money import Money
-from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
+from app.schemas.products import (
+    CanonicalProduct,
+    ManualFallbackReason,
+    ManualProductDetails,
+    ProductListing,
+    SellerProfile,
+    UserAddedProduct,
+)
 from app.schemas.regions import Region
 from app.schemas.search_sources import (
     EvidenceTarget,
@@ -47,6 +58,65 @@ from app.schemas.search_sources import (
     SourceQuality,
     SourceQualityLevel,
 )
+
+
+def test_manual_only_product_is_compared_without_a_buying_claim() -> None:
+    product = CanonicalProduct(name="Acme Mini Kettle", brand="Acme")
+    user_added = UserAddedProduct(
+        input_text=product.name,
+        product=product,
+        manual_fallback_reason=ManualFallbackReason.RETRIEVAL_INSUFFICIENT,
+        manual_details=ManualProductDetails(
+            price=Money(amount="49.00", currency="USD")
+        ),
+    )
+    bundle = _fallback_recommendation_bundle(
+        ComparisonDecisionAgentInput(
+            run_id=new_id(),
+            brief=ShoppingBrief(original_query="Need a compact kettle"),
+            products=(product,),
+            user_added_products=(user_added,),
+        )
+    )
+    assert bundle.no_strong_buy is True
+    assert bundle.final_product_id is None
+    assert len(bundle.comparison_matrix.rows) == 1
+    row = bundle.comparison_matrix.rows[0]
+    assert row.product_id == product.product_id
+    assert row.listing_id is None
+    assert row.evidence_ids == ()
+    assert row.scores["evidence"] == 0
+    assert "not independently checked" in row.summary
+
+
+def test_manual_only_product_cannot_be_promoted_using_another_products_evidence() -> (
+    None
+):
+    source_backed = _monitor_shortlist_input()
+    manual = CanonicalProduct(name="Acme Mini Kettle")
+    input_data = source_backed.model_copy(
+        update={
+            "products": (*source_backed.products, manual),
+            "user_added_products": (
+                UserAddedProduct(
+                    input_text=manual.name,
+                    product=manual,
+                    manual_fallback_reason=ManualFallbackReason.USER_CORRECTION,
+                ),
+            ),
+        }
+    )
+    bundle = RecommendationBundle(
+        final_product_id=manual.product_id,
+        final_rationale="Claimed pick.",
+        comparison_matrix=ComparisonMatrix(
+            criteria=(ComparisonCriterion(name="fit"),),
+            rows=(ComparisonRow(product_id=manual.product_id, scores={"fit": 1.0}),),
+        ),
+        evidence_ids=(source_backed.evidence[0].evidence_id,),
+    )
+    with pytest.raises(ValueError, match="manual-only"):
+        _validate_recommendation_policy(bundle, input_data)
 
 
 @dataclass
@@ -433,7 +503,9 @@ async def test_live_comparison_decision_accepts_valid_monitor_bundle() -> None:
         input_data.products[2].product_id,
     )
     assert result.rejected_items == ()
-    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    assert (
+        agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    )
     assert agent.workbench_activity[0]["input"]["allowed_tools"] == []
 
 
@@ -466,7 +538,9 @@ async def test_live_comparison_runner_receives_strong_profile() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_comparison_decision_completes_missing_modes_from_same_analysis() -> None:
+async def test_live_comparison_decision_completes_missing_modes_from_same_analysis() -> (
+    None
+):
     input_data = _monitor_shortlist_input()
     partial_output = _valid_bundle(input_data).model_dump(mode="json")
     partial_output["final_rationale"] = "Model best-overall reasoning stays visible."
@@ -494,7 +568,9 @@ async def test_live_comparison_decision_completes_missing_modes_from_same_analys
         if mode.mode == RecommendationMode.STRETCH_PICK
     )
     assert runner.calls == 1
-    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    assert (
+        agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    )
     assert set(primary_modes) >= {
         RecommendationMode.BEST_OVERALL,
         RecommendationMode.BEST_VALUE,
@@ -507,7 +583,9 @@ async def test_live_comparison_decision_completes_missing_modes_from_same_analys
 
 
 @pytest.mark.asyncio
-async def test_live_comparison_decision_mock_generates_modes_without_forced_rejections() -> None:
+async def test_live_comparison_decision_mock_generates_modes_without_forced_rejections() -> (
+    None
+):
     input_data = _monitor_shortlist_input()
     runner = MockComparisonDecisionModelRunner()
     agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
@@ -525,11 +603,15 @@ async def test_live_comparison_decision_mock_generates_modes_without_forced_reje
     }
     assert result.runner_up_product_ids
     assert result.rejected_items == ()
-    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    assert (
+        agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    )
 
 
 @pytest.mark.asyncio
-async def test_live_comparison_decision_filters_low_severity_forced_rejections() -> None:
+async def test_live_comparison_decision_filters_low_severity_forced_rejections() -> (
+    None
+):
     input_data = _monitor_shortlist_input()
     output = _valid_bundle(input_data).model_dump(mode="json")
     output["rejected_items"] = [
@@ -550,7 +632,9 @@ async def test_live_comparison_decision_filters_low_severity_forced_rejections()
 
     assert runner.calls == 1
     assert result.rejected_items == ()
-    assert agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    assert (
+        agent.workbench_activity[0]["status"] == "model_comparison_decision_completed"
+    )
 
 
 @pytest.mark.asyncio
@@ -608,14 +692,18 @@ async def test_live_comparison_decision_rejects_hard_cap_over_budget_pick() -> N
         mode.listing_id != input_data.listings[2].listing_id
         for mode in result.mode_results
     )
-    assert any("hard budget" in item.reason.casefold() for item in result.rejected_items)
+    assert any(
+        "hard budget" in item.reason.casefold() for item in result.rejected_items
+    )
     assert any(
         item.reason_code == RejectionReason.OVERPAYING for item in result.rejected_items
     )
 
 
 @pytest.mark.asyncio
-async def test_live_comparison_decision_mock_treats_preferred_budget_as_soft_cap() -> None:
+async def test_live_comparison_decision_mock_treats_preferred_budget_as_soft_cap() -> (
+    None
+):
     input_data = _monitor_shortlist_input(budget_mode=BudgetMode.PREFERRED)
     runner = MockComparisonDecisionModelRunner()
     agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
@@ -668,7 +756,9 @@ async def test_live_comparison_decision_rejects_unjustified_soft_stretch() -> No
 
 
 @pytest.mark.asyncio
-async def test_live_comparison_decision_soft_stretch_without_alternative_no_strong_buy() -> None:
+async def test_live_comparison_decision_soft_stretch_without_alternative_no_strong_buy() -> (
+    None
+):
     input_data = _preferred_budget_all_stretch_input()
     runner = MockComparisonDecisionModelRunner()
     agent = LiveComparisonDecisionAgent(settings=_settings(), model_runner=runner)
@@ -737,7 +827,9 @@ async def test_live_comparison_decision_falls_back_on_unknown_ids() -> None:
     result = await agent.run(input_data)
 
     assert runner.calls == 1
-    assert result.final_product_id in {product.product_id for product in input_data.products}
+    assert result.final_product_id in {
+        product.product_id for product in input_data.products
+    }
     assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
 
 
@@ -881,7 +973,9 @@ def _candidate(
     trust = ListingTrustAssessment(
         listing_id=listing.listing_id,
         level=trust_level,
-        confidence=_confidence(0.75 if trust_level == ListingTrustLevel.REASONABLE else 0.45),
+        confidence=_confidence(
+            0.75 if trust_level == ListingTrustLevel.REASONABLE else 0.45
+        ),
         summary=f"Listing trust is {trust_level.value}.",
         red_flags=("Seller/listing trust is unsafe.",)
         if trust_level == ListingTrustLevel.SUSPICIOUS

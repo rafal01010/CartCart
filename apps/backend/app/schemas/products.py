@@ -38,6 +38,17 @@ class ListingExtractionMissingField(StrEnum):
     REGION = "region"
 
 
+class UserAddedMatchConfidence(StrEnum):
+    CONFIRMED = "confirmed"
+    POSSIBLE = "possible"
+
+
+class UserAddedListingMatch(CartCartBaseModel):
+    candidate_id: CandidateId
+    source_id: SourceId
+    confidence: UserAddedMatchConfidence
+
+
 class RegionAvailability(CartCartBaseModel):
     region_code: RegionCode
     status: ListingAvailabilityStatus = ListingAvailabilityStatus.UNKNOWN
@@ -97,7 +108,16 @@ class ProductListing(VersionedSchema):
         default_factory=lambda: SourceQuality(level=SourceQualityLevel.UNKNOWN)
     )
     source_ids: tuple[SourceId, ...] = Field(min_length=1)
+    user_added_matches: tuple[UserAddedListingMatch, ...] = Field(default_factory=tuple)
     captured_at: Timestamp = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def _user_added_matches_cite_listing(self) -> "ProductListing":
+        if any(
+            match.source_id not in self.source_ids for match in self.user_added_matches
+        ):
+            raise ValueError("user-added listing match must cite a listing source")
+        return self
 
     @field_validator("retailer_id", "sku", mode="before")
     @classmethod
@@ -133,6 +153,7 @@ class UserAddedProduct(VersionedSchema):
     url: AnyHttpUrl | None = None
     product: CanonicalProduct | None = None
     listing: ProductListing | None = None
+    possible_product_ids: tuple[ProductId, ...] = Field(default_factory=tuple)
     notes: str | None = Field(default=None, min_length=1, max_length=1000)
     created_at: Timestamp = Field(default_factory=utc_now)
 

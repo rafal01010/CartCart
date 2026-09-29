@@ -21,6 +21,7 @@ from app.agents.contracts import (
     ExtractionAgentInput,
     ExtractionAgentOutput,
     ExtractionEvidenceGap,
+    ExtractionUserAddedMatch,
 )
 from app.providers.contracts import ExtractionProviderOptions, SearchProviderOptions
 from app.schemas.search_sources import (
@@ -128,6 +129,22 @@ class FixtureExtractionAgent:
             products=products,
             listings=listings,
             source_evidence=evidence,
+            user_added_matches=tuple(
+                ExtractionUserAddedMatch(
+                    candidate_id=user_added.candidate_id,
+                    product_id=listing.product_id,
+                    listing_id=listing.listing_id,
+                    source_id=input_data.snapshot_ids[0],
+                    confidence="confirmed",
+                    rationale="Exact named product in the fixture replay.",
+                )
+                for user_added in input_data.user_added_products
+                if user_added.url is None and user_added.input_text is not None
+                for listing in listings
+                for product in products
+                if listing.product_id == product.product_id
+                and user_added.input_text.strip().casefold() == product.name.casefold()
+            ),
         )
 
 

@@ -13,6 +13,7 @@ from app.agents.contracts import (
     ExtractionAgentOutput,
     ExtractionEvidenceGap,
     ExtractionLeadMatch,
+    ExtractionUserAddedMatch,
 )
 from app.agents.live_extraction import _validate_extraction
 from app.agents.extraction_tools import SnapshotInterpretationTools
@@ -33,7 +34,12 @@ from app.orchestration.shopping_runs import (
 from app.schemas.intake import CreateSessionRequest, FieldSource, ShoppingBrief
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import SourceId, new_id
-from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
+from app.schemas.products import (
+    CanonicalProduct,
+    ProductListing,
+    SellerProfile,
+    UserAddedProduct,
+)
 from app.schemas.search_sources import (
     ExtractedPageContent,
     ExtractionStatus,
@@ -1106,5 +1112,43 @@ def test_collection_url_cannot_be_reused_as_item_offer_url() -> None:
                 run_id=new_id(),
                 snapshot_ids=(source_id,),
                 collection_snapshot_ids=(source_id,),
+            ),
+        )
+
+
+def test_user_added_match_must_reference_a_supplied_hint() -> None:
+    from types import SimpleNamespace
+
+    source_id = new_id()
+    product = CanonicalProduct(name="Aurora A55", source_ids=(source_id,))
+    listing = ProductListing(
+        product_id=product.product_id,
+        title=product.name,
+        url="https://shop.example/aurora-a55",
+        seller=SellerProfile(seller_name="TV Store", source_ids=(source_id,)),
+        source_ids=(source_id,),
+    )
+    output = ExtractionAgentOutput(
+        products=(product,),
+        listings=(listing,),
+        user_added_matches=(
+            ExtractionUserAddedMatch(
+                candidate_id=new_id(),
+                product_id=product.product_id,
+                listing_id=listing.listing_id,
+                source_id=source_id,
+                confidence="confirmed",
+                rationale="Named in the page.",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="unknown shopper hint"):
+        _validate_extraction(
+            output,
+            {source_id: SimpleNamespace(url=str(listing.url), text="Aurora A55")},
+            ExtractionAgentInput(
+                run_id=new_id(),
+                snapshot_ids=(source_id,),
+                user_added_products=(UserAddedProduct(input_text="Aurora A55"),),
             ),
         )

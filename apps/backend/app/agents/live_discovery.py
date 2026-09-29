@@ -379,6 +379,11 @@ def _build_discovery_agent(
             "collections, weak matches, or too few listings leave the research "
             "incomplete. Use the shopping brief's buying region for follow-up "
             "searches. Search for named models found in reviews when useful. "
+            "Treat user_added_products as shopper-considered candidate hints. "
+            "Seek matching official, retailer, marketplace, and review sources "
+            "without assuming a search result is the same model. Keep ambiguous "
+            "variants explicit and use remaining research budget to resolve "
+            "identity when useful. "
             "When product_leads are supplied, choose the most promising named "
             "models for this shopper and search for official or retailer "
             "offers within the four-call tool budget, before choosing pages "
@@ -425,6 +430,15 @@ def _model_input(input_data: DiscoveryAgentInput) -> str:
             "search_plan": input_data.search_plan.model_dump(mode="json"),
             "search_results": [
                 _search_result_summary(result) for result in input_data.seed_results
+            ],
+            "user_added_products": [
+                {
+                    "candidate_id": str(item.candidate_id),
+                    "input_text": item.input_text,
+                    "product_name": item.product.name if item.product else None,
+                }
+                for item in input_data.user_added_products
+                if item.url is None
             ],
             "product_leads": [
                 lead.model_dump(mode="json") for lead in input_data.product_leads

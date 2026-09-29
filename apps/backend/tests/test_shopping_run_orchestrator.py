@@ -11,6 +11,7 @@ from app.agents import (
     DiscoveryAgentOutput,
     ExtractionAgentInput,
     ExtractionAgentOutput,
+    ExtractionUserAddedMatch,
     GeneralShoppingAgentInput,
     GeneralShoppingDecisionDraft,
     GeneralShoppingOutcome,
@@ -38,8 +39,11 @@ from app.orchestration import (
     ShoppingRunOrchestrator,
 )
 from app.orchestration.shopping_runs import (
+    DiscoveredSourceExtraction,
+    _deduplicated_user_added_products,
     _listing_from_extracted_source,
     _selected_extraction_results,
+    _source_extractions_from_agent,
 )
 from app.providers import (
     ExtractionProviderOptions,
@@ -79,7 +83,12 @@ from app.schemas.search_sources import (
     VideoSource,
     VideoTranscriptSegment,
 )
-from app.schemas.products import UserAddedProduct
+from app.schemas.products import (
+    CanonicalProduct,
+    ProductListing,
+    SellerProfile,
+    UserAddedProduct,
+)
 from app.services.product_listing_extraction import ProductListingExtractor
 
 
@@ -304,11 +313,26 @@ class RecordingExtractionAgent:
     async def run(self, input_data: ExtractionAgentInput) -> ExtractionAgentOutput:
         snapshot = self.provider.snapshots[input_data.snapshot_ids[0]]
         extraction = ProductListingExtractor().extract_source_snapshot(snapshot)
+        matches = tuple(
+            ExtractionUserAddedMatch(
+                candidate_id=item.candidate_id,
+                product_id=extraction.product.product_id,
+                listing_id=extraction.listing.listing_id,
+                source_id=snapshot.source_id,
+                confidence="confirmed",
+                rationale="Fixture page identifies the exact named model.",
+            )
+            for item in input_data.user_added_products
+            if item.url is None
+            and item.input_text is not None
+            and item.input_text.casefold() in extraction.product.name.casefold()
+        )
         return ExtractionAgentOutput(
             products=(
                 extraction.product.model_copy(update={"category": input_data.category}),
             ),
             listings=(extraction.listing,),
+            user_added_matches=matches,
         )
 
 
@@ -1683,6 +1707,14 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
             "Metro Office",
             "FlashDealz Outlet",
         }
+        assert all(
+            any(
+                match.candidate_id == user_added.candidate_id
+                and match.source_id in listing.source_ids
+                for match in listing.user_added_matches
+            )
+            for listing in listings
+        )
         assert {
             call.listing.seller.seller_name
             for call in trust_agent.calls
@@ -1713,6 +1745,170 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
 
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_name_lookup_keeps_multiple_possible_products_and_listing_risk_separate(
+    tmp_path: Path,
+) -> None:
+    user_added = UserAddedProduct(input_text="Northstar Arc monitor")
+    query = SearchQuery(
+        query="Northstar Arc monitor official retailer listing",
+        intent=SearchIntent.DISCOVERY,
+    )
+    result = SearchResult(
+        query=query,
+        url="https://shop.example/arc-monitors",
+        title="Northstar Arc monitors",
+        source_type=SourceType.SEARCH_RESULT,
+        provider=ProviderMetadata(
+            provider_name="fixture-search",
+            raw={"user_added_candidate_id": str(user_added.candidate_id)},
+        ),
+    )
+    snapshot = SourceSnapshot(
+        url=result.url,
+        source_type=SourceType.RETAILER_LISTING,
+        provider=ProviderMetadata(provider_name="fixture-extraction"),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    products = tuple(
+        CanonicalProduct(
+            name=f"Northstar Arc {size}",
+            model=f"ARC-{size}",
+            source_ids=(snapshot.source_id,),
+        )
+        for size in (27, 32)
+    )
+    listings = tuple(
+        ProductListing(
+            product_id=product.product_id,
+            title=product.name,
+            url=f"https://shop.example/arc-{size}",
+            seller=SellerProfile(
+                seller_name=seller,
+                source_ids=(snapshot.source_id,),
+            ),
+            source_ids=(snapshot.source_id,),
+        )
+        for product, size, seller in zip(
+            products, (27, 32), ("Metro Office", "FlashDealz Outlet"), strict=True
+        )
+    )
+    output = ExtractionAgentOutput(
+        products=products,
+        listings=listings,
+        user_added_matches=tuple(
+            ExtractionUserAddedMatch(
+                candidate_id=user_added.candidate_id,
+                product_id=listing.product_id,
+                listing_id=listing.listing_id,
+                source_id=snapshot.source_id,
+                confidence="possible",
+                rationale="The name does not specify a size.",
+            )
+            for listing in listings
+        ),
+    )
+    source = DiscoveredSourceExtraction(search_result=result, snapshot=snapshot)
+    extracted = _source_extractions_from_agent(source, output)
+    updated = _deduplicated_user_added_products((user_added,), extracted)[0]
+
+    assert updated.product is None
+    assert updated.listing is None
+    assert set(updated.possible_product_ids) == {item.product_id for item in products}
+    assert {
+        item.listing_extraction.listing.seller.seller_name for item in extracted
+    } == {"Metro Office", "FlashDealz Outlet"}
+    assert all(
+        item.listing_extraction.listing.user_added_matches[0].candidate_id
+        == user_added.candidate_id
+        for item in extracted
+    )
+
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_path=tmp_path / "ambiguous-user-added.sqlite3",
+    )
+    engine = create_database_engine(settings)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        session_factory = create_session_factory(engine)
+        async with session_factory() as db_session:
+            session = await SessionRepository(db_session).create(
+                original_input=CreateSessionRequest(query="Need a monitor"),
+                current_brief=ShoppingBrief(original_query="Need a monitor"),
+            )
+            await ProductRepository(db_session).add_user_added_product(
+                session.session_id, user_added
+            )
+            run = await RunRepository(db_session).create(session.session_id)
+            repository = ProductRepository(db_session)
+            for item in extracted:
+                await repository.add_canonical_product(
+                    run.run_id, item.listing_extraction.product
+                )
+                await repository.add_product_listing(
+                    run.run_id, item.listing_extraction.listing
+                )
+            await repository.update_user_added_product_for_run(
+                session.session_id, updated, run_id=run.run_id
+            )
+            await db_session.commit()
+
+        async with session_factory() as db_session:
+            loaded = (
+                await ProductRepository(db_session).list_user_added_products(
+                    session.session_id
+                )
+            )[0]
+            assert set(loaded.possible_product_ids) == set(updated.possible_product_ids)
+            assert loaded.product is None and loaded.listing is None
+    finally:
+        await engine.dispose()
+
+
+def test_name_lookup_result_is_not_a_match_without_extraction_decision() -> None:
+    user_added = UserAddedProduct(input_text="Northstar Arc 27")
+    result = SearchResult(
+        query=SearchQuery(
+            query="Northstar Arc 27 official retailer listing",
+            intent=SearchIntent.DISCOVERY,
+        ),
+        url="https://shop.example/unrelated-monitor",
+        title="Unrelated monitor",
+        source_type=SourceType.RETAILER_LISTING,
+        provider=ProviderMetadata(
+            provider_name="fixture-search",
+            raw={"user_added_candidate_id": str(user_added.candidate_id)},
+        ),
+    )
+    snapshot = SourceSnapshot(
+        url=result.url,
+        source_type=SourceType.RETAILER_LISTING,
+        provider=ProviderMetadata(provider_name="fixture-extraction"),
+        extraction_status=ExtractionStatus.SUCCEEDED,
+    )
+    product = CanonicalProduct(
+        name="Unrelated monitor", source_ids=(snapshot.source_id,)
+    )
+    listing = ProductListing(
+        product_id=product.product_id,
+        title=product.name,
+        url=result.url,
+        seller=SellerProfile(
+            seller_name="Example Shop", source_ids=(snapshot.source_id,)
+        ),
+        source_ids=(snapshot.source_id,),
+    )
+    extracted = _source_extractions_from_agent(
+        DiscoveredSourceExtraction(search_result=result, snapshot=snapshot),
+        ExtractionAgentOutput(products=(product,), listings=(listing,)),
+    )
+
+    assert extracted[0].listing_extraction.listing.user_added_matches == ()
+    assert _deduplicated_user_added_products((user_added,), extracted) == (user_added,)
 
 
 @pytest.mark.asyncio

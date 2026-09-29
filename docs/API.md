@@ -303,12 +303,14 @@ Current implementation accepts URL entries, text-only product names/descriptions
 and lightweight manual product details, persists them as session-local
 `UserAddedProduct` records, and returns the updated session state. On the next
 shopping run, text-only user-added products add scoped lookup queries to the
-query plan, matching provider results are selected by source ID during discovery,
-and selected listing/product sources are extracted through the same source
-pipeline as generated candidates. URL entries are fetched through the configured
-source extraction provider directly. Successful user-added matches are normalized
-as product/listing candidates, deduplicated with app-generated candidates, and
-written back onto the user-added record when extraction succeeds. Manual
+query plan. Discovery selects sources by ID, and ExtractionAgent classifies
+retrieved pages and explicitly links cited listings to a shopper hint as confirmed
+or possible. A search hit alone is not a product match. URL entries are fetched
+through the configured source extraction provider directly. Confirmed matches
+are normalized and deduplicated with app-generated candidates; the user-added
+record gains the canonical product and one linked listing. Ambiguous matches
+remain separate in `possible_product_ids`, while each matched listing retains
+its `user_added_matches`, seller, price, availability, and trust context. Manual
 product-only details remain lower-evidence placeholders until manual-entry
 support is expanded.
 

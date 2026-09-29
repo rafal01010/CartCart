@@ -315,7 +315,9 @@ results; planned query source types are not stamped onto provider results.
 orchestration, live `DiscoveryAgent` can conduct bounded follow-up searches and
 select generic results for inspection. Live `ExtractionAgent` reads selected
 persisted snapshots through a bounded same-run tool and returns validated
-zero/one/many products, listings, evidence, mentions, and gaps. Its listings feed
+zero/one/many products, listings, evidence, mentions, and gaps. For a shopper's
+named candidate, it also returns cited confirmed or possible listing matches;
+the query or search title cannot establish identity. Its listings feed
 the current shortlist path. Cited mentions needing an offer lookup can
 trigger bounded DiscoveryAgent follow-up cycles before the shortlist: at most
 twelve leads per handoff, two follow-up discovery calls, four extraction cycles,
@@ -599,7 +601,7 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 
 - User-added products must enter the same deduplication, extraction, trust, analysis, and decision pipeline as app-generated candidates.
 - Normal guided intake should ask for product names or descriptions, not product URLs.
-- Name- or description-based user-added products are translated into scoped lookup queries, resolved through provider search and discovery-selected source IDs, then extracted and normalized through the standard source/listing pipeline.
+- Name- or description-based user-added products remain hints through scoped lookup queries and DiscoveryAgent selection. ExtractionAgent explicitly links cited listings to a hint as confirmed or possible; a query hit alone is not a match. Ambiguous variants stay separate while each listing keeps its seller and trust context.
 - URL-based user-added products are an advanced or corrective path; the run workflow fetches and extracts them through the normal source/listing pipeline before deduplication, then marks the deduped product/listing as user-supplied.
 - Manual user-added products must preserve missing evidence rather than inventing specs, price, seller, or review claims.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.

@@ -126,8 +126,8 @@ The orchestrator:
    `IntakeAgent` through the typed contract and merges inferred fields without
    overwriting existing user-provided brief fields.
 4. Builds and persists a search plan from the active shopping brief. Text-only
-   user-added product names/descriptions are added as scoped lookup queries so
-   they can be found without asking the shopper for links.
+   user-added product names/descriptions remain candidate hints and receive
+   scoped lookup queries, so shoppers need not supply links.
 5. Calls the configured search provider and persists policy-scored search
    results. `DiscoveryAgent` receives those seeds in both modes; the live agent
    may use approved search/fetch tools for bounded follow-up, while fixture
@@ -140,13 +140,16 @@ The orchestrator:
    snapshots; other pages produce explicit gaps, not guessed listings.
    User-added URL snapshots are tied directly
    to the user-supplied candidate rather than to a search-result record;
-   name/description matches retain their provider search-result link.
+   name/description lookup results retain their provider search-result link.
+   A lookup result alone does not establish product identity: ExtractionAgent
+   links a cited listing to the shopper's hint as confirmed or possible.
 7. Deduplicates extracted generated and user-added candidates together,
    persists grouped canonical products,
    listing records, and shortlist memberships, and reports pre/post grouping
-   counts. When a user-added URL or name/description match extracts
-   successfully, the session's `UserAddedProduct` record is updated with the
-   deduped product/listing.
+   counts. A confirmed user-added URL or name/description match updates the
+   session's `UserAddedProduct` with its deduped product/listing. Possible or
+   conflicting matches retain distinct product IDs and listing-level seller,
+   price, availability, and trust context instead of choosing a variant.
 8. Runs reusable source-intelligence checks for scoped candidate products and
    categories where provider capability and source relevance allow it. In live
    workflow mode, the SDK source manager may delegate to four scoped source

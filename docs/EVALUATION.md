@@ -106,6 +106,7 @@ Eval cases should check whether the system:
 - Correctly extracts user need, region, budget, hard constraints, and soft preferences.
 - Produces an app-generated shortlist.
 - Includes user-added products when supplied.
+- Finds named user-added products without links, refuses unrelated lookup hits, preserves ambiguous variants and separate seller risk, and merges only strongly evidenced product duplicates.
 - Uses source-backed claims.
 - Avoids reseller-only platforms.
 - Handles mixed marketplaces only with seller/listing trust analysis.

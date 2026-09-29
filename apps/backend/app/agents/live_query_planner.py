@@ -482,7 +482,7 @@ def _user_added_lookup_query(
     if item.get("has_url"):
         return None
     lookup_text = _clean_query(
-        str(item.get("product_name") or item.get("input_text") or "")
+        str(item.get("input_text") or item.get("product_name") or "")
     )
     if not lookup_text:
         return None

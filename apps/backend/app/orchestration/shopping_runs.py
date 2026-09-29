@@ -140,6 +140,8 @@ from app.schemas.products import (
     CanonicalProduct,
     ProductListing,
     ProductListingExtraction,
+    UserAddedListingMatch,
+    UserAddedMatchConfidence,
     UserAddedProduct,
 )
 from app.schemas.regions import RegionCode
@@ -768,7 +770,11 @@ class RepositoryShoppingRunPersistenceHooks:
             shortlist_position += 1
 
         for user_added in context.user_added_products:
-            if user_added.product is None or user_added.listing is None:
+            if not (
+                user_added.listing is not None
+                or user_added.possible_product_ids
+                or (user_added.input_text is not None and user_added.product is None)
+            ):
                 continue
             await self._product_repository.update_user_added_product_for_run(
                 context.session_id,
@@ -1506,6 +1512,7 @@ class ShoppingRunOrchestrator:
                     brief=brief,
                     search_plan=context.search_plan,
                     seed_results=context.search_results,
+                    user_added_products=context.user_added_products,
                 )
             )
             context.selected_source_ids = discovery_output.selected_source_ids
@@ -1715,7 +1722,6 @@ class ShoppingRunOrchestrator:
                 item = DiscoveredSourceExtraction(
                     search_result=result,
                     snapshot=snapshot,
-                    user_added_candidate_id=user_added_candidate_id,
                 )
                 if not already_persisted or user_added_candidate_id is not None:
                     await self._persistence_hooks.persist_source_extractions(
@@ -1815,7 +1821,9 @@ class ShoppingRunOrchestrator:
             )
             activity.append(review)
             context.research_activity.append(review)
-            if _research_sufficient(interpreted, evidence):
+            if _research_sufficient(
+                interpreted, evidence
+            ) and _user_added_hints_resolved(interpreted, context.user_added_products):
                 break
             if (
                 pages_inspected >= _MAX_EXTRACTION_SOURCES
@@ -1841,6 +1849,7 @@ class ShoppingRunOrchestrator:
                     run_id=context.run_id,
                     brief=context.active_brief,
                     search_plan=context.search_plan,
+                    user_added_products=context.user_added_products,
                     product_leads=tuple(lead.mention for lead in unresolved),
                     research_state=DiscoveryResearchState(
                         cycle=cycle,
@@ -1939,6 +1948,36 @@ class ShoppingRunOrchestrator:
                 }
                 activity.append(journal)
                 context.research_activity.append(journal)
+        for user_added in context.user_added_products:
+            if user_added.url is not None:
+                continue
+            matches = [
+                (item.listing_extraction.product.product_id, match.confidence)
+                for item in interpreted
+                if item.listing_extraction is not None
+                for match in item.listing_extraction.listing.user_added_matches
+                if match.candidate_id == user_added.candidate_id
+            ]
+            if (
+                not matches
+                or any(
+                    confidence == UserAddedMatchConfidence.POSSIBLE
+                    for _, confidence in matches
+                )
+                or len({product_id for product_id, _ in matches}) > 1
+            ):
+                journal = {
+                    "tool_name": "user_added_product_resolution",
+                    "status": "ambiguous" if matches else "unresolved",
+                    "input": {"candidate_id": str(user_added.candidate_id)},
+                    "output": {
+                        "possible_product_ids": list(
+                            dict.fromkeys(str(product_id) for product_id, _ in matches)
+                        )
+                    },
+                }
+                activity.append(journal)
+                context.research_activity.append(journal)
         context.source_extractions = tuple(interpreted)
         context.extraction_evidence = tuple(evidence)
         context.extraction_mentions = tuple(mentions)
@@ -1955,11 +1994,12 @@ class ShoppingRunOrchestrator:
         assert self._extraction_agent is not None
         editorial = item.search_result.source_id in context.editorial_result_ids
         collection = item.search_result.source_id in context.collection_result_ids
-        return await self._extraction_agent.run(
+        output = await self._extraction_agent.run(
             ExtractionAgentInput(
                 run_id=context.run_id,
                 snapshot_ids=(item.snapshot.source_id,),
                 category=context.active_brief.category,
+                user_added_products=context.user_added_products,
                 editorial_snapshot_ids=(item.snapshot.source_id,) if editorial else (),
                 collection_snapshot_ids=(item.snapshot.source_id,)
                 if collection
@@ -1967,6 +2007,19 @@ class ShoppingRunOrchestrator:
                 research_leads=research_leads,
             )
         )
+        allowed_candidates = {item.candidate_id for item in context.user_added_products}
+        for match in output.user_added_matches:
+            if match.candidate_id not in allowed_candidates:
+                raise ValueError("Extraction matched an unknown user-added candidate")
+            listing = next(
+                item for item in output.listings if item.listing_id == match.listing_id
+            )
+            if (
+                match.source_id != item.snapshot.source_id
+                or match.source_id not in listing.source_ids
+            ):
+                raise ValueError("User-added match does not cite the inspected page")
+        return output
 
     async def _extract_user_added_url_products(
         self,
@@ -3678,8 +3731,8 @@ def _user_added_lookup_text(user_added: UserAddedProduct) -> str | None:
     if user_added.url is not None:
         return None
     candidates = (
-        user_added.product.name if user_added.product is not None else None,
         user_added.input_text,
+        user_added.product.name if user_added.product is not None else None,
     )
     for candidate in candidates:
         if candidate is None:
@@ -3699,7 +3752,10 @@ def _user_added_product_for_lookup_query(
         lookup_text = _user_added_lookup_text(user_added)
         if lookup_text is None:
             continue
-        if lookup_text.casefold() in normalized_query:
+        if (
+            f"{lookup_text} official retailer listing"[:500].casefold()
+            == normalized_query
+        ):
             return user_added
     return None
 
@@ -3762,13 +3818,40 @@ def _source_extractions_from_agent(
     if not output.listings:
         return (item,)
     products = {product.product_id: product for product in output.products}
+    matches_by_listing: dict[ListingId, list[UserAddedListingMatch]] = {}
+    for match in output.user_added_matches:
+        matches_by_listing.setdefault(match.listing_id, []).append(
+            UserAddedListingMatch(
+                candidate_id=match.candidate_id,
+                source_id=match.source_id,
+                confidence=match.confidence,
+            )
+        )
+    direct_match = (
+        (
+            UserAddedListingMatch(
+                candidate_id=item.user_added_candidate_id,
+                source_id=item.snapshot.source_id,
+                confidence=UserAddedMatchConfidence.CONFIRMED,
+            ),
+        )
+        if item.user_added_candidate_id is not None
+        else ()
+    )
     return tuple(
         DiscoveredSourceExtraction(
             search_result=item.search_result,
             snapshot=item.snapshot,
             listing_extraction=ProductListingExtraction(
                 product=products[listing.product_id],
-                listing=listing,
+                listing=listing.model_copy(
+                    update={
+                        "user_added_matches": (
+                            *matches_by_listing.get(listing.listing_id, ()),
+                            *direct_match,
+                        )
+                    }
+                ),
                 confidence=Confidence(
                     score=0.5,
                     level=ConfidenceLevel.MEDIUM,
@@ -3874,6 +3957,26 @@ def _research_sufficient(
     return len(product_ids) >= 3 and len(evidence) >= 2
 
 
+def _user_added_hints_resolved(
+    extracted: list[DiscoveredSourceExtraction],
+    user_added_products: tuple[UserAddedProduct, ...],
+) -> bool:
+    for user_added in user_added_products:
+        if user_added.url is not None:
+            continue
+        matches = {
+            item.listing_extraction.product.product_id
+            for item in extracted
+            if item.listing_extraction is not None
+            for match in item.listing_extraction.listing.user_added_matches
+            if match.candidate_id == user_added.candidate_id
+            and match.confidence == UserAddedMatchConfidence.CONFIRMED
+        }
+        if len(matches) != 1:
+            return False
+    return True
+
+
 def _discovery_journal(
     output: Any,
     *,
@@ -3919,6 +4022,9 @@ def _extraction_journal(
             ],
             "mentions": [
                 mention.model_dump(mode="json") for mention in output.product_mentions
+            ],
+            "user_added_matches": [
+                match.model_dump(mode="json") for match in output.user_added_matches
             ],
             "evidence_ids": [
                 str(record.evidence_id) for record in output.source_evidence
@@ -4139,23 +4245,67 @@ def _deduplicated_user_added_products(
     user_added_products: tuple[UserAddedProduct, ...],
     extractions: tuple[DiscoveredSourceExtraction, ...],
 ) -> tuple[UserAddedProduct, ...]:
-    extraction_by_candidate_id = {
-        item.user_added_candidate_id: item.listing_extraction
-        for item in extractions
-        if item.user_added_candidate_id is not None
-        and item.listing_extraction is not None
-    }
     updated: list[UserAddedProduct] = []
     for user_added in user_added_products:
-        extraction = extraction_by_candidate_id.get(user_added.candidate_id)
-        if extraction is None:
-            updated.append(user_added)
+        matches = [
+            (item, match.confidence)
+            for item in extractions
+            if item.listing_extraction is not None
+            for match in item.listing_extraction.listing.user_added_matches
+            if match.candidate_id == user_added.candidate_id
+        ]
+        if not matches:
+            updated.append(
+                user_added.model_copy(
+                    update={
+                        "product": None,
+                        "listing": None,
+                        "possible_product_ids": (),
+                    }
+                )
+                if user_added.url is None
+                and user_added.input_text is not None
+                and (user_added.listing is not None or user_added.possible_product_ids)
+                else user_added
+            )
             continue
+        product_ids = tuple(
+            dict.fromkeys(
+                item.listing_extraction.product.product_id for item, _ in matches
+            )
+        )
+        confirmed = [
+            item
+            for item, confidence in matches
+            if confidence == UserAddedMatchConfidence.CONFIRMED
+        ]
+        if len(product_ids) != 1 or not confirmed:
+            updated.append(
+                user_added.model_copy(
+                    update={
+                        "product": None,
+                        "listing": None,
+                        "possible_product_ids": product_ids,
+                    }
+                )
+            )
+            continue
+        preferred = next(
+            (
+                item
+                for item in confirmed
+                if item.search_result.provider.raw.get("user_added_candidate_id")
+                == str(user_added.candidate_id)
+            ),
+            confirmed[0],
+        )
+        extraction = preferred.listing_extraction
         updated.append(
             user_added.model_copy(
                 update={
                     "product": extraction.product,
                     "listing": extraction.listing,
+                    "possible_product_ids": (),
                 }
             )
         )

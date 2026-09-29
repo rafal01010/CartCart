@@ -12,7 +12,7 @@ from app.schemas.analysis import (
     RecommendationMode,
 )
 from app.schemas.base import CartCartBaseModel, VersionedSchema
-from app.schemas.ids import ListingId, ProductId, RunId, SourceId
+from app.schemas.ids import CandidateId, ListingId, ProductId, RunId, SourceId
 from app.schemas.guided_intake import (
     GuidedAnswerSubmission,
     GuidedIntakeState,
@@ -21,7 +21,12 @@ from app.schemas.guided_intake import (
     ShoppingGuardrailResult,
 )
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
-from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
+from app.schemas.products import (
+    CanonicalProduct,
+    ProductListing,
+    UserAddedMatchConfidence,
+    UserAddedProduct,
+)
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
     AmazonProductEvidenceBundle,
@@ -124,6 +129,7 @@ class DiscoveryAgentInput(VersionedSchema):
     brief: ShoppingBrief
     search_plan: SearchPlan
     seed_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
+    user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
     product_leads: tuple[ExtractedProductMention, ...] = Field(
         default_factory=tuple, max_length=12
     )
@@ -280,6 +286,7 @@ class ExtractionAgentInput(VersionedSchema):
     run_id: RunId
     snapshot_ids: tuple[SourceId, ...] = Field(min_length=1, max_length=8)
     category: str | None = None
+    user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
     workbench_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
     editorial_snapshot_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     collection_snapshot_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
@@ -308,6 +315,15 @@ class ExtractionLeadMatch(VersionedSchema):
     lead_evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
 
 
+class ExtractionUserAddedMatch(VersionedSchema):
+    candidate_id: CandidateId
+    product_id: ProductId
+    listing_id: ListingId
+    source_id: SourceId
+    confidence: UserAddedMatchConfidence
+    rationale: str = Field(min_length=1, max_length=500)
+
+
 class ExtractionAgentOutput(VersionedSchema):
     products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple, max_length=8)
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple, max_length=8)
@@ -322,6 +338,9 @@ class ExtractionAgentOutput(VersionedSchema):
     )
     lead_matches: tuple[ExtractionLeadMatch, ...] = Field(
         default_factory=tuple, max_length=8
+    )
+    user_added_matches: tuple[ExtractionUserAddedMatch, ...] = Field(
+        default_factory=tuple, max_length=32
     )
 
     @model_validator(mode="after")
@@ -359,6 +378,24 @@ class ExtractionAgentOutput(VersionedSchema):
         for match in self.lead_matches:
             if match.product_id not in products:
                 raise ValueError("lead match references unknown extracted product")
+        listing_product_ids = {listing.product_id for listing in self.listings}
+        for match in self.user_added_matches:
+            if (
+                match.product_id not in listing_product_ids
+                or match.listing_id not in listings
+            ):
+                raise ValueError("user-added match requires a cited extracted listing")
+            if listings[match.listing_id].product_id != match.product_id:
+                raise ValueError("user-added match listing/product identity differs")
+            if match.source_id not in listings[match.listing_id].source_ids:
+                raise ValueError("user-added match must cite its listing source")
+        if len(
+            {
+                (match.candidate_id, match.listing_id)
+                for match in self.user_added_matches
+            }
+        ) != len(self.user_added_matches):
+            raise ValueError("duplicate user-added match")
         matched_lead_ids = tuple(
             evidence_id
             for match in self.lead_matches

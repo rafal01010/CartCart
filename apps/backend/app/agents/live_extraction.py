@@ -132,7 +132,15 @@ class LiveExtractionAgent:
                 "item-level identities and prices the text supports. Do not "
                 "reuse the collection URL as every item's offer URL; when an "
                 "item URL is absent, return a cited mention and explicit gap "
-                "so discovery can seek a direct offer."
+                "so discovery can seek a direct offer. If user_added_products "
+                "are supplied, compare each extracted listing's product identity "
+                "with the shopper's name or description. Return user_added_matches "
+                "only for supported matches, using confirmed only for clear model "
+                "identity and possible for plausible variants or ambiguous names. "
+                "Several possible products may match one shopper hint. Never "
+                "treat a search query or result title alone as proof of identity. "
+                "Each user_added_match must cite the assigned snapshot in source_id "
+                "and refer to a returned product and its listing."
             ),
             tools=list(tools.sdk_tools()),
             output_type=ExtractionAgentOutput,
@@ -149,6 +157,15 @@ class LiveExtractionAgent:
             {
                 "run_id": str(input_data.run_id),
                 "category": input_data.category,
+                "user_added_products": [
+                    {
+                        "candidate_id": str(item.candidate_id),
+                        "input_text": item.input_text,
+                        "product_name": item.product.name if item.product else None,
+                    }
+                    for item in input_data.user_added_products
+                    if item.url is None
+                ],
                 "pages": [page.model_dump(mode="json") for page in pages],
                 "editorial_snapshot_ids": [
                     str(item) for item in input_data.editorial_snapshot_ids
@@ -252,6 +269,10 @@ def _validate_extraction(
         if not product.source_ids or not set(product.source_ids).issubset(allowed):
             raise ValueError("product cites unknown or missing snapshot")
     for listing in output.listings:
+        if listing.user_added_matches:
+            raise ValueError(
+                "user-added listing marks require validated match decisions"
+            )
         if set(listing.source_ids) & editorial:
             raise ValueError("editorial source cannot support a retailer listing")
         if not set(listing.source_ids).issubset(allowed):
@@ -301,6 +322,14 @@ def _validate_extraction(
     for match in output.lead_matches:
         if not set(match.lead_evidence_ids).issubset(lead_evidence_ids):
             raise ValueError("lead match cites unknown source evidence")
+    allowed_candidates = {
+        item.candidate_id for item in input_data.user_added_products if item.url is None
+    }
+    for match in output.user_added_matches:
+        if match.candidate_id not in allowed_candidates:
+            raise ValueError("user-added match references an unknown shopper hint")
+        if match.source_id not in allowed:
+            raise ValueError("user-added match cites an unknown snapshot")
 
 
 def _page_supports_amount(text: str, amount: Decimal) -> bool:

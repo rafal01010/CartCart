@@ -326,10 +326,12 @@ Constraint: unique `(run_id, candidate_id)`.
 
 ### `user_added_products`
 
-Stores products or product URLs manually supplied by the user. URL entries start
-as session-local candidates and are updated with `run_id`, `product_id`, and
-`listing_id` when a run successfully extracts, deduplicates, and persists the
-user-supplied listing.
+Stores products named, described, or linked by the user. Entries start as
+session-local candidates. A confirmed extracted match updates `run_id`,
+`product_id`, and `listing_id`; ambiguous matches keep possible canonical
+product IDs in the JSON payload and leave those two foreign keys null. Listing
+JSON preserves per-listing user-added match confidence separately from seller,
+price, availability, and trust context.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |

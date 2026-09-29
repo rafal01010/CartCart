@@ -1128,8 +1128,8 @@ def _user_added_lookup_text(user_added: Any) -> str | None:
         return None
     product = getattr(user_added, "product", None)
     candidates = (
-        product.name if product is not None else None,
         getattr(user_added, "input_text", None),
+        product.name if product is not None else None,
     )
     for candidate in candidates:
         if candidate is None:

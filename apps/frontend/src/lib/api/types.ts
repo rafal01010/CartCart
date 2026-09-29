@@ -172,6 +172,7 @@ export interface ProductListing {
 	region_availability: RegionAvailability[];
 	source_quality: SourceQuality;
 	source_ids: EntityId[];
+	user_added_matches?: { candidate_id: CandidateId; source_id: EntityId; confidence: 'confirmed' | 'possible' }[];
 	captured_at: Timestamp;
 }
 
@@ -182,6 +183,7 @@ export interface UserAddedProduct {
 	url?: string | null;
 	product?: CanonicalProduct | null;
 	listing?: JsonObject | null;
+	possible_product_ids?: EntityId[];
 	notes?: string | null;
 	created_at: Timestamp;
 }

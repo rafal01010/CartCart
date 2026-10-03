@@ -25,7 +25,9 @@ from app.schemas.search_sources import (
     SourceType,
 )
 from app.services.shopping_intent import (
+    RESEARCH_QUERY_GUIDANCE,
     brief_has_unconstrained_budget,
+    research_context,
     search_intent_text,
 )
 
@@ -198,7 +200,8 @@ def _build_query_planner_agent(model: str) -> Agent[Any]:
             include_usage=True,
         ),
         instructions=(
-            "Create a SearchPlan from the shopper's ShoppingBrief. Return only "
+            RESEARCH_QUERY_GUIDANCE
+            + "Create a SearchPlan from the shopper's ShoppingBrief. Return only "
             "the structured SearchPlan. Include a small source strategy with "
             "shopping/listing, price or availability, official-source, and "
             "review queries when useful. Include video-review search when a "
@@ -224,6 +227,7 @@ def _model_input(input_data: QueryPlannerAgentInput) -> str:
         {
             "run_id": str(input_data.run_id),
             "brief": input_data.brief.model_dump(mode="json"),
+            "research_context": research_context(input_data.brief),
             "user_added_products": tuple(
                 {
                     "candidate_id": str(user_added.candidate_id),

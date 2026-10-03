@@ -273,14 +273,16 @@ class FixtureSnapshotTools(SnapshotInterpretationTools):
 
     def __init__(self, request: ExtractionAgentInput) -> None:
         self._snapshots = {s.source_id: s for s in request.workbench_snapshots}
-        self._allowed = set(request.snapshot_ids)
+        self._allowed = frozenset(request.snapshot_ids)
         self._remaining = 24
         self._max_text_chars = 4000
         self._activity = []
         self.observed_text = {}
+        self.observed_pages = {}
 
-    async def read(self, snapshot_id: str, *, start_char: int = 0,
-                   focus: str | None = None) -> SnapshotReadResult:
+    async def read(
+        self, snapshot_id: str, *, start_char: int = 0, focus: str | None = None
+    ) -> SnapshotReadResult:
         from app.schemas.ids import SourceId
         from app.agents.source_spans import source_span
 
@@ -298,17 +300,25 @@ class FixtureSnapshotTools(SnapshotInterpretationTools):
         snapshot = self._snapshots[parsed]
         text = snapshot.extracted_content.text if snapshot.extracted_content else None
         try:
-            span = source_span(text, start=start_char, focus=focus,
-                               limit=self._max_text_chars) if text else None
+            span = (
+                source_span(
+                    text, start=start_char, focus=focus, limit=self._max_text_chars
+                )
+                if text
+                else None
+            )
         except ValueError as exc:
             return SnapshotReadResult(status="invalid_request", gap=str(exc))
         bounded = span.text if span else None
-        if bounded:
+        if bounded and span is not None:
+            previous = self.observed_pages.get(parsed)
+            if previous is not None and previous.content_sha256 != span.content_sha256:
+                self.observed_text.pop(parsed, None)
             self.observed_text.setdefault(parsed, []).append(bounded)
         self._activity.append(
             {"tool_name": "read_source_snapshot", "status": "fixture"}
         )
-        return SnapshotReadResult(
+        result = SnapshotReadResult(
             status="succeeded" if text else "gap",
             snapshot_id=parsed,
             title=snapshot.title,
@@ -322,6 +332,10 @@ class FixtureSnapshotTools(SnapshotInterpretationTools):
             text_truncated=text is not None and len(text) > len(bounded or ""),
             gap=None if text else "No readable fixture content.",
         )
+
+        if bounded:
+            self.observed_pages[parsed] = result
+        return result
 
 
 @dataclass

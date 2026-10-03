@@ -13,7 +13,9 @@ from typing import Annotated, Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field, WithJsonSchema
 
-from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
+from app.agents.context_management import (
+    BoundedRunner, ContextBudgetExceeded, context_budget_failure,
+)
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.agents.ikea_regional_tools import IKEARegionalStoreTools
 from app.agents.openai_config import (
@@ -322,6 +324,9 @@ class IKEAStoreIntelligenceAgent:
         except ContextBudgetExceeded:
             raise
         except Exception as exc:
+            budget_failure = context_budget_failure(exc)
+            if budget_failure is not None:
+                raise budget_failure from exc
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
                     *hosted_activity,

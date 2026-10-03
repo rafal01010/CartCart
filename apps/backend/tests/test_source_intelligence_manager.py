@@ -3,11 +3,15 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from agents import MaxTurnsExceeded, Runner
+from agents.exceptions import UserError
 from agents.tool_context import ToolContext
+from agents.usage import Usage
+from app.agents.context_management import ContextBudgetExceeded
 
 from app.agents.catalog import DEFAULT_AGENT_CATALOG, InvocationMode
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
@@ -70,6 +74,50 @@ async def _invoke(tool: Any, payload: dict[str, str]) -> Any:
         ),
         arguments,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped_failure", [False, True])
+async def test_source_manager_exhaustion_is_a_technical_failure(
+    wrapped_failure: bool,
+) -> None:
+    class ExhaustedRunner:
+        async def run(self, agent, model_input, *, run_config, max_turns):
+            if wrapped_failure:
+                try:
+                    raise ContextBudgetExceeded(
+                        "Nested source spending cannot continue."
+                    )
+                except ContextBudgetExceeded as exc:
+                    raise UserError("SDK source tool failed.") from exc
+            return SimpleNamespace(
+                final_output=SourceManagerDecision(
+                    summary="No optional sources requested."
+                ),
+                context_wrapper=SimpleNamespace(
+                    usage=Usage(input_tokens=30001, total_tokens=30001)
+                ),
+            )
+
+    payload = IKEAStoreIntelligenceAgentInput.model_validate(
+        _scenario_ikea_available_regional_product().input
+    )
+    manager = SourceIntelligenceManagerAgent(
+        settings=Settings(_env_file=None), model_runner=ExhaustedRunner()
+    )
+    with pytest.raises(ContextBudgetExceeded):
+        await manager.run(
+            SourceManagerInput(
+                run_id=payload.run_id,
+                brief=payload.brief,
+                products=payload.products,
+                listings=payload.listings,
+                source_snapshots=(),
+                query_hints=("MICKE desk",),
+                region_code="PH",
+                allowed_capabilities=(),
+            )
+        )
 
 
 @dataclass
@@ -170,7 +218,16 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
                     ),
                 )
             )
-        return type("NestedResult", (), {"final_output": output})()
+        return type(
+            "NestedResult",
+            (),
+            {
+                "final_output": output,
+                "context_wrapper": SimpleNamespace(
+                    usage=Usage(input_tokens=27000, total_tokens=27000)
+                ),
+            },
+        )()
 
     monkeypatch.setattr(Runner, "run", nested_run)
     scenario = _scenario_ikea_available_regional_product()
@@ -209,6 +266,11 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
     assert nested_turns == [9, 9]
     assert result.amazon_bundles[0].evidence
     assert result.ikea_bundles[0].evidence
+    assert all(
+        item["output"]["total_tokens"] is None
+        for item in result.activity
+        if item["tool_name"] == "agent_as_tool"
+    )
     assert all(
         item["input"]["agent"]
         == (

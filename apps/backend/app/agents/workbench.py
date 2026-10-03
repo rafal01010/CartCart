@@ -3182,7 +3182,11 @@ def _mock_extraction_output(
                     source_id=source_id,
                 ),
                 evidence_type=EvidenceType.REVIEW_CLAIM,
-                claim=f"Editorial page names {name} as a TV pick.",
+                claim={
+                    "Aurora A55": "Aurora A55 offers strong contrast",
+                    "Northstar N65": "Northstar N65 has better motion",
+                    "Cedar C75": "Cedar C75 is a value pick.",
+                }[name],
                 confidence=_confidence(),
                 source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
             )
@@ -3210,7 +3214,7 @@ def _mock_extraction_output(
                     source_id=source_id,
                 ),
                 evidence_type=EvidenceType.OTHER,
-                claim=f"Collection names {name}, without a direct item URL.",
+                claim=f"{name} ${499 if name == 'Aurora A55' else 699}",
                 confidence=_confidence(),
                 source_quality=SourceQuality(level=SourceQualityLevel.MIXED),
             )
@@ -3270,7 +3274,7 @@ def _mock_extraction_output(
                     product_id=product.product_id,
                 ),
                 evidence_type=EvidenceType.LISTING_IDENTITY,
-                claim=f"Page identifies {name} as a television.",
+                claim=name,
                 confidence=_confidence(),
                 source_quality=SourceQuality(level=SourceQualityLevel.ADEQUATE),
             )

@@ -52,6 +52,9 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
     )
     assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").planned_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
+    assert DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent").approved_sdk_tools == (
+        ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
+    )
     assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
     )

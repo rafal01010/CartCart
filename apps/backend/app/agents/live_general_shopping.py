@@ -26,7 +26,12 @@ from pydantic import Field, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.context_management import (
-    BoundedRunner, ContextBudgetExceeded, context_events, active_budget, managed_owner_context,
+    BoundedRunner,
+    ContextBudgetExceeded,
+    context_budget_failure,
+    context_events,
+    active_budget,
+    managed_owner_context,
 )
 from app.agents.contracts import (
     GeneralShoppingAgentInput,
@@ -66,6 +71,7 @@ from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import SourceId
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import SourceQualityLevel, SourceType
+from app.services.shopping_intent import RESEARCH_QUERY_GUIDANCE, research_context
 
 
 class GeneralCandidateSelection(CartCartBaseModel):
@@ -282,6 +288,13 @@ class LiveGeneralShoppingAgent:
         )
         budget = active_budget()
         context_start = len(budget.events) if budget else 0
+        spent_start = budget.spent if budget else 0
+        model_input = json.dumps(
+            {
+                **input_data.model_dump(mode="json"),
+                "research_context": research_context(input_data.brief),
+            }
+        )
         self._activity = ()
         region_code = (
             input_data.brief.region.region.country_code
@@ -437,7 +450,8 @@ class LiveGeneralShoppingAgent:
                 name=specialist_name,
                 model=specialist_configuration.model,
                 instructions=(
-                    "You now own this product shopping request. Finish with "
+                    RESEARCH_QUERY_GUIDANCE
+                    + "You now own this product shopping request. Finish with "
                     "GeneralModelOutput, not CategoryAnalysis. The parent agents must "
                     "not rewrite your draft. "
                     + _SPECIALIST_INSTRUCTIONS[specialist_name]
@@ -543,7 +557,8 @@ class LiveGeneralShoppingAgent:
             name="TechnologyDomainAnalystAgent",
             model=technology_configuration.model,
             instructions=(
-                "You now own this whole technology shopping request. Interpret the original "
+                RESEARCH_QUERY_GUIDANCE
+                + "You now own this whole technology shopping request. Interpret the original "
                 "brief and the handoff reason, then finish with GeneralModelOutput. You may "
                 "finish broad or unsupported technology categories yourself; do not invent "
                 "a product specialist or return control to General. Hand off only when "
@@ -620,7 +635,8 @@ class LiveGeneralShoppingAgent:
             name="GeneralShoppingAgent",
             model=configuration.model,
             instructions=(
-                "Own this ordinary shopping request, including categories without a specialist. "
+                RESEARCH_QUERY_GUIDANCE
+                + "Own this ordinary shopping request, including categories without a specialist. "
                 "Interpret the buyer's need, category, region and constraints. Treat any "
                 "saved user-added products as leads, never as verified facts. Use approved "
                 "research tools and run-scoped evidence, trust, comparison, or source "
@@ -678,6 +694,28 @@ class LiveGeneralShoppingAgent:
         handoff_confirmed = False
         owner_timeout = configuration.timeout_seconds
         started_at = asyncio.get_running_loop().time()
+
+        def source_tokens() -> int:
+            return sum(
+                item.get("output", {}).get("total_tokens") or 0
+                for state in owner_research.values()
+                for item in state.activity
+                if item.get("tool_name") == "consult_source_intelligence"
+            )
+
+        def owner_tokens(sdk_tokens: int) -> int:
+            if budget is not None and context_events(context_start):
+                return budget.spent - spent_start
+            return sdk_tokens + source_tokens()
+
+        def validate_completion(output: GeneralModelOutput) -> None:
+            if not output.candidates and any(
+                item["output"].get("finalizing")
+                for item in context_events(context_start)
+            ):
+                raise ContextBudgetExceeded(
+                    "Research spending closed without a safely supported candidate."
+                )
 
         def validated_handoffs(result: Any) -> tuple[str, tuple[dict[str, Any], ...]]:
             completed = tuple(
@@ -756,7 +794,7 @@ class LiveGeneralShoppingAgent:
             raw_result = await asyncio.wait_for(
                 self.model_runner.run(
                     agent,
-                    json.dumps(input_data.model_dump(mode="json")),
+                    model_input,
                     run_config=run_config,
                     max_turns=configuration.max_turns,
                 ),
@@ -767,22 +805,12 @@ class LiveGeneralShoppingAgent:
             sdk_usage = getattr(
                 getattr(raw_result, "context_wrapper", None), "usage", None
             )
-            nested_tokens = sum(
-                item.get("output", {}).get("total_tokens") or 0
-                for state in owner_research.values()
-                for item in state.activity
-                if item.get("tool_name")
-                in {"agent_as_tool", "consult_source_intelligence"}
-            )
-            if (getattr(sdk_usage, "total_tokens", 0) or 0) + nested_tokens > 90000:
-                raise ValueError("Owner run exceeded its token budget.")
+            if owner_tokens(getattr(sdk_usage, "total_tokens", 0) or 0) > 90000:
+                raise ContextBudgetExceeded("Owner run exceeded its token budget.")
             model_output = GeneralModelOutput.model_validate(
                 getattr(raw_result, "final_output", raw_result)
             )
-            if not model_output.candidates and any(
-                item["output"].get("finalizing") for item in context_events(context_start)
-            ):
-                raise ContextBudgetExceeded("Research spending closed without a safely supported candidate.")
+            validate_completion(model_output)
             if hosted_tool is not None:
                 if not hasattr(raw_result, "raw_responses"):
                     raise ValueError(
@@ -914,16 +942,20 @@ class LiveGeneralShoppingAgent:
                     "No persisted research was available in this fixture run.",
                 )
         except (Exception, asyncio.TimeoutError) as exc:
-            failure_type = type(exc).__name__
+            budget_failure = context_budget_failure(exc)
+            failure_type = type(budget_failure or exc).__name__
             failure_code = (
-                {
+                "context_budget_exceeded"
+                if budget_failure is not None
+                else {
                     "Specialist handoff exceeds the declared hierarchy.": "specialist_depth_exceeded",
                     "Specialist handoff does not match the buyer's category.": "specialist_category_mismatch",
                     "Technology handoff is not allowed or exceeds depth one.": "technology_depth_exceeded",
                     "Technology handoff does not match the shopper's request.": "technology_category_mismatch",
                 }.get(str(exc), "unclassified_sdk_error")
                 if isinstance(exc, UserError)
-                else "context_budget_exceeded" if isinstance(exc, ContextBudgetExceeded)
+                else "context_budget_exceeded"
+                if isinstance(exc, ContextBudgetExceeded)
                 else None
             )
             gap = f"Shopping research could not be verified ({type(exc).__name__})."
@@ -1047,8 +1079,9 @@ class LiveGeneralShoppingAgent:
                 failed_specialist is not None
                 and raw_result is None
                 and remaining_seconds > 0
-                and getattr(failed_run_usage, "total_tokens", 0) < 90000
-                and not isinstance(exc, ContextBudgetExceeded)
+                and owner_tokens(getattr(failed_run_usage, "total_tokens", 0) or 0)
+                < 90000
+                and budget_failure is None
             ):
                 recovery_agent = technology_agent.clone(
                     handoffs=[],
@@ -1063,7 +1096,7 @@ class LiveGeneralShoppingAgent:
                     recovery_result = await asyncio.wait_for(
                         self.model_runner.run(
                             recovery_agent,
-                            json.dumps(input_data.model_dump(mode="json")),
+                            model_input,
                             run_config=run_config,
                             max_turns=2,
                         ),
@@ -1081,15 +1114,18 @@ class LiveGeneralShoppingAgent:
                     recovery_output = GeneralModelOutput.model_validate(
                         getattr(recovery_result, "final_output", recovery_result)
                     )
+                    validate_completion(recovery_output)
                     recovery_usage = getattr(
                         getattr(recovery_result, "context_wrapper", None), "usage", None
                     )
                     if (
-                        getattr(failed_run_usage, "total_tokens", 0)
-                        + getattr(recovery_usage, "total_tokens", 0)
+                        owner_tokens(
+                            (getattr(failed_run_usage, "total_tokens", 0) or 0)
+                            + (getattr(recovery_usage, "total_tokens", 0) or 0)
+                        )
                         > 90000
                     ):
-                        raise ValueError(
+                        raise ContextBudgetExceeded(
                             "Technology recovery exceeded its token budget."
                         )
                     recovered_run_usage = recovery_usage
@@ -1121,6 +1157,11 @@ class LiveGeneralShoppingAgent:
                         },
                     )
                 except Exception as recovery_exc:
+                    recovery_budget_failure = context_budget_failure(recovery_exc)
+                    if recovery_budget_failure is not None:
+                        failure_type = type(recovery_budget_failure).__name__
+                        failure_code = "context_budget_exceeded"
+                        gap = "Shopping research could not safely complete within its token budget."
                     handoff_activity += (
                         {
                             "tool_name": "owner_recovery",
@@ -1139,14 +1180,11 @@ class LiveGeneralShoppingAgent:
             else None
             for field in ("input_tokens", "output_tokens", "total_tokens")
         }
-        nested_source_tokens = sum(
-            item.get("output", {}).get("total_tokens") or 0
-            for state in owner_research.values()
-            for item in state.activity
-            if item.get("tool_name") in {"agent_as_tool", "consult_source_intelligence"}
-        )
-        if (combined_usage["total_tokens"] or 0) + nested_source_tokens > 90000:
+        nested_source_tokens = source_tokens()
+        if owner_tokens(combined_usage["total_tokens"] or 0) > 90000:
             gap = "Shopping research exceeded its combined owner/source token budget."
+            failure_type = "ContextBudgetExceeded"
+            failure_code = "context_budget_exceeded"
             draft = self._insufficient(
                 input_data, draft.category, False, gap
             ).model_copy(update={"owner_agent_name": owner_name})
@@ -1198,6 +1236,12 @@ class LiveGeneralShoppingAgent:
                         **combined_usage,
                     },
                     "nested_source_tokens": nested_source_tokens,
+                    "accounted_owner_tokens": owner_tokens(
+                        combined_usage["total_tokens"] or 0
+                    ),
+                    "usage_accounting": "shared_transport"
+                    if context_events(context_start)
+                    else "sdk_owner_plus_source_aggregate",
                 },
             },
         )
@@ -1395,8 +1439,9 @@ class LiveGeneralShoppingAgent:
                 selected_candidate_name=selected.name,
                 hosted_lead_source_ids=tuple(c.source_id for c in citations),
                 rationale=(
-                    f"{selected.name} has cited product/listing and independent review "
-                    "page excerpts. Price, regional availability, and seller trust still need checks."
+                    f"{selected.name}: "
+                    + " ".join(item.quote for item in selected.evidence[:2])
+                    + " Price, regional availability, and seller trust still need checks."
                 ),
             )
         return GeneralShoppingDecisionDraft(

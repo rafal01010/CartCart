@@ -1,10 +1,11 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from agents import Agent, RunConfig, Runner, WebSearchTool
+from agents.exceptions import UserError
 from agents.items import ModelResponse
 from agents.models.interface import Model
 from agents.tool_context import ToolContext
@@ -17,6 +18,12 @@ from openai.types.responses import (
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.agents.contracts import GeneralShoppingAgentInput, GeneralShoppingOutcome
+from app.agents.context_management import (
+    BoundedRunner,
+    ContextBudget,
+    ContextBudgetExceeded,
+    context_scope,
+)
 from app.agents.live_general_shopping import (
     GeneralModelOutput,
     GeneralCandidateSelection,
@@ -331,10 +338,12 @@ class _SourceCallingPhoneModel(Model):
         self.calls += 1
         if self.quote_sources and self.calls in {1, 3}:
             output = ResponseFunctionToolCall(
-                type="function_call", call_id=f"phone-read-{self.calls}",
-                name="fetch_source", arguments=json.dumps({
-                    "source_id": self.quote_sources[(self.calls - 1) // 2]
-                }),
+                type="function_call",
+                call_id=f"phone-read-{self.calls}",
+                name="fetch_source",
+                arguments=json.dumps(
+                    {"source_id": self.quote_sources[(self.calls - 1) // 2]}
+                ),
             )
         elif self.quote_sources and self.calls in {2, 4}:
             source_id = self.quote_sources[(self.calls - 2) // 2]
@@ -858,7 +867,9 @@ async def test_phone_finishes_from_its_quotes_and_retains_hosted_lead() -> None:
     try:
         draft = await owner.run(input_data)
         assert draft.owner_agent_name == "SmartphoneSpecialistAgent"
-        assert draft.outcome == GeneralShoppingOutcome.DRAFT, owner.workbench_activity[-1]
+        assert draft.outcome == GeneralShoppingOutcome.DRAFT, owner.workbench_activity[
+            -1
+        ]
         assert draft.selected_candidate_name == "Test Phone"
         assert len(draft.candidates[0].evidence) == 2
         assert len(draft.hosted_lead_source_ids) == 1
@@ -1273,6 +1284,271 @@ async def test_failed_specialist_recovers_with_technology_owner() -> None:
             for item in owner.workbench_activity
             if item["tool_name"] == "sdk_handoff" and item["status"] == "completed"
         ] == ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_source_completion_usage_does_not_count_shared_child_usage_again() -> (
+    None
+):
+    class SharedUsageManager(_SourceManagerStub):
+        async def run(self, input_data):
+            result = await super().run(input_data)
+            return SourceManagerResult(
+                video_bundles=result.video_bundles,
+                total_tokens=20000,
+                activity=(
+                    {
+                        "tool_name": "agent_as_tool",
+                        "status": "validated",
+                        "input": {"agent": "YouTubeReviewIntelligenceAgent"},
+                        "output": {"total_tokens": 70000},
+                    },
+                ),
+            )
+
+    product = CanonicalProduct(name="Test Phone", category="smartphone")
+    runner = _SourceCallingOwnerRunner(str(product.product_id))
+    owner, input_data, factory, engine = await _isolated_agent(runner)
+    owner.source_intelligence_manager = SharedUsageManager()
+    input_data = input_data.model_copy(
+        update={
+            "brief": ShoppingBrief(
+                original_query="Find a smartphone",
+                region=RegionPreference(
+                    region=Region(country_code="US"), source=FieldSource.USER_PROVIDED
+                ),
+            )
+        }
+    )
+    owner.regional_research_tools_factory = lambda run_id, region_code: (
+        AgentResearchTools(
+            agent_name="GeneralShoppingAgent",
+            run_id=run_id,
+            session_factory=factory,
+            search_provider=_general_fixture_search_provider(),
+            extraction_provider=_GeneralFixtureExtractionProvider(),
+            required_region_code=region_code,
+        )
+    )
+    async with factory() as session:
+        await ProductRepository(session).add_canonical_product(
+            input_data.run_id, product
+        )
+        await session.commit()
+    try:
+        await owner.run(input_data)
+        event = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert event["status"] == "insufficient_evidence"
+        assert event["output"]["nested_source_tokens"] == 20000
+        assert event["output"]["gap"] is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_owner_completion_uses_settled_transport_instead_of_sdk_aggregate() -> (
+    None
+):
+    class OfflineProvider:
+        def get_model(self, model_name):
+            return _ScriptedOwnerModel(transfer=False)
+
+    class LedgerRunner:
+        async def run(self, agent, model_input, *, run_config, max_turns):
+            result = await BoundedRunner.run(
+                agent,
+                model_input,
+                run_config=replace(run_config, model_provider=OfflineProvider()),
+                max_turns=max_turns,
+            )
+            result.context_wrapper.usage.total_tokens = 95000
+            return result
+
+    owner, input_data, _, engine = await _isolated_agent(LedgerRunner())
+    try:
+        await owner.run(input_data)
+        event = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert event["status"] == "insufficient_evidence"
+        assert event["output"]["usage"]["total_tokens"] == 95000
+        assert event["output"]["accounted_owner_tokens"] == 50
+        assert event["output"]["usage_accounting"] == "shared_transport"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped_failure", [False, True])
+async def test_nested_source_budget_failure_stops_owner_without_recovery(
+    wrapped_failure: bool,
+) -> None:
+    class ExhaustedManager(_SourceManagerStub):
+        async def run(self, input_data):
+            try:
+                raise ContextBudgetExceeded("Source budget cannot safely continue.")
+            except ContextBudgetExceeded as exc:
+                if wrapped_failure:
+                    raise UserError("SDK source tool failed.") from exc
+                raise
+
+    product = CanonicalProduct(name="Test Phone", category="smartphone")
+    runner = _SourceCallingOwnerRunner(str(product.product_id))
+    owner, input_data, factory, engine = await _isolated_agent(runner)
+    owner.source_intelligence_manager = ExhaustedManager()
+    input_data = input_data.model_copy(
+        update={
+            "brief": ShoppingBrief(
+                original_query="Find a smartphone",
+                region=RegionPreference(
+                    region=Region(country_code="US"), source=FieldSource.USER_PROVIDED
+                ),
+            )
+        }
+    )
+    owner.regional_research_tools_factory = lambda run_id, region_code: (
+        AgentResearchTools(
+            agent_name="GeneralShoppingAgent",
+            run_id=run_id,
+            session_factory=factory,
+            search_provider=_general_fixture_search_provider(),
+            extraction_provider=_GeneralFixtureExtractionProvider(),
+            required_region_code=region_code,
+        )
+    )
+    async with factory() as session:
+        await ProductRepository(session).add_canonical_product(
+            input_data.run_id, product
+        )
+        await session.commit()
+    try:
+        await owner.run(input_data)
+        event = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert event["status"] == "research_failed"
+        assert event["output"]["failure_code"] == "context_budget_exceeded"
+        assert runner.phone.calls == 1
+        assert not any(
+            item["tool_name"] == "owner_recovery" for item in owner.workbench_activity
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "budget_status"),
+    [
+        ("I need to buy a phone, budget is not a problem", "unlimited"),
+        ("I need to buy a phone", "missing"),
+    ],
+)
+async def test_owner_hierarchy_receives_query_context_without_rewriting_original(
+    query, budget_status
+) -> None:
+    from datetime import date
+
+    class ContextRunner(_RecordingRunner):
+        async def run(self, agent, model_input, *, run_config, max_turns):
+            payload = json.loads(model_input)
+            assert payload["brief"]["original_query"] == query
+            assert payload["research_context"]["budget_status"] == budget_status
+            assert date.fromisoformat(payload["research_context"]["current_date"])
+            technology = agent.handoffs[0]._agent_ref()
+            phone = next(
+                item._agent_ref()
+                for item in technology.handoffs
+                if item.agent_name == "SmartphoneSpecialistAgent"
+            )
+            for owner_agent in (agent, technology, phone):
+                assert "specific research purpose" in owner_agent.instructions
+                assert "unresolved evidence gaps" in owner_agent.instructions
+                assert (
+                    "Do not invent preferences, product generations"
+                    in owner_agent.instructions
+                )
+            return await super().run(
+                agent, model_input, run_config=run_config, max_turns=max_turns
+            )
+
+    owner, input_data, _, engine = await _isolated_agent(ContextRunner())
+    input_data = input_data.model_copy(
+        update={"brief": ShoppingBrief(original_query=query)}
+    )
+    try:
+        await owner.run(input_data)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_recovery_forced_finalization_without_candidate_stays_technical_failure() -> (
+    None
+):
+    class BoundedRecoveryRunner(_SDKOwnerRunner):
+        async def run(self, agent, model_input, *, run_config, max_turns):
+            if agent.name == "TechnologyDomainAnalystAgent":
+
+                class OfflineProvider:
+                    def get_model(self, model_name):
+                        return _ScriptedOwnerModel(
+                            transfer=False, target=True, recovery=True
+                        )
+
+                agent.model = "offline-recovery"
+                return await BoundedRunner.run(
+                    agent,
+                    model_input,
+                    run_config=replace(run_config, model_provider=OfflineProvider()),
+                    max_turns=max_turns,
+                )
+            return await super().run(
+                agent, model_input, run_config=run_config, max_turns=max_turns
+            )
+
+    runner = BoundedRecoveryRunner(
+        transfer=True, specialist_transfer=True, specialist_fails=True
+    )
+    owner, input_data, _, engine = await _isolated_agent(runner)
+    input_data = input_data.model_copy(
+        update={"brief": ShoppingBrief(original_query="Find a smartphone")}
+    )
+    budget = ContextBudget()
+    budget.spent = (
+        budget.limits.total_tokens
+        - budget.limits.decision_reserve
+        - budget.limits.verification_reserve
+        - 6000
+    )
+    try:
+        with context_scope(budget):
+            await owner.run(input_data)
+        assert any(item["output"].get("finalizing") for item in budget.events), (
+            budget.events,
+            owner.workbench_activity,
+        )
+        event = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert event["status"] == "research_failed"
+        assert event["output"]["failure_code"] == "context_budget_exceeded"
+        assert any(
+            item["tool_name"] == "owner_recovery" and item["status"] == "failed"
+            for item in owner.workbench_activity
+        )
     finally:
         await engine.dispose()
 

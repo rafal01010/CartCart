@@ -1,6 +1,7 @@
 """Explicit shopper intent that must survive intake and query generation."""
 
 import re
+from datetime import datetime, timezone
 
 from app.schemas.intake import ShoppingBrief
 
@@ -31,3 +32,27 @@ def brief_has_unconstrained_budget(brief: ShoppingBrief) -> bool:
 
 def search_intent_text(text: str) -> str:
     return _UNCONSTRAINED_BUDGET.sub("", text).strip(" ,.;")
+
+
+RESEARCH_QUERY_GUIDANCE = (
+    "Form search queries for a specific research purpose rather than copying the shopper's sentence. "
+    "Use the current brief, candidate identities, buying region, research_context.current_date "
+    "and unresolved evidence gaps. Follow-up queries should target the missing fact, variant, "
+    "seller or conflicting claim. Keep original shopper wording unchanged in the brief. "
+    "An unlimited budget does not mean budget or cheap products; a missing budget does not "
+    "authorize inventing a cap. Do not invent preferences, product generations, availability "
+    "or confirmed launch dates. Record derived queries separately through the research tools. "
+)
+
+
+def research_context(brief: ShoppingBrief) -> dict[str, str]:
+    return {
+        "current_date": datetime.now(timezone.utc).date().isoformat(),
+        "budget_status": (
+            "specified"
+            if brief.budget is not None
+            else "unlimited"
+            if brief_has_unconstrained_budget(brief)
+            else "missing"
+        ),
+    }

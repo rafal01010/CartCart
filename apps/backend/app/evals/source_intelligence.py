@@ -1,6 +1,7 @@
 """Synthetic, offline source services/specialists and downstream contract probes."""
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -484,9 +485,6 @@ class _FocusedTools:
     def __getattr__(self, name: str) -> Any:
         return getattr(self.tools, name)
 
-    async def transcript(self, video_id: str) -> Any:
-        return await self.tools.transcript(video_id, focus=self.focus)
-
     async def read(self, source_id: str) -> Any:
         return await self.tools.read(source_id, focus=self.focus)
 
@@ -499,6 +497,37 @@ class _FocusedRunner:
     async def run(self, *args: Any, **kwargs: Any) -> Any:
         if self.focus:
             kwargs["tools"] = _FocusedTools(kwargs["tools"], self.focus)
+        return await self.delegate.run(*args, **kwargs)
+
+
+class _PagedTranscriptTools:
+    def __init__(self, tools: Any):
+        self.tools = tools
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.tools, name)
+
+    async def transcript(self, video_id: str) -> Any:
+        page = await self.tools.transcript(video_id)
+        observed = list(page.get("segments", ()))
+        while page.get("next_segment") is not None:
+            page = await self.tools.transcript(
+                video_id, start_segment=page["next_segment"],
+                start_char=page["next_start_char"],
+            )
+            observed.extend(page.get("segments", ()))
+        relevant = [segment for segment in observed if re.search(
+            r"\b(?:pro|con|concern):", segment.get("text") or "", re.I
+        )]
+        return {**page, "segments": (relevant or observed)[:3]}
+
+
+@dataclass
+class _PagedTranscriptRunner:
+    delegate: Any
+
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        kwargs["tools"] = _PagedTranscriptTools(kwargs["tools"])
         return await self.delegate.run(*args, **kwargs)
 
 
@@ -570,7 +599,7 @@ class OfflineSourceIntelligenceTask:
                     video_search_provider=providers,
                     transcript_provider=providers,
                     model_runner=_FaultRunner(
-                        _FocusedRunner(MockYouTubeReviewModelRunner(), f.read_focus), f.model_fault
+                        _PagedTranscriptRunner(MockYouTubeReviewModelRunner()), f.model_fault
                     ),
                 ).run(f.youtube)
                 calls += 1

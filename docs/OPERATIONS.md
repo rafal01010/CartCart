@@ -1140,7 +1140,9 @@ and cache scratch on exit.
 field matrix and uncertainty. Defaults bound estimated known input at 16,000
 tokens and whole-pipeline cumulative usage at 150,000. The existing 90,000-token
 owner/source and 30,000-token source-manager allowances remain. Comparison and
-verification reserve 10,000 and 8,000 tokens respectively. Hosted search reserves
+verification each reserve 21,000 tokens, enough for maximum bounded input and
+output. Completion backstops use the settled transport ledger rather than
+overlapping source aggregate and child activity totals. Hosted search reserves
 an additional estimated 8,000 tokens per enabled request. Returned actual usage
 settles each model call once; unknown/failed/cancelled usage consumes its entire
 reservation. These are offline assumptions pending separately authorized live

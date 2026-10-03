@@ -34,12 +34,23 @@ class ContextBudgetExceeded(RuntimeError):
     """A safe continuation is impossible; this is not a buying judgment."""
 
 
+def context_budget_failure(error: BaseException) -> ContextBudgetExceeded | None:
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ContextBudgetExceeded):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
 @dataclass(frozen=True)
 class ContextLimits:
     input_tokens: int = 16_000
     total_tokens: int = 150_000
-    decision_reserve: int = 10_000
-    verification_reserve: int = 8_000
+    decision_reserve: int = 21_000
+    verification_reserve: int = 21_000
     hosted_reserve: int = 8_000
     output_tokens: int = 5_000
 
@@ -235,9 +246,9 @@ def source_bundle_context(bundle: BaseModel) -> dict[str, Any]:
 def prepare_history(items: list[TResponseInputItem]) -> list[TResponseInputItem]:
     """Retain all call pairs, handoffs, arguments, quotes, warnings and exact brief.
 
-    Page bodies with a subsequently recorded quote can be read again through
-    the same scoped tool. Keep every unquoted read intact, including new focused
-    reads of an already quoted source. No opaque hosted-search/reasoning item is discarded.
+    Defer only fully quoted bodies or byte-identical repeated reads. Partial
+    quotes cannot authorize dropping the rest of a read. The most recent
+    duplicate remains exact, and every distinct unquoted passage survives.
     """
     calls = {
         item.get("call_id"): item.get("name")
@@ -256,69 +267,72 @@ def prepare_history(items: list[TResponseInputItem]) -> list[TResponseInputItem]
             "read_community_discussion",
         }
     ]
-    older: set[int] = set()
-    quoted_sources: dict[Any, int] = {}
+    quoted_sources: dict[Any, list[tuple[int, str]]] = {}
+    latest_reads: dict[str, int] = {}
+    duplicate_reads: dict[int, str] = {}
+    payloads: dict[int, dict[str, Any]] = {}
     for position, item in enumerate(items):
         output = item.get("output")
-        if (
-            item.get("type") == "function_call_output"
-            and calls.get(item.get("call_id")) == "record_source_quote"
-            and isinstance(output, str)
-        ):
-            try:
-                quote = json.loads(output)
-            except ValueError:
-                continue
-            if isinstance(quote, dict) and quote.get("status") == "succeeded":
-                quoted_sources[quote.get("source_id")] = position
-    for index in reads:
-        output = items[index].get("output")
-        if not isinstance(output, str):
+        if item.get("type") != "function_call_output" or not isinstance(output, str):
             continue
         try:
-            read = json.loads(output)
-        except (ValueError, TypeError):
+            payload = json.loads(output)
+        except ValueError:
             continue
-        if (
-            isinstance(read, dict)
-            and quoted_sources.get(read.get("source_id"), -1) > index
-        ):
-            older.add(index)
+        if not isinstance(payload, dict):
+            continue
+        if calls.get(item.get("call_id")) == "record_source_quote":
+            quote = payload.get("quote")
+            if payload.get("status") == "succeeded" and isinstance(quote, str):
+                quoted_sources.setdefault(payload.get("source_id"), []).append(
+                    (position, quote)
+                )
+        if position in reads:
+            payloads[position] = payload
+            identity = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+            key = str(calls.get(item.get("call_id"))) + identity
+            if key in latest_reads:
+                duplicate_reads[latest_reads[key]] = str(item.get("call_id"))
+            latest_reads[key] = position
     result = []
     for index, original in enumerate(items):
         projected: Any = dict(original)
         if projected.get("type") == "function_call_output" and isinstance(
             projected.get("output"), str
         ):
-            if index in older:
-                try:
-                    payload = json.loads(projected["output"])
-                except ValueError:
-                    payload = None
-                bodies = [payload] if isinstance(payload, dict) else []
-                if isinstance(payload, dict):
-                    bodies.extend(payload.get("segments", []))
-                    if isinstance(payload.get("discussion"), dict):
-                        bodies.append(payload["discussion"])
+            payload = payloads.get(index)
+            if payload is not None:
+                bodies = [payload]
+                bodies.extend(payload.get("segments", []))
+                if isinstance(payload.get("discussion"), dict):
+                    bodies.append(payload["discussion"])
                 for body in bodies:
                     if not isinstance(body, dict):
                         continue
                     key = "text" if "text" in body else "extracted_public_summary"
-                    if not isinstance(body.get(key), str):
+                    text = body.get(key)
+                    if not isinstance(text, str) or not text:
                         continue
-                    text = body.pop(key)
+                    fully_quoted = any(
+                        position > index and quote == text
+                        for position, quote in quoted_sources.get(
+                            payload.get("source_id"), []
+                        )
+                    )
+                    if not fully_quoted and index not in duplicate_reads:
+                        continue
+                    body.pop(key)
                     body["deferred_text"] = {
                         "sha256": sha256(text.encode()).hexdigest(),
                         "characters": len(text),
                         "tool": calls[projected["call_id"]],
+                        "retained_call_id": duplicate_reads.get(index),
                     }
-                if isinstance(payload, dict):
-                    projected["output"] = json.dumps(payload)
+                projected["output"] = json.dumps(payload)
             projected["output"] = compact_json(projected["output"])
         elif projected.get("role") == "user" and isinstance(
             projected.get("content"), str
         ):
-            # The original_query/input_text string values stay byte-for-byte unchanged.
             projected["content"] = compact_json(projected["content"])
         result.append(projected)
     return result

@@ -369,8 +369,11 @@ Agents should produce typed outputs at each stage. Search, fetch, extraction, pe
 
 Production SDK wrappers use the shared bounded model gateway described in
 [context management](CONTEXT_MANAGEMENT.md). Each model turn, transfer and nested
-source call projects exact typed state and defers completed page bodies while
-preserving SDK call pairs. Scoped span tools reload canonical support. Shared
+source call projects exact typed state and defers fully quoted or duplicate
+bodies while preserving distinct unquoted text and SDK call pairs. Extraction
+reads one initial page and defers other assigned IDs. Verification reloads
+canonical same-run evidence and has a bounded original snapshot read tool;
+derived analysis cannot establish new factual support. Shared
 pre-call reservations preserve decision/verification room; the existing owner
 and source ceilings remain. Budget failures stop the shopping run explicitly.
 No extra model summarizer or temporary evidence store is introduced.

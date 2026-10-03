@@ -6857,7 +6857,7 @@
         "observed_at": "2026-10-03T00:00:00Z",
         "selection_limit": 2,
         "model_fault": null,
-        "recommendation_claim": "This candidate is a practical option with limited evidence; check the tradeoffs before buying.",
+        "recommendation_claim": "The selected Fixture Monitor variant lists a 144Hz screen. There is limited evidence; check the tradeoffs before buying.",
         "offer_evidence": [
           {
             "evidence_id": "00000000-0000-4000-8000-00000000005b",
@@ -7874,7 +7874,7 @@
                 "start_seconds": 15.0,
                 "end_seconds": 26.0,
                 "language": "en",
-                "text": "Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Pro: the Fixture Monitor has sharp text and a 144Hz screen for coding.",
+                "text": "Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Unrelated setup description. Pro: the Fixture Monitor has sharp text and a 144Hz screen for coding. Concern: the stand wobbles on light desks.",
                 "availability": "available",
                 "gap_reason": null
               },
@@ -7902,8 +7902,7 @@
         "selection_limit": 2,
         "model_fault": null,
         "recommendation_claim": null,
-        "offer_evidence": [],
-        "read_focus": "144Hz"
+        "offer_evidence": []
       },
       "expected_output": {
         "fields": [
@@ -7930,6 +7929,12 @@
             "operator": "contains_text",
             "value": "144Hz",
             "requirement": "Preserve youtube.evidence.0.claim according to the independently authored source scenario."
+          },
+          {
+            "field": "youtube.evidence.0.claim",
+            "operator": "contains_text",
+            "value": "the stand wobbles on light desks",
+            "requirement": "Retain the independently authored late-caption stand caveat after sequential bounded reads."
           }
         ]
       },

@@ -15,7 +15,8 @@ export UV_CACHE_DIR="${CONTEXT_TEMP}/uv-cache"
 export MYPY_CACHE_DIR="${CONTEXT_TEMP}/mypy-cache"
 cd "${BACKEND_DIR}"
 uv run --locked --offline pytest -q \
-  tests/test_context_management.py tests/test_agent_research_tools.py \
+  tests/test_context_management.py tests/test_context_exact_support.py \
+  tests/test_context_decision_fidelity.py tests/test_agent_research_tools.py \
   tests/test_live_*.py tests/test_source_intelligence_manager.py \
   tests/test_youtube_review_intelligence_agent.py tests/test_reddit_community_intelligence_agent.py \
   tests/test_amazon_product_intelligence_agent.py tests/test_ikea_store_intelligence_agent.py \
@@ -28,11 +29,14 @@ uv run --locked --offline pytest -q \
 CONTEXT_FILES=(app/agents/context_management.py app/agents/context_metrics.py \
   app/agents/source_spans.py app/agents/owner_research.py app/agents/research_tools.py app/agents/extraction_tools.py \
   app/agents/youtube_review_tools.py app/agents/reddit_community_tools.py \
-  app/agents/live_*.py app/orchestration/shopping_runs.py app/tools/audit_context.py)
+  app/agents/live_*.py app/orchestration/shopping_runs.py app/tools/audit_context.py \
+  app/services/shopping_intent.py app/agents/catalog.py)
 uv run --locked --offline ruff check "${CONTEXT_FILES[@]}" tests/test_context_management.py \
+  tests/test_context_exact_support.py tests/test_context_decision_fidelity.py \
   tests/test_agent_research_tools.py tests/test_live_general_shopping_agent.py \
   tests/test_amazon_product_intelligence_agent.py tests/test_ikea_store_intelligence_agent.py \
-  tests/test_youtube_review_intelligence_agent.py tests/test_reddit_community_intelligence_agent.py
+  tests/test_youtube_review_intelligence_agent.py tests/test_reddit_community_intelligence_agent.py \
+  app/services/runs.py app/agents/workbench.py app/evals/discovery_extraction.py app/evals/source_intelligence.py
 uv run --locked --offline ruff format --check app/agents/context_management.py \
   app/agents/context_metrics.py app/agents/source_spans.py app/tools/audit_context.py \
   tests/test_context_management.py

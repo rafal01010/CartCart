@@ -6,12 +6,15 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any, Literal, Protocol
 
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
-from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
+from app.agents.context_management import (
+    BoundedRunner, ContextBudgetExceeded, context_budget_failure,
+)
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
@@ -256,7 +259,9 @@ class YouTubeReviewIntelligenceAgent:
                 "You are the YouTube review-evidence specialist, not a purchase recommender. "
                 "Choose at most three relevant review videos for the supplied products and buying brief. "
                 "Use search_videos for bounded follow-up discovery when needed, read_video_metadata for selected candidates, "
-                "and read_video_transcript before citing a quote. Interpret product-specific pros, cons, concerns, "
+                "and read_video_transcript before citing a quote. "
+                "Follow next_segment and next_start_char to page beyond an excerpt when relevant material remains. "
+                "Interpret product-specific pros, cons, concerns, "
                 "and visible sponsorship or affiliate disclosures. Return exact transcript excerpts with their segment IDs; "
                 "never invent quotes, timestamps, product IDs, source IDs, prices, or disclosures. "
                 "If captions are inaccessible, select useful metadata only and explain the gap. "
@@ -310,6 +315,9 @@ class YouTubeReviewIntelligenceAgent:
         except ContextBudgetExceeded:
             raise
         except Exception as exc:
+            budget_failure = context_budget_failure(exc)
+            if budget_failure is not None:
+                raise budget_failure from exc
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
                     *hosted_activity,
@@ -473,7 +481,10 @@ def _validated_bundle(
                     "Product identity is not visible in selected video material."
                 )
         if item.quote not in (segment.text or "") or not any(
-            item.quote in text for text in tools.observed_text.get(str(segment.segment_id), ())
+            item.quote in span.text
+            and span.content_sha256 == sha256((segment.text or "").encode()).hexdigest()
+            and (segment.text or "")[span.start:span.start + len(span.text)] == span.text
+            for span in tools.observed_spans.get(str(segment.segment_id), ())
         ):
             raise ValueError("Claim quote is not present in cited transcript segment.")
         target = (
@@ -506,7 +517,6 @@ def _validated_bundle(
                 transcript_segment_ids=(item.transcript_segment_id,),
             )
         )
-    # Canonical disclosures and stronger bias cautions survive model selection.
     videos = tuple(
         _video_with_bias(
             video_by_id[video_id],
@@ -530,16 +540,15 @@ def _validated_bundle(
         ),
     )
     output = VideoEvidenceCreator().create(bundle, tuple(claims))
+    canonical_videos = {video.video_id: video for video in videos}
     evidence = tuple(
         e.model_copy(
             update={
-                "sponsorship_disclosed": selected[e.video_id].sponsorship_disclosed,
-                "affiliate_links_disclosed": selected[
-                    e.video_id
-                ].affiliate_links_disclosed,
-                "affiliate_bias_risk": next(
-                    v.affiliate_bias_risk for v in videos if v.video_id == e.video_id
-                ),
+                "sponsorship_disclosed": canonical_videos[e.video_id].sponsorship_disclosed
+                or selected[e.video_id].sponsorship_disclosed,
+                "affiliate_links_disclosed": canonical_videos[e.video_id].affiliate_links_disclosed
+                or selected[e.video_id].affiliate_links_disclosed,
+                "affiliate_bias_risk": canonical_videos[e.video_id].affiliate_bias_risk,
                 **(
                     {
                         "transcript_gap": "No permitted transcript-backed claim was available for this video."

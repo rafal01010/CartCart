@@ -14,6 +14,7 @@ from app.core.settings import EnvironmentMode
 
 from app.agents.catalog import DEFAULT_AGENT_CATALOG
 from app.agents.context_metrics import input_breakdown, measure
+from app.agents.source_spans import source_span
 from app.agents.context_management import compact_json, prepare_history
 from app.agents.contracts import ExtractionAgentInput, GeneralShoppingAgentInput
 from app.agents.extraction_tools import SnapshotInterpretationTools
@@ -132,7 +133,7 @@ def receiving_agents(agent: Agent[Any]) -> list[Agent[Any]]:
     return found
 
 
-def history_audit() -> dict[str, Any]:
+def history_audit(*, repeated: bool = False) -> dict[str, Any]:
     """Reproducible synthetic replay sizes, not reconstructed historical usage."""
     items: list[Any] = [
         {
@@ -147,9 +148,9 @@ def history_audit() -> dict[str, Any]:
         }
     ]
     for index in range(8):
-        source = str(index)
+        source = "0" if repeated else str(index)
         quote = (
-            f"Independent source {index}: exact warranty, variant and seller caveat."
+            f"Independent source {source}: exact warranty, variant and seller caveat."
         )
         items.extend(
             [
@@ -196,6 +197,23 @@ def history_audit() -> dict[str, Any]:
     }
 
 
+def retrieval_audit() -> dict[str, Any]:
+    pages = [
+        "Navigation and unrelated prose. " * 350
+        + f"Independent source {index}: exact warranty, variant and seller caveat."
+        for index in range(8)
+    ]
+    views = [
+        source_span(page, focus="Independent source", limit=1600).text for page in pages
+    ]
+    return {
+        "mode": "synthetic bounded retrieval; canonical pages retained",
+        "canonical_pages": measure(pages),
+        "bounded_views": measure(views),
+        "actual_tokens": None,
+    }
+
+
 async def audit() -> dict[str, Any]:
     settings = Settings(
         _env_file=None,
@@ -237,6 +255,28 @@ async def audit() -> dict[str, Any]:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         factory = create_session_factory(engine)
+        from app.agents.live_verifier_critic import _build_verifier_critic_agent
+
+        verifier_input = definitions["VerifierCriticAgent"].input_model.model_validate(
+            definitions["VerifierCriticAgent"].scenarios[0].input
+        )
+        verifier_tools = SnapshotInterpretationTools(
+            run_id=verifier_input.run_id,
+            allowed_snapshot_ids=tuple(
+                item.source_id for item in verifier_input.evidence
+            ),
+            session_factory=factory,
+            agent_name="VerifierCriticAgent",
+        )
+        verifier_contract = _build_verifier_critic_agent(
+            "offline", verifier_tools.sdk_tools()
+        )
+        for record in records:
+            if record["agent"] == verifier_contract.name:
+                record["schemas"] = measure(schema_payload(verifier_contract))
+                record["support_capture"] = (
+                    "Production bounded-read schema; fixture input without persisted support reload."
+                )
         extraction = ExtractionAgentInput.model_validate(
             definitions["ExtractionAgent"].scenarios[0].input
         )
@@ -325,6 +365,8 @@ async def audit() -> dict[str, Any]:
         "inventory": inventory,
         "calls": records,
         "history_audit": history_audit(),
+        "duplicate_history_audit": history_audit(repeated=True),
+        "retrieval_audit": retrieval_audit(),
         "boundary_reuse": {
             "recovery": "Same owner gateway and shared budget; no separately measured historical recovery turn.",
             "refinement": "Typed current brief/evidence use the same stage contracts; no historical per-turn input saved.",

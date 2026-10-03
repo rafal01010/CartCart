@@ -472,9 +472,11 @@ async def test_late_source_facts_are_retrieved_without_rewriting_support(name):
     checks = score_source_intelligence(c.inputs, output, c.expected_output)
     assert all(result.value for result in checks.values()), checks
     if output.youtube:
+        assert c.inputs.read_focus is None
         quote = output.youtube.evidence[0]
         segment = next(s for s in c.inputs.transcripts[0].segments if s.segment_id == quote.transcript_segment_ids[0])
         assert quote.claim in segment.text
+        assert "the stand wobbles on light desks" in quote.claim
         assert quote.timestamp_references[0].start_seconds == 15
         assert output.youtube.videos[0].sponsorship_disclosed is True
     else:

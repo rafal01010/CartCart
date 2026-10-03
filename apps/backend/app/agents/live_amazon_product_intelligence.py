@@ -11,7 +11,9 @@ from typing import Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
-from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
+from app.agents.context_management import (
+    BoundedRunner, ContextBudgetExceeded, context_budget_failure,
+)
 from app.agents.amazon_marketplace_tools import AmazonMarketplaceTools
 from app.agents.contracts import AmazonProductIntelligenceAgentInput
 from app.agents.openai_config import (
@@ -239,6 +241,9 @@ class AmazonProductIntelligenceAgent:
         except ContextBudgetExceeded:
             raise
         except Exception as exc:
+            budget_failure = context_budget_failure(exc)
+            if budget_failure is not None:
+                raise budget_failure from exc
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
                     *hosted_activity,

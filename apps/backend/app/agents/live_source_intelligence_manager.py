@@ -11,7 +11,13 @@ from agents import Agent, MaxTurnsExceeded, ModelSettings, RunConfig
 from pydantic import Field
 
 from app.agents.context_management import (
-    BoundedRunner, ContextBudgetExceeded, active_budget, context_events, managed_source_context, source_bundle_context,
+    BoundedRunner,
+    ContextBudgetExceeded,
+    context_budget_failure,
+    active_budget,
+    context_events,
+    managed_source_context,
+    source_bundle_context,
 )
 from app.agents.contracts import (
     AmazonProductIntelligenceAgentInput,
@@ -170,6 +176,7 @@ class SourceIntelligenceManagerAgent:
     async def run(self, input_data: SourceManagerInput) -> SourceManagerResult:
         budget = active_budget()
         context_start = len(budget.events) if budget else 0
+        spent_start = budget.spent if budget else 0
         config = build_openai_agent_run_configuration(
             self.settings,
             agent_name="SourceIntelligenceManagerAgent",
@@ -226,8 +233,6 @@ class SourceIntelligenceManagerAgent:
                         "Source specialist may be called only once per run."
                     )
                 attempted.add(cap)
-                # The manager supplies a bounded reason; candidate data and provider access
-                # always come from server-validated input, never from generated arguments.
                 params = (
                     options.get("params", {})
                     if isinstance(options, dict)
@@ -252,7 +257,9 @@ class SourceIntelligenceManagerAgent:
                 if cap in captured:
                     raise ValueError("Duplicate source specialist invocation.")
                 try:
-                    output_models: dict[SourceIntelligenceCapability, type[CartCartBaseModel]] = {
+                    output_models: dict[
+                        SourceIntelligenceCapability, type[CartCartBaseModel]
+                    ] = {
                         SourceIntelligenceCapability.VIDEO_REVIEW: YouTubeReviewModelOutput,
                         SourceIntelligenceCapability.COMMUNITY_DISCUSSION: RedditCommunityModelOutput,
                         SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: AmazonProductModelOutput,
@@ -278,6 +285,9 @@ class SourceIntelligenceManagerAgent:
                 except ContextBudgetExceeded:
                     raise
                 except Exception as exc:
+                    budget_failure = context_budget_failure(exc)
+                    if budget_failure is not None:
+                        raise budget_failure from exc
                     if isinstance(exc, OpenAIAgentConfigurationError):
                         activity.append(
                             {
@@ -298,8 +308,31 @@ class SourceIntelligenceManagerAgent:
                     result = {
                         "evidence_gap": "Nested source evidence was unavailable or invalid."
                     }
-                nested_usage = getattr(
-                    getattr(raw, "context_wrapper", None), "usage", None
+                nested_events = tuple(
+                    item
+                    for item in context_events(context_start)
+                    if item["input"].get("agent") == name
+                )
+                nested_usage = {
+                    field: sum(item["output"][key] for item in nested_events)
+                    if nested_events
+                    and all(
+                        item["output"].get(key) is not None for item in nested_events
+                    )
+                    else None
+                    for field, key in (
+                        ("input_tokens", "actual_input_tokens"),
+                        ("output_tokens", "actual_output_tokens"),
+                    )
+                }
+                nested_input, nested_output = (
+                    nested_usage["input_tokens"],
+                    nested_usage["output_tokens"],
+                )
+                nested_usage["total_tokens"] = (
+                    nested_input + nested_output
+                    if nested_input is not None and nested_output is not None
+                    else None
                 )
                 activity.append(
                     {
@@ -326,11 +359,7 @@ class SourceIntelligenceManagerAgent:
                                     captured[cap], "source_references", ()
                                 )
                             ],
-                            "input_tokens": getattr(nested_usage, "input_tokens", None),
-                            "output_tokens": getattr(
-                                nested_usage, "output_tokens", None
-                            ),
-                            "total_tokens": getattr(nested_usage, "total_tokens", None),
+                            **nested_usage,
                             "trace_id": getattr(raw, "trace_id", None),
                         },
                     }
@@ -409,6 +438,14 @@ class SourceIntelligenceManagerAgent:
                 ),
                 timeout=min(config.timeout_seconds, _MAX_PARENT_SECONDS),
             )
+            usage = getattr(getattr(raw, "context_wrapper", None), "usage", None)
+            total_tokens = (
+                budget.spent - spent_start
+                if budget is not None and context_events(context_start)
+                else getattr(usage, "total_tokens", 0) or 0
+            )
+            if total_tokens > _MAX_MANAGER_USAGE_TOKENS:
+                raise ContextBudgetExceeded("Source manager exceeded its token budget.")
             decision = SourceManagerDecision.model_validate(
                 getattr(raw, "final_output", raw)
             )
@@ -434,6 +471,9 @@ class SourceIntelligenceManagerAgent:
         except ContextBudgetExceeded:
             raise
         except Exception as exc:
+            budget_failure = context_budget_failure(exc)
+            if budget_failure is not None:
+                raise budget_failure from exc
             if isinstance(exc, MaxTurnsExceeded):
                 last_agent = getattr(
                     getattr(getattr(exc, "run_data", None), "last_agent", None),
@@ -500,14 +540,22 @@ class SourceIntelligenceManagerAgent:
         actual_usage = {
             field: sum(item["output"][key] for item in events)
             if events and all(item["output"].get(key) is not None for item in events)
-            else None if events else getattr(usage, field, None)
-            for field, key in (("input_tokens", "actual_input_tokens"),
-                               ("output_tokens", "actual_output_tokens"))
+            else None
+            if events
+            else getattr(usage, field, None)
+            for field, key in (
+                ("input_tokens", "actual_input_tokens"),
+                ("output_tokens", "actual_output_tokens"),
+            )
         }
-        actual_input, actual_output = actual_usage["input_tokens"], actual_usage["output_tokens"]
+        actual_input, actual_output = (
+            actual_usage["input_tokens"],
+            actual_usage["output_tokens"],
+        )
         actual_usage["total_tokens"] = (
             actual_input + actual_output
-            if actual_input is not None and actual_output is not None else None
+            if actual_input is not None and actual_output is not None
+            else None
         )
         notes.extend(failures)
         return SourceManagerResult(

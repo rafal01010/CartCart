@@ -407,6 +407,11 @@ class RunService:
             or self._agent_workflow_mode != AgentWorkflowMode.LIVE
         ):
             return {}
+        snapshot_session = (
+            self._search_source_repository.session
+            if self._search_source_repository is not None
+            else None
+        )
 
         source_manager = SourceIntelligenceManagerAgent(
             settings=self._settings,
@@ -528,7 +533,21 @@ class RunService:
             "comparison_decision_agent": LiveComparisonDecisionAgent(
                 settings=self._settings
             ),
-            "verifier_critic_agent": LiveVerifierCriticAgent(settings=self._settings),
+            "verifier_critic_agent": LiveVerifierCriticAgent(
+                settings=self._settings,
+                snapshot_tools_factory=(
+                    lambda request: SnapshotInterpretationTools(
+                        run_id=request.run_id,
+                        allowed_snapshot_ids=tuple(
+                            {item.source_id for item in request.evidence}
+                        ),
+                        shared_session=snapshot_session,
+                        agent_name="VerifierCriticAgent",
+                    )
+                )
+                if self._search_source_repository is not None
+                else None,
+            ),
             "source_intelligence_manager": source_manager,
             "youtube_review_intelligence_service": YouTubeReviewIntelligenceService(
                 settings=self._settings,

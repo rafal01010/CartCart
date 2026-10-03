@@ -182,25 +182,36 @@ context/SDK/provider/storage/decision regressions and tooling, followed by Secti
 Q quick evals before full. No live calls are part of this gate.
 
 `test_context_management.py` exercises real SDK execution with an injected offline
-model provider. Independent phone/generic/refinement fixtures retain original
-constraints, conflicts, seller/variant warnings, launch uncertainty and disabled
-source gaps while page bodies leave active history. These scripted responses
-measure transport fidelity and simulated usage, not model reasoning. Separate
-production comparison/verifier tests retain exact support and reject unsupported
-claims. Existing intake/planning and decision evals preserve missing/unlimited
-budgets, hard caps, generic fallback and current regional queries.
+model provider. It measures bounded reads, lossless duplicate/full-quote
+compaction, both ownership transfers, shared usage, cancellation and final-step
+funding near the maximum input bound. These scripted responses prove transport
+contracts, not model reasoning. Distinct unquoted passages stay exact; a quote
+cannot erase a warning from another span or the rest of the same read.
+`test_context_decision_fidelity.py` additionally calls production owner/decision
+validation with long-page research and independently expected phone, generic
+and saved-budget refinement outcomes. Existing refinement API tests prove saved
+artifact reuse and previous version retention; region/currency changes require
+new research rather than reusing stale regional support.
 
-The source corpus adds `youtube/late-transcript-focus` and
-`reddit/late-discussion-focus`. Their scripted tool strategy locates a term in
-canonical material; expected answers never enter tool inputs or model responses.
-Source parent/owner tool views retain exact validated evidence while omitting
-raw captions and discussion text. Unquoted reads remain active; older quotes
-cannot hide later focused reads. Quotes, original timestamps, disclosures and
-independent recurrence support must pass the unchanged provenance scorer. SDK dictionary output schemas now compile
-with non-strict transport schemas; Pydantic and deterministic decision/verifier
-validation still enforce the original runtime contracts.
+Extraction regressions reject real-ID fabricated claims, hidden prefetched
+support and spliced spans, and retrieve late support without spending every read
+before the model starts. Verifier regressions reload SQLite originals by
+same-run ID, reject changed or missing support, and block invented numerical
+facts present only in derived analyses. Catalog and normal-run factories expose
+only the approved bounded snapshot tool. SDK dictionary output schemas retain
+Pydantic and deterministic runtime validation.
 
-The 2026-10-03 Task 100B gate passed 430 affected regressions with 16 live tests
+The source corpus includes `youtube/late-transcript-focus` and
+`reddit/late-discussion-focus`. YouTube now follows segment/character cursors to
+find late facts and caveats without a fixture-supplied focus term; Reddit uses a
+scoped focus read. Original timestamps, canonical disclosures, stronger warnings
+and independent recurrence support pass the existing provenance scorer. The
+positive `downstream/amazon-cited` fixture proposes a fact already present in its
+independently supplied Amazon evidence plus a limited-evidence caution. The
+expected approval and unsupported-claim rejection criteria remain unchanged;
+derived analysis is no longer used as factual support.
+
+The initial 2026-10-03 Task 100B gate passed 430 affected regressions with 16 live tests
 deselected, scoped lint/format and typing for 34 modules, and the offline audit.
 Section Q then passed quick 27/27 before full 110/110, 362 selected tests with
 two live tests deselected, scoped lint/11-module typing and shell/whitespace
@@ -209,6 +220,7 @@ checks. Gate exit was zero. Final manifest:
 Audit reports remain in `data/artifacts/context`; disposable test/cache scratch
 and the superseded Task 100B gate reports were removed. No live calls ran.
 
+Acceptance review reopened Task 100B; the repair gate is recorded below when it passes.
 Task 100A remains unchecked. Full repository suites, builds, browser E2E and live
 phone acceptance remain deferred. Task 101 is unstarted.
 

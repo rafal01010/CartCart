@@ -21,10 +21,10 @@ def source_span(
     if focus is not None:
         if not focus.strip() or len(focus) > 200:
             raise ValueError("Invalid focus term.")
-        match = re.search(re.escape(focus), text, re.IGNORECASE)
+        match = re.compile(re.escape(focus), re.IGNORECASE).search(text, start)
         if match is None:
             raise ValueError("Focus term was not found in this source.")
-        start = max(0, match.start() - min(500, limit // 4))
+        start = max(start, match.start() - min(500, limit // 4))
     return SourceSpan(
         text[start : start + limit], start, len(text), sha256(text.encode()).hexdigest()
     )

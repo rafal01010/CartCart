@@ -129,7 +129,9 @@ def call(name: str, call_id: str, **args) -> list[ResponseFunctionToolCall]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["phone", "generic", "refinement"])
-async def test_sdk_replay_compacts_pages_and_preserves_decision(scenario: str) -> None:
+async def test_sdk_replay_retrieves_bounded_support_and_retains_handoffs(
+    scenario: str,
+) -> None:
     quotes = [
         FIXTURE[k]
         for k in (
@@ -158,7 +160,9 @@ async def test_sdk_replay_compacts_pages_and_preserves_decision(scenario: str) -
             {
                 "source_id": source_id,
                 "snapshot_id": source_id,
-                "text": canonical[source_id],
+                "text": source_span(
+                    canonical[source_id], focus=quotes[int(source_id)], limit=1600
+                ).text,
                 "gap": None,
                 "status": "succeeded",
                 "url": "https://example.org/review",
@@ -254,7 +258,7 @@ async def test_sdk_replay_compacts_pages_and_preserves_decision(scenario: str) -
     assert recorded == quotes
     assert budget.spent < 90_000
     assert max(e["output"]["estimated_input_tokens"] for e in budget.events) < 16_000
-    assert budget.events[-1]["output"]["before_input"]["characters"] > 60_000
+    assert sum(len(text) for text in canonical.values()) > 60_000
     assert budget.events[-1]["output"]["after_input"]["characters"] < 25_000
     assert canonical["0"].endswith(FIXTURE["official_quote"])
     if scenario == "phone":
@@ -547,6 +551,7 @@ async def test_comparison_and_verifier_transport_preserve_exact_support_and_budg
         ).run(verification)
     assert not report.approved
     assert report.blocking_issues == (
+        "best_value rationale includes a factual claim not backed by its evidence.",
         "within_budget rationale includes a factual claim not backed by its evidence.",
         "runner_up rationale includes a factual claim not backed by its evidence.",
     )
@@ -701,13 +706,14 @@ async def test_research_closes_and_preserves_funds_for_decision_and_verification
             message("Useful qualified suggestion; imported seller remains unverified.")
         ]
 
-    model = ScriptModel(
-        [finish, "Qualified decision", "Exact support verified"], actual=500
-    )
-    config = RunConfig(
-        model_provider=ScriptProvider({"bounded": model}), tracing_disabled=True
-    )
-    budget = ContextBudget(limits=replace(ContextLimits(), total_tokens=20_000))
+    model = ScriptModel([finish], actual=500)
+    models = {
+        "bounded": model,
+        "ComparisonDecisionAgent": ScriptModel(["Qualified decision"], actual=15000),
+        "VerifierCriticAgent": ScriptModel(["Exact support verified"], actual=15000),
+    }
+    config = RunConfig(model_provider=ScriptProvider(models), tracing_disabled=True)
+    budget = ContextBudget(limits=replace(ContextLimits(), total_tokens=44_000))
     with context_scope(budget):
         result = await BoundedRunner.run(
             Agent(
@@ -724,10 +730,10 @@ async def test_research_closes_and_preserves_funds_for_decision_and_verification
             await BoundedRunner.run(
                 Agent(
                     name=name,
-                    model="bounded",
-                    model_settings=ModelSettings(max_tokens=1000),
+                    model=name,
+                    model_settings=ModelSettings(max_tokens=5000),
                 ),
-                "Exact source support",
+                "Exact source support. " + "x" * 35500,
                 run_config=config,
                 max_turns=1,
             )
@@ -736,7 +742,10 @@ async def test_research_closes_and_preserves_funds_for_decision_and_verification
         == "Useful qualified suggestion; imported seller remains unverified."
     )
     assert budget.events[0]["output"]["finalizing"] is True
-    assert budget.spent == 1800
+    assert budget.spent == 30800
+    assert all(
+        14000 < e["output"]["estimated_input_tokens"] < 16000 for e in budget.events[1:]
+    )
     assert budget.reserved == 0
 
 
@@ -801,7 +810,9 @@ async def test_offline_audit_captures_every_contract_without_transport_or_raw_pa
     ]
     assert len(graph) == 1 and len(graph[0]) == 7
     assert report["history_audit"]["before"]["characters"] == 95276
-    assert report["history_audit"]["after"]["characters"] == 6143
+    assert report["history_audit"]["after"]["characters"] > 90_000
+    assert report["retrieval_audit"]["bounded_views"]["characters"] < 15_000
+    assert report["duplicate_history_audit"]["after"]["characters"] < 20_000
     assert "Navigation and unrelated prose." not in json.dumps(report)
 
 
@@ -867,3 +878,130 @@ def test_a_prior_quote_cannot_hide_a_later_read_or_another_unquoted_source():
     assert json.loads(prepared[5]["output"])["text"] == "Late warranty exclusion"
     assert json.loads(prepared[7]["output"])["text"] == "Unquoted conflicting review"
     assert prepare_history(prepared) == prepared
+
+
+@pytest.mark.parametrize("warning_in_same_read", [False, True])
+def test_partial_quote_never_erases_unrepresented_warning(warning_in_same_read):
+    history = []
+    texts = (
+        ["Price PHP 90000. No local warranty."]
+        if warning_in_same_read
+        else ["Price PHP 90000.", "No local warranty."]
+    )
+    for index, text in enumerate(texts):
+        history.extend(
+            [
+                {
+                    "type": "function_call",
+                    "name": "fetch_source",
+                    "call_id": str(index),
+                    "arguments": "{}",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": str(index),
+                    "output": json.dumps({"source_id": "s", "text": text}),
+                },
+            ]
+        )
+    history.extend(
+        [
+            {
+                "type": "function_call",
+                "name": "record_source_quote",
+                "call_id": "q",
+                "arguments": "{}",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "q",
+                "output": json.dumps(
+                    {
+                        "status": "succeeded",
+                        "source_id": "s",
+                        "quote": "Price PHP 90000.",
+                    }
+                ),
+            },
+        ]
+    )
+    prepared = prepare_history(history)
+    assert "No local warranty." in json.dumps(prepared)
+    assert len(prepared) == len(history)
+    assert prepare_history(prepared) == prepared
+
+
+def test_repeated_read_preserves_one_exact_body_with_unquoted_warnings():
+    history = []
+    for index in range(3):
+        history.extend(
+            [
+                {
+                    "type": "function_call",
+                    "name": "fetch_source",
+                    "call_id": str(index),
+                    "arguments": "{}",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": str(index),
+                    "output": json.dumps(
+                        {
+                            "source_id": "s",
+                            "start_char": 4000,
+                            "text": "Price PHP 90000. No local warranty.",
+                        }
+                    ),
+                },
+            ]
+        )
+    prepared = prepare_history(history)
+    assert sum("No local warranty." in item.get("output", "") for item in prepared) == 1
+    assert (
+        json.loads(prepared[-1]["output"])["text"]
+        == "Price PHP 90000. No local warranty."
+    )
+    assert len(prepared) == 6
+    assert prepare_history(prepared) == prepared
+
+
+def test_focused_source_read_can_advance_past_an_earlier_match():
+    text = "Warranty included. " + "x" * 5000 + "Warranty excludes imported variants."
+    first = source_span(text, focus="Warranty", limit=1000)
+    later = source_span(
+        text, start=first.start + len(first.text), focus="Warranty", limit=1000
+    )
+    assert "Warranty excludes imported variants." in later.text
+    assert later.start > first.start
+    assert text[later.start : later.start + len(later.text)] == later.text
+    assert later.content_sha256 == first.content_sha256
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name",
+    [
+        "YouTubeReviewIntelligenceAgent",
+        "RedditCommunityIntelligenceAgent",
+        "AmazonProductIntelligenceAgent",
+        "IKEAStoreIntelligenceAgent",
+    ],
+)
+async def test_source_specialists_propagate_sdk_wrapped_budget_failure(name):
+    from agents.exceptions import UserError
+    from app.agents.catalog import DEFAULT_AGENT_CATALOG
+    from app.agents.workbench import _build_workbench_definitions
+
+    class FailingRunner:
+        async def run(self, *args, **kwargs):
+            try:
+                raise ContextBudgetExceeded("Cannot fund exact support.")
+            except ContextBudgetExceeded as cause:
+                raise UserError("SDK function tool failed") from cause
+
+    definition = _build_workbench_definitions(DEFAULT_AGENT_CATALOG)[name]
+    supplied = definition.input_model.model_validate(definition.scenarios[0].input)
+    agent = definition.mock_agent_factory(Settings(_env_file=None, environment="test"))
+    agent.model_runner = FailingRunner()
+    with pytest.raises(ContextBudgetExceeded, match="Cannot fund exact support"):
+        await agent.run(supplied)

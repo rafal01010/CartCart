@@ -899,6 +899,7 @@ _DEFAULT_AGENT_ENTRIES = {
         contract_name="VerifierCriticAgent",
         output_schema="VerificationReport",
         run_profile=AgentRunProfileName.STRONG,
+        approved_sdk_tools=(ApprovedSDKTool.READ_SOURCE_SNAPSHOT,),
     ),
 }
 

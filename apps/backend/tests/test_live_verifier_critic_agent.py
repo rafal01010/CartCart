@@ -278,3 +278,24 @@ def _confidence() -> Confidence:
         level=ConfidenceLevel.MEDIUM,
         rationale="Fixture evidence describes the monitor candidate.",
     )
+
+
+@pytest.mark.asyncio
+async def test_derived_analysis_cannot_establish_an_absent_source_fact() -> None:
+    input_data = _verification_input(
+        final_rationale="Fixture monitor has a 5000mAh battery."
+    )
+    analysis = input_data.category_analyses[0].model_copy(
+        update={
+            "strengths": ("Fixture monitor has a 5000mAh battery.",),
+        }
+    )
+    input_data = input_data.model_copy(update={"category_analyses": (analysis,)})
+    result = await LiveVerifierCriticAgent(
+        settings=_settings(), model_runner=MockVerifierCriticModelRunner()
+    ).run(input_data)
+    assert result.approved is False
+    assert (
+        "final rationale includes a factual claim not backed by its evidence."
+        in result.blocking_issues
+    )

@@ -7,7 +7,13 @@
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import EvidenceDetails from './EvidenceDetails.svelte';
+	import ConsideredComparison from './ConsideredComparison.svelte';
 	import type { ModeView, ResultView } from './result-view.js';
+	import ListingCorrection from '$lib/user-products/ListingCorrection.svelte';
+	import type { ListingCheckOutcome } from '$lib/user-products/listing-check.js';
+	import ManualProductFallback from '$lib/user-products/ManualProductFallback.svelte';
+	import type { ManualCandidateView } from '$lib/user-products/manual-fallback.js';
+	import type { CreateUserAddedProductRequest } from '$lib/api/types.js';
 
 	let {
 		result,
@@ -15,12 +21,28 @@
 		question,
 		onSelectMode,
 		onStartOver,
+		listingCheckOutcome = null,
+		listingCheckError = null,
+		listingCheckPending = false,
+		onCheckListing,
+		manualCandidates = [],
+		manualError = null,
+		onSaveManual,
+		allowCorrections = true,
 	}: {
 		result: ResultView;
 		selectedMode: ModeView | null;
 		question: string;
 		onSelectMode: (modeKey: string) => void;
 		onStartOver: () => void;
+		listingCheckOutcome?: ListingCheckOutcome | null;
+		listingCheckError?: string | null;
+		listingCheckPending?: boolean;
+		onCheckListing: (url: string) => void;
+		manualCandidates?: ManualCandidateView[];
+		manualError?: string | null;
+		onSaveManual: (request: CreateUserAddedProductRequest) => void;
+		allowCorrections?: boolean;
 	} = $props();
 
 	let showSupportingDetails = $state(false);
@@ -119,7 +141,6 @@
 			</div>
 		{:else}
 			<div class="p-5 sm:p-8 lg:p-10">
-				<p class="max-w-[760px] text-base leading-7 text-muted-foreground">{result.noStrongBuyReason}</p>
 				<div class="mt-5 max-w-[680px]">
 					<EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label="What blocked a recommendation" />
 				</div>
@@ -148,6 +169,8 @@
 			</div>
 		</section>
 	{/if}
+
+	<ConsideredComparison considered={result.consideredProducts} comparison={result.comparisonProducts} />
 
 	<div class="mt-8 grid gap-3 sm:grid-cols-2">
 		<button
@@ -258,6 +281,11 @@
 				</p>
 			{/if}
 		</section>
+	{/if}
+
+	{#if allowCorrections}
+		<ManualProductFallback candidates={manualCandidates} error={manualError} pending={listingCheckPending} onSave={onSaveManual} />
+		<ListingCorrection outcome={listingCheckOutcome} error={listingCheckError} pending={listingCheckPending} onCheck={onCheckListing} />
 	{/if}
 
 	<div class="mt-10 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">

@@ -235,6 +235,44 @@
         "title": "AnalysisStartAvailability",
         "type": "object"
       },
+      "ArtifactDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/RefinementArtifact"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/ArtifactDisposition"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifact",
+          "disposition",
+          "reason"
+        ],
+        "title": "ArtifactDecision",
+        "type": "object"
+      },
+      "ArtifactDisposition": {
+        "enum": [
+          "reused",
+          "invalidated"
+        ],
+        "title": "ArtifactDisposition",
+        "type": "string"
+      },
       "BudgetConstraint-Input": {
         "additionalProperties": false,
         "properties": {
@@ -656,7 +694,6 @@
             "items": {
               "$ref": "#/components/schemas/ComparisonCriterion"
             },
-            "minItems": 1,
             "title": "Criteria",
             "type": "array"
           },
@@ -664,7 +701,6 @@
             "items": {
               "$ref": "#/components/schemas/ComparisonRow"
             },
-            "minItems": 1,
             "title": "Rows",
             "type": "array"
           },
@@ -675,10 +711,6 @@
             "type": "integer"
           }
         },
-        "required": [
-          "criteria",
-          "rows"
-        ],
         "title": "ComparisonMatrix",
         "type": "object"
       },
@@ -779,6 +811,42 @@
         "title": "ConfidenceLevel",
         "type": "string"
       },
+      "ConsideredProductOutcomeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/UserAddedProduct"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "possible",
+              "unresolved",
+              "manual",
+              "excluded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate",
+          "status"
+        ],
+        "title": "ConsideredProductOutcomeResponse",
+        "type": "object"
+      },
       "CreateGuidedSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -818,6 +886,19 @@
               }
             ]
           },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "constraints": {
             "default": [],
             "items": {
@@ -844,6 +925,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/RegionPreference-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationMode"
               },
               {
                 "type": "null"
@@ -986,6 +1077,18 @@
             ],
             "title": "Category"
           },
+          "fallback_candidate_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Candidate Id"
+          },
           "input_text": {
             "anyOf": [
               {
@@ -998,6 +1101,26 @@
               }
             ],
             "title": "Input Text"
+          },
+          "manual_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualProductDetails-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_fallback_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualFallbackReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "model": {
             "anyOf": [
@@ -1118,6 +1241,63 @@
           "purpose"
         ],
         "title": "CurrentGuidedQuestion",
+        "type": "object"
+      },
+      "DecisionHistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "brief": {
+            "$ref": "#/components/schemas/ShoppingBrief"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
+          "result_version_id": {
+            "format": "uuid",
+            "title": "Result Version Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result_version_id",
+          "version",
+          "brief"
+        ],
+        "title": "DecisionHistoryEntry",
+        "type": "object"
+      },
+      "DecisionHistoryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "original_query": {
+            "title": "Original Query",
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionHistoryEntry"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "original_query",
+          "versions"
+        ],
+        "title": "DecisionHistoryResponse",
         "type": "object"
       },
       "ErrorBody": {
@@ -1949,6 +2129,181 @@
         "title": "LocalRegionSetupState",
         "type": "object"
       },
+      "ManualFallbackReason": {
+        "enum": [
+          "retrieval_unavailable",
+          "retrieval_insufficient",
+          "user_correction"
+        ],
+        "title": "ManualFallbackReason",
+        "type": "string"
+      },
+      "ManualProductDetails-Input": {
+        "additionalProperties": false,
+        "description": "Shopper reports, never independently verified product or offer evidence.",
+        "properties": {
+          "availability": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review"
+          },
+          "seller": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller"
+          },
+          "specifications": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Specifications"
+          },
+          "warranty": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty"
+          }
+        },
+        "title": "ManualProductDetails",
+        "type": "object"
+      },
+      "ManualProductDetails-Output": {
+        "additionalProperties": false,
+        "description": "Shopper reports, never independently verified product or offer evidence.",
+        "properties": {
+          "availability": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review"
+          },
+          "seller": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller"
+          },
+          "specifications": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Specifications"
+          },
+          "warranty": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warranty"
+          }
+        },
+        "title": "ManualProductDetails",
+        "type": "object"
+      },
       "Money-Input": {
         "additionalProperties": false,
         "properties": {
@@ -1959,7 +2314,7 @@
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "pattern": "^[0-9]{1,10}(?:\\.[0-9]{1,2})?$",
                 "type": "string"
               }
             ],
@@ -2218,6 +2573,13 @@
             "minLength": 1,
             "title": "Url",
             "type": "string"
+          },
+          "user_added_matches": {
+            "items": {
+              "$ref": "#/components/schemas/UserAddedListingMatch"
+            },
+            "title": "User Added Matches",
+            "type": "array"
           }
         },
         "required": [
@@ -2384,7 +2746,6 @@
               "format": "uuid",
               "type": "string"
             },
-            "minItems": 1,
             "title": "Evidence Ids",
             "type": "array"
           },
@@ -2425,6 +2786,13 @@
             ],
             "title": "Final Rationale"
           },
+          "handoff_chain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Handoff Chain",
+            "type": "array"
+          },
           "mode_results": {
             "items": {
               "$ref": "#/components/schemas/RecommendationModeResult"
@@ -2457,6 +2825,17 @@
             "title": "Rejected Items",
             "type": "array"
           },
+          "result_author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Author"
+          },
           "runner_up_product_ids": {
             "items": {
               "format": "uuid",
@@ -2479,6 +2858,24 @@
             "title": "Source Ids",
             "type": "array"
           },
+          "verification_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Action"
+          },
+          "verification_changes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Verification Changes",
+            "type": "array"
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -2488,8 +2885,7 @@
           }
         },
         "required": [
-          "comparison_matrix",
-          "evidence_ids"
+          "comparison_matrix"
         ],
         "title": "RecommendationBundle",
         "type": "object"
@@ -2572,6 +2968,127 @@
         "title": "RecommendationModeResult",
         "type": "object"
       },
+      "RecomputePlan": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactDecision"
+            },
+            "minItems": 1,
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "base_brief": {
+            "$ref": "#/components/schemas/ShoppingBrief"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "plan_id": {
+            "format": "uuid",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "prior_result_version_id": {
+            "format": "uuid",
+            "title": "Prior Result Version Id",
+            "type": "string"
+          },
+          "prior_run_id": {
+            "format": "uuid",
+            "title": "Prior Run Id",
+            "type": "string"
+          },
+          "refinement_id": {
+            "format": "uuid",
+            "title": "Refinement Id",
+            "type": "string"
+          },
+          "requested_result_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/RecomputeStage"
+            },
+            "minItems": 1,
+            "title": "Stages",
+            "type": "array"
+          },
+          "target_brief": {
+            "$ref": "#/components/schemas/ShoppingBrief"
+          }
+        },
+        "required": [
+          "refinement_id",
+          "session_id",
+          "run_id",
+          "prior_run_id",
+          "prior_result_version_id",
+          "base_brief",
+          "target_brief",
+          "stages",
+          "artifacts"
+        ],
+        "title": "RecomputePlan",
+        "type": "object"
+      },
+      "RecomputeStage": {
+        "enum": [
+          "re_intake",
+          "search",
+          "extraction",
+          "analysis",
+          "result_mode"
+        ],
+        "title": "RecomputeStage",
+        "type": "string"
+      },
+      "RefinementArtifact": {
+        "enum": [
+          "shopping_brief",
+          "search_plan",
+          "search_results",
+          "source_snapshots",
+          "source_evidence",
+          "candidate_products",
+          "product_listings",
+          "source_intelligence",
+          "listing_trust",
+          "category_analysis",
+          "comparison",
+          "recommendation",
+          "verification"
+        ],
+        "title": "RefinementArtifact",
+        "type": "string"
+      },
       "RefinementRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2584,6 +3101,19 @@
                 "type": "null"
               }
             ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
           },
           "constraints": {
             "items": {
@@ -2625,6 +3155,16 @@
               }
             ]
           },
+          "result_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "anyOf": [
               {
@@ -2659,6 +3199,9 @@
       "RefinementRunResponse": {
         "additionalProperties": false,
         "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/RecomputePlan"
+          },
           "refinement": {
             "$ref": "#/components/schemas/RefinementRequest"
           },
@@ -2668,7 +3211,8 @@
         },
         "required": [
           "refinement",
-          "run"
+          "run",
+          "plan"
         ],
         "title": "RefinementRunResponse",
         "type": "object"
@@ -3000,10 +3544,44 @@
             "title": "Comparison Matrix Id",
             "type": "string"
           },
+          "prior_result_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Result Version Id"
+          },
           "recommendation_bundle_id": {
             "format": "uuid",
             "title": "Recommendation Bundle Id",
             "type": "string"
+          },
+          "refinement_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refinement Id"
+          },
+          "requested_result_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "result_version_id": {
             "format": "uuid",
@@ -3033,6 +3611,7 @@
       "RunStage": {
         "enum": [
           "intake",
+          "general_owner",
           "query_planning",
           "discovery",
           "extraction",
@@ -3178,6 +3757,13 @@
           "comparison_matrix": {
             "$ref": "#/components/schemas/ComparisonMatrix"
           },
+          "considered_products": {
+            "items": {
+              "$ref": "#/components/schemas/ConsideredProductOutcomeResponse"
+            },
+            "title": "Considered Products",
+            "type": "array"
+          },
           "listings": {
             "items": {
               "$ref": "#/components/schemas/ProductListing"
@@ -3197,6 +3783,13 @@
           },
           "result_version": {
             "$ref": "#/components/schemas/ResultVersionResponse"
+          },
+          "shortlist": {
+            "items": {
+              "$ref": "#/components/schemas/ShortlistItemResponse"
+            },
+            "title": "Shortlist",
+            "type": "array"
           },
           "source_evidence": {
             "items": {
@@ -3229,6 +3822,8 @@
           "recommendation_bundle",
           "products",
           "listings",
+          "shortlist",
+          "considered_products",
           "source_snapshots",
           "source_evidence"
         ],
@@ -3499,6 +4094,52 @@
           "session_id"
         ],
         "title": "ShoppingRunRecord",
+        "type": "object"
+      },
+      "ShortlistItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "product_id": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "product_id",
+          "listing_id",
+          "position"
+        ],
+        "title": "ShortlistItemResponse",
         "type": "object"
       },
       "SkippableQuestionState": {
@@ -3876,6 +4517,39 @@
         "title": "UpdateShoppingBriefRequest",
         "type": "object"
       },
+      "UserAddedListingMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/UserAddedMatchConfidence"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "source_id",
+          "confidence"
+        ],
+        "title": "UserAddedListingMatch",
+        "type": "object"
+      },
+      "UserAddedMatchConfidence": {
+        "enum": [
+          "confirmed",
+          "possible"
+        ],
+        "title": "UserAddedMatchConfidence",
+        "type": "string"
+      },
       "UserAddedProduct": {
         "additionalProperties": false,
         "properties": {
@@ -3902,10 +4576,52 @@
             ],
             "title": "Input Text"
           },
+          "intake_source_question_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Intake Source Question Ids",
+            "type": "array"
+          },
           "listing": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ProductListing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualProductDetails-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_evidence_status": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true,
+            "title": "Manual Evidence Status"
+          },
+          "manual_fallback_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualFallbackReason"
               },
               {
                 "type": "null"
@@ -3925,6 +4641,14 @@
             ],
             "title": "Notes"
           },
+          "possible_product_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Possible Product Ids",
+            "type": "array"
+          },
           "product": {
             "anyOf": [
               {
@@ -3934,6 +4658,11 @@
                 "type": "null"
               }
             ]
+          },
+          "research_attempted": {
+            "default": false,
+            "title": "Research Attempted",
+            "type": "boolean"
           },
           "schema_version": {
             "default": 1,
@@ -3955,6 +4684,9 @@
             "title": "Url"
           }
         },
+        "required": [
+          "manual_evidence_status"
+        ],
         "title": "UserAddedProduct",
         "type": "object"
       },
@@ -4753,6 +5485,112 @@
         ]
       }
     },
+    "/api/sessions/{session_id}/refinements/{refinement_id}/execute": {
+      "post": {
+        "operationId": "execute_refinement_api_sessions__session_id__refinements__refinement_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "refinement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Refinement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingRunRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute Refinement",
+        "tags": [
+          "refinements"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/refinements/{refinement_id}/plan": {
+      "get": {
+        "operationId": "get_refinement_plan_api_sessions__session_id__refinements__refinement_id__plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "refinement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Refinement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecomputePlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Refinement Plan",
+        "tags": [
+          "refinements"
+        ]
+      }
+    },
     "/api/sessions/{session_id}/results": {
       "get": {
         "operationId": "get_session_results_api_sessions__session_id__results_get",
@@ -4791,6 +5629,102 @@
           }
         },
         "summary": "Get Session Results",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/results/history": {
+      "get": {
+        "operationId": "get_decision_history_api_sessions__session_id__results_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Decision History",
+        "tags": [
+          "results"
+        ]
+      }
+    },
+    "/api/sessions/{session_id}/results/{result_version_id}": {
+      "get": {
+        "operationId": "get_result_version_api_sessions__session_id__results__result_version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "result_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Result Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Result Version",
         "tags": [
           "results"
         ]

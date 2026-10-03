@@ -9,6 +9,9 @@ const baseResult: SessionResultsResponse = {
 		version: 2,
 		recommendation_bundle_id: 'bundle-1',
 		comparison_matrix_id: 'matrix-1',
+		refinement_id: null,
+		prior_result_version_id: null,
+		requested_result_mode: null,
 	},
 	trust_assessments: [
 		{
@@ -136,6 +139,11 @@ const baseResult: SessionResultsResponse = {
 		listing('listing-asus', 'product-asus', 'ASUS ProArt PA278CV', 'ASUS Store', 349, 'source-asus'),
 		listing('listing-lg', 'product-lg', 'LG 27UP850', 'LG Store', 579, 'source-lg'),
 	],
+	shortlist: [
+		{ candidate_id: 'candidate-dell', product_id: 'product-dell', listing_id: 'listing-dell', position: 1 },
+		{ candidate_id: 'candidate-asus', product_id: 'product-asus', listing_id: 'listing-asus', position: 2 },
+	],
+	considered_products: [],
 	source_snapshots: [
 		{
 			schema_version: 1,
@@ -231,6 +239,52 @@ function listing(
 }
 
 describe('result view helpers', () => {
+	it('uses saved candidate links and comparison evidence without inventing manual facts or scores', () => {
+		const manualProduct = {
+			schema_version: 1, product_id: 'manual-product', name: 'Local Kettle', source_ids: [], listing_ids: [],
+		};
+		const result: SessionResultsResponse = {
+			...baseResult,
+			products: [...baseResult.products, manualProduct],
+			shortlist: [...baseResult.shortlist, { candidate_id: 'manual-candidate', product_id: 'manual-product', listing_id: null, position: 3 }],
+			comparison_matrix: {
+				criteria: [{ name: 'fit', higher_is_better: true }],
+				rows: [
+					{ product_id: 'product-dell', listing_id: 'listing-dell', scores: { fit: 0.9 }, evidence_ids: ['evidence-dell'], summary: 'Strong fit.' },
+					{ product_id: 'manual-product', listing_id: null, scores: {}, evidence_ids: [], summary: 'Details need checking.' },
+				],
+				schema_version: 1,
+			},
+			considered_products: [
+				{
+					candidate: { schema_version: 1, candidate_id: 'asked-dell', input_text: 'The Dell monitor', product: baseResult.products[0], listing: baseResult.listings[0], research_attempted: true, created_at: '2026-05-31T00:00:00Z' },
+					status: 'confirmed', exclusion_reason: null,
+				},
+				{
+					candidate: { schema_version: 1, candidate_id: 'asked-ambiguous', input_text: 'A ProArt monitor', possible_product_ids: ['product-dell', 'product-asus'], research_attempted: true, created_at: '2026-05-31T00:00:00Z' },
+					status: 'possible', exclusion_reason: null,
+				},
+				{
+					candidate: { schema_version: 1, candidate_id: 'asked-missing', input_text: 'Unknown model', research_attempted: true, created_at: '2026-05-31T00:00:00Z' },
+					status: 'unresolved', exclusion_reason: null,
+				},
+				{
+					candidate: { schema_version: 1, candidate_id: 'manual-candidate', input_text: 'Local Kettle', product: manualProduct, manual_fallback_reason: 'retrieval_insufficient', manual_details: { seller: 'Corner shop' }, research_attempted: true, created_at: '2026-05-31T00:00:00Z' },
+					status: 'manual', exclusion_reason: null,
+				},
+			],
+		};
+		const view = buildResultView(result);
+		expect(view.consideredProducts.map((item) => item.status)).toEqual(['confirmed', 'possible', 'unresolved', 'manual']);
+		expect(view.consideredProducts[0].matchedName).toBe('Dell UltraSharp U2724DE');
+		expect(view.consideredProducts[1].possibleNames).toHaveLength(2);
+		expect(view.consideredProducts[2].matchedName).toBeNull();
+		expect(view.consideredProducts[3]).toMatchObject({ manualSeller: 'Corner shop', manualPrice: null });
+		expect(view.comparisonProducts.find((item) => item.productId === 'product-dell')?.criteria[0].value).toBe('90%');
+		expect(view.comparisonProducts.find((item) => item.productId === 'manual-product')).toMatchObject({
+			manual: true, seller: null, price: null, listingId: null, criteria: [{ name: 'fit', value: 'Unknown' }],
+		});
+	});
 	it('derives final pick, runner-ups, and source references from one stored result', () => {
 		const view = buildResultView(baseResult);
 

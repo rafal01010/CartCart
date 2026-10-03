@@ -132,6 +132,52 @@ def _valid_model_plan() -> SearchPlan:
 
 
 @pytest.mark.asyncio
+async def test_unconstrained_phone_queries_are_current_and_regional() -> None:
+    brief = ShoppingBrief(
+        original_query="I need to buy a phone, budget is not a problem",
+        category="smartphone",
+        category_source=FieldSource.INFERRED,
+        region=RegionPreference(
+            region=Region(country_code="PH"), source=FieldSource.USER_PROVIDED
+        ),
+    )
+    agent = LiveQueryPlannerAgent(
+        settings=_settings(), model_runner=MockQueryPlannerModelRunner()
+    )
+    plan = await agent.run(QueryPlannerAgentInput(run_id=new_id(), brief=brief))
+    for query in plan.queries:
+        assert "budget" not in query.query.casefold()
+        assert "Philippines" in query.query
+    assert "latest" in " ".join(query.query for query in plan.queries)
+
+
+@pytest.mark.asyncio
+async def test_model_budget_phone_plan_is_repaired_for_unlimited_request() -> None:
+    brief = ShoppingBrief(
+        original_query="I need a phone. Money is no object.",
+        category="smartphone",
+        category_source=FieldSource.INFERRED,
+    )
+    plan = SearchPlan(
+        queries=(
+            SearchQuery(
+                query="best budget phones cheap retailers",
+                intent=SearchIntent.DISCOVERY,
+            ),
+            SearchQuery(query="cheap phones review", intent=SearchIntent.REVIEW),
+        )
+    )
+    agent = LiveQueryPlannerAgent(
+        settings=_settings(), model_runner=RecordingQueryPlannerRunner(output=plan)
+    )
+    result = await agent.run(QueryPlannerAgentInput(run_id=new_id(), brief=brief))
+    assert all(
+        "budget" not in query.query.casefold() and "cheap" not in query.query.casefold()
+        for query in result.queries
+    )
+
+
+@pytest.mark.asyncio
 async def test_live_query_planner_accepts_valid_mocked_structured_output() -> None:
     runner = RecordingQueryPlannerRunner()
     agent = LiveQueryPlannerAgent(settings=_settings(), model_runner=runner)
@@ -213,7 +259,9 @@ async def test_live_query_planner_falls_back_on_model_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_query_planner_supports_unknown_category_with_generic_strategy() -> None:
+async def test_live_query_planner_supports_unknown_category_with_generic_strategy() -> (
+    None
+):
     runner = MockQueryPlannerModelRunner()
     agent = LiveQueryPlannerAgent(settings=_settings(), model_runner=runner)
 

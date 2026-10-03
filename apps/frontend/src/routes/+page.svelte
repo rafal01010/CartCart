@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { ApiError, createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
-	import type { GuidedAnswer, GuidedIntakeState, RunId, SessionId } from '$lib/api/types.js';
+	import { onDestroy, onMount, tick } from 'svelte';
+	import { createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
+	import { userFacingErrorMessage } from '$lib/api/user-facing-error.js';
+	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionStateResponse } from '$lib/api/types.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import RefinementPrompt from '$lib/refinements/RefinementPrompt.svelte';
+	import DecisionHistory from '$lib/refinements/DecisionHistory.svelte';
+	import { buildRefinementRequestFromPrompt, refinementDraftFromSession, type RefinementPromptDraft, type RefinementPromptKind } from '$lib/refinements/contextual-refinement-prompt.js';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import GuidedQuestion from '$lib/guided/GuidedQuestion.svelte';
 	import PromptSurface from '$lib/guided/PromptSurface.svelte';
@@ -35,8 +40,10 @@
 	import RecommendationResult from '$lib/results/RecommendationResult.svelte';
 	import { buildResultView, selectModeView, type ResultView } from '$lib/results/result-view.js';
 	import { REGION_OPTIONS, regionByCode } from '$lib/session/session-form.js';
+	import { listingCheckOutcome as resolveListingCheckOutcome, normalizeListingLink, type ListingCheckOutcome } from '$lib/user-products/listing-check.js';
+	import { manualCandidateViews, type ManualCandidateView } from '$lib/user-products/manual-fallback.js';
 
-	type HomeState = 'question' | 'region_setup' | 'guiding' | 'blocked' | 'processing' | 'result';
+	type HomeState = 'question' | 'region_setup' | 'guiding' | 'blocked' | 'processing' | 'result' | 'refining';
 
 	const api = createApiClient();
 
@@ -54,7 +61,24 @@
 	let isGuidedRequestPending = $state(false);
 	let shopperProgress = $state<ShopperProgressItem[]>(createInitialShopperProgress());
 	let resultView = $state<ResultView | null>(null);
+	let currentSession = $state<SessionStateResponse | null>(null);
+	let decisionHistory = $state<DecisionHistoryResponse | null>(null);
+	let displayedVersionId = $state<string | null>(null);
+	let latestVersionId = $state<string | null>(null);
+	let refinementDraft = $state<RefinementPromptDraft | null>(null);
+	let refinementError = $state<string | null>(null);
+	let refinementPending = $state(false);
+	let historyPending = $state(false);
+	let historyError = $state<string | null>(null);
+	let flowGeneration = 0;
+	let historyLoadSequence = 0;
 	let selectedModeKey = $state<string | null>(null);
+	let activeListingCandidateId = $state<string | null>(null);
+	let listingCheckOutcome = $state<ListingCheckOutcome | null>(null);
+	let listingCheckError = $state<string | null>(null);
+	let manualCandidates = $state<ManualCandidateView[]>([]);
+	let manualError = $state<string | null>(null);
+	let activeManualCandidateId = $state<string | null>(null);
 	let starterIndex = $state(0);
 	let clientReady = $state(false);
 	let starterTimer: ReturnType<typeof setInterval> | null = null;
@@ -81,6 +105,8 @@
 				? 'Region not set'
 				: 'Set buying region',
 	);
+	const viewingPrevious = $derived(Boolean(displayedVersionId && latestVersionId !== displayedVersionId));
+	const decisionBusy = $derived(isGuidedRequestPending || refinementPending || historyPending);
 
 	onMount(() => {
 		clientReady = true;
@@ -169,6 +195,16 @@
 	}
 
 	function resetFlow({ preserveQuestion = false }: { preserveQuestion?: boolean } = {}) {
+		flowGeneration += 1;
+		currentSession = null;
+		decisionHistory = null;
+		displayedVersionId = null;
+		latestVersionId = null;
+		refinementDraft = null;
+		refinementError = null;
+		refinementPending = false;
+		historyPending = false;
+		historyError = null;
 		question = preserveQuestion ? submittedQuestion : '';
 		pendingQuestion = preserveQuestion ? submittedQuestion : '';
 		guidedState = null;
@@ -178,6 +214,12 @@
 		guideError = null;
 		resultView = null;
 		selectedModeKey = null;
+		activeListingCandidateId = null;
+		listingCheckOutcome = null;
+		listingCheckError = null;
+		manualCandidates = [];
+		manualError = null;
+		activeManualCandidateId = null;
 		shopperProgress = createInitialShopperProgress();
 		closeRunEventSubscription();
 		homeState = 'question';
@@ -298,11 +340,13 @@
 		guideError = null;
 		resultView = null;
 		selectedModeKey = null;
+		activeListingCandidateId = null;
+		activeManualCandidateId = null;
 		shopperProgress = createInitialShopperProgress();
 		closeRunEventSubscription();
 		try {
-			const run = await api.createRun(sessionId);
 			homeState = 'processing';
+			const run = await api.createRun(sessionId);
 			subscribeToAnalysisProgress(sessionId, run.run_id);
 		} catch (error) {
 			guideError = userFacingErrorMessage(error);
@@ -311,11 +355,54 @@
 		}
 	}
 
-	function userFacingErrorMessage(error: unknown): string {
-		if (error instanceof ApiError && error.code === 'network_error') {
-			return 'CartCart could not connect. Check your connection and try again.';
+	async function checkListing(url: string) {
+		if (!sessionId || decisionBusy || viewingPrevious) return;
+		isGuidedRequestPending = true;
+		listingCheckError = null;
+		activeManualCandidateId = null;
+		manualError = null;
+		try {
+			const updated = await api.addUserProduct(sessionId, { url });
+			const candidate = updated.user_added_products.find(
+				(item) => normalizeListingLink(item.url ?? '') === url,
+			);
+			if (!candidate) throw new Error('The listing was not saved.');
+			activeListingCandidateId = candidate.candidate_id;
+			listingCheckOutcome = null;
+			shopperProgress = createInitialShopperProgress();
+			closeRunEventSubscription();
+			homeState = 'processing';
+			const run = await api.createRun(sessionId);
+			subscribeToAnalysisProgress(sessionId, run.run_id);
+		} catch (error) {
+			homeState = 'result';
+			listingCheckError = userFacingErrorMessage(error);
+		} finally {
+			isGuidedRequestPending = false;
 		}
-		return 'CartCart could not continue. Try again.';
+	}
+
+	async function saveManualProduct(request: CreateUserAddedProductRequest) {
+		if (!sessionId || !request.fallback_candidate_id || decisionBusy || viewingPrevious) return;
+		isGuidedRequestPending = true;
+		manualError = null;
+		try {
+			await api.addUserProduct(sessionId, request);
+			activeManualCandidateId = request.fallback_candidate_id;
+			activeListingCandidateId = null;
+			listingCheckOutcome = null;
+			listingCheckError = null;
+			shopperProgress = createInitialShopperProgress();
+			closeRunEventSubscription();
+			homeState = 'processing';
+			const run = await api.createRun(sessionId);
+			subscribeToAnalysisProgress(sessionId, run.run_id);
+		} catch (error) {
+			homeState = 'result';
+			manualError = userFacingErrorMessage(error);
+		} finally {
+			isGuidedRequestPending = false;
+		}
 	}
 
 	function selectChoice(choiceId: string) {
@@ -337,7 +424,13 @@
 						if (!isTerminalRunEvent(event)) return;
 						closeRunEventSubscription();
 						if (event.status === 'failed' || event.status === 'cancelled') {
-							guideError = 'CartCart could not finish checking options. Try again.';
+							if ((activeListingCandidateId || activeManualCandidateId) && resultView) {
+								homeState = 'result';
+								if (activeListingCandidateId) listingCheckError = 'CartCart could not check that listing. Try another link.';
+								if (activeManualCandidateId) manualError = 'CartCart could not finish checking your details. Try again.';
+							} else {
+								guideError = 'CartCart could not finish checking options. Try again.';
+							}
 							return;
 						}
 						void revealResults();
@@ -353,16 +446,138 @@
 		}
 	}
 
-	async function revealResults() {
-		if (!sessionId) return;
+	async function revealResults(expectedRunId?: RunId): Promise<boolean> {
+		if (!sessionId) return false;
+		const generation = flowGeneration;
 		try {
-			const nextResultView = buildResultView(await api.getResults(sessionId));
+			const [results, loadedSession] = await Promise.all([
+				api.getResults(sessionId),
+				api.getSession(sessionId),
+			]);
+			if (generation !== flowGeneration) return false;
+			if (expectedRunId && results.result_version.run_id !== expectedRunId) throw new Error('The new result is not available yet.');
+			currentSession = loadedSession;
+			displayedVersionId = results.result_version.result_version_id;
+			latestVersionId = displayedVersionId;
+			const nextResultView = buildResultView(results);
+			manualCandidates = manualCandidateViews(loadedSession.user_added_products, results);
+			if (activeListingCandidateId) {
+				const candidate = loadedSession.user_added_products.find(
+					(item) => item.candidate_id === activeListingCandidateId,
+				);
+				listingCheckOutcome = candidate ? resolveListingCheckOutcome(candidate, results) : null;
+				listingCheckError = listingCheckOutcome ? null : 'CartCart could not confirm that listing. Try another link.';
+			}
+			if (activeManualCandidateId) manualError = null;
 			resultView = nextResultView;
 			selectedModeKey = nextResultView.finalMode?.key ?? nextResultView.decisionModes[0]?.key ?? null;
 			guideError = null;
 			homeState = 'result';
+			void loadDecisionHistory();
+			if (activeListingCandidateId) {
+				await tick();
+				document.getElementById('listing-correction')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			}
+			if (activeManualCandidateId) {
+				await tick();
+				document.getElementById('manual-product-fallback')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			}
+			return true;
 		} catch (error) {
-			guideError = userFacingErrorMessage(error);
+			if (generation !== flowGeneration) return false;
+			if ((activeListingCandidateId || activeManualCandidateId) && resultView) {
+				homeState = 'result';
+				if (activeListingCandidateId) listingCheckError = userFacingErrorMessage(error);
+				if (activeManualCandidateId) manualError = userFacingErrorMessage(error);
+			} else {
+				guideError = userFacingErrorMessage(error);
+			}
+			return false;
+		}
+	}
+
+	async function loadDecisionHistory() {
+		if (!sessionId) return;
+		const generation = flowGeneration;
+		const sequence = ++historyLoadSequence;
+		try {
+			const history = await api.getDecisionHistory(sessionId);
+			if (generation === flowGeneration && sequence === historyLoadSequence) { decisionHistory = history; historyError = null; }
+		} catch {
+			if (generation === flowGeneration && sequence === historyLoadSequence) historyError = 'CartCart could not load earlier decisions. Try again.';
+		}
+	}
+
+	function openRefinement() {
+		if (decisionBusy || viewingPrevious) return;
+		refinementDraft = null;
+		refinementError = null;
+		homeState = 'refining';
+	}
+
+	async function submitRefinement() {
+		if (!sessionId || !refinementDraft || decisionBusy) return;
+		let request;
+		try { request = buildRefinementRequestFromPrompt(refinementDraft); }
+		catch (error) { refinementError = error instanceof Error ? error.message : 'Check your answer.'; return; }
+		const generation = flowGeneration;
+		const activeSessionId = sessionId;
+		refinementPending = true;
+		refinementError = null;
+		homeState = 'result';
+		let refinementRunId: RunId | null = null;
+		try {
+			const planned = await api.createRefinement(activeSessionId, request);
+			if (generation !== flowGeneration) return;
+			refinementRunId = planned.run.run_id;
+			const run = await api.executeRefinement(activeSessionId, planned.refinement.refinement_id);
+			if (generation !== flowGeneration) return;
+			if (run.status !== 'succeeded') throw new Error('The update did not finish.');
+			if (!await revealResults(run.run_id)) throw new Error('The saved update could not be opened.');
+			await loadDecisionHistory();
+		} catch {
+			if (generation !== flowGeneration) return;
+			// A lost HTTP response may follow a saved success. Read status before offering recovery.
+			let recovered = false;
+			if (refinementRunId) {
+				try {
+					const run = await api.getRun(activeSessionId, refinementRunId);
+					if (run.status === 'succeeded' && generation === flowGeneration) {
+						recovered = await revealResults(run.run_id);
+					}
+				} catch { /* Keep the displayed saved decision available. */ }
+			}
+			if (!recovered && generation === flowGeneration) refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
+		} finally {
+			if (generation === flowGeneration) {
+				if (!refinementError && request.region) {
+					selectedRegionCode = request.region.region.country_code;
+					regionPreference = writeProvidedRegionPreference(window.localStorage, selectedRegionCode);
+				}
+				refinementPending = false;
+			}
+		}
+	}
+
+	async function showDecisionVersion(id: string) {
+		if (!sessionId || decisionBusy) return;
+		const generation = flowGeneration;
+		historyPending = true;
+		historyError = null;
+		try {
+			const results = await api.getResultVersion(sessionId, id);
+			if (generation !== flowGeneration) return;
+			resultView = buildResultView(results);
+			selectedModeKey = resultView.finalMode?.key ?? null;
+			displayedVersionId = id;
+			manualCandidates = manualCandidateViews(results.considered_products.map((item) => item.candidate), results);
+			listingCheckOutcome = null;
+			listingCheckError = null;
+			manualError = null;
+		} catch {
+			if (generation === flowGeneration) historyError = 'CartCart could not open that decision. Try again.';
+		} finally {
+			if (generation === flowGeneration) historyPending = false;
 		}
 	}
 
@@ -396,8 +611,21 @@
 			</div>
 		{:else if homeState === 'processing'}
 			<ProcessingState question={submittedQuestion} headline={progressHeadline} progress={shopperProgress} error={guideError} pending={isGuidedRequestPending} onRetry={startAnalysis} />
+		{:else if homeState === 'refining'}
+			<RefinementPrompt bind:draft={refinementDraft} error={refinementError} onChoose={(kind: RefinementPromptKind) => { refinementDraft = refinementDraftFromSession(kind, currentSession); refinementError = null; }} onSubmit={submitRefinement} onBack={() => { if (refinementDraft) { refinementDraft = null; refinementError = null; } else homeState = 'result'; }} />
 		{:else if homeState === 'result' && resultView}
-			<RecommendationResult result={resultView} selectedMode={selectedModeView} question={submittedQuestion} onSelectMode={(modeKey) => (selectedModeKey = modeKey)} onStartOver={() => resetFlow()} />
+			<div class="w-full">
+				<div class="mx-auto mb-6 max-w-[1180px]">
+					{#if refinementPending}<p role="status" class="mb-4 text-sm text-muted-foreground">Updating your decision. You can review the previous result below.</p>{/if}
+					{#if refinementError}<p role="alert" class="mb-4 text-sm text-destructive">{refinementError}</p>{/if}
+					{#if viewingPrevious}<p class="mb-3 text-sm text-muted-foreground">Viewing an earlier decision.</p><Button variant="outline" disabled={decisionBusy} onclick={() => latestVersionId && showDecisionVersion(latestVersionId)}>Return to latest decision</Button>
+					{:else}<Button variant="outline" disabled={decisionBusy} onclick={openRefinement}>{refinementError ? 'Try refining again' : 'Refine this decision'}</Button>{/if}
+					<DecisionHistory history={decisionHistory} selectedId={displayedVersionId} pending={decisionBusy} error={historyError} onSelect={showDecisionVersion} onReload={loadDecisionHistory} />
+				</div>
+				{#key displayedVersionId}
+					<RecommendationResult result={resultView} selectedMode={selectedModeView} question={submittedQuestion} onSelectMode={(modeKey) => (selectedModeKey = modeKey)} onStartOver={() => resetFlow()} {listingCheckOutcome} {listingCheckError} listingCheckPending={decisionBusy} onCheckListing={checkListing} {manualCandidates} {manualError} onSaveManual={saveManualProduct} allowCorrections={!viewingPrevious} />
+				{/key}
+			</div>
 		{/if}
 	</section>
 </main>

@@ -10,10 +10,12 @@ UVICORN_BIN="${BACKEND_DIR}/.venv/bin/uvicorn"
 source "${SCRIPT_DIR}/lifecycle-common.sh"
 
 require_command "uv" "start the backend" "Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
+require_command "curl" "check backend startup" "Install curl before starting the app."
 require_file "${BACKEND_DIR}/pyproject.toml" "apps/backend/pyproject.toml is missing." "Run scripts/local/init-backend.sh first."
 require_file "${UVICORN_BIN}" "apps/backend/.venv/bin/uvicorn is missing." "Run scripts/local/sync-backend.sh first."
 
-source_env_file "${BACKEND_DIR}/.env"
+parse_env_options "$@"
+source_env_file "${BACKEND_DIR}/.env" "${USE_SHELL_ENV}"
 
 DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
 RUN_DIR="${CARTCART_RUN_DIR:-${DATA_DIR}/run}"
@@ -37,4 +39,5 @@ if [[ "${RELOAD}" == "true" ]]; then
   args+=(--reload)
 fi
 
-start_managed_service "backend" "${PID_FILE}" "${LOG_FILE}" "${args[@]}"
+echo "Backend research mode: ${CARTCART_AGENT_WORKFLOW_MODE:-fixture}; live agents enabled: ${CARTCART_LIVE_AGENTS_ENABLED:-false}."
+start_managed_service "backend" "${PID_FILE}" "${LOG_FILE}" "http://${HOST}:${PORT}/healthz" "${args[@]}"

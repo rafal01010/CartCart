@@ -4,9 +4,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.catalog import (
     AgentCatalog,
     ProductAnalysisRoute,
@@ -44,7 +45,7 @@ class OpenAIAgentsSDKCategoryRouterModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -129,6 +130,8 @@ class LiveCategoryRouterAgent:
             route = _fallback_route(input_data, self.catalog)
             self._set_activity("schema_invalid_fallback", input_data, route)
             return route
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             route = _fallback_route(input_data, self.catalog)
             self._set_activity("error_fallback", input_data, route)

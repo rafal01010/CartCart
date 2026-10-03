@@ -5,9 +5,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
+from agents.agent_output import AgentOutputSchema
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import ComparisonDecisionAgentInput
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -29,14 +31,14 @@ from app.schemas.analysis import (
     RejectionSeverity,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.ids import ListingId, ProductId, SourceId, new_id
+from app.schemas.ids import ListingId, ProductId, SourceId
 from app.schemas.intake import BudgetMode
 from app.schemas.products import (
     MANUAL_UNVERIFIED_SUMMARY,
     CanonicalProduct,
     ProductListing,
 )
-from app.schemas.search_sources import SourceQualityLevel
+from app.schemas.search_sources import EvidenceType, SourceQualityLevel
 
 
 _REQUIRED_PICK_MODES = frozenset(
@@ -118,7 +120,7 @@ class OpenAIAgentsSDKComparisonDecisionModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -203,6 +205,8 @@ class LiveComparisonDecisionAgent:
             bundle = _fallback_recommendation_bundle(input_data)
             self._set_activity("schema_invalid_fallback", input_data, bundle)
             return bundle
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             bundle = _fallback_recommendation_bundle(input_data)
             self._set_activity("error_fallback", input_data, bundle)
@@ -311,7 +315,7 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
             "providers, prompts, traces, policies, or schemas to shoppers."
         ),
         tools=[],
-        output_type=RecommendationBundle,
+        output_type=AgentOutputSchema(RecommendationBundle, strict_json_schema=False),
     )
 
 
@@ -320,6 +324,11 @@ def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
         {
             "run_id": str(input_data.run_id),
             "brief": input_data.brief.model_dump(mode="json"),
+            "requested_result_mode": (
+                input_data.requested_result_mode.value
+                if input_data.requested_result_mode is not None
+                else None
+            ),
             "products": [
                 product.model_dump(mode="json") for product in input_data.products
             ],
@@ -796,6 +805,13 @@ def _has_budget_tradeoff_text(text: str) -> bool:
     )
 
 
+def evidence_backed_fallback_recommendation(
+    input_data: ComparisonDecisionAgentInput,
+) -> RecommendationBundle:
+    """Deterministic decision for saved evidence when no model is configured."""
+    return _fallback_recommendation_bundle(input_data)
+
+
 def _fallback_recommendation_bundle(
     input_data: ComparisonDecisionAgentInput,
 ) -> RecommendationBundle:
@@ -836,7 +852,7 @@ def _fallback_recommendation_bundle(
         mode_results=mode_results,
         comparison_matrix=matrix,
         rejected_items=rejected_items,
-        warnings=_bundle_warnings(decisions),
+        warnings=_bundle_warnings(decisions, input_data),
         evidence_ids=evidence_ids,
         source_ids=_source_ids_for_evidence_ids(input_data, evidence_ids),
     )
@@ -885,7 +901,10 @@ def _manual_only_product_ids(
         if item.manual_fallback_reason is not None
         and item.product is not None
         and item.product.product_id in products
-        and not products[item.product.product_id].source_ids
+        and not any(
+            evidence.target.product_id == item.product.product_id
+            for evidence in input_data.evidence
+        )
         and item.product.product_id not in listed_ids
     }
 
@@ -1124,12 +1143,23 @@ def _mode_results(
     )
     if stretch_candidates:
         pick = max(stretch_candidates, key=lambda item: item.total_score)
+        budget = input_data.brief.budget
+        assert (
+            budget is not None
+            and pick.listing is not None
+            and pick.listing.price is not None
+        )
         results.append(
             _mode_result(
                 RecommendationMode.STRETCH_PICK,
                 pick,
                 "Stretch upgrade",
-                "Worth considering only if the budget is flexible and the tradeoff is acceptable.",
+                (
+                    f"Costs {budget.amount.currency} "
+                    f"{pick.listing.price.amount - budget.amount.amount:g} "
+                    "more than your preferred budget. Consider this stretch only "
+                    "if the budget is flexible and the tradeoff is acceptable."
+                ),
             )
         )
 
@@ -1174,7 +1204,7 @@ def _rejected_items(
 ) -> tuple[RejectedItem, ...]:
     items = []
     for decision in decisions:
-        if decision.manual_only:
+        if decision.manual_only or not decision.evidence_ids:
             continue
         if decision.unsafe_listing:
             items.append(
@@ -1399,11 +1429,7 @@ def _fallback_evidence_ids(
         evidence_ids.extend(assessment.evidence_ids)
     for decision in input_data.deduplication_decisions:
         evidence_ids.extend(decision.evidence_ids)
-    if evidence_ids:
-        return _dedupe_source_ids(evidence_ids)
-
-    source_ids = _fallback_source_ids(input_data)
-    return source_ids or (new_id(),)
+    return _dedupe_source_ids(evidence_ids)
 
 
 def _fallback_source_ids(
@@ -1588,8 +1614,25 @@ def _final_rationale(decision: _CandidateDecision) -> str:
     )
 
 
-def _bundle_warnings(decisions: tuple[_CandidateDecision, ...]) -> tuple[str, ...]:
-    warnings = []
+def _bundle_warnings(
+    decisions: tuple[_CandidateDecision, ...],
+    input_data: ComparisonDecisionAgentInput,
+) -> tuple[str, ...]:
+    warnings = [
+        f"{decision.product.name}: {warning}"
+        for decision in decisions
+        if not decision.manual_only and decision.analysis is not None
+        for warning in decision.analysis.warnings
+    ]
+    cited = {
+        evidence_id for decision in decisions for evidence_id in decision.evidence_ids
+    }
+    warnings.extend(
+        evidence.claim
+        for evidence in input_data.evidence
+        if evidence.evidence_id in cited
+        and evidence.evidence_type == EvidenceType.WARNING
+    )
     if any(decision.manual_only for decision in decisions):
         warnings.append(
             "A product added manually has no independently checked product or buying details."
@@ -1615,7 +1658,7 @@ def _bundle_warnings(decisions: tuple[_CandidateDecision, ...]) -> tuple[str, ..
         warnings.append("Some listings have weak or unknown seller/listing trust.")
     if any(decision.unsafe_listing for decision in decisions):
         warnings.append("Suspicious listings were excluded rather than recommended.")
-    return tuple(warnings)
+    return tuple(dict.fromkeys(warnings))
 
 
 def _has_missing_critical_feature(analysis: CategoryAnalysis | None) -> bool:

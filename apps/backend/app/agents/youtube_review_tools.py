@@ -10,6 +10,7 @@ from typing import Any
 from agents import FunctionTool, function_tool
 
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
+from app.agents.source_spans import source_span
 from app.agents.youtube_review_intelligence_service import (
     _bundle_from_video_snapshots,
     _merge_video_bundles,
@@ -32,7 +33,7 @@ class YouTubeReviewTools:
     max_searches: int = 2
     max_transcripts: int = 3
     max_videos: int = 8
-    max_segments_per_video: int = 20
+    max_segments_per_read: int = 6
     _bundles: list[VideoReviewEvidenceBundle] = field(default_factory=list, init=False)
     _searched: int = field(default=0, init=False)
     _transcripts_read: set[str] = field(default_factory=set, init=False)
@@ -40,6 +41,8 @@ class YouTubeReviewTools:
         default_factory=dict, init=False
     )
     _metadata_read: set[str] = field(default_factory=set, init=False)
+    _span_reads: int = field(default=0, init=False)
+    observed_text: dict[str, list[str]] = field(default_factory=dict, init=False)
     _activity: list[dict[str, Any]] = field(default_factory=list, init=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
@@ -57,9 +60,9 @@ class YouTubeReviewTools:
             v.video_id: v for b in self._transcripts.values() for v in b.videos
         }
         segments = tuple(
-            s.model_copy(update={"text": s.text[:1000] if s.text else None})
+            s
             for b in self._transcripts.values()
-            for s in b.transcript_segments[: self.max_segments_per_video]
+            for s in b.transcript_segments
         )
         notes = tuple(
             n for b in self._transcripts.values() for n in b.transcript_gap_notes
@@ -94,9 +97,16 @@ class YouTubeReviewTools:
             return json.dumps(await self.metadata(video_id))
 
         @function_tool
-        async def read_video_transcript(video_id: str) -> str:
-            """Read permitted caption segments for an approved video ID, if available."""
-            return json.dumps(await self.transcript(video_id))
+        async def read_video_transcript(video_id: str, start_segment: int = 0,
+                                        focus: str | None = None) -> str:
+            """Read a bounded exact caption page, retaining timestamps and segment IDs.
+
+            Args:
+                video_id: Approved video ID.
+                start_segment: Segment offset for later material, default zero.
+                focus: Optional exact term to locate relevant caption text.
+            """
+            return json.dumps(await self.transcript(video_id, start_segment=start_segment, focus=focus))
 
         return (search_videos, read_video_metadata, read_video_transcript)
 
@@ -163,6 +173,7 @@ class YouTubeReviewTools:
                 "status": "unknown_video",
                 "gap": "Video ID was not supplied or found by approved search.",
             }
+        assert bundle is not None
         source = next(
             (r for r in bundle.source_references if str(r.url) == str(video.url)), None
         )
@@ -187,8 +198,14 @@ class YouTubeReviewTools:
         )
         return response
 
-    async def transcript(self, video_id: str) -> dict[str, Any]:
+    async def transcript(self, video_id: str, *, start_segment: int = 0,
+                         focus: str | None = None) -> dict[str, Any]:
         async with self._lock:
+            if start_segment < 0 or (focus is not None and (not focus.strip() or len(focus) > 200)):
+                return {"status": "invalid_request", "gap": "Invalid transcript span."}
+            if self._span_reads >= 12:
+                return {"status": "budget_exhausted", "gap": "Transcript span read limit reached."}
+            self._span_reads += 1
             bundle = self.bundle
             video = (
                 next((v for v in bundle.videos if v.video_id == video_id), None)
@@ -208,6 +225,7 @@ class YouTubeReviewTools:
                     "status": "budget_exhausted",
                     "gap": "Transcript read limit reached.",
                 }
+            assert bundle is not None
             if video_id not in self._transcripts_read:
                 self._transcripts_read.add(video_id)
                 source = next(
@@ -222,16 +240,29 @@ class YouTubeReviewTools:
                 self._transcripts[video_id] = ingested
             else:
                 ingested = self._transcripts[video_id]
-            segments = [
-                s.model_copy(update={"text": s.text[:1000] if s.text else None})
-                for s in ingested.transcript_segments
-                if s.video_id == video_id
-            ][: self.max_segments_per_video]
+            available = [s for s in ingested.transcript_segments if s.video_id == video_id]
+            if focus is not None:
+                start_segment = next((i for i, s in enumerate(available)
+                                      if focus.casefold() in (s.text or "").casefold()), -1)
+                if start_segment < 0:
+                    return {"status": "gap", "gap": "Focus term was not found in permitted captions."}
+            selected = available[start_segment:start_segment + self.max_segments_per_read]
+            segments = []
+            for i, segment in enumerate(selected):
+                span = source_span(segment.text or "", limit=1000,
+                                   focus=focus if i == 0 else None)
+                projected = segment.model_dump(mode="json")
+                projected.update(text=span.text, start_char=span.start, content_sha256=span.content_sha256)
+                segments.append(projected)
+                self.observed_text.setdefault(str(segment.segment_id), []).append(span.text)
             response = {
                 "status": "ok" if segments else "unavailable",
                 "video_id": video_id,
                 "availability": ingested.videos[0].transcript_availability.value,
-                "segments": [s.model_dump(mode="json") for s in segments],
+                "segments": segments,
+                "start_segment": start_segment,
+                "total_segments": len(available),
+                "text_truncated": start_segment + len(segments) < len(available),
                 "gap_notes": list(ingested.transcript_gap_notes),
             }
         self._activity.append(
@@ -239,7 +270,7 @@ class YouTubeReviewTools:
                 "tool_name": "read_video_transcript",
                 "status": response["status"],
                 "input": {"video_id": video_id},
-                "output": {"segment_count": len(response["segments"])},
+                "output": {"segment_count": len(segments)},
             }
         )
         return response

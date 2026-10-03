@@ -9,9 +9,10 @@ from decimal import Decimal
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import (
     ExtractionAgentInput,
     ExtractionAgentOutput,
@@ -48,7 +49,7 @@ class OpenAIAgentsSDKExtractionModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -107,7 +108,9 @@ class LiveExtractionAgent:
             model=configuration.model,
             model_settings=ModelSettings(max_tokens=5000, include_usage=True),
             instructions=(
-                "Interpret the supplied persisted page text semantically. The provider "
+                "Interpret the supplied persisted page text semantically. Use "
+                "read_source_snapshot with focus or start_char for later support. "
+                "A truncated span does not prove a fact is absent. The provider "
                 "source type and mechanical signals are hints, not permission to invent "
                 "facts. Return zero, one, or many separate products and listings. "
                 "A review is evidence, not a store listing. Distinguish product facts "
@@ -166,7 +169,12 @@ class LiveExtractionAgent:
                     for item in input_data.user_added_products
                     if item.url is None
                 ],
-                "pages": [page.model_dump(mode="json") for page in pages],
+                "pages": [
+                    page.model_dump(mode="json", exclude={"text"})
+                    if sum(len(item.text or "") for item in pages) > 8000
+                    else page.model_dump(mode="json")
+                    for page in pages
+                ],
                 "editorial_snapshot_ids": [
                     str(item) for item in input_data.editorial_snapshot_ids
                 ],
@@ -192,11 +200,18 @@ class LiveExtractionAgent:
             output = ExtractionAgentOutput.model_validate(
                 getattr(raw, "final_output", raw)
             )
+            readable = {
+                source_id: page.model_copy(update={
+                    "text": "\n".join(tools.observed_text.get(source_id, [page.text or ""]))
+                }) for source_id, page in readable.items()
+            }
             _validate_extraction(output, readable, input_data)
         except (TimeoutError, ValidationError, ValueError, TypeError):
             return self._gap_output(
                 input_data, tools, "Agent extraction was invalid or timed out."
             )
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             return self._gap_output(
                 input_data, tools, "Agent extraction was unavailable."
@@ -325,10 +340,10 @@ def _validate_extraction(
     allowed_candidates = {
         item.candidate_id for item in input_data.user_added_products if item.url is None
     }
-    for match in output.user_added_matches:
-        if match.candidate_id not in allowed_candidates:
+    for user_match in output.user_added_matches:
+        if user_match.candidate_id not in allowed_candidates:
             raise ValueError("user-added match references an unknown shopper hint")
-        if match.source_id not in allowed:
+        if user_match.source_id not in allowed:
             raise ValueError("user-added match cites an unknown snapshot")
 
 
@@ -336,7 +351,7 @@ def _page_supports_amount(text: str, amount: Decimal) -> bool:
     # Mechanical corroboration only: this does not decide which product a
     # visible price belongs to; the agent must still make that cited judgment.
     for match in re.finditer(
-        r"(?<![\w.])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\w.])",
+        r"(?<![\w.,])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?!\w|[.,]\d)",
         text,
     ):
         if Decimal(match.group().replace(",", "")) == amount:

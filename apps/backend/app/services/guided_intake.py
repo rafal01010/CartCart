@@ -51,10 +51,19 @@ from app.schemas.intake import (
 from app.schemas.money import Money
 from app.schemas.products import UserAddedProduct
 from app.schemas.regions import Region
+from app.services.product_deduplication import canonical_listing_url
 from app.services.shopping_guardrails import blocked_guardrail_or_none
+from app.services.shopping_intent import has_unconstrained_budget
+from app.services.volunteered_products import (
+    is_link_only,
+    text_without_urls,
+    volunteered_names,
+    volunteered_urls,
+)
 
 
 FIRST_QUESTION_ID = "first-question"
+SHOPPING_GOAL_QUESTION_ID = "shopping-goal"
 MONITOR_CONNECTION_QUESTION_ID = "monitor-connection"
 COMPARISON_PRIORITY_QUESTION_ID = "comparison-priority"
 BUDGET_QUESTION_ID = "budget"
@@ -71,7 +80,6 @@ class FixtureGuidedSession:
     reanswer_question_id: str | None = None
     started_analysis: bool = False
     blocked_guardrail: ShoppingGuardrailResult | None = None
-    user_added_texts: set[str] = field(default_factory=set)
 
 
 _fixture_sessions: dict[SessionId, FixtureGuidedSession] = {}
@@ -107,6 +115,8 @@ class GuidedIntakeService:
             blocked_guardrail=blocked_guardrail_or_none(request.query),
         )
         _fixture_sessions[session.session_id] = fixture
+        if fixture.blocked_guardrail is None:
+            await self._sync_volunteered_products(fixture)
         return GuidedSessionResponse(
             session_id=session.session_id,
             guide=self._state_for_fixture(fixture),
@@ -145,9 +155,12 @@ class GuidedIntakeService:
         fixture.answers[submission.question_id] = submission.answer
         fixture.reanswer_question_id = None
 
-        if submission.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
-            await self._capture_considered_products(fixture, submission.answer)
-        if submission.question_id in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID}:
+        await self._sync_volunteered_products(fixture)
+        if submission.question_id in {
+            SHOPPING_GOAL_QUESTION_ID,
+            BUDGET_QUESTION_ID,
+            CONSIDERED_PRODUCTS_QUESTION_ID,
+        }:
             await self._persist_ready_brief(fixture)
 
         if self._is_ready_after_answer(
@@ -167,7 +180,10 @@ class GuidedIntakeService:
         question = self._current_question_for_fixture(fixture)
         if question is None:
             raise _guide_not_collecting(session_id)
-        if question.question_id not in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID}:
+        if question.question_id not in {
+            BUDGET_QUESTION_ID,
+            CONSIDERED_PRODUCTS_QUESTION_ID,
+        }:
             raise ApplicationError(
                 "guided_question_not_skippable",
                 "This question needs an answer before we continue.",
@@ -176,8 +192,10 @@ class GuidedIntakeService:
             )
 
         fixture.skipped_question_ids.add(question.question_id)
+        fixture.answers.pop(question.question_id, None)
         fixture.reanswer_question_id = None
         if question.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
+            await self._sync_volunteered_products(fixture)
             await self._persist_ready_brief(fixture)
             return self._ready_state_for_fixture(fixture)
         return self._state_for_fixture(fixture)
@@ -190,6 +208,11 @@ class GuidedIntakeService:
         if fixture is None:
             return None
         if fixture.blocked_guardrail is not None:
+            raise _guide_not_collecting(session_id)
+        if (
+            is_link_only(fixture.query)
+            and SHOPPING_GOAL_QUESTION_ID not in fixture.answers
+        ):
             raise _guide_not_collecting(session_id)
 
         fixture.started_analysis = True
@@ -281,9 +304,14 @@ class GuidedIntakeService:
                 in {BUDGET_QUESTION_ID, CONSIDERED_PRODUCTS_QUESTION_ID},
             ),
             analysis_start=AnalysisStartAvailability(
-                enough_information=True,
-                can_skip_all_and_start_analysis=True,
-                message="We can start with what you have already shared.",
+                enough_information=question.question_id != SHOPPING_GOAL_QUESTION_ID,
+                can_skip_all_and_start_analysis=question.question_id
+                != SHOPPING_GOAL_QUESTION_ID,
+                message=(
+                    "Tell us what you want to decide first."
+                    if question.question_id == SHOPPING_GOAL_QUESTION_ID
+                    else "We can start with what you have already shared."
+                ),
             ),
             region_setup=self._region_setup_state(fixture),
             progress=ProgressDisplayStatus(
@@ -323,15 +351,40 @@ class GuidedIntakeService:
         if fixture.started_analysis:
             return None
 
-        first_followup = _first_followup_question_id(fixture.query)
+        if (
+            is_link_only(fixture.query)
+            and SHOPPING_GOAL_QUESTION_ID not in fixture.answers
+        ):
+            return _question_by_id(SHOPPING_GOAL_QUESTION_ID, fixture.query)
+
+        first_followup = _first_followup_question_id(_shopping_goal(fixture))
+        budget_answered = (
+            _budget_from_texts(
+                (
+                    _shopping_goal(fixture),
+                    *(
+                        _answer_text(answer) or ""
+                        for answer in fixture.answers.values()
+                    ),
+                )
+            )
+            is not None
+            or has_unconstrained_budget(_shopping_goal(fixture))
+            or any(
+                has_unconstrained_budget(_answer_text(answer) or "")
+                for answer in fixture.answers.values()
+            )
+        )
         if (
             first_followup not in fixture.answers
             and first_followup not in fixture.skipped_question_ids
+            and not (first_followup == BUDGET_QUESTION_ID and budget_answered)
         ):
             return _question_by_id(first_followup, fixture.query)
         if (
             BUDGET_QUESTION_ID not in fixture.answers
             and BUDGET_QUESTION_ID not in fixture.skipped_question_ids
+            and not budget_answered
         ):
             return _question_by_id(BUDGET_QUESTION_ID, fixture.query)
         if (
@@ -360,6 +413,7 @@ class GuidedIntakeService:
 
     def _answered_question_ids(self, fixture: FixtureGuidedSession) -> tuple[str, ...]:
         ordered = (
+            SHOPPING_GOAL_QUESTION_ID,
             MONITOR_CONNECTION_QUESTION_ID,
             COMPARISON_PRIORITY_QUESTION_ID,
             BUDGET_QUESTION_ID,
@@ -393,22 +447,58 @@ class GuidedIntakeService:
             resumes_pending_question=True,
         )
 
-    async def _capture_considered_products(
-        self,
-        fixture: FixtureGuidedSession,
-        answer: GuidedAnswer,
-    ) -> None:
-        text = _answer_text(answer)
-        if text is None or text in fixture.user_added_texts:
-            return
-        if _declines_considered_products(text):
-            return
+    async def _sync_volunteered_products(self, fixture: FixtureGuidedSession) -> None:
+        desired: dict[tuple[str, str], set[str]] = {}
+        values: dict[tuple[str, str], str] = {}
+        inputs = [(FIRST_QUESTION_ID, fixture.query)] + [
+            (question_id, _answer_text(answer) or "")
+            for question_id, answer in fixture.answers.items()
+        ]
+        for question_id, text in inputs:
+            for url in volunteered_urls(text):
+                key = ("url", canonical_listing_url(url))
+                desired.setdefault(key, set()).add(question_id)
+                values.setdefault(key, url)
+            for name in volunteered_names(
+                text,
+                considered_answer=question_id == CONSIDERED_PRODUCTS_QUESTION_ID,
+            ):
+                key = ("name", name.casefold())
+                desired.setdefault(key, set()).add(question_id)
+                values.setdefault(key, name)
 
-        await self._products.add_user_added_product(
-            fixture.session_id,
-            UserAddedProduct(input_text=text),
-        )
-        fixture.user_added_texts.add(text)
+        existing = await self._products.list_user_added_products(fixture.session_id)
+        auto = {
+            (
+                ("url", canonical_listing_url(str(item.url)))
+                if item.url is not None
+                else ("name", (item.input_text or "").casefold())
+            ): item
+            for item in existing
+            if item.intake_source_question_ids
+        }
+        for key, item in auto.items():
+            if key not in desired:
+                await self._products.delete_user_added_product(
+                    fixture.session_id, item.candidate_id
+                )
+            else:
+                sources = tuple(sorted(desired.pop(key)))
+                if item.intake_source_question_ids != sources:
+                    await self._products.replace_user_added_product(
+                        fixture.session_id,
+                        item.model_copy(update={"intake_source_question_ids": sources}),
+                    )
+        for (kind, value), sources in desired.items():
+            key = (kind, value)
+            await self._products.add_user_added_product(
+                fixture.session_id,
+                UserAddedProduct(
+                    url=values[key] if kind == "url" else None,
+                    input_text=values[key] if kind == "name" else None,
+                    intake_source_question_ids=tuple(sorted(sources)),
+                ),
+            )
 
     async def _persist_ready_brief(self, fixture: FixtureGuidedSession) -> None:
         await self._sessions.update_current_brief(
@@ -417,7 +507,7 @@ class GuidedIntakeService:
         )
 
     def _brief_for_fixture(self, fixture: FixtureGuidedSession) -> ShoppingBrief:
-        query = _answer_text(fixture.answers.get(FIRST_QUESTION_ID)) or fixture.query
+        query = _shopping_goal(fixture)
         answer_texts = tuple(
             text
             for text in (_answer_text(answer) for answer in fixture.answers.values())
@@ -439,11 +529,19 @@ class GuidedIntakeService:
             for text in answer_texts
             if not _looks_like_constraint(text)
         )
+        if any(has_unconstrained_budget(text) for text in (query, *answer_texts)):
+            preferences = (
+                *preferences,
+                PreferenceConstraint(
+                    text="Budget is not a constraint.",
+                    mode=PreferenceMode.SOFT,
+                ),
+            )
 
         return ShoppingBrief(
             original_query=query,
             region=_region_preference_from_setup(fixture.region_setup),
-            budget=_budget_from_texts(answer_texts),
+            budget=_budget_from_texts((query, *answer_texts)),
             constraints=constraints,
             preferences=preferences,
             **_category_fields(query),
@@ -471,6 +569,13 @@ def _guide_not_collecting(session_id: SessionId) -> ApplicationError:
 
 
 def _question_by_id(question_id: str, query: str) -> CurrentGuidedQuestion:
+    if question_id == SHOPPING_GOAL_QUESTION_ID:
+        return CurrentGuidedQuestion(
+            question_id=SHOPPING_GOAL_QUESTION_ID,
+            text="What would you like help deciding about this item?",
+            purpose=GuidedQuestionPurpose.CLARIFICATION,
+            capture_targets=(GuidedCaptureTarget.SHOPPING_QUESTION,),
+        )
     if question_id == MONITOR_CONNECTION_QUESTION_ID:
         return CurrentGuidedQuestion(
             question_id=MONITOR_CONNECTION_QUESTION_ID,
@@ -545,6 +650,14 @@ def _first_followup_question_id(query: str) -> str:
     return BUDGET_QUESTION_ID
 
 
+def _shopping_goal(fixture: FixtureGuidedSession) -> str:
+    return (
+        _answer_text(fixture.answers.get(SHOPPING_GOAL_QUESTION_ID))
+        or text_without_urls(fixture.query)
+        or fixture.query
+    )
+
+
 def _category_fields(query: str) -> dict[str, str]:
     normalized = query.lower()
     categories = {
@@ -613,13 +726,9 @@ def _looks_like_constraint(text: str) -> bool:
     return any(term in normalized for term in ("must", "need", "needs", "cannot"))
 
 
-def _declines_considered_products(text: str) -> bool:
-    normalized = text.lower()
-    return normalized.strip(" .,!") in {"no", "none", "nothing", "not sure", "nope"}
-
-
 def _reanswer_label(question_id: str) -> str:
     labels = {
+        SHOPPING_GOAL_QUESTION_ID: "Shopping goal",
         MONITOR_CONNECTION_QUESTION_ID: "Monitor setup",
         COMPARISON_PRIORITY_QUESTION_ID: "Comparison priority",
         BUDGET_QUESTION_ID: "Budget",

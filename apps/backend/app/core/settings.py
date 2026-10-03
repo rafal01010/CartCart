@@ -310,17 +310,27 @@ class Settings(BaseSettings):
             self.search_provider_enabled
             and self.search_provider != SearchProviderName.FIXTURE
             or self.extraction_provider_enabled
-            and self.extraction_provider != ExtractionProviderName.FIXTURE
+            and self.extraction_provider == ExtractionProviderName.HTTP_STATIC
+            or self.video_search_provider_enabled
+            and self.video_search_provider == VideoSearchProviderName.YOUTUBE
+            or self.transcript_provider_enabled
+            and self.transcript_provider == TranscriptProviderName.YT_DLP
+            or self.amazon_product_intelligence_provider_enabled
+            and self.amazon_product_intelligence_provider
+            == AmazonProductIntelligenceProviderName.SERPAPI
+            or self.ikea_store_intelligence_provider_enabled
+            and self.ikea_store_intelligence_provider
+            == IKEAStoreIntelligenceProviderName.SEARCH
         ):
             warnings.append(
                 ProviderReadinessWarning(
                     provider="agents:workflow",
                     code="fixture_agents_with_live_providers",
                     message=(
-                        "Live search or page retrieval is enabled, but the shopping "
-                        "workflow still uses fixture agents. Provider results may "
-                        "be gathered, but this mode cannot test agent-owned "
-                        "research. Set CARTCART_AGENT_WORKFLOW_MODE=live and "
+                        "Live source providers are enabled, but the shopping "
+                        "workflow still uses fixture agents. Normal shopping "
+                        "runs are blocked in this mixed mode. Set "
+                        "CARTCART_AGENT_WORKFLOW_MODE=live and "
                         "enable live agents to test that path."
                     ),
                 )

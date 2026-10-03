@@ -482,6 +482,7 @@ class IKEAStoreIntelligenceAgentInput(SourceIntelligenceAgentInput):
 class ComparisonDecisionAgentInput(VersionedSchema):
     run_id: RunId
     brief: ShoppingBrief
+    requested_result_mode: RecommendationMode | None = None
     products: tuple[CanonicalProduct, ...] = Field(min_length=1)
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     category_analyses: tuple[CategoryAnalysis, ...] = Field(default_factory=tuple)

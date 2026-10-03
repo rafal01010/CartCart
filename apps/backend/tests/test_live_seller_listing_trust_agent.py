@@ -504,7 +504,8 @@ async def test_hosted_trust_call_persists_cited_lead_without_clearing_hard_flag(
             tool for tool in runner.seen_agent.tools if isinstance(tool, WebSearchTool)
         )
         assert tool.user_location["country"] == "US"
-        assert tool.filters["allowed_domains"] == ["amazon.com"]
+        assert tool.filters is not None
+        assert tool.filters.allowed_domains == ["amazon.com"]
         assert runner.seen_agent.model_settings.tool_choice == "auto"
         assert assessment.level == ListingTrustLevel.SUSPICIOUS
         lead = next(

@@ -9,6 +9,7 @@ from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
+from app.agents.source_spans import source_span
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import RunId, SourceId
@@ -24,6 +25,9 @@ class SnapshotReadResult(CartCartBaseModel):
     extraction_status: ExtractionStatus | None = None
     text: str | None = None
     text_truncated: bool = False
+    start_char: int = 0
+    total_characters: int = 0
+    content_sha256: str | None = None
     gap: str | None = None
 
 
@@ -35,8 +39,8 @@ class SnapshotInterpretationTools:
         allowed_snapshot_ids: tuple[SourceId, ...],
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         shared_session: AsyncSession | None = None,
-        max_reads: int = 8,
-        max_text_chars: int = 12000,
+        max_reads: int = 24,
+        max_text_chars: int = 4000,
         agent_name: str = "ExtractionAgent",
     ) -> None:
         if (
@@ -54,6 +58,7 @@ class SnapshotInterpretationTools:
         self._max_text_chars = max_text_chars
         self._lock = asyncio.Lock()
         self._activity: list[dict[str, Any]] = []
+        self.observed_text: dict[SourceId, list[str]] = {}
 
     @property
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
@@ -70,17 +75,21 @@ class SnapshotInterpretationTools:
 
     def sdk_tools(self) -> tuple[FunctionTool, ...]:
         @function_tool
-        async def read_source_snapshot(snapshot_id: str) -> str:
+        async def read_source_snapshot(snapshot_id: str, start_char: int = 0,
+                                       focus: str | None = None) -> str:
             """Read bounded text from a persisted snapshot assigned to this run.
 
             Args:
                 snapshot_id: Snapshot ID supplied in the extraction request.
+                start_char: Offset for later exact text. Zero reads the first span.
+                focus: Optional exact term to locate supporting text anywhere in this snapshot.
             """
-            return (await self.read(snapshot_id)).model_dump_json()
+            return (await self.read(snapshot_id, start_char=start_char, focus=focus)).model_dump_json()
 
         return (read_source_snapshot,)
 
-    async def read(self, snapshot_id: str) -> SnapshotReadResult:
+    async def read(self, snapshot_id: str, *, start_char: int = 0,
+                   focus: str | None = None) -> SnapshotReadResult:
         try:
             parsed_id = SourceId(snapshot_id)
         except (TypeError, ValueError):
@@ -103,7 +112,14 @@ class SnapshotInterpretationTools:
             return self._result("unknown_snapshot", gap="Snapshot is not in this run.")
         content = snapshot.extracted_content
         text = content.text if content is not None else None
-        bounded = text[: self._max_text_chars] if text else None
+        try:
+            span = source_span(text, start=start_char, focus=focus,
+                               limit=self._max_text_chars) if text else None
+        except ValueError as exc:
+            return self._result("invalid_request", gap=str(exc))
+        bounded = span.text if span else None
+        if bounded:
+            self.observed_text.setdefault(parsed_id, []).append(bounded)
         result = SnapshotReadResult(
             status="succeeded" if bounded else "gap",
             snapshot_id=parsed_id,
@@ -112,6 +128,9 @@ class SnapshotInterpretationTools:
             provider_source_type=snapshot.source_type.value,
             extraction_status=snapshot.extraction_status,
             text=bounded,
+            start_char=span.start if span else 0,
+            total_characters=span.total_characters if span else 0,
+            content_sha256=span.content_sha256 if span else None,
             text_truncated=text is not None and len(text) > len(bounded or ""),
             gap=None if bounded else "No extracted page text is available.",
         )

@@ -22,8 +22,11 @@ from app.schemas.analysis import (
     ComparisonMatrix,
     ComparisonRow,
     RecommendationBundle,
+    RejectedItem,
 )
+from app.api.routes.results import _candidate_in_run, _considered_outcome
 from app.schemas.ids import new_id
+from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile, UserAddedProduct
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -168,3 +171,46 @@ def test_get_session_results_returns_latest_persisted_fixture_bundle(
     assert body["source_snapshots"]
     assert body["source_evidence"] == []
     assert all(snapshot["url"] for snapshot in body["source_snapshots"])
+    assert all(item["product_id"] in {product["product_id"] for product in body["products"]} for item in body["shortlist"])
+    assert body["considered_products"] == []
+
+
+def test_considered_outcomes_use_explicit_match_and_exclusion_ids() -> None:
+    product = CanonicalProduct(name="Found kettle")
+    source_id = new_id()
+    listing = ProductListing(
+        product_id=product.product_id,
+        title="Found kettle at shop",
+        url="https://shop.example/kettle",
+        seller=SellerProfile(seller_name="Example shop"),
+        source_ids=(source_id,),
+    )
+    bundle = RecommendationBundle(
+        no_strong_buy=True,
+        no_strong_buy_reason="No strong buy.",
+        comparison_matrix=ComparisonMatrix(),
+        rejected_items=(RejectedItem(
+            product_id=product.product_id,
+            reason_code="poor_fit",
+            reason="Does not fit the request.",
+            severity="high",
+            evidence_ids=(new_id(),),
+        ),),
+    )
+    base = UserAddedProduct(input_text="Kettle shopper mentioned", research_attempted=True)
+    assert _considered_outcome(base, bundle).status == "unresolved"
+    assert _considered_outcome(base.model_copy(update={"possible_product_ids": (product.product_id,)}), bundle).status == "possible"
+    matched = base.model_copy(update={"product": product, "listing": listing})
+    assert _candidate_in_run(matched, (), ()).listing is None
+    excluded = _considered_outcome(matched, bundle)
+    assert excluded.status == "excluded"
+    assert excluded.exclusion_reason == "Does not fit the request."
+    assert _considered_outcome(matched, RecommendationBundle(
+        no_strong_buy=True, no_strong_buy_reason="No strong buy.", comparison_matrix=ComparisonMatrix(),
+    )).status == "confirmed"
+    manual = base.model_copy(update={"product": product, "manual_fallback_reason": "retrieval_insufficient"})
+    assert _considered_outcome(manual, bundle).status == "manual"
+    researched_after_manual = manual.model_copy(update={"listing": listing})
+    assert _considered_outcome(researched_after_manual, RecommendationBundle(
+        no_strong_buy=True, no_strong_buy_reason="No strong buy.", comparison_matrix=ComparisonMatrix(),
+    )).status == "confirmed"

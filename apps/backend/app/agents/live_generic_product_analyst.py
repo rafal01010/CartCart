@@ -5,9 +5,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import ProductAnalysisAgentInput
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -43,7 +44,7 @@ class OpenAIAgentsSDKGenericProductAnalystModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -126,6 +127,8 @@ class LiveGenericProductAnalystAgent:
             analysis = _fallback_category_analysis(input_data)
             self._set_activity("schema_invalid_fallback", input_data, analysis)
             return analysis
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             analysis = _fallback_category_analysis(input_data)
             self._set_activity("error_fallback", input_data, analysis)

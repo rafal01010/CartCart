@@ -3,6 +3,7 @@ from app.db.models.products import (
     CanonicalProductRecord,
     ProductListingRecord,
     UserAddedProductRecord,
+    UserAddedProductRunSnapshotRecord,
 )
 from app.db.models.results import (
     AgentRunRecordModel,
@@ -13,6 +14,7 @@ from app.db.models.results import (
     ResultVersionRecord,
 )
 from app.db.models.runs import (
+    RecomputePlanRecord,
     RefinementRequestRecord,
     RunEventRecord,
     ShoppingRunRecordModel,
@@ -44,6 +46,7 @@ from app.db.models.video_sources import (
 )
 
 __all__ = [
+    "RecomputePlanRecord",
     "RunEventRecord",
     "CandidateShortlistMembershipRecord",
     "AgentRunRecordModel",
@@ -76,4 +79,5 @@ __all__ = [
     "VideoSourceRecord",
     "VideoTranscriptSegmentRecord",
     "UserAddedProductRecord",
+    "UserAddedProductRunSnapshotRecord",
 ]

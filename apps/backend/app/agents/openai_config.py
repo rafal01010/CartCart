@@ -6,7 +6,8 @@ from agents import Agent
 from pydantic import Field
 from openai.types.shared import Reasoning
 
-from app.agents.catalog import DEFAULT_AGENT_CATALOG
+from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
+from app.agents.research_guidance import agent_research_guidance
 from app.core.agent_run_profiles import (
     AgentRunProfileName,
     AgentRunProfileOptions,
@@ -49,6 +50,11 @@ class OpenAIAgentRunConfiguration(CartCartBaseModel):
     def reasoning(self) -> Reasoning | None:
         if self.reasoning_effort is None:
             return None
+        if self.reasoning_effort == "max":
+            raise OpenAIAgentConfigurationError(
+                "Reasoning effort 'max' is unsupported by the installed SDK. "
+                "Select 'xhigh' or another supported effort."
+            )
         return Reasoning(effort=self.reasoning_effort)
 
 
@@ -59,6 +65,22 @@ def apply_openai_agent_run_profile(
     reasoning = configuration.reasoning
     if reasoning is not None:
         agent.model_settings = replace(agent.model_settings, reasoning=reasoning)
+    agent_name = configuration.trace_metadata.get("agent_name")
+    entry = DEFAULT_AGENT_CATALOG.get(agent_name) if agent_name else None
+    if entry and ApprovedSDKTool.HOSTED_WEB_SEARCH in entry.approved_sdk_tools:
+        agent.model_settings = replace(
+            agent.model_settings,
+            response_include=list(
+                dict.fromkeys(
+                    (
+                        *(agent.model_settings.response_include or ()),
+                        "web_search_call.action.sources",
+                    )
+                )
+            ),
+        )
+    if isinstance(agent.instructions, str):
+        agent.instructions += "\n\n" + agent_research_guidance(agent_name)
 
 
 def build_openai_agent_run_configuration(
@@ -114,11 +136,7 @@ def build_openai_agent_run_configuration(
             "environment or apps/backend/.env, or a model in the selected "
             "agent run profile."
         )
-    mode = (
-        OpenAIAgentRuntimeMode.LIVE
-        if live_ready
-        else OpenAIAgentRuntimeMode.FIXTURE
-    )
+    mode = OpenAIAgentRuntimeMode.LIVE if live_ready else OpenAIAgentRuntimeMode.FIXTURE
     missing_env_var = (
         OPENAI_API_KEY_ENV_VAR
         if settings.live_agents_enabled and not api_key_configured

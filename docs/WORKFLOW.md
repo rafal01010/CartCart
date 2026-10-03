@@ -1,7 +1,7 @@
 # CartCart Workflow
 
 Status: Fixture-default workflow with opt-in live agent ownership
-Last updated: 2026-09-27
+Last updated: 2026-10-02
 
 ## Scope
 
@@ -370,3 +370,21 @@ Pass a path to write elsewhere:
 ```sh
 scripts/local/export-openapi.sh /tmp/cartcart-openapi.json
 ```
+
+## Refinement And Decision History
+
+From a completed result, the shopper selects a budget, region, category, or
+priority change and answers one focused prompt. The frontend posts the typed
+change to the refinement endpoint, then executes its persisted plan. Budget
+changes can reuse valid saved candidate evidence; region, category, and new
+requirements trigger the necessary research. Every successful execution saves
+another verified decision in the same session. Failed execution retains the
+last successful result and shopping brief.
+
+The frontend keeps the prior decision readable while the update is pending and
+refreshes it on success. Decision history lists successful result versions,
+the original question, saved shopping context, and each requested change. Old
+results load by version ID, retaining their evidence and considered-product
+snapshots. A shopper returns to the latest version before submitting another
+change or correcting a product. This history contains decisions rather than a
+chat transcript or a developer event timeline.

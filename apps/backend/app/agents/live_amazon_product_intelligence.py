@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.amazon_marketplace_tools import AmazonMarketplaceTools
 from app.agents.contracts import AmazonProductIntelligenceAgentInput
 from app.agents.openai_config import (
@@ -35,6 +36,8 @@ from app.schemas.search_sources import (
     AmazonEvidenceFactType,
     AmazonProductEvidenceBundle,
     SourceEvidenceGap,
+    SourceReference,
+    AmazonProductEvidence,
     SourceIntelligenceCapability,
 )
 
@@ -83,7 +86,7 @@ class OpenAIAgentsSDKAmazonProductModelRunner:
         tools: AmazonMarketplaceTools,
     ) -> Any:
         del tools
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -233,6 +236,8 @@ class AmazonProductIntelligenceAgent:
             )
             output = _validated_bundle(tools, decision)
             status = "model_evidence_completed"
+        except ContextBudgetExceeded:
+            raise
         except Exception as exc:
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
@@ -288,9 +293,9 @@ def _model_input(
 def _validated_bundle(
     tools: AmazonMarketplaceTools, decision: AmazonProductModelOutput
 ) -> AmazonProductEvidenceBundle:
-    refs = []
+    refs: list[SourceReference] = []
     contexts = []
-    evidence = []
+    evidence: list[AmazonProductEvidence] = []
     gaps: list[SourceEvidenceGap] = []
     seen: set[SourceId] = set()
     for selected in decision.selected_sources:

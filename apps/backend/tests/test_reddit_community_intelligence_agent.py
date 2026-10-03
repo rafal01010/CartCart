@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from agents import Agent
+from agents import Agent, RunConfig
 
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
 from app.agents.live_reddit_community_intelligence import (
@@ -214,14 +214,44 @@ async def test_sdk_runner_invokes_agents_sdk_runner(
         return object()
 
     monkeypatch.setattr(
-        "app.agents.live_reddit_community_intelligence.Runner.run", fake_run
+        "app.agents.context_management.Runner.run", fake_run
     )
     tools = RedditCommunityTools(_input(), _WorkbenchRedditCommunityProvider())
     await OpenAIAgentsSDKRedditCommunityModelRunner().run(
         Agent(name="RedditCommunityIntelligenceAgent", instructions="test"),
         "fixture",
-        run_config=object(),
+        run_config=RunConfig(tracing_disabled=True),
         max_turns=4,
         tools=tools,
     )
     assert seen == [4]
+
+@pytest.mark.asyncio
+async def test_exact_late_public_quote_requires_an_observed_span():
+    class LongDiscussionProvider(_WorkbenchRedditCommunityProvider):
+        async def search_discussions(self, query, products=(), options=None):
+            result = await super().search_discussions(query, products, options)
+            return result.model_copy(update={"bundle": result.bundle.model_copy(update={
+                "discussions": tuple(discussion.model_copy(update={
+                    "extracted_public_summary": "Setup. " * 240 + discussion.extracted_public_summary,
+                }) for discussion in result.bundle.discussions),
+            })})
+
+    class RecordingRunner(_SelectingRunner):
+        async def run(self, *args, **kwargs):
+            self.tools = kwargs["tools"]
+            result = await super().run(*args, **kwargs)
+            self.decision = result.final_output
+            return result
+
+    runner = RecordingRunner()
+    supplied = _input()
+    agent = RedditCommunityIntelligenceAgent(settings=Settings(_env_file=None),
+        community_provider=LongDiscussionProvider(), model_runner=runner)
+    result = await agent.run(supplied)
+    assert result.evidence == ()
+    assert result.evidence_gaps[0].reason == "Model interpretation failed; no community claim was accepted."
+    from app.agents.live_reddit_community_intelligence import _validated_bundle
+    with pytest.raises(ValueError, match="observed exact span"):
+        _validated_bundle(supplied, runner.tools, runner.decision)
+    assert all("ear pads split after a few months" in discussion.extracted_public_summary for discussion in result.discussions)

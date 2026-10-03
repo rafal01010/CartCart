@@ -11,7 +11,12 @@ source "${SCRIPT_DIR}/lifecycle-common.sh"
 require_command "uv" "run the isolated agent workbench" "Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
 require_file "${BACKEND_DIR}/pyproject.toml" "apps/backend/pyproject.toml is missing." "Run scripts/local/init-backend.sh first."
 
-source_env_file "${BACKEND_DIR}/.env"
+USE_SHELL_ENV=false
+if [[ "${1:-}" == "--use-shell-env" ]]; then
+  USE_SHELL_ENV=true
+  shift
+fi
+source_env_file "${BACKEND_DIR}/.env" "${USE_SHELL_ENV}"
 
 cd "${BACKEND_DIR}"
 uv run python -m app.tools.agent_workbench "$@"

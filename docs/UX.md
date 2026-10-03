@@ -1,7 +1,7 @@
 # CartCart UX Information Architecture
 
 Status: Implemented guided shopping flow and UX guidance
-Last updated: 2026-09-27
+Last updated: 2026-10-02
 
 ## Purpose
 
@@ -218,11 +218,33 @@ Acceptance checklist:
 An optional link correction path can appear after research, but normal guided
 intake should not ask shoppers to find or paste links.
 
-The current guided frontend accepts links as textbox text, but guided intake
-does not yet extract them into URL candidates. It captures considered-product
-answer text as a name/description hint; product mentions in the first question
-are not yet saved as user-added candidates. Direct URL submission is available
-through the product API, with no shopper-facing link action yet.
+Guided intake captures HTTP(S) links volunteered in the main question or a
+later answer as listing candidates, and explicit product names as separate
+research hints. A link by itself leads to a short question about the shopper's
+goal. Links do not establish product identity or seller safety. Direct URL
+submission is also available through the product API. On the result screen,
+shoppers can optionally open “Check a listing,” add a full link, and see the
+refreshed decision in the same session. The response distinguishes a checked
+listing, an unreadable page, and an uncertain match. A checked listing still
+shows seller and trust context; an unreadable page offers another-link recovery.
+
+After research, the result screen names shopper-requested products that still
+have no confirmed match. The shopper can then open “Add what you know” for that
+candidate, or correct a product CartCart matched incorrectly. The optional form
+accepts a product name and any known seller, price and currency, availability,
+review, warranty, or specifications. It saves to the same candidate and reruns
+the decision in the same session. The refreshed result labels supplied details
+as the shopper's own and displays missing fields as unknown. Manual details
+never create a verified listing or purchase link. The ordinary guided path
+continues to need only a product name or description.
+
+After the decision, “Products considered” shows each product the shopper asked
+CartCart to check as matched, possibly matched, unresolved, excluded for a
+meaningful reason, or supplied from manual details. The saved comparison lists
+the run's shortlisted products and available criteria. Missing scores, prices,
+and sellers appear as unknown. Shopper-reported details stay labeled as such;
+they do not become verified offers or purchase links. Listing concerns remain
+separate from product fit, including when there is no strong buy.
 
 ## Recommendation Surface
 
@@ -249,6 +271,31 @@ No-strong-buy is a valid outcome, not an error. It should say that none of the
 candidates are strong buys, explain what blocked a responsible recommendation,
 and give the user a concrete next step such as checking safer sellers, looking
 for stronger evidence, adjusting budget, or asking for more candidates.
+
+## Refining A Decision
+
+The completed result offers one “Refine this decision” action. It opens a
+prompt asking what to change, with budget, buying region, kind of product, and
+priorities as inline choices. The next screen asks one question about that
+change. Budget accepts an amount with the current currency and an optional
+maximum; region uses the country selector. Back returns to the choices or the
+saved decision without submitting a change.
+
+Submitting creates and executes a saved refinement in the same session. A
+short “Updating your decision” message appears above the previous result,
+which stays readable. Conflicting updates are disabled while work is pending.
+Success opens the new result; a successful region change also updates the
+browser's saved buying region. Failure keeps the previous result and offers
+“Try refining again.” A lost execution response is checked against saved run
+status before showing recovery.
+
+A collapsed “Decision history” panel shows the original question, each
+successful decision's shopping context, and the requested change. Shoppers
+can open old results, including their comparison, sources, and considered
+products, then return to the latest decision. Refinements and product
+corrections are available on the latest result. Failed and pending attempts do
+not appear as completed decisions. History is a view over persisted results;
+it contains no chat transcript, agent names, or processing stages.
 
 ## Source And Trust Details
 

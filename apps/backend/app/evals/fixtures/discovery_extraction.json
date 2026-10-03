@@ -1,0 +1,2690 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic",
+  "cases": [
+    {
+      "schema_version": 1,
+      "name": "discovery/generic-shortlist",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "discovery",
+        "discovery": {
+          "schema_version": 1,
+          "run_id": "00000000-0000-4000-8000-0000000ef420",
+          "brief": {
+            "schema_version": 1,
+            "original_query": "An office chair for work in the US.",
+            "category": "office chair",
+            "category_source": "inferred"
+          },
+          "search_plan": {
+            "schema_version": 1,
+            "queries": [
+              {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              }
+            ]
+          },
+          "seed_results": [
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef422",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://reviews.example/chair",
+              "title": "Office chair review",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef423",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer.example/chair",
+              "title": "Office chair at Fixture retailer",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef424",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://proxy.example/chair",
+              "title": "Office chair proxy import",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": true
+                }
+              },
+              "quality": {
+                "level": "weak"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef425",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://news.example/unrelated",
+              "title": "Unrelated cooking news",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            }
+          ]
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "discovery.selected_source_ids",
+            "value": [
+              "00000000-0000-4000-8000-0000000ef422",
+              "00000000-0000-4000-8000-0000000ef423"
+            ],
+            "requirement": "Include independent review and buying source; exclude proxy and unrelated.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "discovery.source_decisions.0.classification",
+            "value": "professional_review",
+            "requirement": "Reviews are evidence, not offers.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.source_decisions.0.next_action",
+            "value": "retain_as_evidence",
+            "requirement": "Preserve review evidence.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.source_decisions.1.next_action",
+            "value": "fetch",
+            "requirement": "Inspect the generic-category listing.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.outcome",
+            "value": "selected",
+            "requirement": "Broad category support yields a research shortlist.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Generic office-chair source shortlist keeps independent evidence and excludes irrelevant/policy-excluded sources.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "discovery"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "discovery/no-usable-sources",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "discovery",
+        "discovery": {
+          "schema_version": 1,
+          "run_id": "00000000-0000-4000-8000-0000000ef420",
+          "brief": {
+            "schema_version": 1,
+            "original_query": "An office chair for work in the US.",
+            "category": "office chair",
+            "category_source": "inferred"
+          },
+          "search_plan": {
+            "schema_version": 1,
+            "queries": [
+              {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              }
+            ]
+          },
+          "seed_results": [
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef426",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://news.example/story",
+              "title": "Unrelated story",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef427",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://proxy.example/import",
+              "title": "Import proxy offer",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": true
+                }
+              },
+              "quality": {
+                "level": "weak"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef428",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://unknown.example/page",
+              "title": "Unclear page",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            }
+          ]
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "discovery.selected_source_ids",
+            "value": [],
+            "requirement": "Do not manufacture a shortlist.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.outcome",
+            "value": "insufficient_candidates",
+            "requirement": "Insufficient sources stay explicit.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.source_decisions.2.classification",
+            "value": "uncertain",
+            "requirement": "Unclear source identity stays uncertain.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "No useful results, including an unknown page and excluded proxy.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "discovery"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "discovery/review-slot-and-page-order",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "discovery",
+        "discovery": {
+          "schema_version": 1,
+          "run_id": "00000000-0000-4000-8000-0000000ef420",
+          "brief": {
+            "schema_version": 1,
+            "original_query": "An office chair for work in the US.",
+            "category": "office chair",
+            "category_source": "inferred"
+          },
+          "search_plan": {
+            "schema_version": 1,
+            "queries": [
+              {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              }
+            ]
+          },
+          "seed_results": [
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef429",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://reviews.example/chair",
+              "title": "Office chair review",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "search_result",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42a",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer0.example/chair",
+              "title": "Office chair at Fixture retailer 0",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42b",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer1.example/chair",
+              "title": "Office chair at Fixture retailer 1",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42c",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer2.example/chair",
+              "title": "Office chair at Fixture retailer 2",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42d",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer3.example/chair",
+              "title": "Office chair at Fixture retailer 3",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42e",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer4.example/chair",
+              "title": "Office chair at Fixture retailer 4",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef42f",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer5.example/chair",
+              "title": "Office chair at Fixture retailer 5",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef430",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer6.example/chair",
+              "title": "Office chair at Fixture retailer 6",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            },
+            {
+              "source_id": "00000000-0000-4000-8000-0000000ef431",
+              "query": {
+                "query": "office chair buying options and reviews US",
+                "intent": "discovery",
+                "region_code": "US",
+                "required_source_types": [
+                  "retailer_listing",
+                  "professional_review"
+                ]
+              },
+              "url": "https://retailer7.example/chair",
+              "title": "Office chair at Fixture retailer 7",
+              "snippet": "Synthetic search fixture.",
+              "source_type": "retailer_listing",
+              "provider": {
+                "provider_name": "eval-synthetic",
+                "raw": {
+                  "excluded": false
+                }
+              },
+              "quality": {
+                "level": "adequate"
+              }
+            }
+          ]
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "discovery.selected_source_ids.0",
+            "value": "00000000-0000-4000-8000-0000000ef42a",
+            "requirement": "Buying pages lead the bounded inspection list.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.selected_source_ids.6",
+            "value": "00000000-0000-4000-8000-0000000ef429",
+            "requirement": "Keep independent review within the eight-page inspection budget.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.selected_source_ids",
+            "value": [
+              "00000000-0000-4000-8000-0000000ef429",
+              "00000000-0000-4000-8000-0000000ef42a",
+              "00000000-0000-4000-8000-0000000ef42b",
+              "00000000-0000-4000-8000-0000000ef42c",
+              "00000000-0000-4000-8000-0000000ef42d",
+              "00000000-0000-4000-8000-0000000ef42e",
+              "00000000-0000-4000-8000-0000000ef42f",
+              "00000000-0000-4000-8000-0000000ef430",
+              "00000000-0000-4000-8000-0000000ef431"
+            ],
+            "requirement": "Retain all usable sources without duplicates.",
+            "operator": "set_equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "A review retains an inspection slot despite eight shopping pages; fixture response classification is mocked.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "discovery"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "quality/official-manufacturer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "quality",
+        "quality": {
+          "url": "https://www.samsung.com/us/monitor?utm_source=fixture",
+          "metadata": {
+            "target_region_code": "PH",
+            "evidence_context": "specifications"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "quality.source_class",
+            "value": "official_manufacturer",
+            "requirement": "Official specifications preserve source class.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.quality.level",
+            "value": "strong",
+            "requirement": "Official own-product source is strong.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.normalized_url",
+            "value": "https://samsung.com/us/monitor",
+            "requirement": "Strip tracking parameters.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Official manufacturer specification source with neutral normalized URL.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "quality"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "quality/independent-testing",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "quality",
+        "quality": {
+          "url": "https://www.rtings.com/monitor/reviews/fixture",
+          "metadata": {
+            "target_region_code": "PH",
+            "evidence_context": "review"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "quality.source_class",
+            "value": "review_testing",
+            "requirement": "Independent testing differs from sellers.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.quality.level",
+            "value": "adequate",
+            "requirement": "Testing source is useful without flattening into strongest confidence.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Independent testing source classification and quality.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "quality"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "quality/misleading-domain",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "quality",
+        "quality": {
+          "url": "https://samsung.com.impostor.example/monitor",
+          "metadata": {
+            "target_region_code": "PH"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "quality.source_class",
+            "value": "unknown",
+            "requirement": "Lookalike domains are not official.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.quality.level",
+            "value": "unknown",
+            "requirement": "No seeded trust for a lookalike domain.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Domain suffix spoof remains unknown instead of official.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "quality"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "quality/excluded-proxy",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "quality",
+        "quality": {
+          "url": "https://www.zenmarket.jp/product/fixture",
+          "metadata": {
+            "target_region_code": "PH",
+            "evidence_context": "purchase"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "quality.excluded",
+            "value": true,
+            "requirement": "Proxy imports are excluded from normal purchase evidence.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.source_class",
+            "value": "reseller_import_proxy",
+            "requirement": "Keep proxy classification.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.quality.level",
+            "value": "weak",
+            "requirement": "Excluded source stays weak.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Policy-excluded reseller/proxy never becomes high-quality buying evidence.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "quality"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "quality/retailer-region-mismatch",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "quality",
+        "quality": {
+          "url": "https://www.bestbuy.com/site/fixture",
+          "metadata": {
+            "target_region_code": "PH",
+            "source_region_code": "US",
+            "evidence_context": "purchase"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "quality.region_relevance",
+            "value": "mismatch",
+            "requirement": "A US offer cannot establish PH availability.",
+            "operator": "equals"
+          },
+          {
+            "field": "quality.requires_trust_assessment",
+            "value": true,
+            "requirement": "Mixed retailer still requires listing-level checks.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Cross-region retailer relevance and separate listing assessment requirement.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "quality"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/normalized-offer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef432"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef432",
+                "url": "https://store.example/products/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Brand: Harbor\nPrice: PHP 15,000\nSold by: First Fixture Store\nRegion: PH\n27-inch monitor.",
+                  "extractor": "synthetic",
+                  "word_count": 14
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": true
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products.0.name",
+            "value": "Harbor M27 Monitor",
+            "requirement": "Preserve page title.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.products.0.brand",
+            "value": "Harbor",
+            "requirement": "Preserve labeled brand.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.price.amount",
+            "value": "15000",
+            "requirement": "Extract exact page price.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.price.currency",
+            "value": "PHP",
+            "requirement": "Keep explicit PHP.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.seller.seller_name",
+            "value": "First Fixture Store",
+            "requirement": "Keep seller separate from brand.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability.0.region_code",
+            "value": "PH",
+            "requirement": "Keep regional context.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability.0.status",
+            "value": "unknown",
+            "requirement": "Region mention is not proof of stock.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.source_ids",
+            "value": [
+              "00000000-0000-4000-8000-0000000ef432"
+            ],
+            "requirement": "Keep source citation.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Real deterministic normalization of a labeled retailer snapshot.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/missing-price-and-region",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef433"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef433",
+                "url": "https://store.example/products/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "weak"
+                },
+                "extracted_content": {
+                  "text": "Brand: Harbor\nSeller: Second Fixture Store\nPrice unavailable. Currency and shipping region unspecified.",
+                  "extractor": "synthetic",
+                  "word_count": 13
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": true
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.listings.0.price",
+            "value": null,
+            "requirement": "Missing price/currency stays unknown.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability",
+            "value": [],
+            "requirement": "No invented buying region.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.source_quality.level",
+            "value": "weak",
+            "requirement": "Preserve weak source quality.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Deterministic normalization keeps missing offer fields unknown.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/cited-product-and-offer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/products/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000; Sold by First Fixture Store. Available in PH. 1440p resolution.",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/products/harbor-m27",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products.*.name",
+            "value": [
+              "Harbor M27 Monitor"
+            ],
+            "requirement": "One supported product.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "extraction.listings.0.price.amount",
+            "value": "15000",
+            "requirement": "Keep exact price, separate from product specs.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.seller.seller_name",
+            "value": "First Fixture Store",
+            "requirement": "Correct seller identity.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability.0.status",
+            "value": "available",
+            "requirement": "Explicit PH availability preserved.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.claim",
+            "value": "1440p resolution.",
+            "requirement": "Do not embellish supported specification.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.target.product_id",
+            "value": "00000000-0000-4000-8000-0000000ef435",
+            "requirement": "Evidence targets the extracted product.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Evidence cites the actual snapshot.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps",
+            "value": [],
+            "requirement": "Valid extraction should not be swallowed into a fallback gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Synthetic semantic model response exercises production citation, amount and entity validation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/punctuated-price-fidelity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/products/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000. Sold by First Fixture Store. Available in PH. 1440p resolution.",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/products/harbor-m27",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products.*.name",
+            "value": [
+              "Harbor M27 Monitor"
+            ],
+            "requirement": "One supported product.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "extraction.listings.0.price.amount",
+            "value": "15000",
+            "requirement": "Keep exact price, separate from product specs.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.seller.seller_name",
+            "value": "First Fixture Store",
+            "requirement": "Correct seller identity.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability.0.status",
+            "value": "available",
+            "requirement": "Explicit PH availability preserved.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.claim",
+            "value": "1440p resolution.",
+            "requirement": "Do not embellish supported specification.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.target.product_id",
+            "value": "00000000-0000-4000-8000-0000000ef435",
+            "requirement": "Evidence targets the extracted product.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Evidence cites the actual snapshot.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps",
+            "value": [],
+            "requirement": "Valid extraction should not be swallowed into a fallback gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "A supported price followed by a sentence period must not be discarded by mechanical amount validation; preserves a known parser limitation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/review-without-store-offer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef438"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef438",
+                "url": "https://reviews.example/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "professional_review",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "weak"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor review. Sharp 1440p text; no store offer or price provided. Stand adjustment not tested.",
+                  "extractor": "synthetic",
+                  "word_count": 17
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef438"
+            ],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef439",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef438"
+                ]
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef43a",
+                "source_id": "00000000-0000-4000-8000-0000000ef438",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef439"
+                },
+                "evidence_type": "review_claim",
+                "claim": "Sharp 1440p text.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "weak"
+                }
+              }
+            ],
+            "evidence_gaps": [
+              {
+                "source_id": "00000000-0000-4000-8000-0000000ef438",
+                "summary": "Stand adjustment not tested."
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products",
+            "value": 1,
+            "requirement": "Retain reviewed product.",
+            "operator": "count"
+          },
+          {
+            "field": "extraction.listings",
+            "value": [],
+            "requirement": "Review URL must never become a retailer offer.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.evidence_type",
+            "value": "review_claim",
+            "requirement": "Preserve review nature.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.source_quality.level",
+            "value": "weak",
+            "requirement": "Weak evidence cannot be promoted.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.summary",
+            "value": "Stand adjustment not tested.",
+            "requirement": "Keep untested specification gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Review-only source produces cited product evidence and an explicit gap, without fictitious listing.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/collection-item-fidelity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef43b"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef43b",
+                "url": "https://store.example/collections/monitors",
+                "title": "Monitor collection",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27: PHP 15,000; https://store.example/products/m27 ; sold by First Fixture Store. Harbor M32: PHP 18,000; https://store.example/products/m32 ; sold by Second Fixture Store. PH stock available for both.",
+                  "extractor": "synthetic",
+                  "word_count": 27
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef43b"
+            ]
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef43c",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef43b"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef43e"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef43d",
+                "name": "Harbor M32 Monitor",
+                "brand": "Harbor",
+                "model": "M32",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef43b"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef43f"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef43e",
+                "product_id": "00000000-0000-4000-8000-0000000ef43c",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/products/m27",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef43b"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef43b"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef43b"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef43f",
+                "product_id": "00000000-0000-4000-8000-0000000ef43d",
+                "title": "Harbor M32 Monitor",
+                "url": "https://store.example/products/m32",
+                "seller": {
+                  "seller_name": "Second Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef43b"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "18000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef43b"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef43b"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products.*.model",
+            "value": [
+              "M27",
+              "M32"
+            ],
+            "requirement": "Separate item identities.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "extraction.listings.0.price.amount",
+            "value": "15000",
+            "requirement": "M27 price belongs to M27.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.1.price.amount",
+            "value": "18000",
+            "requirement": "M32 price belongs to M32.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.1.product_id",
+            "value": "00000000-0000-4000-8000-0000000ef43d",
+            "requirement": "M32 offer links to M32.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.*.url",
+            "value": [
+              "https://store.example/products/m27",
+              "https://store.example/products/m32"
+            ],
+            "requirement": "Item URLs must not be the collection URL.",
+            "operator": "set_equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Multi-item synthetic response retains item-level price, identity and offer URL.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/unreadable-page-gap",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef440"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef440",
+                "url": "https://store.example/products/harbor-m27",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "failed",
+                "quality": {
+                  "level": "unknown"
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {}
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products",
+            "value": [],
+            "requirement": "Unreadable source cannot create products.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings",
+            "value": [],
+            "requirement": "Unreadable source cannot create offers.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence",
+            "value": [],
+            "requirement": "No claims from missing text.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.*.source_id",
+            "value": [
+              "00000000-0000-4000-8000-0000000ef440"
+            ],
+            "requirement": "Return source-specific gap.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.summary",
+            "value": "No readable",
+            "requirement": "Describe missing text.",
+            "operator": "contains_text"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Failed page read returns an explicit source gap without running a model.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/same-model-distinct-offers",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef442",
+              "name": "Harbor M27 Monitor",
+              "brand": "Harbor",
+              "model": "M27",
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef441"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef443",
+              "product_id": "00000000-0000-4000-8000-0000000ef442",
+              "title": "Harbor M27 Monitor",
+              "url": "https://first.example/products/fixture",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef441"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef441"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef441"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef445",
+              "name": "Harbor M27 Monitor",
+              "brand": "Harbor",
+              "model": "M27",
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef444"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef446",
+              "product_id": "00000000-0000-4000-8000-0000000ef445",
+              "title": "Harbor M27 Monitor",
+              "url": "https://second.example/products/fixture",
+              "seller": {
+                "seller_name": "Second Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef444"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "13500",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "out_of_stock",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef444"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "weak"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef444"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "groups.0.match_kinds",
+            "value": [
+              "brand_model"
+            ],
+            "requirement": "Group using confirmed brand/model, retain both offers.",
+            "operator": "equals"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef443",
+            "00000000-0000-4000-8000-0000000ef446"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Confirmed product identity groups distinct sellers while every price, availability and quality remains separate.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/upc-identity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef448",
+              "name": "Harbor Portable Bank",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef447"
+              ],
+              "upc": "012345678905"
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef449",
+              "product_id": "00000000-0000-4000-8000-0000000ef448",
+              "title": "Harbor Portable Bank",
+              "url": "https://first.example/products/fixture",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef447"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef447"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef447"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef44b",
+              "name": "Harbor Power Bank",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef44a"
+              ],
+              "upc": "012345678905"
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef44c",
+              "product_id": "00000000-0000-4000-8000-0000000ef44b",
+              "title": "Harbor Power Bank",
+              "url": "https://second.example/products/bank",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef44a"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef44a"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef44a"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "groups.0.match_kinds",
+            "value": [
+              "upc"
+            ],
+            "requirement": "Strong matching UPC supports canonical grouping.",
+            "operator": "equals"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef449",
+            "00000000-0000-4000-8000-0000000ef44c"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Same barcode identifies a generic product across different offer titles.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/same-family-variant",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef44e",
+              "name": "Harbor Arc 27 Monitor",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef44d"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef44f",
+              "product_id": "00000000-0000-4000-8000-0000000ef44e",
+              "title": "Harbor Arc 27 Monitor",
+              "url": "https://first.example/products/fixture",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef44d"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef44d"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef44d"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef451",
+              "name": "Harbor Arc 32 Monitor",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef450"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef452",
+              "product_id": "00000000-0000-4000-8000-0000000ef451",
+              "title": "Harbor Arc 32 Monitor",
+              "url": "https://second.example/products/arc32",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef450"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef450"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef450"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "fuzzy_decisions.*.outcome",
+            "value": [
+              "same_family"
+            ],
+            "requirement": "Different size variants remain a family, not one product.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "groups",
+            "value": 2,
+            "requirement": "Never collapse conflicting sizes.",
+            "operator": "count"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef44f"
+          ],
+          [
+            "00000000-0000-4000-8000-0000000ef452"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Conflicting 27/32 sizes keep family variants separate.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/uncertain-missing-specs",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef454",
+              "name": "Harbor Arc Monitor",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef453"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef455",
+              "product_id": "00000000-0000-4000-8000-0000000ef454",
+              "title": "Harbor Arc Monitor",
+              "url": "https://first.example/products/fixture",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef453"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef453"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef453"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef457",
+              "name": "Harbor Arc 27 Monitor",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef456"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef458",
+              "product_id": "00000000-0000-4000-8000-0000000ef457",
+              "title": "Harbor Arc 27 Monitor",
+              "url": "https://second.example/products/arc27",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef456"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef456"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef456"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "fuzzy_decisions.*.outcome",
+            "value": [
+              "uncertain"
+            ],
+            "requirement": "Missing identity/specs must remain uncertain.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "groups",
+            "value": 2,
+            "requirement": "Keep ambiguous same-title products separate.",
+            "operator": "count"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef455"
+          ],
+          [
+            "00000000-0000-4000-8000-0000000ef458"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Near-identical titles with insufficient specifications preserve uncertain duplicate decisions.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/brand-conflict",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef45a",
+              "name": "Harbor Arc 27 Monitor",
+              "brand": "Harbor",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef459"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef45b",
+              "product_id": "00000000-0000-4000-8000-0000000ef45a",
+              "title": "Harbor Arc 27 Monitor",
+              "url": "https://first.example/products/fixture",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef459"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef459"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef459"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef45d",
+              "name": "Northstar Arc 27 Monitor",
+              "brand": "Northstar",
+              "model": null,
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef45c"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef45e",
+              "product_id": "00000000-0000-4000-8000-0000000ef45d",
+              "title": "Northstar Arc 27 Monitor",
+              "url": "https://second.example/products/northstar",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef45c"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef45c"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef45c"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "fuzzy_decisions.*.outcome",
+            "value": [
+              "different_product"
+            ],
+            "requirement": "Similar names must not override conflicting known brands.",
+            "operator": "set_equals"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef45b"
+          ],
+          [
+            "00000000-0000-4000-8000-0000000ef45e"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Known brand mismatch prevents a false merge despite similar titles.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "dedupe/tracking-url",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "dedupe",
+        "extractions": [
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef460",
+              "name": "Harbor M27 Monitor",
+              "brand": "Harbor",
+              "model": "M27",
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef45f"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef461",
+              "product_id": "00000000-0000-4000-8000-0000000ef460",
+              "title": "Harbor M27 Monitor",
+              "url": "https://first.example/products/fixture?utm_source=a",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef45f"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef45f"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef45f"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          },
+          {
+            "schema_version": 1,
+            "product": {
+              "schema_version": 1,
+              "product_id": "00000000-0000-4000-8000-0000000ef463",
+              "name": "Harbor M27 Monitor",
+              "brand": "Harbor",
+              "model": "M27",
+              "category": "monitor",
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef462"
+              ]
+            },
+            "listing": {
+              "schema_version": 1,
+              "listing_id": "00000000-0000-4000-8000-0000000ef464",
+              "product_id": "00000000-0000-4000-8000-0000000ef463",
+              "title": "Harbor M27 Monitor",
+              "url": "https://first.example/products/fixture?utm_campaign=b",
+              "seller": {
+                "seller_name": "First Fixture Store",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef462"
+                ],
+                "trust_signal": "unknown"
+              },
+              "price": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "region_availability": [
+                {
+                  "region_code": "PH",
+                  "status": "available",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef462"
+                  ],
+                  "checked_at": "2026-10-03T00:00:00Z"
+                }
+              ],
+              "source_quality": {
+                "level": "adequate"
+              },
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000ef462"
+              ],
+              "captured_at": "2026-10-03T00:00:00Z"
+            },
+            "confidence": {
+              "score": 0.9,
+              "level": "high"
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "groups.0.match_kinds",
+            "value": [
+              "canonical_url"
+            ],
+            "requirement": "Neutral canonical URL supports identity grouping.",
+            "operator": "equals"
+          },
+          {
+            "field": "groups.0.listings.*.canonical_url",
+            "value": [
+              "https://first.example/products/fixture",
+              "https://first.example/products/fixture"
+            ],
+            "requirement": "Remove tracking without dropping distinct offer rows.",
+            "operator": "equals"
+          }
+        ],
+        "groups": [
+          [
+            "00000000-0000-4000-8000-0000000ef461",
+            "00000000-0000-4000-8000-0000000ef464"
+          ]
+        ]
+      },
+      "metadata": {
+        "description": "Canonical tracking normalization groups product identity and preserves distinct listing IDs.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-98",
+          "dedupe"
+        ]
+      }
+    }
+  ]
+}

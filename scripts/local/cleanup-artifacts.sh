@@ -6,17 +6,15 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/apps/backend"
 
 if [[ "${1:-}" != "--yes" ]]; then
-  echo "Usage: scripts/local/cleanup-artifacts.sh --yes" >&2
+  echo "Usage: scripts/local/cleanup-artifacts.sh --yes [--use-shell-env]" >&2
   echo "Deletes local artifact files according to CARTCART_*_RETENTION_DAYS." >&2
   exit 2
 fi
 
-if [[ -f "${BACKEND_DIR}/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "${BACKEND_DIR}/.env"
-  set +a
-fi
+# shellcheck source=scripts/local/lifecycle-common.sh
+source "${SCRIPT_DIR}/lifecycle-common.sh"
+parse_env_options "${@:2}"
+source_env_file "${BACKEND_DIR}/.env" "${USE_SHELL_ENV}"
 
 DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
 ARTIFACT_DIR="${CARTCART_ARTIFACT_DIR:-${DATA_DIR}/artifacts}"

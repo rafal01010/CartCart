@@ -9,13 +9,25 @@ from types import SimpleNamespace
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from agents import Agent, AgentHooks, ModelSettings, RunConfig, Runner, handoff
+from agents import (
+    Agent,
+    AgentHooks,
+    FunctionTool,
+    Handoff,
+    ModelSettings,
+    RunConfig,
+    Tool,
+    handoff,
+)
 from agents.exceptions import UserError
 from agents.items import HandoffOutputItem
 from agents.tool_context import ToolContext
 from pydantic import Field, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agents.context_management import (
+    BoundedRunner, ContextBudgetExceeded, context_events, active_budget, managed_owner_context,
+)
 from app.agents.contracts import (
     GeneralShoppingAgentInput,
     GeneralShoppingCandidate,
@@ -140,7 +152,7 @@ class OpenAIAgentsSDKGeneralShoppingModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -167,7 +179,11 @@ class MockGeneralShoppingModelRunner:
         if self.exercise_tools and (
             "cane" in query.casefold() or "garden seat" in query.casefold()
         ):
-            by_name = {tool.name: tool for tool in agent.tools}
+            by_name = {
+                tool.name: tool
+                for tool in agent.tools
+                if isinstance(tool, FunctionTool)
+            }
 
             async def invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                 result = await by_name[name].on_invoke_tool(
@@ -255,6 +271,7 @@ class LiveGeneralShoppingAgent:
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
         return self._activity
 
+    @managed_owner_context
     async def run(
         self, input_data: GeneralShoppingAgentInput
     ) -> GeneralShoppingDecisionDraft:
@@ -263,6 +280,8 @@ class LiveGeneralShoppingAgent:
             agent_name="GeneralShoppingAgent",
             run_id=str(input_data.run_id),
         )
+        budget = active_budget()
+        context_start = len(budget.events) if budget else 0
         self._activity = ()
         region_code = (
             input_data.brief.region.region.country_code
@@ -348,7 +367,9 @@ class LiveGeneralShoppingAgent:
             if configuration.mode == OpenAIAgentRuntimeMode.LIVE and tools is not None
             else None
         )
-        sdk_tools = list(tools.sdk_owner_tools()) if tools is not None else []
+        sdk_tools: list[Tool] = (
+            list(tools.sdk_owner_tools()) if tools is not None else []
+        )
         if owner_research:
             sdk_tools.extend(owner_research["GeneralShoppingAgent"].sdk_tools())
         if hosted_tool is not None:
@@ -403,7 +424,7 @@ class LiveGeneralShoppingAgent:
                 else None
             )
             owner_hosted_tools[specialist_name] = specialist_hosted
-            specialist_sdk_tools = (
+            specialist_sdk_tools: list[Tool] = (
                 list(specialist_research.sdk_owner_tools())
                 if specialist_research is not None
                 else []
@@ -498,7 +519,7 @@ class LiveGeneralShoppingAgent:
 
             return callback
 
-        specialist_handoffs = [
+        specialist_handoffs: list[Agent[Any] | Handoff[Any, Any]] = [
             handoff(
                 specialist_agents[name],
                 tool_description_override=(
@@ -511,6 +532,13 @@ class LiveGeneralShoppingAgent:
             )
             for name in approved_specialists
         ]
+        technology_sdk_tools: list[Tool] = (
+            list(technology_tools.sdk_owner_tools()) if technology_tools else []
+        )
+        if owner_research:
+            technology_sdk_tools.extend(
+                owner_research["TechnologyDomainAnalystAgent"].sdk_tools()
+            )
         technology_agent = Agent(
             name="TechnologyDomainAnalystAgent",
             model=technology_configuration.model,
@@ -520,7 +548,8 @@ class LiveGeneralShoppingAgent:
                 "finish broad or unsupported technology categories yourself; do not invent "
                 "a product specialist or return control to General. Hand off only when "
                 "one of the declared product specialists fits the buyer's exact category; "
-                "that specialist owns the final draft. Check compatibility, "
+                "transfer early so that specialist researches and owns the final draft. "
+                "A phone request belongs to SmartphoneSpecialistAgent. Check compatibility, "
                 "regional model differences, durability, software support, warranty, and "
                 "other category-specific tradeoffs when evidence supports them. Use only "
                 "record_source_quote evidence IDs for candidates. Search, fetch, inspect "
@@ -533,12 +562,7 @@ class LiveGeneralShoppingAgent:
                 "Never infer prices, availability, seller trust, or specifications from snippets."
             ),
             output_type=GeneralModelOutput,
-            tools=(list(technology_tools.sdk_owner_tools()) if technology_tools else [])
-            + (
-                list(owner_research["TechnologyDomainAnalystAgent"].sdk_tools())
-                if owner_research
-                else []
-            ),
+            tools=technology_sdk_tools,
             model_settings=ModelSettings(
                 max_tokens=1800, include_usage=True, tool_choice="auto"
             ),
@@ -601,7 +625,8 @@ class LiveGeneralShoppingAgent:
                 "saved user-added products as leads, never as verified facts. Use approved "
                 "research tools and run-scoped evidence, trust, comparison, or source "
                 "intelligence helpers when useful; fetch before recording exact quotes. "
-                "Hosted web search is optional and its citations are only leads until fetched. "
+                "Use hosted web search or the approved provider tools for current research; "
+                "citations are only leads until fetched. "
                 "Organize candidates using only evidence IDs returned by record_source_quote. "
                 "Seek independent product/listing and review evidence before choosing a candidate. "
                 "Optionally name distinct best-value, within-budget, stretch, or runner-up modes only when cited evidence supports them; price modes also need a checked listing and quote. "
@@ -610,6 +635,8 @@ class LiveGeneralShoppingAgent:
                 "from snippets, ratings, or a cited URL alone. Finish broad or non-technology "
                 "requests yourself. Only hand off to TechnologyDomainAnalystAgent when the "
                 "shopper's request is about technology and deeper technology ownership helps. "
+                "For a known supported technology category such as smartphones, transfer "
+                "early so Technology can delegate to its product specialist before research. "
                 "A handoff transfers the rest of this model decision; do not draft again."
             ),
             output_type=GeneralModelOutput,
@@ -641,17 +668,15 @@ class LiveGeneralShoppingAgent:
         )
         citations: tuple[PersistedHostedCitation, ...] = ()
         gap: str | None = None
+        failure_type: str | None = None
+        failure_code: str | None = None
         raw_result: Any = None
         failed_run_usage: Any = None
         recovered_run_usage: Any = None
         owner_name = agent.name
         handoff_activity: tuple[dict[str, Any], ...] = ()
         handoff_confirmed = False
-        owner_timeout = min(
-            configuration.timeout_seconds,
-            technology_configuration.timeout_seconds,
-            *(item.timeout_seconds for item in specialist_configurations.values()),
-        )
+        owner_timeout = configuration.timeout_seconds
         started_at = asyncio.get_running_loop().time()
 
         def validated_handoffs(result: Any) -> tuple[str, tuple[dict[str, Any], ...]]:
@@ -660,7 +685,11 @@ class LiveGeneralShoppingAgent:
                 for item in getattr(result, "new_items", ())
                 if isinstance(item, HandoffOutputItem)
             )
-            requested = (
+            requested: list[
+                tuple[
+                    str, str, TechnologyHandoffContext | ProductSpecialistHandoffContext
+                ]
+            ] = (
                 [(agent.name, technology_agent.name, handoff_requests[0])]
                 if handoff_requests
                 else []
@@ -705,7 +734,7 @@ class LiveGeneralShoppingAgent:
                             if depth == 1
                             else "product_category": (
                                 request.technology_category
-                                if depth == 1
+                                if isinstance(request, TechnologyHandoffContext)
                                 else request.product_category
                             ),
                             "reason": request.reason,
@@ -729,15 +758,7 @@ class LiveGeneralShoppingAgent:
                     agent,
                     json.dumps(input_data.model_dump(mode="json")),
                     run_config=run_config,
-                    max_turns=min(
-                        configuration.max_turns,
-                        technology_configuration.max_turns,
-                        *(
-                            item.max_turns
-                            for item in specialist_configurations.values()
-                        ),
-                        10,
-                    ),
+                    max_turns=configuration.max_turns,
                 ),
                 timeout=owner_timeout,
             )
@@ -758,6 +779,10 @@ class LiveGeneralShoppingAgent:
             model_output = GeneralModelOutput.model_validate(
                 getattr(raw_result, "final_output", raw_result)
             )
+            if not model_output.candidates and any(
+                item["output"].get("finalizing") for item in context_events(context_start)
+            ):
+                raise ContextBudgetExceeded("Research spending closed without a safely supported candidate.")
             if hosted_tool is not None:
                 if not hasattr(raw_result, "raw_responses"):
                     raise ValueError(
@@ -770,11 +795,15 @@ class LiveGeneralShoppingAgent:
                 handoff_targets = {
                     item.tool_name: item.agent_name
                     for item in (*agent.handoffs, *technology_agent.handoffs)
+                    if isinstance(item, Handoff)
                 }
                 for response in raw_result.raw_responses:
                     response_groups[response_owner].append(response)
                     for item in getattr(response, "output", ()):
-                        target = handoff_targets.get(getattr(item, "name", None))
+                        name = getattr(item, "name", None)
+                        target = (
+                            handoff_targets.get(name) if isinstance(name, str) else None
+                        )
                         if target is not None:
                             response_owner = target
                 hosted_activity = {
@@ -800,8 +829,10 @@ class LiveGeneralShoppingAgent:
                     }
                     for name, call in all_calls
                 )
-                if len(all_calls) > 2 or any(
-                    call.status != "completed" for _, call in all_calls
+                if (
+                    sum(call.action == "search" for _, call in all_calls) > 6
+                    or len(all_calls) > 18
+                    or any(call.status != "completed" for _, call in all_calls)
                 ):
                     raise ValueError("Hosted-search call limit or completion failed.")
                 if all_calls and not any(
@@ -883,6 +914,18 @@ class LiveGeneralShoppingAgent:
                     "No persisted research was available in this fixture run.",
                 )
         except (Exception, asyncio.TimeoutError) as exc:
+            failure_type = type(exc).__name__
+            failure_code = (
+                {
+                    "Specialist handoff exceeds the declared hierarchy.": "specialist_depth_exceeded",
+                    "Specialist handoff does not match the buyer's category.": "specialist_category_mismatch",
+                    "Technology handoff is not allowed or exceeds depth one.": "technology_depth_exceeded",
+                    "Technology handoff does not match the shopper's request.": "technology_category_mismatch",
+                }.get(str(exc), "unclassified_sdk_error")
+                if isinstance(exc, UserError)
+                else "context_budget_exceeded" if isinstance(exc, ContextBudgetExceeded)
+                else None
+            )
             gap = f"Shopping research could not be verified ({type(exc).__name__})."
             error_data = getattr(exc, "run_data", None)
             failed_run_usage = getattr(
@@ -910,7 +953,9 @@ class LiveGeneralShoppingAgent:
                 ):
                     owner_name = recorded_edges[-1][1]
                     handoff_confirmed = True
-                    contexts = [
+                    contexts: list[
+                        TechnologyHandoffContext | ProductSpecialistHandoffContext
+                    ] = [
                         handoff_requests[0],
                         *(r for _, r in specialist_requests),
                     ]
@@ -1003,6 +1048,7 @@ class LiveGeneralShoppingAgent:
                 and raw_result is None
                 and remaining_seconds > 0
                 and getattr(failed_run_usage, "total_tokens", 0) < 90000
+                and not isinstance(exc, ContextBudgetExceeded)
             ):
                 recovery_agent = technology_agent.clone(
                     handoffs=[],
@@ -1056,6 +1102,7 @@ class LiveGeneralShoppingAgent:
                         technology_tools,
                         specialist_tools,
                     )
+                    gap = None
                     owner_name = technology_agent.name
                     draft = draft.model_copy(update={"owner_agent_name": owner_name})
                     handoff_activity += (
@@ -1120,7 +1167,7 @@ class LiveGeneralShoppingAgent:
             *handoff_activity,
             {
                 "tool_name": "general_owner",
-                "status": draft.outcome.value,
+                "status": "research_failed" if gap is not None else draft.outcome.value,
                 "input": {
                     "agent": "GeneralShoppingAgent",
                     "run_id": str(input_data.run_id),
@@ -1134,6 +1181,8 @@ class LiveGeneralShoppingAgent:
                         str(e.evidence_id) for c in draft.candidates for e in c.evidence
                     ],
                     "gap": gap,
+                    "failure_type": failure_type,
+                    "failure_code": failure_code,
                     "model": configuration.model,
                     "last_agent": draft.owner_agent_name,
                     "last_agent_model": (
@@ -1143,7 +1192,7 @@ class LiveGeneralShoppingAgent:
                         if draft.owner_agent_name == technology_agent.name
                         else configuration.model
                     ),
-                    "max_turns": min(configuration.max_turns, 10),
+                    "max_turns": configuration.max_turns,
                     "max_output_tokens_per_turn": 2500,
                     "usage": {
                         **combined_usage,

@@ -7,9 +7,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
-from agents import Agent, MaxTurnsExceeded, ModelSettings, RunConfig, Runner
+from agents import Agent, MaxTurnsExceeded, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.context_management import (
+    BoundedRunner, ContextBudgetExceeded, active_budget, context_events, managed_source_context, source_bundle_context,
+)
 from app.agents.contracts import (
     AmazonProductIntelligenceAgentInput,
     IKEAStoreIntelligenceAgentInput,
@@ -119,7 +122,7 @@ class OpenAIAgentsSDKSourceManagerRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -163,7 +166,10 @@ class SourceIntelligenceManagerAgent:
         default_factory=OpenAIAgentsSDKSourceManagerRunner
     )
 
+    @managed_source_context
     async def run(self, input_data: SourceManagerInput) -> SourceManagerResult:
+        budget = active_budget()
+        context_start = len(budget.events) if budget else 0
         config = build_openai_agent_run_configuration(
             self.settings,
             agent_name="SourceIntelligenceManagerAgent",
@@ -246,12 +252,13 @@ class SourceIntelligenceManagerAgent:
                 if cap in captured:
                     raise ValueError("Duplicate source specialist invocation.")
                 try:
-                    output_model = {
+                    output_models: dict[SourceIntelligenceCapability, type[CartCartBaseModel]] = {
                         SourceIntelligenceCapability.VIDEO_REVIEW: YouTubeReviewModelOutput,
                         SourceIntelligenceCapability.COMMUNITY_DISCUSSION: RedditCommunityModelOutput,
                         SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: AmazonProductModelOutput,
                         SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: IKEAStoreModelOutput,
-                    }[cap].model_validate(raw.final_output)
+                    }
+                    output_model = output_models[cap].model_validate(raw.final_output)
                     (
                         output_model,
                         hosted_activity,
@@ -267,7 +274,9 @@ class SourceIntelligenceManagerAgent:
                     output = self._validate(cap, supplied, state, output_model)
                     captured[cap] = output
                     status = "validated"
-                    result = {"bundle": output.model_dump(mode="json")}
+                    result: dict[str, Any] = {"bundle": source_bundle_context(output)}
+                except ContextBudgetExceeded:
+                    raise
                 except Exception as exc:
                     if isinstance(exc, OpenAIAgentConfigurationError):
                         activity.append(
@@ -422,6 +431,8 @@ class SourceIntelligenceManagerAgent:
                 if cap not in attempted:
                     notes.append(f"{cap.value} skipped: {skipped[cap]}")
             completed = True
+        except ContextBudgetExceeded:
+            raise
         except Exception as exc:
             if isinstance(exc, MaxTurnsExceeded):
                 last_agent = getattr(
@@ -485,6 +496,19 @@ class SourceIntelligenceManagerAgent:
             },
         )
         usage = getattr(getattr(raw, "context_wrapper", None), "usage", None)
+        events = context_events(context_start)
+        actual_usage = {
+            field: sum(item["output"][key] for item in events)
+            if events and all(item["output"].get(key) is not None for item in events)
+            else None if events else getattr(usage, field, None)
+            for field, key in (("input_tokens", "actual_input_tokens"),
+                               ("output_tokens", "actual_output_tokens"))
+        }
+        actual_input, actual_output = actual_usage["input_tokens"], actual_usage["output_tokens"]
+        actual_usage["total_tokens"] = (
+            actual_input + actual_output
+            if actual_input is not None and actual_output is not None else None
+        )
         notes.extend(failures)
         return SourceManagerResult(
             video_bundles=tuple(
@@ -513,9 +537,9 @@ class SourceIntelligenceManagerAgent:
             notes=tuple(notes),
             activity=tuple(activity),
             model_name=config.model,
-            input_tokens=getattr(usage, "input_tokens", None),
-            output_tokens=getattr(usage, "output_tokens", None),
-            total_tokens=getattr(usage, "total_tokens", None),
+            input_tokens=actual_usage["input_tokens"],
+            output_tokens=actual_usage["output_tokens"],
+            total_tokens=actual_usage["total_tokens"],
         )
 
     def _specialist(
@@ -524,7 +548,7 @@ class SourceIntelligenceManagerAgent:
         data: SourceManagerInput,
         citation_store: HostedCitationStore | None = None,
     ) -> tuple[Any, Any]:
-        common = dict(
+        common: dict[str, Any] = dict(
             run_id=data.run_id,
             brief=data.brief,
             products=data.products,

@@ -129,12 +129,13 @@ describe('frontend API client', () => {
 				schema_version: 1,
 				run_id: 'run-2',
 				session_id: 'session-1',
-				status: 'succeeded',
-				current_stage: 'complete',
+				status: 'pending',
+				current_stage: null,
 				created_at: '2026-05-31T00:00:00Z',
-				started_at: '2026-05-31T00:00:00Z',
-				completed_at: '2026-05-31T00:00:01Z',
+				started_at: null,
+				completed_at: null,
 			},
+			plan: { plan_id: 'plan-1', stages: ['result_mode'] },
 		};
 		const fetchImpl: FetchLike = async (input, init) => {
 			expect(String(input)).toBe('http://api.test/api/sessions/session-1/refinements');
@@ -158,7 +159,40 @@ describe('frontend API client', () => {
 		});
 
 		expect(refinement.refinement.run_id).toBe('run-2');
-		expect(refinement.run.status).toBe('succeeded');
+		expect(refinement.run.status).toBe('pending');
+		expect(refinement.plan.stages).toEqual(['result_mode']);
+	});
+
+	it('executes a saved refinement and loads a specific result version', async () => {
+		const calls: Array<{ url: string; method?: string }> = [];
+		const fetchImpl: FetchLike = async (input, init) => {
+			calls.push({ url: String(input), method: init?.method });
+			return Response.json(
+				String(input).endsWith('/execute')
+					? { run_id: 'run-2', status: 'succeeded' }
+					: { result_version: { result_version_id: 'version-1' } },
+			);
+		};
+		const client = new CartCartApiClient({ baseUrl: 'http://api.test', fetch: fetchImpl });
+		const run = await client.executeRefinement('session-1', 'refinement-1');
+		const result = await client.getResultVersion('session-1', 'version-1');
+		await client.getDecisionHistory('session-1');
+		expect(run.status).toBe('succeeded');
+		expect(result.result_version.result_version_id).toBe('version-1');
+		expect(calls).toEqual([
+			{
+				url: 'http://api.test/api/sessions/session-1/refinements/refinement-1/execute',
+				method: 'POST',
+			},
+			{
+				url: 'http://api.test/api/sessions/session-1/results/version-1',
+				method: 'GET',
+			},
+			{
+				url: 'http://api.test/api/sessions/session-1/results/history',
+				method: 'GET',
+			},
+		]);
 	});
 
 	it('calls guided intake endpoints with user-facing payloads', async () => {

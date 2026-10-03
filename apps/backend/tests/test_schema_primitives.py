@@ -65,6 +65,7 @@ def test_money_accepts_non_negative_decimal_amount_and_currency_code() -> None:
     [
         ("-1.00", "USD"),
         ("10.999", "USD"),
+        ("10000000000", "USD"),
         ("10.00", "US"),
         ("10.00", "US1"),
     ],

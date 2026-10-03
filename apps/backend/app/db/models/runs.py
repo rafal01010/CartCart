@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.schemas.errors import ErrorEnvelope
 from app.schemas.runs import (
+    RecomputePlan,
     RefinementRequest,
     RunEvent,
     RunStage,
@@ -73,9 +74,7 @@ class ShoppingRunRecordModel(Base):
                 datetime.fromisoformat(self.started_at) if self.started_at else None
             ),
             completed_at=(
-                datetime.fromisoformat(self.completed_at)
-                if self.completed_at
-                else None
+                datetime.fromisoformat(self.completed_at) if self.completed_at else None
             ),
             error=_load_error(self.error),
         )
@@ -186,3 +185,36 @@ class RefinementRequestRecord(Base):
 
     def to_schema(self) -> RefinementRequest:
         return RefinementRequest.model_validate(self.refinement)
+
+
+class RecomputePlanRecord(Base):
+    __tablename__ = "recompute_plans"
+    __table_args__ = (Index("ix_recompute_plans_run_id", "run_id"),)
+
+    plan_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    refinement_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("refinement_requests.refinement_id"),
+        unique=True,
+        nullable=False,
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shopping_runs.run_id"), nullable=False
+    )
+    prior_result_version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("result_versions.result_version_id"), nullable=False
+    )
+    plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    @classmethod
+    def from_schema(cls, plan: RecomputePlan) -> "RecomputePlanRecord":
+        return cls(
+            plan_id=str(plan.plan_id),
+            refinement_id=str(plan.refinement_id),
+            run_id=str(plan.run_id),
+            prior_result_version_id=str(plan.prior_result_version_id),
+            plan=plan.model_dump(mode="json"),
+        )
+
+    def to_schema(self) -> RecomputePlan:
+        return RecomputePlan.model_validate(self.plan)

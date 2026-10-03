@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from agents import FunctionTool, function_tool
 
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
+from app.agents.source_spans import source_span
 from app.agents.reddit_community_intelligence_service import (
     _bundle_from_community_snapshots,
     _deleted_or_removed,
@@ -45,10 +46,13 @@ class RedditCommunityTools:
     max_searches: int = 2
     max_discussions: int = 6
     max_summary_chars: int = 1600
+    max_span_reads: int = 24
     _bundles: list[CommunityDiscussionEvidenceBundle] = field(
         default_factory=list, init=False
     )
     _searches: int = field(default=0, init=False)
+    _span_reads: int = field(default=0, init=False)
+    observed_text: dict[str, list[str]] = field(default_factory=dict, init=False)
     _read: set[str] = field(default_factory=set, init=False)
     _activity: list[dict[str, Any]] = field(default_factory=list, init=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
@@ -86,7 +90,7 @@ class RedditCommunityTools:
             discussion.model_copy(
                 update={
                     "extracted_public_summary": (
-                        discussion.extracted_public_summary[: self.max_summary_chars]
+                        discussion.extracted_public_summary
                         if discussion.extracted_public_summary
                         and not _deleted_or_removed(discussion.extracted_public_summary)
                         else None
@@ -140,9 +144,16 @@ class RedditCommunityTools:
             return json.dumps(await self.search(query))
 
         @function_tool
-        async def read_community_discussion(source_id: str) -> str:
-            """Read a permitted persisted public discussion by its returned source ID."""
-            return json.dumps(await self.read(source_id))
+        async def read_community_discussion(source_id: str, start_char: int = 0,
+                                           focus: str | None = None) -> str:
+            """Read an exact bounded public discussion span.
+
+            Args:
+                source_id: Approved discussion source ID.
+                start_char: Offset for later material, default zero.
+                focus: Optional exact term to locate relevant public text.
+            """
+            return json.dumps(await self.read(source_id, start_char=start_char, focus=focus))
 
         return search_community_discussions, read_community_discussion
 
@@ -196,7 +207,8 @@ class RedditCommunityTools:
         )
         return response
 
-    async def read(self, source_id: str) -> dict[str, Any]:
+    async def read(self, source_id: str, *, start_char: int = 0,
+                   focus: str | None = None) -> dict[str, Any]:
         bundle = self.bundle
         discussion = (
             next(
@@ -215,15 +227,31 @@ class RedditCommunityTools:
                 "status": "unknown_source",
                 "gap": "Discussion source ID was not supplied or returned by approved search.",
             }
+        if self._span_reads >= self.max_span_reads:
+            return {"status": "budget_exhausted", "gap": "Discussion span read limit reached."}
+        self._span_reads += 1
         if source_id not in self._read and len(self._read) >= self.max_discussions:
             return {
                 "status": "budget_exhausted",
                 "gap": "Discussion read limit reached.",
             }
         self._read.add(source_id)
+        supplied = discussion.model_dump(mode="json")
+        span_data = {}
+        if discussion.extracted_public_summary:
+            try:
+                span = source_span(discussion.extracted_public_summary,
+                                   start=start_char, focus=focus, limit=self.max_summary_chars)
+            except ValueError as exc:
+                return {"status": "invalid_request", "gap": str(exc)}
+            supplied["extracted_public_summary"] = span.text
+            self.observed_text.setdefault(source_id, []).append(span.text)
+            span_data = {"start_char": span.start, "total_characters": span.total_characters,
+                         "content_sha256": span.content_sha256}
         response = {
             "status": "ok" if discussion.extracted_public_summary else "inaccessible",
-            "discussion": discussion.model_dump(mode="json"),
+            "discussion": supplied,
+            **span_data,
         }
         self._activity.append(
             {

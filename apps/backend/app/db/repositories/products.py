@@ -9,6 +9,7 @@ from app.db.models.products import (
     CanonicalProductRecord,
     ProductListingRecord,
     UserAddedProductRecord,
+    UserAddedProductRunSnapshotRecord,
 )
 from app.schemas.ids import CandidateId, ListingId, ProductId, RunId, SessionId, new_id
 from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
@@ -160,6 +161,8 @@ class ProductRepository:
         )
         self._session.add(record)
         await self._session.flush()
+        if run_id is not None:
+            await self._save_run_snapshot(run_id, user_added)
         return record.to_schema()
 
     async def get_user_added_product(
@@ -198,7 +201,29 @@ class ProductRepository:
 
         record.update_from_schema(user_added=user_added, run_id=run_id)
         await self._session.flush()
+        await self._save_run_snapshot(run_id, user_added)
         return record.to_schema()
+
+    async def _save_run_snapshot(
+        self, run_id: RunId, user_added: UserAddedProduct
+    ) -> None:
+        key = (str(run_id), str(user_added.candidate_id))
+        record = await self._session.get(UserAddedProductRunSnapshotRecord, key)
+        if record is None:
+            self._session.add(
+                UserAddedProductRunSnapshotRecord(
+                    run_id=key[0],
+                    candidate_id=key[1],
+                    user_added=user_added.model_dump(
+                        mode="json", exclude_computed_fields=True
+                    ),
+                )
+            )
+        else:
+            record.user_added = user_added.model_dump(
+                mode="json", exclude_computed_fields=True
+            )
+        await self._session.flush()
 
     async def list_user_added_products(
         self,
@@ -211,6 +236,38 @@ class ProductRepository:
         )
         records = (await self._session.scalars(statement)).all()
         return tuple(record.to_schema() for record in records)
+
+    async def list_user_added_products_for_run(
+        self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> tuple[UserAddedProduct, ...]:
+        snapshot_statement = (
+            select(UserAddedProductRunSnapshotRecord)
+            .where(UserAddedProductRunSnapshotRecord.run_id == str(run_id))
+            .order_by(UserAddedProductRunSnapshotRecord.candidate_id)
+        )
+        snapshots = (await self._session.scalars(snapshot_statement)).all()
+        if snapshots:
+            return tuple(record.to_schema() for record in snapshots)
+        statement: Select[tuple[UserAddedProductRecord]] = (
+            select(UserAddedProductRecord)
+            .where(
+                UserAddedProductRecord.session_id == str(session_id),
+                UserAddedProductRecord.run_id == str(run_id),
+            )
+            .order_by(UserAddedProductRecord.created_at)
+        )
+        records = (await self._session.scalars(statement)).all()
+        return tuple(record.to_schema() for record in records)
+
+    async def delete_user_added_product(
+        self, session_id: SessionId, candidate_id: CandidateId
+    ) -> None:
+        record = await self._session.get(UserAddedProductRecord, str(candidate_id))
+        if record is not None and record.session_id == str(session_id):
+            await self._session.delete(record)
+            await self._session.flush()
 
 
 def _to_shortlist_membership(

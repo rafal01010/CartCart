@@ -11,11 +11,13 @@ VITE_BIN="${FRONTEND_DIR}/node_modules/.bin/vite"
 source "${SCRIPT_DIR}/lifecycle-common.sh"
 
 require_command "pnpm" "start the frontend" "Install pnpm or enable it with Corepack first: https://pnpm.io/installation"
+require_command "curl" "check frontend startup" "Install curl before starting the app."
 require_file "${FRONTEND_DIR}/package.json" "apps/frontend/package.json is missing." "Run scripts/local/init-frontend.sh first."
 require_file "${VITE_BIN}" "apps/frontend/node_modules/.bin/vite is missing." "Run scripts/local/sync-frontend.sh first."
 
-source_env_file "${BACKEND_DIR}/.env"
-source_env_file "${FRONTEND_DIR}/.env"
+parse_env_options "$@"
+source_env_file "${BACKEND_DIR}/.env" "${USE_SHELL_ENV}"
+source_env_file "${FRONTEND_DIR}/.env" "${USE_SHELL_ENV}"
 
 DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
 RUN_DIR="${CARTCART_RUN_DIR:-${DATA_DIR}/run}"
@@ -38,4 +40,4 @@ args=(
   --strictPort
 )
 
-start_managed_service "frontend" "${PID_FILE}" "${LOG_FILE}" "${args[@]}"
+start_managed_service "frontend" "${PID_FILE}" "${LOG_FILE}" "http://${HOST}:${PORT}/" "${args[@]}"

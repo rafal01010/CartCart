@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 import pytest
-from agents import Agent
+from agents import Agent, RunConfig
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import ValidationError
 
@@ -348,12 +348,12 @@ async def test_sdk_runner_calls_openai_agents_sdk(
         calls.append((agent, model_input, kwargs))
         return object()
 
-    monkeypatch.setattr("app.agents.live_ikea_store_intelligence.Runner.run", fake_run)
+    monkeypatch.setattr("app.agents.context_management.Runner.run", fake_run)
     runner = OpenAIAgentsSDKIKEAStoreModelRunner()
     await runner.run(
         Agent(name="fixture", instructions="fixture"),
         "fixture",
-        run_config=None,
+        run_config=RunConfig(tracing_disabled=True),
         max_turns=3,
         tools=IKEARegionalStoreTools(
             _input(), _WorkbenchIKEAStoreIntelligenceProvider()

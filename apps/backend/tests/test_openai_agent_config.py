@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from agents import Agent
 from pydantic import ValidationError
 
 from app.agents.openai_config import (
@@ -10,10 +11,67 @@ from app.agents.openai_config import (
     OpenAIAgentRuntimeMode,
     build_openai_agent_run_configuration,
     require_live_openai_agent_configuration,
+    apply_openai_agent_run_profile,
 )
 from app.core import settings as settings_module
 from app.core.settings import Settings, UNCONFIGURED_OPENAI_AGENT_MODEL
 from app.core.agent_run_profiles import AgentRunProfileName
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "GeneralShoppingAgent",
+        "TechnologyDomainAnalystAgent",
+        "SmartphoneSpecialistAgent",
+        "DiscoveryAgent",
+        "SellerListingTrustAgent",
+        "YouTubeReviewIntelligenceAgent",
+        "RedditCommunityIntelligenceAgent",
+        "AmazonProductIntelligenceAgent",
+        "IKEAStoreIntelligenceAgent",
+    ),
+)
+def test_research_agents_receive_current_regional_tool_guidance(name: str) -> None:
+    configuration = build_openai_agent_run_configuration(
+        Settings(_env_file=None), agent_name=name
+    )
+    agent = Agent(name=name, instructions="Existing role instructions.")
+    apply_openai_agent_run_profile(agent, configuration)
+    assert isinstance(agent.instructions, str)
+    assert agent.instructions.startswith("Existing role instructions.")
+    assert "Current UTC date:" in agent.instructions
+    assert "buyer's country" in agent.instructions
+    assert "try another" in agent.instructions
+    assert "web_search_call.action.sources" in (
+        agent.model_settings.response_include or ()
+    )
+
+
+def test_example_gives_the_owner_chain_a_separate_research_budget() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=Path(__file__).parents[1] / ".env.example",
+    )
+    owner = build_openai_agent_run_configuration(
+        settings, agent_name="GeneralShoppingAgent"
+    )
+    phone = build_openai_agent_run_configuration(
+        settings, agent_name="SmartphoneSpecialistAgent"
+    )
+    assert (owner.timeout_seconds, owner.max_turns) == (180, 25)
+    assert (phone.timeout_seconds, phone.max_turns) == (60, 15)
+
+
+def test_unsupported_sdk_reasoning_effort_is_an_explicit_configuration_error() -> None:
+    configuration = build_openai_agent_run_configuration(
+        Settings(
+            _env_file=None, openai_run_profiles={"default": {"reasoning_effort": "max"}}
+        ),
+    )
+    with pytest.raises(
+        OpenAIAgentConfigurationError, match="unsupported by the installed SDK"
+    ):
+        apply_openai_agent_run_profile(Agent(name="test"), configuration)
 
 
 def test_fixture_agent_configuration_does_not_require_openai_key(
@@ -100,9 +158,7 @@ def test_live_agent_configuration_requires_openai_key(
         require_live_openai_agent_configuration(settings)
 
     assert OPENAI_API_KEY_ENV_VAR in str(exc_info.value)
-    assert "Fixture and mocked agent modes can run without it." in str(
-        exc_info.value
-    )
+    assert "Fixture and mocked agent modes can run without it." in str(exc_info.value)
 
 
 def test_live_agent_configuration_serializes_no_secret() -> None:
@@ -171,7 +227,9 @@ def test_catalog_profiles_resolve_different_models_in_one_fixture_run() -> None:
 
     assert extraction.mode == decision.mode == OpenAIAgentRuntimeMode.FIXTURE
     assert (extraction.model, decision.model, source_agent.model) == (
-        "small-model", "large-model", "small-model"
+        "small-model",
+        "large-model",
+        "small-model",
     )
     assert (extraction.timeout_seconds, extraction.max_turns) == (20, 4)
     assert (decision.timeout_seconds, decision.max_turns) == (70, 12)
@@ -222,18 +280,20 @@ def test_json_environment_profiles_and_default_profile_resolve(
     )
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
-    intake = build_openai_agent_run_configuration(
-        settings, agent_name="IntakeAgent"
-    )
+    intake = build_openai_agent_run_configuration(settings, agent_name="IntakeAgent")
     guide = build_openai_agent_run_configuration(
         settings, agent_name="ShoppingGuideAgent"
     )
 
     assert (intake.model, intake.timeout_seconds, intake.max_turns) == (
-        "intake-model", 55, 3
+        "intake-model",
+        55,
+        3,
     )
     assert (guide.model, guide.timeout_seconds, guide.max_turns) == (
-        "default-model", 55, 3
+        "default-model",
+        55,
+        3,
     )
 
 

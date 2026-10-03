@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from agents import WebSearchTool
+from openai.types.responses.web_search_tool import Filters
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.openai_config import OpenAIAgentConfigurationError
@@ -77,8 +78,8 @@ def build_hosted_web_search_tool(
         user_location={"type": "approximate", "country": region_code}
         if region_code
         else None,
-        filters={"allowed_domains": list(domains)} if domains else None,
-        search_context_size="low",
+        filters=Filters(allowed_domains=list(domains)) if domains else None,
+        search_context_size="medium",
     )
 
 

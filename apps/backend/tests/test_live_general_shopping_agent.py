@@ -329,8 +329,15 @@ class _SourceCallingPhoneModel(Model):
         assert not handoffs
         assert any(tool.name == "consult_source_intelligence" for tool in tools)
         self.calls += 1
-        if self.quote_sources and self.calls in {1, 2}:
-            source_id = self.quote_sources[self.calls - 1]
+        if self.quote_sources and self.calls in {1, 3}:
+            output = ResponseFunctionToolCall(
+                type="function_call", call_id=f"phone-read-{self.calls}",
+                name="fetch_source", arguments=json.dumps({
+                    "source_id": self.quote_sources[(self.calls - 1) // 2]
+                }),
+            )
+        elif self.quote_sources and self.calls in {2, 4}:
+            source_id = self.quote_sources[(self.calls - 2) // 2]
             output = ResponseFunctionToolCall(
                 type="function_call",
                 call_id=f"phone-quote-{self.calls}",
@@ -340,13 +347,13 @@ class _SourceCallingPhoneModel(Model):
                         "source_id": source_id,
                         "quote": (
                             "Test Phone has a 5000 mAh battery."
-                            if self.calls == 1
+                            if self.calls == 2
                             else "Test Phone lasted all day in the review test."
                         ),
                     }
                 ),
             )
-        elif self.calls == (3 if self.quote_sources else 1):
+        elif self.calls == (5 if self.quote_sources else 1):
             output = ResponseFunctionToolCall(
                 type="function_call",
                 call_id="phone-source-1",
@@ -663,6 +670,9 @@ async def test_sdk_phone_path_has_two_transfers_and_specialist_draft() -> None:
             == 1
         )
         assert "phone camera" in runner.specialist.instructions[0]
+        assert "past 365 days" in runner.specialist.instructions[0]
+        assert "about 60 days" in runner.specialist.instructions[0]
+        assert "Current UTC date:" in runner.specialist.instructions[0]
         assert "web_search" in runner.specialist.tools
         assert "search_sources" in runner.specialist.tools
         assert "consult_source_intelligence" in runner.specialist.tools
@@ -848,12 +858,12 @@ async def test_phone_finishes_from_its_quotes_and_retains_hosted_lead() -> None:
     try:
         draft = await owner.run(input_data)
         assert draft.owner_agent_name == "SmartphoneSpecialistAgent"
-        assert draft.outcome == GeneralShoppingOutcome.DRAFT
+        assert draft.outcome == GeneralShoppingOutcome.DRAFT, owner.workbench_activity[-1]
         assert draft.selected_candidate_name == "Test Phone"
         assert len(draft.candidates[0].evidence) == 2
         assert len(draft.hosted_lead_source_ids) == 1
         assert manager.calls == 1
-        assert runner.phone.calls == 4
+        assert runner.phone.calls == 6
         assert [
             item["input"]["agent"]
             for item in owner.workbench_activity
@@ -927,6 +937,7 @@ async def test_source_agent_can_consult_quote_backed_candidate_before_product_pe
         extraction_provider=_GeneralFixtureExtractionProvider(),
         required_region_code="US",
     )
+    await research.fetch(FetchSourceRequest(source_id=source.source_id))
     recorded = await research.record_quote(source.source_id, quote_text)
     assert recorded.evidence_id is not None
     manager = _SourceManagerStub()
@@ -1202,6 +1213,15 @@ async def test_non_technology_handoff_is_rejected_with_honest_fallback() -> None
         assert draft.owner_agent_name == "GeneralShoppingAgent"
         assert draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
         assert runner.technology.calls == 0
+        owner_activity = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert owner_activity["output"]["failure_type"] == "UserError"
+        assert (
+            owner_activity["output"]["failure_code"] == "technology_category_mismatch"
+        )
         assert not any(
             item["tool_name"] == "sdk_handoff" and item["status"] == "completed"
             for item in owner.workbench_activity
@@ -1496,7 +1516,7 @@ async def test_live_configuration_attaches_optional_hosted_and_provider_tools() 
             "SmartwatchSpecialistAgent",
         }
         assert all(item._agent_ref().handoffs == [] for item in technology.handoffs)
-        assert runner.max_turns <= 10
+        assert runner.max_turns == agent.settings.openai_agent_max_turns
         assert not any(
             item["tool_name"] == "web_search" for item in agent.workbench_activity
         )
@@ -1558,6 +1578,72 @@ async def test_hosted_call_persists_only_cited_weak_lead() -> None:
             item["tool_name"] == "web_search_citations"
             for item in agent.workbench_activity
         )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_open_and_find_do_not_discard_valid_hosted_leads() -> None:
+    url = "https://example.com/phone"
+    runner = _RecordingRunner(
+        output=GeneralModelOutput(category="smartphone", hosted_lead_urls=(url,)),
+        raw_responses=(
+            SimpleNamespace(
+                output=[
+                    {
+                        "type": "web_search_call",
+                        "id": str(index),
+                        "status": "completed",
+                        "action": {"type": action},
+                    }
+                    for index, action in enumerate(
+                        ("search", "open_page", "find_in_page")
+                    )
+                ]
+                + [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "text": "Phone source",
+                                "annotations": [
+                                    {
+                                        "type": "url_citation",
+                                        "url": url,
+                                        "title": "Phone source",
+                                        "start_index": 0,
+                                        "end_index": 12,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            ),
+        ),
+    )
+    owner, input_data, _, engine = await _isolated_agent(runner)
+    try:
+        draft = await owner.run(input_data)
+        assert len(draft.hosted_lead_source_ids) == 1
+        assert not any(
+            item["status"] == "research_failed" for item in owner.workbench_activity
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_model_failure_is_reported_as_research_failure() -> None:
+    runner = _RecordingRunner(error=RuntimeError("Private provider credential"))
+    owner, input_data, _, engine = await _isolated_agent(runner)
+    try:
+        await owner.run(input_data)
+        assert any(
+            item["tool_name"] == "general_owner" and item["status"] == "research_failed"
+            for item in owner.workbench_activity
+        )
+        assert "Private provider credential" not in json.dumps(owner.workbench_activity)
     finally:
         await engine.dispose()
 

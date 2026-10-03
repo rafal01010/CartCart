@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import IntakeAgentInput
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -50,7 +51,7 @@ class OpenAIAgentsSDKIntakeModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -133,9 +134,13 @@ class LiveIntakeAgent:
             brief = _fallback_brief(input_data.request)
             self._set_activity("schema_invalid_fallback", input_data, brief)
             return brief
-        except Exception:
+        except ContextBudgetExceeded:
+            raise
+        except Exception as error:
             brief = _fallback_brief(input_data.request)
-            self._set_activity("error_fallback", input_data, brief)
+            self._set_activity(
+                "error_fallback", input_data, brief, failure_type=type(error).__name__
+            )
             return brief
 
         self._set_activity("model_intake_completed", input_data, brief)
@@ -150,6 +155,8 @@ class LiveIntakeAgent:
         status: str,
         input_data: IntakeAgentInput,
         brief: ShoppingBrief,
+        *,
+        failure_type: str | None = None,
     ) -> None:
         self._workbench_activity = (
             {
@@ -160,6 +167,7 @@ class LiveIntakeAgent:
                     "allowed_tools": [],
                     "has_explicit_region": input_data.request.region is not None,
                     "has_explicit_budget": input_data.request.budget is not None,
+                    "failure_type": failure_type,
                 },
                 "output": brief.model_dump(mode="json"),
             },
@@ -213,7 +221,11 @@ def _coerce_intake_result(
     value: Any,
     request: CreateSessionRequest,
 ) -> ShoppingBrief:
-    brief = value if isinstance(value, ShoppingBrief) else ShoppingBrief.model_validate(value)
+    brief = (
+        value
+        if isinstance(value, ShoppingBrief)
+        else ShoppingBrief.model_validate(value)
+    )
     return _merge_explicit_request_fields(brief, request)
 
 
@@ -243,10 +255,7 @@ def _merge_preferences(
     inferred_items: tuple[PreferenceConstraint, ...],
 ) -> tuple[PreferenceConstraint, ...]:
     merged = list(explicit_items)
-    seen = {
-        (item.text.strip().casefold(), item.mode.value)
-        for item in explicit_items
-    }
+    seen = {(item.text.strip().casefold(), item.mode.value) for item in explicit_items}
     for item in inferred_items:
         key = (item.text.strip().casefold(), item.mode.value)
         if key in seen:

@@ -61,6 +61,28 @@ def _create_guided_session(client: TestClient, query: str) -> dict:
     return body
 
 
+def test_phone_with_unconstrained_budget_does_not_ask_budget_again(
+    guided_api_client: TestClient,
+) -> None:
+    created = _create_guided_session(
+        guided_api_client, "I need to buy a phone, budget is not a problem"
+    )
+    assert created["guide"]["current_question"]["question_id"] == "considered-products"
+    response = guided_api_client.post(
+        f"/api/sessions/{created['session_id']}/answers",
+        json={
+            "question_id": "considered-products",
+            "answer": {"answer_type": "natural_language", "text": "iPhone"},
+        },
+    )
+    assert response.status_code == 200
+    brief = response.json()["ready_brief"]
+    assert brief["budget"] is None
+    assert any(
+        item["text"] == "Budget is not a constraint." for item in brief["preferences"]
+    )
+
+
 def test_create_guided_session_starts_from_single_question_and_loads_state(
     guided_api_client: TestClient,
 ) -> None:
@@ -112,7 +134,10 @@ def test_submit_followup_answer_captures_budget_and_known_product_without_links(
     )
     assert budget_response.status_code == 200
     assert budget_response.json()["status"] == "collecting"
-    assert budget_response.json()["current_question"]["question_id"] == "considered-products"
+    assert (
+        budget_response.json()["current_question"]["question_id"]
+        == "considered-products"
+    )
     considered_question_text = budget_response.json()["current_question"]["text"]
     assert "link" not in considered_question_text.casefold()
     assert "url" not in considered_question_text.casefold()
@@ -134,13 +159,157 @@ def test_submit_followup_answer_captures_budget_and_known_product_without_links(
     assert guide["ready_brief"]["category"] == "laptop"
     assert guide["ready_brief"]["budget"]["amount"]["amount"] == "1200"
     assert guide["ready_brief"]["budget"]["mode"] == "preferred"
-    assert guide["ready_brief"]["constraints"][0]["text"].endswith(
-        "long battery life."
-    )
+    assert guide["ready_brief"]["constraints"][0]["text"].endswith("long battery life.")
 
     session = guided_api_client.get(f"/api/sessions/{session_id}").json()
     assert session["current_brief"] == guide["ready_brief"]
     assert session["user_added_products"][0]["input_text"].startswith("ThinkPad X1")
+
+
+def test_link_only_question_asks_for_goal_and_keeps_url_candidate(
+    guided_api_client: TestClient,
+) -> None:
+    created = _create_guided_session(
+        guided_api_client, "https://shop.example/items/kettle-42?utm_source=share"
+    )
+    session_id = created["session_id"]
+    assert created["guide"]["current_question"]["question_id"] == "shopping-goal"
+    assert (
+        created["guide"]["analysis_start"]["can_skip_all_and_start_analysis"] is False
+    )
+    assert (
+        guided_api_client.post(f"/api/sessions/{session_id}/guide/skip-all").status_code
+        == 409
+    )
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert len(saved["user_added_products"]) == 1
+    assert saved["user_added_products"][0]["url"].startswith(
+        "https://shop.example/items/kettle-42"
+    )
+
+    answered = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "shopping-goal",
+            "answer": {
+                "answer_type": "natural_language",
+                "text": "Is this kettle a good buy?",
+            },
+        },
+    )
+    assert answered.status_code == 200
+    assert answered.json()["current_question"]["question_id"] == "budget"
+    assert (
+        guided_api_client.post(f"/api/sessions/{session_id}/guide/skip-all").status_code
+        == 200
+    )
+    assert guided_api_client.post(f"/api/sessions/{session_id}/runs").status_code == 201
+    researched = guided_api_client.get(f"/api/sessions/{session_id}").json()[
+        "user_added_products"
+    ]
+    assert researched[0]["research_attempted"] is True
+
+
+def test_sentence_link_and_named_products_become_separate_candidates(
+    guided_api_client: TestClient,
+) -> None:
+    query = (
+        "Compare ThinkPad X1 Carbon and Dell XPS 13 for travel; "
+        "also check https://shop.example/items/xps-13."
+    )
+    created = _create_guided_session(guided_api_client, query)
+    session = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()
+    candidates = session["user_added_products"]
+    assert {item["input_text"] for item in candidates if item["url"] is None} == {
+        "ThinkPad X1 Carbon",
+        "Dell XPS 13",
+    }
+    assert [item["url"] for item in candidates if item["url"]] == [
+        "https://shop.example/items/xps-13"
+    ]
+    assert session["current_brief"]["original_query"] == query
+
+
+def test_first_question_comparison_tracks_models_without_generic_category(
+    guided_api_client: TestClient,
+) -> None:
+    created = _create_guided_session(
+        guided_api_client,
+        "Which is better, Sony WH-1000XM5 or Bose QC Ultra for travel?",
+    )
+    candidates = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()[
+        "user_added_products"
+    ]
+    assert {item["input_text"] for item in candidates} == {
+        "Sony WH-1000XM5",
+        "Bose QC Ultra",
+    }
+
+
+def test_standalone_product_name_is_tracked_without_mistaking_budget_for_product(
+    guided_api_client: TestClient,
+) -> None:
+    created = _create_guided_session(guided_api_client, "ThinkPad X1 Carbon")
+    session_id = created["session_id"]
+    answered = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "budget",
+            "answer": {"answer_type": "natural_language", "text": "Around $1200"},
+        },
+    )
+    assert answered.status_code == 200
+    candidates = guided_api_client.get(f"/api/sessions/{session_id}").json()[
+        "user_added_products"
+    ]
+    assert [item["input_text"] for item in candidates] == ["ThinkPad X1 Carbon"]
+
+
+def test_guided_answer_links_dedupe_and_reanswer_removes_stale_candidates(
+    guided_api_client: TestClient,
+) -> None:
+    created = _create_guided_session(guided_api_client, "Which laptop should I buy?")
+    session_id = created["session_id"]
+    guided_api_client.post(f"/api/sessions/{session_id}/guide/skip")
+    answer = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "considered-products",
+            "answer": {
+                "answer_type": "natural_language",
+                "text": "ThinkPad X1 Carbon and https://shop.example/items/x1?utm_source=one. Also https://shop.example/items/x1?utm_source=two",
+            },
+        },
+    )
+    assert answer.status_code == 200
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()[
+        "user_added_products"
+    ]
+    assert len(saved) == 2
+    assert {item["url"] is not None for item in saved} == {True, False}
+    old_ids = {item["candidate_id"] for item in saved}
+
+    assert (
+        guided_api_client.post(
+            f"/api/sessions/{session_id}/guide/reanswer",
+            json={"question_id": "considered-products"},
+        ).status_code
+        == 200
+    )
+    revised = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "considered-products",
+            "answer": {"answer_type": "natural_language", "text": "Dell XPS 13"},
+        },
+    )
+    assert revised.status_code == 200
+    current = guided_api_client.get(f"/api/sessions/{session_id}").json()[
+        "user_added_products"
+    ]
+    assert len(current) == 1
+    assert current[0]["input_text"] == "Dell XPS 13"
+    assert current[0]["candidate_id"] not in old_ids
 
 
 def test_skip_question_readies_existing_brief(

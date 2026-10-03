@@ -164,7 +164,7 @@ class DeterministicProductDeduplicator:
                     listing,
                     product_id=group.product.product_id,
                 )
-                group.listings.append(grouped_listing)
+                _append_distinct_listing(group, grouped_listing)
                 group.match_evidence.append(evidence)
                 group.product = _merge_product_identity(
                     group.product,
@@ -198,7 +198,7 @@ class DeterministicProductDeduplicator:
                         listing,
                         product_id=group.product.product_id,
                     )
-                    group.listings.append(grouped_listing)
+                    _append_distinct_listing(group, grouped_listing)
                     group.match_evidence.append(
                         DeterministicMatchEvidence(
                             kind=DeterministicMatchKind.FUZZY_TITLE_SPECS,
@@ -230,6 +230,28 @@ class DeterministicProductDeduplicator:
             ),
             fuzzy_decisions=tuple(fuzzy_decisions),
         )
+
+
+def _append_distinct_listing(
+    group: _MutableProductGroup, incoming: ProductListing
+) -> None:
+    # A volunteered URL and discovery can interpret the same persisted listing.
+    # Keep its row once, with every candidate match, while distinct offers remain separate.
+    for index, existing in enumerate(group.listings):
+        if existing.listing_id != incoming.listing_id:
+            continue
+        matches = {
+            (match.candidate_id, match.source_id): match
+            for match in (*existing.user_added_matches, *incoming.user_added_matches)
+        }
+        group.listings[index] = existing.model_copy(
+            update={
+                "source_ids": tuple(dict.fromkeys((*existing.source_ids, *incoming.source_ids))),
+                "user_added_matches": tuple(matches.values()),
+            }
+        )
+        return
+    group.listings.append(incoming)
 
 
 def canonical_listing_url(url: str) -> str:

@@ -753,7 +753,8 @@ def test_hosted_search_tool_uses_region_and_allowed_domains() -> None:
         ),
     )
     assert tool.user_location == {"type": "approximate", "country": "US"}
-    assert tool.filters == {"allowed_domains": ["reviews.example.org"]}
+    assert tool.filters is not None
+    assert tool.filters.allowed_domains == ["reviews.example.org"]
 
 
 @pytest.mark.asyncio

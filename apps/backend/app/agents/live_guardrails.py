@@ -9,11 +9,11 @@ from agents import (
     ModelSettings,
     RunConfig,
     RunContextWrapper,
-    Runner,
     input_guardrail,
 )
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import ShoppingScopeGuardrailInput
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -52,7 +52,7 @@ class OpenAIAgentsSDKModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -139,6 +139,8 @@ class LiveShoppingScopeGuardrail:
             result = safe_guardrail_failure_result()
             self._set_activity("schema_invalid_blocked", output=result)
             return result
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             result = safe_guardrail_failure_result()
             self._set_activity("error_blocked", output=result)

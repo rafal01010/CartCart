@@ -16,6 +16,8 @@ CartCart asks a few focused questions, then helps the shopper:
 - Weigh tradeoffs, prices, and source evidence to choose a best pick or recognize when there is no strong buy.
 - Spot poor fits and suspicious sellers or listings.
 
+After a result, shoppers can adjust their budget, buying region, product category, or priorities and review earlier decisions in the same session.
+
 This helps shoppers avoid overpaying, missing better options, and trusting weak search results.
 
 The SvelteKit frontend provides the guided shopping flow. A Python/FastAPI backend handles research, analysis, the API, and local SQLite persistence. The default local workflow uses fixtures and needs no provider or model credentials; live research is opt-in.

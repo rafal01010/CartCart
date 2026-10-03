@@ -1,0 +1,1656 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic",
+  "cases": [
+    {
+      "name": "guide/ambiguous-screen",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "I need a screen for my desk setup.",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.0.current_question.purpose",
+            "operator": "equals",
+            "value": "clarification",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.0.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.0.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "product_category"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.0.skippable_question.can_skip",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.0.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "brief",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not invent a monitor or TV brief before clarification."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Expand the initial ambiguous-screen acceptance criteria: clarify category before optional budget or analysis.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/monitor-sequence",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Need a monitor; considering Harbor M27",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          },
+          {
+            "user_input": "Need a monitor; considering Harbor M27",
+            "prior_answers": [
+              {
+                "question_id": "monitor-connection",
+                "answer": {
+                  "answer_type": "yes_no",
+                  "value": true
+                }
+              }
+            ],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          },
+          {
+            "user_input": "Need a monitor; considering Harbor M27",
+            "prior_answers": [
+              {
+                "question_id": "monitor-connection",
+                "answer": {
+                  "answer_type": "yes_no",
+                  "value": true
+                }
+              },
+              {
+                "question_id": "budget",
+                "answer": {
+                  "answer_type": "natural_language",
+                  "text": "Under PHP 15,000"
+                }
+              }
+            ],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          },
+          {
+            "user_input": "Need a monitor; considering Harbor M27",
+            "prior_answers": [
+              {
+                "question_id": "monitor-connection",
+                "answer": {
+                  "answer_type": "yes_no",
+                  "value": true
+                }
+              },
+              {
+                "question_id": "budget",
+                "answer": {
+                  "answer_type": "natural_language",
+                  "text": "Under PHP 15,000"
+                }
+              },
+              {
+                "question_id": "use-case",
+                "answer": {
+                  "answer_type": "natural_language",
+                  "text": "Coding and movies"
+                }
+              }
+            ],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.0.current_question.purpose",
+            "operator": "equals",
+            "value": "priorities",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.0.current_question.answer_surface",
+            "operator": "equals",
+            "value": "inline_choice",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.0.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "priorities"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.0.skippable_question.can_skip",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.0.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice.control_type",
+            "operator": "equals",
+            "value": "yes_no",
+            "requirement": "Use the appropriate constrained control."
+          },
+          {
+            "field": "guide_states.0.current_question.text",
+            "operator": "contains_text",
+            "value": "one-cable",
+            "requirement": "Use the yes/no control for a useful monitor setup preference."
+          },
+          {
+            "field": "guide_states.1.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.1.current_question.purpose",
+            "operator": "equals",
+            "value": "budget",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.1.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.1.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "budget"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.1.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.1.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.1.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "guide_states.2.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.2.current_question.purpose",
+            "operator": "equals",
+            "value": "use_case",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.2.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.2.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "use_case"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.2.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.2.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.2.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "guide_states.3.status",
+            "operator": "equals",
+            "value": "ready_for_analysis",
+            "requirement": "Finish intake when sufficient answers are saved."
+          },
+          {
+            "field": "guide_states.3.current_question",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Stop asking after the brief is ready."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "monitor",
+            "requirement": "Capture the category."
+          },
+          {
+            "field": "brief.budget.amount.amount",
+            "operator": "equals",
+            "value": "15000",
+            "requirement": "Capture the amount without commas."
+          },
+          {
+            "field": "brief.budget.amount.currency",
+            "operator": "equals",
+            "value": "PHP",
+            "requirement": "Keep the shopper currency."
+          },
+          {
+            "field": "brief.budget.mode",
+            "operator": "equals",
+            "value": "hard_cap",
+            "requirement": "Under means a hard maximum."
+          },
+          {
+            "field": "brief.region.region.country_code",
+            "operator": "equals",
+            "value": "PH",
+            "requirement": "Keep the buying region."
+          },
+          {
+            "field": "brief.region.source",
+            "operator": "equals",
+            "value": "user_provided",
+            "requirement": "Keep region provenance."
+          },
+          {
+            "field": "brief.preferences.*.text",
+            "operator": "contains_text",
+            "value": "Coding and movies",
+            "requirement": "Keep the use case."
+          },
+          {
+            "field": "considered_products",
+            "operator": "equals",
+            "value": [
+              "Harbor M27"
+            ],
+            "requirement": "Capture only the considered model, not the use-case answer; no link is needed."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Replay four shopper-context snapshots: useful yes/no setup, budget, use case, ready brief, retaining the first-question considered name.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/comparison-control",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Compare Sony WH-1000XM5 vs Bose QuietComfort Ultra headphones",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "US",
+                "currency": "USD"
+              }
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.0.current_question.purpose",
+            "operator": "equals",
+            "value": "priorities",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.0.current_question.answer_surface",
+            "operator": "equals",
+            "value": "inline_choice",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.0.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "priorities"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.0.skippable_question.can_skip",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.0.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice.control_type",
+            "operator": "equals",
+            "value": "two_option_plus_type_answer",
+            "requirement": "Use the appropriate constrained control."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice.custom_answer_label",
+            "operator": "equals",
+            "value": "Type my answer",
+            "requirement": "Retain the open answer escape hatch."
+          },
+          {
+            "field": "considered_products",
+            "operator": "equals",
+            "value": [
+              "Sony WH-1000XM5",
+              "Bose QuietComfort Ultra headphones"
+            ],
+            "requirement": "Capture both first-question names without inventing additional candidates."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "A two-option comparison control must retain a custom typed answer.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/open-budget-and-region-setup",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Need an office chair",
+            "prior_answers": [],
+            "region_setup": null
+          },
+          {
+            "user_input": "Need an office chair",
+            "prior_answers": [],
+            "region_setup": null,
+            "skipped_question_ids": [
+              "budget"
+            ]
+          },
+          {
+            "user_input": "Need an office chair",
+            "prior_answers": [
+              {
+                "question_id": "use-case",
+                "answer": {
+                  "answer_type": "natural_language",
+                  "text": "Back support for work"
+                }
+              }
+            ],
+            "region_setup": null,
+            "skipped_question_ids": [
+              "budget"
+            ]
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.0.current_question.purpose",
+            "operator": "equals",
+            "value": "budget",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.0.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.0.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "budget"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.0.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.0.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "guide_states.0.region_setup.status",
+            "operator": "equals",
+            "value": "needs_answer",
+            "requirement": "Ask region outside the main shopping question."
+          },
+          {
+            "field": "guide_states.0.region_setup.resumes_pending_question",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Resume the pending question after setup."
+          },
+          {
+            "field": "guide_states.1.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.1.current_question.purpose",
+            "operator": "equals",
+            "value": "use_case",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.1.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.1.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "use_case"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.1.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.1.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.1.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "guide_states.2.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.2.current_question.purpose",
+            "operator": "equals",
+            "value": "considered_products",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.2.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.2.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "considered_product_names",
+              "considered_product_descriptions"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.2.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.2.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.2.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Ask an open budget question while missing region uses the separate setup surface.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/skip-optional",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Need a monitor for coding",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            },
+            "skipped_question_ids": [
+              "monitor-connection",
+              "budget",
+              "use-case",
+              "considered-products"
+            ],
+            "start_analysis_requested": true
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "ready_for_analysis",
+            "requirement": "Honor the request to start with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not ask skipped optional questions."
+          },
+          {
+            "field": "brief.budget",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Missing budget must remain unknown."
+          },
+          {
+            "field": "brief.region.region.country_code",
+            "operator": "equals",
+            "value": "PH",
+            "requirement": "Preserve setup region."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "monitor",
+            "requirement": "Preserve the category."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Enough monitor/use-case/region context permits skipping optional intake without inventing a budget.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/reanswer-budget",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Need a laptop for travel",
+            "prior_answers": [
+              {
+                "question_id": "budget",
+                "answer": {
+                  "answer_type": "natural_language",
+                  "text": "Around $1,200"
+                }
+              }
+            ],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "US",
+                "currency": "USD"
+              }
+            },
+            "reanswer_question_id": "budget"
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "collecting",
+            "requirement": "Continue useful intake before research."
+          },
+          {
+            "field": "guide_states.0.current_question.purpose",
+            "operator": "equals",
+            "value": "budget",
+            "requirement": "Ask the next useful question in sequence."
+          },
+          {
+            "field": "guide_states.0.current_question.answer_surface",
+            "operator": "equals",
+            "value": "textbox",
+            "requirement": "Use a constrained control only when easier than typing."
+          },
+          {
+            "field": "guide_states.0.current_question.capture_targets",
+            "operator": "equals",
+            "value": [
+              "budget"
+            ],
+            "requirement": "Capture the intended information."
+          },
+          {
+            "field": "guide_states.0.skippable_question.can_skip",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Respect required versus optional questions."
+          },
+          {
+            "field": "guide_states.0.analysis_start.can_skip_all_and_start_analysis",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Allow early analysis only with enough context."
+          },
+          {
+            "field": "guide_states.0.current_question.inline_choice",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Keep unconstrained answers in the textbox."
+          },
+          {
+            "field": "guide_states.0.navigation.current_reanswer_question_id",
+            "operator": "equals",
+            "value": "budget",
+            "requirement": "Reopen the requested question."
+          },
+          {
+            "field": "guide_states.0.navigation.can_go_back",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Retain reanswer navigation."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Reopening an answered budget is allowed and offers a textbox with navigation, without visible history.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/refused-region",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "Need a laptop for travel",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "refused"
+            },
+            "skipped_question_ids": [
+              "budget",
+              "use-case",
+              "considered-products"
+            ],
+            "start_analysis_requested": true
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.region_setup.status",
+            "operator": "equals",
+            "value": "refused",
+            "requirement": "Respect the region refusal."
+          },
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "ready_for_analysis",
+            "requirement": "A refusal must not block normal shopping."
+          },
+          {
+            "field": "brief.region",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not default to a location and label it user-provided."
+          },
+          {
+            "field": "brief.budget",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not fabricate a missing budget."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "laptop",
+            "requirement": "Keep the product category."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Refused setup does not become an invented buying region or prevent optional skipping.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "guide/complete-question",
+      "inputs": {
+        "stage": "guide",
+        "guide_turns": [
+          {
+            "user_input": "I need a 27-inch 1440p monitor for coding and movies under PHP 18,000 in the Philippines",
+            "prior_answers": [],
+            "region_setup": {
+              "status": "provided",
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              }
+            }
+          }
+        ]
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "guide_states.0.status",
+            "operator": "equals",
+            "value": "ready_for_analysis",
+            "requirement": "Do not prolong intake after complete context."
+          },
+          {
+            "field": "guide_states.0.current_question",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not ask information already supplied."
+          },
+          {
+            "field": "brief.budget.mode",
+            "operator": "equals",
+            "value": "hard_cap",
+            "requirement": "Preserve under-budget semantics."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "monitor",
+            "requirement": "Capture the category."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Complete main-question context reaches ready without redundant optional questions.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "guide"
+        ]
+      }
+    },
+    {
+      "name": "intake/inferred-monitor-fields",
+      "inputs": {
+        "stage": "intake",
+        "request": {
+          "query": "I need a 27-inch 1440p monitor for coding and movies under PHP 18,000 in the Philippines"
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "brief.original_query",
+            "operator": "equals",
+            "value": "I need a 27-inch 1440p monitor for coding and movies under PHP 18,000 in the Philippines",
+            "requirement": "Preserve the exact original request."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "monitor",
+            "requirement": "Infer the correct category."
+          },
+          {
+            "field": "brief.category_source",
+            "operator": "equals",
+            "value": "inferred",
+            "requirement": "Distinguish inferred category from explicit controls."
+          },
+          {
+            "field": "brief.region.region.country_code",
+            "operator": "equals",
+            "value": "PH",
+            "requirement": "Infer Philippines."
+          },
+          {
+            "field": "brief.region.source",
+            "operator": "equals",
+            "value": "inferred",
+            "requirement": "Preserve region provenance."
+          },
+          {
+            "field": "brief.budget.amount.amount",
+            "operator": "equals",
+            "value": "18000",
+            "requirement": "Capture the numeric amount."
+          },
+          {
+            "field": "brief.budget.amount.currency",
+            "operator": "equals",
+            "value": "PHP",
+            "requirement": "Use the stated currency."
+          },
+          {
+            "field": "brief.budget.mode",
+            "operator": "equals",
+            "value": "hard_cap",
+            "requirement": "Under is a maximum."
+          },
+          {
+            "field": "brief.budget.source",
+            "operator": "equals",
+            "value": "inferred",
+            "requirement": "Keep inferred budget provenance."
+          },
+          {
+            "field": "brief.constraints.*.text",
+            "operator": "includes",
+            "value": [
+              "27-inch size",
+              "1440p resolution"
+            ],
+            "requirement": "Preserve hard size and resolution constraints."
+          },
+          {
+            "field": "brief.constraints.0.mode",
+            "operator": "equals",
+            "value": "hard",
+            "requirement": "Do not soften the size constraint."
+          },
+          {
+            "field": "brief.constraints.1.mode",
+            "operator": "equals",
+            "value": "hard",
+            "requirement": "Do not soften the resolution constraint."
+          },
+          {
+            "field": "brief.preferences.*.text",
+            "operator": "includes",
+            "value": [
+              "Good for coding",
+              "Good for movies"
+            ],
+            "requirement": "Keep use cases as soft preferences."
+          },
+          {
+            "field": "brief.preferences.0.mode",
+            "operator": "equals",
+            "value": "soft",
+            "requirement": "Keep coding as a soft preference."
+          },
+          {
+            "field": "brief.preferences.1.mode",
+            "operator": "equals",
+            "value": "soft",
+            "requirement": "Keep movies as a soft preference."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Infer monitor requirements and PH hard budget from natural language without losing the original request.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "intake"
+        ]
+      }
+    },
+    {
+      "name": "intake/explicit-controls",
+      "inputs": {
+        "stage": "intake",
+        "request": {
+          "query": "I need a 27-inch 1440p monitor for coding and movies under PHP 18,000 in the Philippines",
+          "region": {
+            "region": {
+              "country_code": "US",
+              "currency": "USD"
+            },
+            "source": "user_provided"
+          },
+          "budget": {
+            "amount": {
+              "amount": "300",
+              "currency": "USD"
+            },
+            "mode": "preferred",
+            "source": "user_provided"
+          },
+          "constraints": [
+            {
+              "text": "Must fit on a narrow desk.",
+              "mode": "hard",
+              "source": "user_provided"
+            }
+          ],
+          "preferences": [
+            {
+              "text": "Prefer an adjustable stand.",
+              "mode": "soft",
+              "source": "user_provided"
+            }
+          ]
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "brief.original_query",
+            "operator": "equals",
+            "value": "I need a 27-inch 1440p monitor for coding and movies under PHP 18,000 in the Philippines",
+            "requirement": "Do not rewrite the original request."
+          },
+          {
+            "field": "brief.region",
+            "operator": "equals",
+            "value": {
+              "region": {
+                "country_code": "US",
+                "currency": "USD",
+                "locale": null
+              },
+              "source": "user_provided",
+              "notes": null
+            },
+            "requirement": "Explicit buying region takes precedence."
+          },
+          {
+            "field": "brief.budget",
+            "operator": "equals",
+            "value": {
+              "amount": {
+                "amount": "300",
+                "currency": "USD"
+              },
+              "mode": "preferred",
+              "source": "user_provided",
+              "notes": null
+            },
+            "requirement": "Explicit preferred budget overrides inferred hard cap."
+          },
+          {
+            "field": "brief.constraints",
+            "operator": "includes",
+            "value": [
+              {
+                "text": "Must fit on a narrow desk.",
+                "mode": "hard",
+                "source": "user_provided"
+              }
+            ],
+            "requirement": "Keep the explicit hard constraint with its provenance."
+          },
+          {
+            "field": "brief.preferences",
+            "operator": "includes",
+            "value": [
+              {
+                "text": "Prefer an adjustable stand.",
+                "mode": "soft",
+                "source": "user_provided"
+              }
+            ],
+            "requirement": "Keep the explicit soft preference with its provenance."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Explicit controls override conflicting inferred region/budget, preserving hard and soft user-provided constraints.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "intake"
+        ]
+      }
+    },
+    {
+      "name": "intake/ambiguous-no-invention",
+      "inputs": {
+        "stage": "intake",
+        "request": {
+          "query": "I need something for my desk setup."
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not invent a category."
+          },
+          {
+            "field": "brief.category_source",
+            "operator": "equals",
+            "value": null,
+            "requirement": "An unknown category has no source."
+          },
+          {
+            "field": "brief.region",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not infer a buying region from no evidence."
+          },
+          {
+            "field": "brief.budget",
+            "operator": "equals",
+            "value": null,
+            "requirement": "Do not invent budget or currency."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Ambiguous desk context remains uncertain rather than becoming a guessed category/budget/region.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "intake"
+        ]
+      }
+    },
+    {
+      "name": "intake/defaulted-region-and-considered",
+      "inputs": {
+        "stage": "intake",
+        "request": {
+          "query": "I am considering Harbor M27 and Delta M24 monitors for coding.",
+          "region": {
+            "region": {
+              "country_code": "PH",
+              "currency": "PHP"
+            },
+            "source": "defaulted"
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "brief.region.source",
+            "operator": "equals",
+            "value": "defaulted",
+            "requirement": "A backend default must not appear user-provided."
+          },
+          {
+            "field": "brief.category",
+            "operator": "equals",
+            "value": "monitor",
+            "requirement": "Recognize the shopping category."
+          },
+          {
+            "field": "considered_products",
+            "operator": "equals",
+            "value": [
+              "Harbor M27",
+              "Delta M24 monitors"
+            ],
+            "requirement": "Retain only the two volunteered candidate hints without requesting URLs."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Backend-default region retains defaulted provenance; names volunteered in the main question are captured.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "intake"
+        ]
+      }
+    },
+    {
+      "name": "planning/coffee-grinder-us",
+      "inputs": {
+        "stage": "planning",
+        "planning": {
+          "run_id": "00000000-0000-4000-8000-000000000097",
+          "brief": {
+            "schema_version": 1,
+            "original_query": "Find a burr coffee grinder under USD 150 in the US for pour-over.",
+            "category": "coffee grinder",
+            "category_source": "inferred",
+            "region": {
+              "region": {
+                "country_code": "US",
+                "currency": "USD"
+              },
+              "source": "user_provided"
+            },
+            "budget": {
+              "amount": {
+                "amount": "150",
+                "currency": "USD"
+              },
+              "mode": "hard_cap",
+              "source": "user_provided"
+            }
+          },
+          "user_added_products": []
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "search_plan.queries.*.intent",
+            "operator": "includes",
+            "value": [
+              "discovery",
+              "review",
+              "official_source"
+            ],
+            "requirement": "Cover buying, review and official evidence."
+          }
+        ],
+        "plan": {
+          "topic_terms": [
+            "coffee grinder"
+          ],
+          "context_terms": [
+            [
+              "pour-over",
+              "filter"
+            ]
+          ],
+          "region_code": "US",
+          "budget": {
+            "amount": {
+              "amount": "150",
+              "currency": "USD"
+            },
+            "mode": "hard_cap"
+          }
+        }
+      },
+      "metadata": {
+        "description": "Use the initial US coffee-grinder brief with independent local retailer/review and pour-over search criteria.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "planning"
+        ]
+      }
+    },
+    {
+      "name": "planning/ph-monitor-and-considered-name",
+      "inputs": {
+        "stage": "planning",
+        "planning": {
+          "run_id": "00000000-0000-4000-8000-000000000097",
+          "brief": {
+            "original_query": "Need a monitor for coding; considering Harbor M27.",
+            "category": "monitor",
+            "category_source": "inferred",
+            "region": {
+              "region": {
+                "country_code": "PH",
+                "currency": "PHP"
+              },
+              "source": "user_provided"
+            },
+            "budget": {
+              "amount": {
+                "amount": "15000",
+                "currency": "PHP"
+              },
+              "mode": "hard_cap"
+            },
+            "constraints": [
+              {
+                "text": "1440p resolution",
+                "mode": "hard"
+              }
+            ],
+            "preferences": [
+              {
+                "text": "coding",
+                "mode": "soft"
+              }
+            ]
+          },
+          "user_added_products": [
+            {
+              "candidate_id": "00000000-0000-4000-8000-000000009701",
+              "input_text": "Harbor M27",
+              "created_at": "2026-10-03T00:00:00Z"
+            }
+          ]
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "search_plan.queries.*.intent",
+            "operator": "includes",
+            "value": [
+              "discovery",
+              "price_check",
+              "review"
+            ],
+            "requirement": "Include shopping, price and review searches."
+          }
+        ],
+        "plan": {
+          "topic_terms": [
+            "monitor"
+          ],
+          "context_terms": [
+            [
+              "1440p"
+            ],
+            [
+              "coding"
+            ]
+          ],
+          "considered_products": [
+            "Harbor M27"
+          ],
+          "region_code": "PH",
+          "budget": {
+            "amount": {
+              "amount": "15000",
+              "currency": "PHP"
+            },
+            "mode": "hard_cap"
+          }
+        }
+      },
+      "metadata": {
+        "description": "Plan PH/PHP shopping and review evidence, include a named candidate lookup and shopper resolution/use-case context.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "planning"
+        ]
+      }
+    },
+    {
+      "name": "planning/generic-preferred-budget",
+      "inputs": {
+        "stage": "planning",
+        "planning": {
+          "run_id": "00000000-0000-4000-8000-000000000097",
+          "brief": {
+            "original_query": "An office chair for work, preferably around $300.",
+            "category": "office chair",
+            "category_source": "inferred",
+            "region": {
+              "region": {
+                "country_code": "US",
+                "currency": "USD"
+              },
+              "source": "user_provided"
+            },
+            "budget": {
+              "amount": {
+                "amount": "300",
+                "currency": "USD"
+              },
+              "mode": "preferred"
+            },
+            "preferences": [
+              {
+                "text": "work comfort",
+                "mode": "soft"
+              }
+            ]
+          },
+          "user_added_products": []
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "search_plan.queries.*.intent",
+            "operator": "includes",
+            "value": [
+              "discovery",
+              "review"
+            ],
+            "requirement": "Do not block generic category support."
+          }
+        ],
+        "plan": {
+          "topic_terms": [
+            "office chair"
+          ],
+          "context_terms": [
+            [
+              "work",
+              "comfort"
+            ]
+          ],
+          "region_code": "US",
+          "budget": {
+            "amount": {
+              "amount": "300",
+              "currency": "USD"
+            },
+            "mode": "preferred"
+          }
+        }
+      },
+      "metadata": {
+        "description": "Nontechnology categories get buying/review sources with a preferred budget rather than an artificial hard cutoff.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "planning"
+        ]
+      }
+    },
+    {
+      "name": "planning/unknown-region-and-budget",
+      "inputs": {
+        "stage": "planning",
+        "planning": {
+          "run_id": "00000000-0000-4000-8000-000000000097",
+          "brief": {
+            "original_query": "Need a power bank for travel.",
+            "category": "power bank",
+            "category_source": "inferred",
+            "constraints": [
+              {
+                "text": "USB-C PD",
+                "mode": "hard"
+              }
+            ],
+            "preferences": [
+              {
+                "text": "travel",
+                "mode": "soft"
+              }
+            ]
+          },
+          "user_added_products": []
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "search_plan.queries.*.intent",
+            "operator": "includes",
+            "value": [
+              "discovery",
+              "review"
+            ],
+            "requirement": "Still create a useful broad technology search plan."
+          }
+        ],
+        "plan": {
+          "topic_terms": [
+            "power bank"
+          ],
+          "context_terms": [
+            [
+              "USB-C PD"
+            ],
+            [
+              "travel"
+            ]
+          ],
+          "region_code": null,
+          "forbidden_terms": [
+            "PHP",
+            "USD",
+            "Philippines",
+            "in US",
+            "in PH"
+          ]
+        }
+      },
+      "metadata": {
+        "description": "Region and budget remain unknown; seek power-bank evidence without inventing local price/availability context.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "planning"
+        ]
+      }
+    },
+    {
+      "name": "planning/unknown-category-fallback",
+      "inputs": {
+        "stage": "planning",
+        "planning": {
+          "run_id": "00000000-0000-4000-8000-000000000097",
+          "brief": {
+            "original_query": "I need something to organize a small entryway.",
+            "region": {
+              "region": {
+                "country_code": "US",
+                "currency": "USD"
+              },
+              "source": "user_provided"
+            },
+            "budget": {
+              "amount": {
+                "amount": "75",
+                "currency": "USD"
+              },
+              "mode": "hard_cap"
+            }
+          },
+          "user_added_products": []
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "search_plan.queries.*.intent",
+            "operator": "includes",
+            "value": [
+              "discovery",
+              "review"
+            ],
+            "requirement": "Support a generic description when no specialist/category exists."
+          }
+        ],
+        "plan": {
+          "topic_terms": [
+            "entryway"
+          ],
+          "context_terms": [
+            [
+              "organize"
+            ]
+          ],
+          "region_code": "US",
+          "budget": {
+            "amount": {
+              "amount": "75",
+              "currency": "USD"
+            },
+            "mode": "hard_cap"
+          }
+        }
+      },
+      "metadata": {
+        "description": "An unresolved category keeps the shopper description and receives generic buying/review research rather than specialist blocking.",
+        "tags": [
+          "offline",
+          "mocked-contract",
+          "planning"
+        ]
+      }
+    }
+  ]
+}

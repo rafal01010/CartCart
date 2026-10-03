@@ -180,6 +180,7 @@ class UserAddedProduct(VersionedSchema):
     manual_fallback_reason: ManualFallbackReason | None = None
     manual_details: ManualProductDetails | None = None
     notes: str | None = Field(default=None, min_length=1, max_length=1000)
+    intake_source_question_ids: tuple[str, ...] = Field(default_factory=tuple)
     created_at: Timestamp = Field(default_factory=utc_now)
 
     @computed_field

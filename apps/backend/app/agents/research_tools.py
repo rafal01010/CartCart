@@ -14,11 +14,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from agents import FunctionTool, function_tool
-from pydantic import Field, ValidationError, field_validator
+from pydantic import AnyHttpUrl, Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.hosted_web_search import HostedWebCitation
+from app.agents.source_spans import source_span
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.providers.contracts import (
     ExtractionProvider,
@@ -52,7 +53,7 @@ class ResearchToolLimits(CartCartBaseModel):
     max_search_calls: int = Field(default=4, ge=1, le=20)
     max_fetch_calls: int = Field(default=8, ge=1, le=40)
     max_results_per_search: int = Field(default=10, ge=1, le=20)
-    max_page_text_chars: int = Field(default=12000, ge=500, le=50000)
+    max_page_text_chars: int = Field(default=4000, ge=500, le=12000)
     max_quote_calls: int = Field(default=8, ge=1, le=20)
 
 
@@ -83,6 +84,8 @@ class SearchSourcesRequest(CartCartBaseModel):
 
 class FetchSourceRequest(CartCartBaseModel):
     source_id: SourceId
+    start_char: int = Field(default=0, ge=0)
+    focus: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ToolSource(CartCartBaseModel):
@@ -106,9 +109,13 @@ class FetchSourceResult(CartCartBaseModel):
     snapshot_id: SourceId | None = None
     url: str | None = None
     title: str | None = None
+    published_date: str | None = None
     extraction_status: ExtractionStatus | None = None
     text: str | None = None
     text_truncated: bool = False
+    start_char: int = 0
+    total_characters: int = 0
+    content_sha256: str | None = None
     provider_name: str | None = None
     gap: str | None = None
 
@@ -119,6 +126,9 @@ class RecordSourceQuoteResult(CartCartBaseModel):
     snapshot_id: SourceId | None = None
     evidence_id: SourceId | None = None
     quote: str | None = None
+    start_char: int | None = None
+    end_char: int | None = None
+    content_sha256: str | None = None
     gap: str | None = None
 
 
@@ -244,14 +254,14 @@ async def save_hosted_citations(
                 intent=SearchIntent.DISCOVERY,
                 region_code=region_code,
             ),
-            url=normalized,
+            url=AnyHttpUrl(normalized),
             title=(citation.title.strip() or normalized)[:300],
             source_type=SourceType.SEARCH_RESULT,
             provider=provider,
             quality=quality,
         )
         snapshot = SourceSnapshot(
-            url=normalized,
+            url=AnyHttpUrl(normalized),
             source_type=SourceType.SEARCH_RESULT,
             title=result.title,
             provider=provider,
@@ -346,6 +356,9 @@ class AgentResearchTools:
         self._search_results: list[SearchResult] = []
         self._recorded_quote_ids: set[SourceId] = set()
         self._recorded_source_ids: set[SourceId] = set()
+        self._observed_spans: dict[SourceId, list[tuple[int, int, str]]] = {}
+        self._span_reads = 0
+        self._query_cache: dict[tuple[str, str, str | None, int], SearchSourcesResult] = {}
 
     @property
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
@@ -432,14 +445,17 @@ class AgentResearchTools:
             return (await self.search(request)).model_dump_json()
 
         @function_tool
-        async def fetch_source(source_id: str) -> str:
-            """Inspect a persisted search result by ID; arbitrary URLs are not accepted.
+        async def fetch_source(source_id: str, start_char: int = 0,
+                               focus: str | None = None) -> str:
+            """Read an exact bounded span by run-scoped ID, including later page text.
 
             Args:
                 source_id: Source ID returned by search_sources in this run.
+                start_char: Character offset for the next span, default zero.
+                focus: Optional exact search term to locate relevant support anywhere in the page.
             """
             try:
-                request = FetchSourceRequest(source_id=source_id)
+                request = FetchSourceRequest.model_validate({"source_id": source_id, "start_char": start_char, "focus": focus})
             except ValidationError:
                 return FetchSourceResult(
                     status=ResearchToolStatus.INVALID_REQUEST,
@@ -511,10 +527,11 @@ class AgentResearchTools:
                     or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
                     or snapshot.extracted_content is None
                     or bounded not in snapshot.extracted_content.text
-                    or bounded
-                    not in snapshot.extracted_content.text[
-                        : self._limits.max_page_text_chars
-                    ]
+                    or not any(
+                        bounded in snapshot.extracted_content.text[start:end]
+                        and digest == source_span(snapshot.extracted_content.text).content_sha256
+                        for start, end, digest in self._observed_spans.get(source_id, ())
+                    )
                 ):
                     result = RecordSourceQuoteResult(
                         status=ResearchToolStatus.GAP,
@@ -545,12 +562,20 @@ class AgentResearchTools:
                 await self._commit(session)
                 self._recorded_quote_ids.add(evidence.evidence_id)
                 self._recorded_source_ids.add(source_id)
+                quote_start = next(
+                    start + snapshot.extracted_content.text[start:end].index(bounded)
+                    for start, end, _ in self._observed_spans[source_id]
+                    if bounded in snapshot.extracted_content.text[start:end]
+                )
                 result = RecordSourceQuoteResult(
                     status=ResearchToolStatus.SUCCEEDED,
                     source_id=source_id,
                     snapshot_id=snapshot.source_id,
                     evidence_id=evidence.evidence_id,
                     quote=bounded,
+                    start_char=quote_start,
+                    end_char=quote_start + len(bounded),
+                    content_sha256=source_span(snapshot.extracted_content.text).content_sha256,
                 )
                 self._record(
                     "record_source_quote",
@@ -560,6 +585,9 @@ class AgentResearchTools:
                         str(snapshot.source_id),
                         str(evidence.evidence_id),
                     ],
+                    support_span={"snapshot_id": str(snapshot.source_id),
+                                  "start_char": result.start_char, "end_char": result.end_char,
+                                  "content_sha256": result.content_sha256},
                 )
                 return result
 
@@ -579,6 +607,10 @@ class AgentResearchTools:
                 update={"region_code": self._required_region_code}
             )
         async with self._lock:
+            cache_key = (request.query.casefold(), request.intent.value, request.region_code, request.max_results)
+            if cache_key in self._query_cache:
+                self._record("search_sources", "cached_query", query=request.query)
+                return self._query_cache[cache_key]
             if self._search_calls >= self._limits.max_search_calls:
                 result = SearchSourcesResult(
                     status=ResearchToolStatus.BUDGET_EXHAUSTED,
@@ -629,8 +661,19 @@ class AgentResearchTools:
             async with self._session_lock:
                 async with self._session() as session:
                     repository = SearchSourceRepository(session)
+                    existing = {
+                        (str(item.url), item.source_type): item
+                        for item in await repository.list_search_results(self._run_id)
+                    }
+                    unique = {}
                     for candidate in selected:
-                        await repository.add_search_result(self._run_id, candidate)
+                        key = (str(candidate.url), candidate.source_type)
+                        if key not in unique:
+                            if key in existing:
+                                unique[key] = existing[key]
+                            else:
+                                unique[key] = await repository.add_search_result(self._run_id, candidate)
+                    selected = list(unique.values())
                     await self._commit(session)
         except Exception:
             result = SearchSourcesResult(
@@ -649,10 +692,12 @@ class AgentResearchTools:
             gap=None if selected else "No approved search sources were returned.",
         )
         self._search_results.extend(selected)
+        self._query_cache[cache_key] = result
         self._record(
             "search_sources",
             result.status,
             source_ids=[str(item.source_id) for item in selected],
+            query=request.query,
         )
         return result
 
@@ -687,6 +732,10 @@ class AgentResearchTools:
 
     async def fetch(self, request: FetchSourceRequest) -> FetchSourceResult:
         async with self._lock:
+            if self._span_reads >= self._limits.max_fetch_calls * 3:
+                return FetchSourceResult(status=ResearchToolStatus.BUDGET_EXHAUSTED,
+                                         gap="Source span read limit reached.")
+            self._span_reads += 1
             async with self._session_lock:
                 async with self._session() as session:
                     repository = SearchSourceRepository(session)
@@ -719,7 +768,7 @@ class AgentResearchTools:
                         cached is not None
                         and cached.extraction_status != ExtractionStatus.NOT_ATTEMPTED
                     ):
-                        result = self._fetch_result(source, cached)
+                        result = self._fetch_result(source, cached, request)
                         self._record(
                             "fetch_source",
                             "cached",
@@ -803,7 +852,7 @@ class AgentResearchTools:
                 )
                 return result
 
-            result = self._fetch_result(source, snapshot)
+            result = self._fetch_result(source, snapshot, request)
             self._record(
                 "fetch_source",
                 result.status,
@@ -812,14 +861,23 @@ class AgentResearchTools:
             return result
 
     def _fetch_result(
-        self, source: SearchResult, snapshot: SourceSnapshot
+        self, source: SearchResult, snapshot: SourceSnapshot, request: FetchSourceRequest
     ) -> FetchSourceResult:
         text = (
             snapshot.extracted_content.text
             if snapshot.extracted_content is not None
             else None
         )
-        bounded_text = text[: self._limits.max_page_text_chars] if text else None
+        try:
+            span = source_span(text, start=request.start_char, focus=request.focus,
+                               limit=self._limits.max_page_text_chars) if text else None
+        except ValueError as exc:
+            return FetchSourceResult(status=ResearchToolStatus.GAP, source_id=source.source_id,
+                                     snapshot_id=snapshot.source_id, gap=str(exc))
+        bounded_text = span.text if span else None
+        if span is not None and bounded_text:
+            self._observed_spans.setdefault(source.source_id, []).append(
+                (span.start, span.start + len(span.text), span.content_sha256))
         has_usable_text = (
             snapshot.extraction_status == ExtractionStatus.SUCCEEDED and bool(text)
         )
@@ -833,8 +891,16 @@ class AgentResearchTools:
             snapshot_id=snapshot.source_id,
             url=_neutral_url(str(snapshot.url)),
             title=snapshot.title,
+            published_date=(
+                snapshot.extracted_content.published_date
+                if snapshot.extracted_content is not None
+                else None
+            ),
             extraction_status=snapshot.extraction_status,
             text=bounded_text,
+            start_char=span.start if span else 0,
+            total_characters=span.total_characters if span else 0,
+            content_sha256=span.content_sha256 if span else None,
             text_truncated=text is not None and len(text) > len(bounded_text or ""),
             provider_name=_provider_label(self._extraction_provider),
             gap=(
@@ -851,15 +917,19 @@ class AgentResearchTools:
         *,
         source_ids: list[str] | None = None,
         url: str | None = None,
+        query: str | None = None,
+        support_span: dict[str, Any] | None = None,
     ) -> None:
         self._activity.append(
             {
                 "tool_name": tool_name,
                 "status": status,
-                "input": {"agent": self._agent_name, "run_id": str(self._run_id)},
+                "input": {"agent": self._agent_name, "run_id": str(self._run_id),
+                          **({"query": query} if query is not None else {})},
                 "output": {
                     "source_ids": source_ids or [],
                     **({"url": url} if url is not None else {}),
+                    **({"support_span": support_span} if support_span is not None else {}),
                 },
             }
         )

@@ -9,11 +9,12 @@ FRONTEND_DIR="${REPO_ROOT}/apps/frontend"
 # shellcheck source=scripts/local/lifecycle-common.sh
 source "${SCRIPT_DIR}/lifecycle-common.sh"
 
-source_env_file "${BACKEND_DIR}/.env"
+parse_env_options "$@"
+source_env_file "${BACKEND_DIR}/.env" "${USE_SHELL_ENV}"
 BACKEND_DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
 BACKEND_RUN_DIR="${CARTCART_RUN_DIR:-${BACKEND_DATA_DIR}/run}"
 
-source_env_file "${FRONTEND_DIR}/.env"
+source_env_file "${FRONTEND_DIR}/.env" "${USE_SHELL_ENV}"
 FRONTEND_DATA_DIR="${CARTCART_DATA_DIR:-${REPO_ROOT}/data}"
 FRONTEND_RUN_DIR="${CARTCART_RUN_DIR:-${FRONTEND_DATA_DIR}/run}"
 

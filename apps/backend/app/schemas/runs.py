@@ -6,7 +6,13 @@ from pydantic import Field, model_validator
 from app.schemas.base import VersionedSchema
 from app.schemas.errors import ErrorEnvelope
 from app.schemas.ids import CandidateId, RunId, SessionId, SourceId, new_id
-from app.schemas.intake import BudgetConstraint, PreferenceConstraint, RegionPreference
+from app.schemas.analysis import RecommendationMode
+from app.schemas.intake import (
+    BudgetConstraint,
+    PreferenceConstraint,
+    RegionPreference,
+    ShoppingBrief,
+)
 from app.schemas.timestamps import Timestamp, utc_now
 
 
@@ -109,11 +115,73 @@ class RefinementRequest(VersionedSchema):
     session_id: SessionId
     run_id: RunId | None = None
     instruction: str = Field(min_length=1, max_length=1000)
+    category: str | None = Field(default=None, min_length=1, max_length=120)
+    result_mode: RecommendationMode | None = None
     region: RegionPreference | None = None
     budget: BudgetConstraint | None = None
     constraints: tuple[PreferenceConstraint, ...] = Field(default_factory=tuple)
     preferences: tuple[PreferenceConstraint, ...] = Field(default_factory=tuple)
     created_at: Timestamp = Field(default_factory=utc_now)
+
+
+class RecomputeStage(StrEnum):
+    RE_INTAKE = "re_intake"
+    SEARCH = "search"
+    EXTRACTION = "extraction"
+    ANALYSIS = "analysis"
+    RESULT_MODE = "result_mode"
+
+
+class RefinementArtifact(StrEnum):
+    SHOPPING_BRIEF = "shopping_brief"
+    SEARCH_PLAN = "search_plan"
+    SEARCH_RESULTS = "search_results"
+    SOURCE_SNAPSHOTS = "source_snapshots"
+    SOURCE_EVIDENCE = "source_evidence"
+    CANDIDATE_PRODUCTS = "candidate_products"
+    PRODUCT_LISTINGS = "product_listings"
+    SOURCE_INTELLIGENCE = "source_intelligence"
+    LISTING_TRUST = "listing_trust"
+    CATEGORY_ANALYSIS = "category_analysis"
+    COMPARISON = "comparison"
+    RECOMMENDATION = "recommendation"
+    VERIFICATION = "verification"
+
+
+class ArtifactDisposition(StrEnum):
+    REUSED = "reused"
+    INVALIDATED = "invalidated"
+
+
+class ArtifactDecision(VersionedSchema):
+    artifact: RefinementArtifact
+    disposition: ArtifactDisposition
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class RecomputePlan(VersionedSchema):
+    plan_id: CandidateId = Field(default_factory=new_id)
+    refinement_id: CandidateId
+    session_id: SessionId
+    run_id: RunId
+    prior_run_id: RunId
+    prior_result_version_id: CandidateId
+    base_brief: ShoppingBrief
+    target_brief: ShoppingBrief
+    requested_result_mode: RecommendationMode | None = None
+    stages: tuple[RecomputeStage, ...] = Field(min_length=1)
+    artifacts: tuple[ArtifactDecision, ...] = Field(min_length=1)
+    created_at: Timestamp = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def _one_decision_per_artifact(self) -> "RecomputePlan":
+        if len({decision.artifact for decision in self.artifacts}) != len(
+            self.artifacts
+        ):
+            raise ValueError("recompute plans require one decision per artifact.")
+        if self.run_id == self.prior_run_id:
+            raise ValueError("recompute plan must use a new run.")
+        return self
 
 
 class ShoppingRunRecord(VersionedSchema):

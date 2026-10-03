@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 import pytest
-from agents import Agent
+from agents import Agent, RunConfig
 
 from app.agents.amazon_marketplace_tools import AmazonMarketplaceTools
 from app.agents.contracts import AmazonProductIntelligenceAgentInput
@@ -357,7 +357,7 @@ async def test_sdk_runner_delegates_to_agents_sdk(
         return object()
 
     monkeypatch.setattr(
-        "app.agents.live_amazon_product_intelligence.Runner.run", fake_run
+        "app.agents.context_management.Runner.run", fake_run
     )
     runner = OpenAIAgentsSDKAmazonProductModelRunner()
     tools = AmazonMarketplaceTools(
@@ -366,7 +366,7 @@ async def test_sdk_runner_delegates_to_agents_sdk(
     await runner.run(
         Agent(name="fixture", instructions="fixture"),
         "fixture",
-        run_config=None,
+        run_config=RunConfig(tracing_disabled=True),
         max_turns=3,
         tools=tools,
     )  # type: ignore[arg-type]

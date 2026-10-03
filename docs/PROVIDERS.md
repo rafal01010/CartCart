@@ -1,7 +1,7 @@
 # CartCart Provider Setup And Fixture Replay
 
 Status: Provider setup and safety reference
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 
 ## Scope And Defaults
 
@@ -124,16 +124,31 @@ caption retrieval fails.
 
 | State | Expected behavior |
 | --- | --- |
-| Default fixture | Enabled flags are `false` and fixture/fake providers are returned. No key or network is required. |
-| Explicit fixture | Selecting `fixture` returns deterministic fake or replay behavior even if an enabled flag is set. |
+| Default fixture workflow | Enabled flags are `false` and fixture/fake providers are returned. No key or network is required. |
+| Explicit fixture | In a fixture workflow, selecting `fixture` returns deterministic fake or replay behavior even if an enabled flag is set. In a normal live workflow, this selection produces disabled/empty evidence instead. |
 | Explicit disabled | Extraction returns an excluded snapshot without fetching. Source-intelligence providers that support `disabled` return typed disabled results with no evidence bundle. General search uses `CARTCART_SEARCH_PROVIDER_ENABLED=false` instead of a `disabled` name. |
 | Live and ready | The live provider name, enabled flag, credential, and provider dependencies are present. An implemented runtime builder returns the live adapter. |
-| Live key missing | Credentialed provider readiness reports the missing variable and existing credentialed builders preserve fixture operation. The live transcript builder never substitutes a fake: it returns `YtDlpTranscriptProvider`, and missing or incompatible local runtime dependencies produce readiness warnings plus explicit transcript gaps. |
+| Live key missing | Credentialed provider readiness reports the missing variable. A normal live workflow returns disabled/empty evidence, never sample evidence. A fixture workflow retains deterministic fallback for offline tests. The configured live transcript builder returns `YtDlpTranscriptProvider`, and missing or incompatible local runtime dependencies produce readiness warnings plus explicit transcript gaps. |
 | Reserved adapter selected | A configured provider with no runtime adapter, such as live Brave search, raises a clear provider configuration error. Do not document a reserved value as usable live support. |
 
 `GET /readyz` remains HTTP 200 when optional live credentials are missing. Its
 provider and agent warning entries are operational guidance, not proof that a
 live provider or model call was attempted.
+
+Normal live shopping also treats disabled or unconfigured providers as evidence
+gaps. Search returns no sources; extraction returns an excluded snapshot without
+page text; video, transcript, Amazon and IKEA providers return disabled results
+without evidence. Reddit receives no search sources and records a discussion
+gap. This prevents a real video or product from receiving fixture transcript,
+review, price or stock claims. Explicitly injected fixture providers remain
+available to isolated offline tests and workbench probes.
+
+Live providers do not enable live agents. Normal shopping requests reject
+live-provider/fixture-agent configurations with `research_mode_mismatch` before
+research starts. For actual model research, configure both
+`CARTCART_AGENT_WORKFLOW_MODE=live` and `CARTCART_LIVE_AGENTS_ENABLED=true`, the
+OpenAI credential and a model. See the
+[manual runtime check](OPERATIONS.md#verify-live-shopping-mode-after-a-manual-run).
 
 ## Environment Variables
 

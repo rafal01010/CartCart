@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Current architecture and remaining design direction
-Last updated: 2026-09-27
+Last updated: 2026-10-02
 
 ## Product Model
 
@@ -338,11 +338,42 @@ network-free `DiscoveryAgent` and `ExtractionAgent` contract replays through the
 same bounded research loop. The complete monitor replay is activated only for
 monitor requests with fixture providers; TV, furniture, and other unsupported
 fixture categories receive an honest no-strong-buy result without monitor
-products. Mixed live-provider/fixture-agent mode is allowed but warns that it
-cannot exercise live agent-owned research. The normal run path remains
+products. Normal shopping runs reject mixed live-provider/fixture-agent mode
+before source calls, with an actionable configuration error. Direct isolated
+provider probes remain available. The normal run path remains
 fixture-first; live typed agents require explicit configuration.
 
+All model-running agents receive the current UTC date and explicit budget-intent
+guidance through their shared SDK configuration. Research roles also receive
+instructions for focused regional queries, official sources, publication versus
+event dates, blocked-source recovery, and the distinction between product advice
+and verified purchase offers. Tools expose extracted publication dates when
+available. Hosted search uses medium context and requests actual search-source
+metadata. The General owner uses its configured turn and timeout budgets for the
+whole handoff chain; unrelated specialist overrides cannot shorten that chain.
+It permits six hosted search actions and eighteen hosted actions in total, so
+opening and finding page text do not consume a two-search limit.
+
+Phone research guidance prioritizes releases within 365 days, permits models up
+to two years old as value alternatives, and preserves explicit older-model
+requests with age/support caveats. An explicitly unconstrained budget favors
+current flagships. Missing budget does not imply unlimited budget. The owner
+checks credible launches within about 60 days and distinguishes confirmed dates
+from expectations. These are model instructions, not a deterministic launch-date
+filter; live research quality requires manual validation. Known phone requests
+are instructed to transfer early through General, Technology, and Smartphone.
+Model exceptions, timeouts and unrecovered owner validation failures are failed
+shopping runs with saved activity, rather than completed no-strong-buy decisions.
+
 Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. The target SDK handoffs are limited to General -> Technology -> eligible specialist ownership; backend code remains responsible for the persisted workflow and hard policy gates.
+
+Production SDK wrappers use the shared bounded model gateway described in
+[context management](CONTEXT_MANAGEMENT.md). Each model turn, transfer and nested
+source call projects exact typed state and defers completed page bodies while
+preserving SDK call pairs. Scoped span tools reload canonical support. Shared
+pre-call reservations preserve decision/verification room; the existing owner
+and source ceilings remain. Budget failures stop the shopping run explicitly.
+No extra model summarizer or temporary evidence store is introduced.
 
 Recommended stages:
 
@@ -368,8 +399,18 @@ Recommended stages:
 13. Seller/listing trust analysis evaluates buyer-safety signals.
 14. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
 15. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
-16. The frontend renders staged results. Refinement currently starts another
-    full run; targeted recomputation from cached artifacts remains future work.
+16. The frontend renders staged results. A refinement stores a pending run
+    and a typed recompute plan linked to the exact prior result version.
+    Execution runs fresh research when the plan invalidates it, or reads
+    validated candidate evidence from the prior run for budget and mode
+    changes. It then produces a new decision and verification record. Results
+    are numbered across the session, and failed runs leave the last successful
+    result accessible. Considered-product outcomes are snapshotted per run so
+    later corrections do not change older result views. The shopper opens one
+    contextual refinement action, answers a focused prompt, and retains the
+    prior result during execution or failure. A collapsed decision history
+    loads saved context and results through session-scoped endpoints, without
+    exposing chat history or internal stages.
 
 ## Agent And Source Capability Model
 
@@ -535,6 +576,13 @@ Required MVP reusable source intelligence roles include:
 - `IKEAStoreIntelligenceAgent`
 
 Reusable source intelligence agents are not category specialists and are not final decision agents. They retrieve, normalize, quality-score, and summarize source-specific evidence that can be reused by discovery, product/domain analysts, trust analysis, and the final decision flow. Their scope is usable evidence retrieval, not availability-only checks. Depending on the source, they may return product-page information, review summaries, recurring owner complaints, seller/fulfillment signals, price/currency, regional availability, shipping/store context, warranty/return context, and explicit evidence gaps.
+
+The YouTube SDK specialist rejects fabricated quotes and wrong-source selections.
+Its metadata-only fallback uses the same deterministic bias annotation as the
+fixture provider service. It preserves visible sponsorship and affiliate
+context from approved metadata and any transcript already read, then discards
+transcript-backed product claims. A timeout before transcript reads preserves
+`not_checked` availability. The catalog declares its evidence-gap fallback.
 
 The Amazon SDK specialist now selects candidate products and marketplace source IDs through bounded approved tools. Its SerpAPI search tool exposes valid ASIN/title hits without the provider's older semantic name-match gate; the agent chooses which hit to read. Its typed output selects source-backed provider facts and marks ASIN/variant ambiguity; backend validation enforces neutral URLs, source/evidence IDs, and non-removable hard listing-risk warnings. Live shopping runs reach it through the source manager's SDK agent tool; fixture runs continue to use the provider service.
 
@@ -737,7 +785,10 @@ protocols that return existing typed source and product schemas. Provider option
 carry a `SourceAllowAvoidPolicy` so orchestration can pass explicit allow and
 avoid rules without hard-coding a single marketplace, source category, or search
 vendor. Deterministic fake providers live beside the contracts for fixture-mode
-tests. The first live adapter is `TavilySearchProvider`, which uses Tavily's HTTP
+tests. In a normal live-agent workflow, unavailable, unconfigured or credential-
+missing providers return empty/disabled evidence, never fixture sources, page
+text, transcripts or offers. Explicit test injection still permits offline
+fixtures. The first live adapter is `TavilySearchProvider`, which uses Tavily's HTTP
 Search API behind the same `SearchProvider` protocol. It maps responses into
 `SearchResult`, keeps source quality unknown for the separate deterministic
 scoring layer, applies domain allow/avoid rules through Tavily's domain filters,

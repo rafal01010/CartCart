@@ -167,6 +167,37 @@ The product supports broad shopping queries when no deep specialist exists. The
 generic per-product analysis fallback remains, and the live General owner can
 finish the shopper request itself.
 
+Shared SDK configuration supplies current-date and regional research guidance
+to hosted-search roles, including the four source specialists and listing trust.
+The catalog's `CurrentRegionalResearchGuidance` and
+`ShoppingRunFailureReporting` owner boundaries document that behavior. Source
+specialists retain their site restrictions and return evidence rather than
+recommendations. Agents without research tools use supplied evidence; the shared
+prompt does not grant new tool permissions.
+
+`SmartphoneSpecialistAgent` also declares `PhoneReleaseAndLaunchGuidance`.
+Its owner prompt prioritizes releases from the past 365 days, considers one- to
+two-year-old phones for value, and researches credible imminent launches before
+advising whether to buy now. Explicit unlimited budget favors current flagships;
+unspecified budget remains unspecified. Official regional availability and
+warranty are checked separately from global reviews. An official product or
+launch page plus an independent review can support product advice without a
+priced listing. Price modes still require checked offers. General and Technology
+are instructed to delegate known phone categories early, with real SDK handoff
+records proving whether the phone owner actually ran.
+
+Reusable source specialists declare `LiveProviderEvidenceGaps`: in a normal live
+workflow, unavailable or unconfigured source providers return disabled/empty
+evidence, never fixture transcripts, discussions, reviews or offers. Fixture
+workflows and explicit offline provider injection retain deterministic replay.
+
+An unrecovered technical owner failure is retained in tool activity as
+`research_failed` and stops the shopping workflow with a failed run. A completed
+search with genuinely insufficient evidence remains a distinct no-strong-buy
+outcome. Normal shopping APIs reject live providers combined with fixture agents
+before research begins. Fixture-only runs and isolated provider probes remain
+available.
+
 ## Accepted Scope Decisions
 
 - `GenericProductAnalystAgent` is the per-product analysis fallback for normal categories; live `GeneralShoppingAgent` owns the whole request and can finish broad categories.
@@ -177,6 +208,7 @@ finish the shopper request itself.
 - `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are approved as reusable `required-mvp` source intelligence capabilities, not as category specialists.
 - Reusable source intelligence agents are evidence retrieval and normalization tools. They must not be limited to availability checks, and they must not make final purchase recommendations.
 - YouTube metadata may use the official YouTube Data API when configured. Transcript text may be used only through authorized official caption access, future user-provided transcript input, or a separately approved third-party provider. The system must never assume transcript availability.
+- YouTube model or validation failures return metadata-only evidence with an explicit gap. Visible sponsorship and affiliate disclosures, channel signals, observed transcript availability, and source references remain attached to the fallback. Transcript text comes only from approved tools; failed model claims do not enter evidence. The catalog declares the fixture evidence-gap fallback.
 - Reddit community evidence should be gathered through approved search/extraction providers, for example domain-scoped web search for public `reddit.com` results. It must summarize recurring user-reported patterns with source links and quality warnings rather than treating anecdotes as authoritative product facts.
 - Amazon product intelligence should retrieve product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, and review signals when compliant provider access is available. It must preserve marketplace seller risk separately from product quality and must not add affiliate logic.
 - IKEA store intelligence should retrieve official IKEA product/store evidence for the user's region when applicable, including regional product availability, product-page information, price/currency where available, and evidence gaps. It must not assume IKEA ships globally; it should check whether IKEA has a relevant country/region presence and whether the item is available there.
@@ -642,3 +674,24 @@ Examples:
 - Add a brand-store capability: make it region-aware because official stores, warranties, and availability vary by country.
 - Move a specialist: update this file, the decision record, runtime registry, routing tests, and eval cases together.
 - Change fallback: treat this as a behavior change requiring documented rationale and regression evaluation across affected categories.
+
+
+## Bounded evidence context
+
+All 24 model-running roles declare `BoundedEvidenceContext` in the runtime
+catalog. Their SDK wrappers share per-call input preparation and cumulative
+reservations through transfers and nested source tools. Ownership and source
+permissions remain unchanged. Large exact state fails explicitly when it cannot
+fit; context limits never authorize invented facts or weaker seller checks.
+
+Page and extraction reads accept same-run IDs with optional offsets/focus and
+return bounded exact spans with version hashes. YouTube captions support focused
+segment reads; Reddit supports focused public-summary reads. Canonical quotes,
+timestamps, disclosures, variant/seller/region identities and hard risks remain
+available for validation. Page bodies can leave active SDK history after a
+subsequent recorded quote; unquoted reads remain. Validated source bundle views
+omit raw caption/discussion text while retaining exact evidence and provenance.
+Call/output pairs, ownership transfers and exact recorded quotes stay. No extra
+summarizer agent or runtime scratch-file store was added. See the
+[stage matrix and limits](docs/CONTEXT_MANAGEMENT.md) and the late-source fixtures
+in [evaluation](docs/EVALUATION.md#context-management-gate).

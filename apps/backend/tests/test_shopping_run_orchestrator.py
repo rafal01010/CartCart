@@ -1332,9 +1332,19 @@ async def test_extraction_continues_and_persists_failed_source_snapshot(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("budget_failure", [False, True])
 async def test_failed_run_state_is_checkpointed_before_exception_escapes(
-    tmp_path: Path,
+    tmp_path: Path, budget_failure: bool,
 ) -> None:
+    from app.agents.context_management import ContextBudgetExceeded, active_budget
+
+    class ExhaustedSearchProvider(FailingSearchProvider):
+        async def search(self, query, options=None):
+            budget = active_budget()
+            assert budget is not None
+            budget.events.append({"tool_name": "context_call", "status": "blocked", "input": {"stage": "discovery"}, "output": {"actual_input_tokens": None}})
+            raise ContextBudgetExceeded("Model input exceeds its limit.")
+
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         database_path=tmp_path / "orchestrator-durable-failure.sqlite3",
@@ -1366,21 +1376,27 @@ async def test_failed_run_state_is_checkpointed_before_exception_escapes(
                     ),
                     video_review_repository=VideoReviewRepository(db_session),
                 ),
-                search_provider=FailingSearchProvider(),
+                search_provider=ExhaustedSearchProvider() if budget_failure else FailingSearchProvider(),
             )
-            with pytest.raises(RuntimeError, match="Fixture discovery failed"):
+            with pytest.raises(RuntimeError, match="Model input exceeds" if budget_failure else "Fixture discovery failed"):
                 await orchestrator.run(run.run_id, shopping_session.current_brief)
 
         async with session_factory() as db_session:
             run_repository = RunRepository(db_session)
             loaded_run = await run_repository.get(run.run_id)
             events = await run_repository.list_events(run.run_id)
+            result = await ResultRepository(db_session).get_recommendation_bundle(run.run_id)
+            records = await ResultRepository(db_session).list_agent_records(run.run_id)
 
         assert loaded_run is not None
         assert loaded_run.status == RunStatus.FAILED
         assert loaded_run.current_stage == RunStage.DISCOVERY
         assert events[-1].status == RunStatus.FAILED
         assert events[-1].error is not None
+        assert result is None
+        if budget_failure:
+            assert "Model input exceeds its limit." in events[-1].error.error.message
+            assert any(item.get("status") == "blocked" for record in records for item in record.tool_activity)
     finally:
         await engine.dispose()
 

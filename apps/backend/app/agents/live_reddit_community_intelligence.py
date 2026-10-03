@@ -7,9 +7,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
@@ -96,7 +97,7 @@ class OpenAIAgentsSDKRedditCommunityModelRunner:
         tools: RedditCommunityTools,
     ) -> Any:
         del tools
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -278,6 +279,8 @@ class RedditCommunityIntelligenceAgent:
             )
             output = _validated_bundle(input_data, tools, decision)
             status = "model_evidence_completed"
+        except ContextBudgetExceeded:
+            raise
         except Exception as exc:
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
@@ -419,6 +422,9 @@ def _validated_bundle(
                 raise ValueError(
                     "Community signal cites unread or inaccessible discussion text."
                 )
+        for quote in signal.supporting_quotes:
+            if not any(quote.quote in text for text in tools.observed_text.get(str(quote.source_id), ())):
+                raise ValueError("Community quote was not present in an observed exact span.")
         if signal.product_id is not None:
             product = products[signal.product_id]
             context = " ".join(

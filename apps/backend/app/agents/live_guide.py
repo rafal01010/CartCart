@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import (
     IntakeAgent,
     IntakeAgentInput,
@@ -135,7 +136,7 @@ class OpenAIAgentsSDKShoppingGuideModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -228,6 +229,8 @@ class LiveShoppingGuideAgent:
             state = _fallback_guided_state(input_data)
             self._set_activity("schema_invalid_fallback", input_data, state)
             return state
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             state = _fallback_guided_state(input_data)
             self._set_activity("error_fallback", input_data, state)
@@ -782,14 +785,14 @@ def _intake_request(input_data: ShoppingGuideAgentInput) -> CreateSessionRequest
 
 def _fallback_brief(input_data: ShoppingGuideAgentInput) -> ShoppingBrief:
     request = _intake_request(input_data)
-    return ShoppingBrief(
-        original_query=request.query,
-        region=request.region,
-        budget=request.budget,
-        constraints=request.constraints,
-        preferences=request.preferences,
+    return ShoppingBrief.model_validate({
+        "original_query": request.query,
+        "region": request.region,
+        "budget": request.budget,
+        "constraints": request.constraints,
+        "preferences": request.preferences,
         **_category_fields(input_data.user_input),
-    )
+    })
 
 
 def _answer_map(input_data: ShoppingGuideAgentInput) -> dict[str, GuidedAnswer]:

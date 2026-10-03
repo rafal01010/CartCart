@@ -78,6 +78,61 @@ def create_session(client: TestClient) -> str:
     return response.json()["session_id"]
 
 
+def test_fixture_agents_with_live_search_block_before_any_research(
+    run_api_client: TestClient,
+) -> None:
+    settings = run_api_client.app.state.settings
+    settings.search_provider = "tavily"
+    settings.search_provider_enabled = True
+    session_id = create_session(run_api_client)
+    response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "research_mode_mismatch"
+    assert run_api_client.get(f"/api/sessions/{session_id}/results").status_code == 404
+
+
+def test_technical_research_failure_is_failed_run_without_buying_result(
+    run_api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailedOwner:
+        workbench_activity = (
+            {
+                "tool_name": "general_owner",
+                "status": "research_failed",
+                "input": {},
+                "output": {"gap": "Offline model unavailable"},
+            },
+        )
+
+        async def run(self, input_data):
+            return GeneralShoppingDecisionDraft(
+                category="smartphone",
+                outcome=GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE,
+                rationale="Research failed.",
+            )
+
+    async def skip_scope_model(self, user_input):
+        pass
+
+    run_api_client.app.state.settings.agent_workflow_mode = AgentWorkflowMode.LIVE
+    monkeypatch.setattr(RunService, "_check_live_agent_start", skip_scope_model)
+    monkeypatch.setattr(
+        RunService,
+        "_live_agent_kwargs",
+        lambda self: {"general_shopping_agent": FailedOwner()},
+    )
+    session_id = create_session(run_api_client)
+    response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+    assert response.status_code == 201
+    assert response.json()["status"] == "failed"
+    run_id = response.json()["run_id"]
+    status = run_api_client.get(f"/api/sessions/{session_id}/runs/{run_id}").json()
+    assert status["current_stage"] == "general_owner"
+    assert "No buying decision" in status["error"]["error"]["message"]
+    assert run_api_client.get(f"/api/sessions/{session_id}/results").status_code == 404
+
+
 def parse_sse_payloads(body: str) -> list[dict[str, str]]:
     payloads: list[dict[str, str]] = []
     for raw_event in body.strip().split("\n\n"):

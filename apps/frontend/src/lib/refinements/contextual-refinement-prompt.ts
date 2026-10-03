@@ -138,14 +138,9 @@ export function buildRefinementRequestFromPrompt(
 	if (draft.kind === 'category') {
 		return {
 			instruction: `Compare ${text} instead.`,
+			category: text,
 			constraints: [],
-			preferences: [
-				{
-					text: `Correct product category: ${text}`,
-					mode: 'soft',
-					source: 'user_provided',
-				},
-			],
+			preferences: [],
 		};
 	}
 

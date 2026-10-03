@@ -10,6 +10,7 @@ from typing import Any, Callable
 from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agents.context_management import source_bundle_context
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.schemas.analysis import ListingTrustAssessment, ListingTrustLevel
 from app.agents.live_source_intelligence_manager import (
@@ -583,7 +584,7 @@ class OwnerResearchContext:
             model=result.model_name,
             total_tokens=result.total_tokens,
         )
-        payload = [item.model_dump(mode="json") for item in bundles]
+        payload = [source_bundle_context(item) for item in bundles]
         if len(json.dumps(payload)) > 12000:
             return {
                 "status": "gap",

@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
+from agents.agent_output import AgentOutputSchema
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import VerificationAgentInput, VerificationReport
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -174,7 +176,7 @@ class OpenAIAgentsSDKVerifierCriticModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -263,6 +265,8 @@ class LiveVerifierCriticAgent:
             )
             self._set_activity("schema_invalid_blocked", input_data, report)
             return report
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             report = _failure_report(
                 input_data,
@@ -341,7 +345,7 @@ def _build_verifier_critic_agent(model: str) -> Agent[Any]:
             "language."
         ),
         tools=[],
-        output_type=VerificationReport,
+        output_type=AgentOutputSchema(VerificationReport, strict_json_schema=False),
     )
 
 
@@ -409,7 +413,8 @@ def _coerce_verification_report_result(
         if isinstance(value, VerificationReport)
         else VerificationReport.model_validate(value)
     )
-    _validate_report_relationships(report, input_data)
+    if report.approved and report.blocking_issues:
+        raise ValueError("approved verifier output cannot include blocking issues.")
     return _apply_output_guardrails(report, input_data)
 
 
@@ -467,15 +472,6 @@ def _apply_output_guardrails(
             ),
         }
     )
-
-
-def _validate_report_relationships(
-    report: VerificationReport,
-    input_data: VerificationAgentInput,
-) -> None:
-    if report.approved and report.blocking_issues:
-        raise ValueError("approved verifier output cannot include blocking issues.")
-    _validate_bundle_relationships(report.recommendation_bundle, input_data)
 
 
 def _validate_bundle_relationships(
@@ -950,8 +946,6 @@ def _validate_evidence_ids(
     evidence_ids: tuple[SourceId, ...],
     known_evidence_ids: set[SourceId],
 ) -> None:
-    if not known_evidence_ids:
-        return
     if set(evidence_ids) - known_evidence_ids:
         raise ValueError("recommendation output used unknown evidence IDs.")
 
@@ -960,8 +954,6 @@ def _validate_source_ids(
     source_ids: tuple[SourceId, ...],
     known_source_ids: set[SourceId],
 ) -> None:
-    if not known_source_ids:
-        return
     if set(source_ids) - known_source_ids:
         raise ValueError("recommendation output used unknown source IDs.")
 

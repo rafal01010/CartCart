@@ -1,11 +1,12 @@
 # CartCart Database
 
 Status: Current SQLite persistence reference
-Last updated: 2026-09-27
+Last updated: 2026-09-30
 
 This document describes the current local database schema implemented by SQLAlchemy
-ORM models and Alembic migrations `0001_initial_persistence_schema` and
-`0002_reusable_source_intelligence_persistence`.
+ORM models and Alembic migrations `0001_initial_persistence_schema`,
+`0002_reusable_source_intelligence_persistence`, `0003_recompute_plans`, and
+`0004_user_added_product_run_snapshots`.
 
 The database is a local SQLite database. By default it lives at
 `data/cartcart.sqlite3`; `CARTCART_DATABASE_PATH` can override it. Large raw
@@ -19,6 +20,10 @@ snapshots of typed Pydantic objects.
 - Current baseline migration: `apps/backend/alembic/versions/0001_initial_persistence_schema.py`.
 - Current source-intelligence backfill migration:
   `apps/backend/alembic/versions/0002_reusable_source_intelligence_persistence.py`.
+- Current refinement-plan migration:
+  `apps/backend/alembic/versions/0003_recompute_plans.py`.
+- Current considered-product snapshot migration:
+  `apps/backend/alembic/versions/0004_user_added_product_run_snapshots.py`.
 - ORM base: `apps/backend/app/db/base.py`.
 - ORM models: `apps/backend/app/db/models/`.
 - Repository classes: `apps/backend/app/db/repositories/`.
@@ -40,6 +45,7 @@ shopping_sessions
   -> shopping_runs
      -> run_events
      -> refinement_requests
+        -> recompute_plans (also links the prior result version)
      -> search_plans -> search_results -> source_snapshots -> source_evidence
      -> video_sources / video_transcript_segments / video_review_evidence_bundles
      -> community_discussion_evidence_bundles / community_discussion_contexts
@@ -48,6 +54,7 @@ shopping_sessions
      -> reusable_source_evidence_gaps
      -> canonical_products -> product_listings
      -> candidate_shortlist_memberships
+     -> user_added_product_run_snapshots
      -> listing_trust_assessments / category_analyses
      -> comparison_matrices -> recommendation_bundles -> result_versions
 
@@ -107,8 +114,8 @@ Constraint: unique `(run_id, sequence)`.
 
 ### `refinement_requests`
 
-Stores user refinement requests and links each request to the new fixture run
-that executes the refinement. Targeted recomputation is not implemented.
+Stores user refinement requests and links each request to its new pending run.
+The typed plan is stored separately; planning does not execute the run.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
@@ -118,6 +125,20 @@ that executes the refinement. Targeted recomputation is not implemented.
 | `instruction` | `String(1000)` | No | User-supplied refinement instruction. |
 | `created_at` | `String(35)` | No | Creation timestamp. |
 | `refinement` | `JSON` | No | Full `RefinementRequest` payload. |
+
+### `recompute_plans`
+
+Stores one typed plan per refinement for later execution. Its JSON payload
+contains the base and target briefs, required stages, and reused or invalidated
+artifact decisions with reasons. The prior result stays unchanged while planning.
+
+| Column | Type | Null | Purpose |
+| --- | --- | --- | --- |
+| `plan_id` | `String(36)` | No | Primary key. |
+| `refinement_id` | `String(36)` | No | Unique FK to `refinement_requests.refinement_id`. |
+| `run_id` | `String(36)` | No | FK to the new pending `shopping_runs.run_id`. |
+| `prior_result_version_id` | `String(36)` | No | FK to the exact prior `result_versions.result_version_id`. |
+| `plan` | `JSON` | No | Full validated `RecomputePlan` payload. |
 
 ### `search_plans`
 
@@ -349,6 +370,20 @@ reported price/seller remain outside verified listing records.
 | `created_at` | `String(35)` | No | Creation timestamp. |
 | `user_added` | `JSON` | No | Full `UserAddedProduct` payload. |
 
+### `user_added_product_run_snapshots`
+
+Stores the considered-product outcome as it appeared in each run. The
+session-local candidate can change during later research or correction without
+rewriting what an earlier result showed. Existing candidate records with a
+run ID are copied into this table by the migration; older outcomes that were
+already overwritten cannot be reconstructed.
+
+| Column | Type | Null | Purpose |
+| --- | --- | --- | --- |
+| `run_id` | `String(36)` | No | FK to `shopping_runs.run_id`; part of the primary key. |
+| `candidate_id` | `String(36)` | No | Candidate identifier; part of the primary key. |
+| `user_added` | `JSON` | No | Candidate outcome saved for that run. |
+
 ### `listing_trust_assessments`
 
 Stores trust analysis for a specific product listing. The JSON assessment
@@ -428,13 +463,16 @@ not assert a purchasable offer.
 ### `result_versions`
 
 Stores version pointers for run results so later refinements do not silently
-overwrite previous outputs.
+overwrite previous outputs. Version numbers increase across the session.
+The refinement plan links each new run to its exact prior result version.
+Failed runs are excluded from latest-result lookup; reused candidate artifacts
+remain stored on the prior research run and are resolved through the plan.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
 | `result_version_id` | `String(36)` | No | Primary key. |
 | `run_id` | `String(36)` | No | FK to `shopping_runs.run_id`. |
-| `version` | `Integer` | No | Version number within the run. |
+| `version` | `Integer` | No | Version number within the session. |
 | `recommendation_bundle_id` | `String(36)` | No | FK to `recommendation_bundles.bundle_id`. |
 | `comparison_matrix_id` | `String(36)` | No | FK to `comparison_matrices.matrix_id`. |
 | `created_at` | `String(35)` | No | Creation timestamp. |
@@ -464,6 +502,7 @@ lookup.
 | `product_listings` | `ix_product_listings_run_id(run_id)`, `ix_product_listings_product_id(product_id)`, `ix_product_listings_url(url)`, `ix_product_listings_seller_name(seller_name)` |
 | `candidate_shortlist_memberships` | `ix_candidate_shortlist_memberships_run_id(run_id)`, `ix_candidate_shortlist_memberships_product_id(product_id)`, `ix_candidate_shortlist_memberships_listing_id(listing_id)` |
 | `user_added_products` | `ix_user_added_products_session_id(session_id)`, `ix_user_added_products_run_id(run_id)`, `ix_user_added_products_product_id(product_id)`, `ix_user_added_products_listing_id(listing_id)`, `ix_user_added_products_url(url)` |
+| `user_added_product_run_snapshots` | `ix_user_added_product_run_snapshots_run_id(run_id)` |
 | `listing_trust_assessments` | `ix_listing_trust_assessments_run_id(run_id)`, `ix_listing_trust_assessments_listing_id(listing_id)` |
 | `category_analyses` | `ix_category_analyses_run_id(run_id)`, `ix_category_analyses_product_id(product_id)`, `ix_category_analyses_category(category)` |
 | `agent_run_records` | `ix_agent_run_records_run_id(run_id)`, `ix_agent_run_records_stage(stage)`, `ix_agent_run_records_agent_name(agent_name)`, `ix_agent_run_records_trace_id(trace_id)` |
@@ -507,4 +546,4 @@ recording/replay, extraction normalization, deduplication decisions, richer
 trust signals, live agent cost/token tracking, eval run summaries, telemetry
 privacy controls, backup/restore metadata, or a future Postgres migration path.
 New shipped schema changes should be represented as incremental Alembic
-migrations after the current `0002` revision.
+migrations after the current `0004` revision.

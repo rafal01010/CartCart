@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from agents import Agent, RunConfig
+from agents import Agent, AgentOutputSchema, RunConfig
 
 from app.agents import IntakeAgentInput, LiveIntakeAgent
 from app.core.settings import Settings
@@ -143,6 +143,15 @@ def _input(query: str | None = None) -> IntakeAgentInput:
         run_id=new_id(),
         request=CreateSessionRequest(query=query or _monitor_query()),
     )
+
+
+def test_intake_money_schema_uses_api_supported_decimal_pattern() -> None:
+    schema = AgentOutputSchema(ShoppingBrief)
+    amount = schema.json_schema()["$defs"]["Money"]["properties"]["amount"]
+    pattern = next(item["pattern"] for item in amount["anyOf"] if "pattern" in item)
+    assert not any(token in pattern for token in ("(?=", "(?!", "(?<=", "(?<!"))
+    brief = schema.validate_json(_monitor_brief().model_dump_json())
+    assert brief.budget.amount.amount == Decimal("18000")
 
 
 @pytest.mark.asyncio
@@ -283,7 +292,7 @@ async def test_live_intake_falls_back_on_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_live_intake_falls_back_on_model_error() -> None:
-    runner = RecordingIntakeRunner(error=RuntimeError("mock model failed"))
+    runner = RecordingIntakeRunner(error=RuntimeError("private failure detail"))
     agent = LiveIntakeAgent(settings=_settings(), model_runner=runner)
 
     result = await agent.run(_input("Need a monitor"))
@@ -291,6 +300,8 @@ async def test_live_intake_falls_back_on_model_error() -> None:
     assert result == ShoppingBrief(original_query="Need a monitor")
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "error_fallback"
+    assert agent.workbench_activity[0]["input"]["failure_type"] == "RuntimeError"
+    assert "private failure detail" not in str(agent.workbench_activity)
 
 
 @pytest.mark.live_provider

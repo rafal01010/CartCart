@@ -239,3 +239,19 @@ class UserAddedProductRecord(Base):
         self.url = str(user_added.url) if user_added.url is not None else None
         self.created_at = user_added.created_at.isoformat()
         self.user_added = _dump_json(user_added)
+
+
+class UserAddedProductRunSnapshotRecord(Base):
+    """Immutable view of a session candidate as it appeared in one run."""
+
+    __tablename__ = "user_added_product_run_snapshots"
+    __table_args__ = (Index("ix_user_added_product_run_snapshots_run_id", "run_id"),)
+
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shopping_runs.run_id"), primary_key=True
+    )
+    candidate_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_added: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    def to_schema(self) -> UserAddedProduct:
+        return UserAddedProduct.model_validate(self.user_added)

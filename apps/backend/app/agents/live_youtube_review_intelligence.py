@@ -6,11 +6,12 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
@@ -24,6 +25,11 @@ from app.agents.source_hosted_search import (
     source_tool_activity,
 )
 from app.agents.youtube_review_tools import YouTubeReviewTools
+from app.agents.youtube_review_intelligence_service import (
+    _annotate_video_bias,
+    _video_with_bias,
+    _annotate_evidence_bias_and_gaps,
+)
 from app.core.settings import Settings
 from app.providers import (
     TranscriptProvider,
@@ -35,7 +41,6 @@ from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import ProductId, SourceId
 from app.schemas.search_sources import (
-    ChannelSignal,
     EvidenceTarget,
     EvidenceTargetType,
     SourceQuality,
@@ -62,7 +67,7 @@ class InterpretedVideoClaim(CartCartBaseModel):
     product_id: ProductId | None = None
     transcript_segment_id: SourceId
     quote: str = Field(min_length=1, max_length=700)
-    signal_kind: str = Field(pattern=r"^(pro|con|concern|other)$")
+    signal_kind: Literal["pro", "con", "concern", "other"]
     interpretation: str = Field(min_length=1, max_length=500)
 
 
@@ -97,7 +102,7 @@ class OpenAIAgentsSDKYouTubeReviewModelRunner:
         tools: YouTubeReviewTools,
     ) -> Any:
         del tools
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -169,7 +174,7 @@ class MockYouTubeReviewModelRunner:
                 if not quote:
                     continue
                 lowered = quote.lower()
-                kind = (
+                kind: Literal["pro", "con", "concern", "other"] = (
                     "concern"
                     if "concern" in lowered
                     else "con"
@@ -302,6 +307,8 @@ class YouTubeReviewIntelligenceAgent:
             )
             output = _validated_bundle(input_data, tools, decision)
             status = "model_evidence_completed"
+        except ContextBudgetExceeded:
+            raise
         except Exception as exc:
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
@@ -390,17 +397,17 @@ def _validated_bundle(
     product_ids = {p.product_id for p in input_data.products}
     products = {p.product_id: p for p in input_data.products}
     selected: dict[str, SelectedVideo] = {}
-    for item in decision.selected_videos:
-        video = video_by_id.get(item.video_id)
+    for selection in decision.selected_videos:
+        video = video_by_id.get(selection.video_id)
         if (
             video is None
-            or item.video_id in selected
+            or selection.video_id in selected
             or source_by_url.get(str(video.url), None) is None
         ):
             raise ValueError("Selected video is unknown or duplicated.")
-        if source_by_url[str(video.url)].source_id != item.source_id:
+        if source_by_url[str(video.url)].source_id != selection.source_id:
             raise ValueError("Selected video source ID does not match its URL.")
-        if item.video_id not in tools._metadata_read:
+        if selection.video_id not in tools._metadata_read:
             raise ValueError(
                 "Selected video metadata was not read through the approved tool."
             )
@@ -414,19 +421,19 @@ def _validated_bundle(
                 ],
             ]
         )
-        if item.sponsorship_disclosed and not re.search(
+        if selection.sponsorship_disclosed and not re.search(
             r"\b(sponsored|paid promotion|provided by|#ad)\b", text, re.I
         ):
             raise ValueError(
                 "Sponsorship disclosure is not visible in retrieved material."
             )
-        if item.affiliate_links_disclosed and not re.search(
+        if selection.affiliate_links_disclosed and not re.search(
             r"\b(affiliate|commission|links below)\b", text, re.I
         ):
             raise ValueError(
                 "Affiliate disclosure is not visible in retrieved material."
             )
-        selected[item.video_id] = item
+        selected[selection.video_id] = selection
     segments = {s.segment_id: s for s in available.transcript_segments}
     claims: list[TranscriptBackedVideoClaim] = []
     for item in decision.claims:
@@ -465,7 +472,9 @@ def _validated_bundle(
                 raise ValueError(
                     "Product identity is not visible in selected video material."
                 )
-        if item.quote.casefold() not in (segment.text or "").casefold():
+        if item.quote not in (segment.text or "") or not any(
+            item.quote in text for text in tools.observed_text.get(str(segment.segment_id), ())
+        ):
             raise ValueError("Claim quote is not present in cited transcript segment.")
         target = (
             EvidenceTarget(
@@ -497,48 +506,16 @@ def _validated_bundle(
                 transcript_segment_ids=(item.transcript_segment_id,),
             )
         )
+    # Canonical disclosures and stronger bias cautions survive model selection.
     videos = tuple(
-        video_by_id[video_id].model_copy(
-            update={
-                "sponsorship_disclosed": selection.sponsorship_disclosed,
-                "affiliate_links_disclosed": selection.affiliate_links_disclosed,
-                "bias_notes": (
-                    "Visible sponsorship or affiliate disclosure; consider potential review bias."
-                    if selection.sponsorship_disclosed
-                    or selection.affiliate_links_disclosed
-                    else None
-                ),
-                "affiliate_bias_risk": Confidence(
-                    score=0.6
-                    if selection.sponsorship_disclosed
-                    or selection.affiliate_links_disclosed
-                    else 0.2,
-                    level=ConfidenceLevel.MEDIUM
-                    if selection.sponsorship_disclosed
-                    or selection.affiliate_links_disclosed
-                    else ConfidenceLevel.LOW,
-                    rationale="Visible disclosure assessment from selected video material.",
-                ),
-                "channel_signals": tuple(
-                    dict.fromkeys(
-                        (
-                            *video_by_id[video_id].channel_signals,
-                            *(
-                                (ChannelSignal.SPONSORSHIP_DISCLOSED,)
-                                if selection.sponsorship_disclosed
-                                else ()
-                            ),
-                            *(
-                                (ChannelSignal.AFFILIATE_LINKS_DISCLOSED,)
-                                if selection.affiliate_links_disclosed
-                                else ()
-                            ),
-                        )
-                    )
-                ),
-            }
+        _video_with_bias(
+            video_by_id[video_id],
+            " ".join([video_by_id[video_id].description or "", *[
+                segment.text or "" for segment in available.transcript_segments
+                if segment.video_id == video_id
+            ]]),
         )
-        for video_id, selection in selected.items()
+        for video_id in selected
     )
     references = tuple(source_by_url[str(v.url)] for v in videos)
     selected_ids = set(selected)
@@ -582,6 +559,7 @@ def _validated_bundle(
 def _metadata_only_bundle(
     bundle: VideoReviewEvidenceBundle, gap: str
 ) -> VideoReviewEvidenceBundle:
+    bundle = _annotate_video_bias(bundle)
     clean = VideoReviewEvidenceBundle(
         videos=bundle.videos[:3],
         source_references=tuple(
@@ -592,5 +570,7 @@ def _metadata_only_bundle(
         transcript_gap_notes=(*bundle.transcript_gap_notes, gap),
     )
     return VideoReviewEvidenceBundle.model_validate(
-        VideoEvidenceCreator().create(clean).model_dump()
+        _annotate_evidence_bias_and_gaps(
+            VideoEvidenceCreator().create(clean)
+        ).model_dump()
     )

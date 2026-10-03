@@ -1,0 +1,16 @@
+{
+  "original_query": "I need to buy a phone, budget is not a problem",
+  "region": "PH",
+  "currency": "PHP",
+  "product": "Aster Pro 512GB PH",
+  "official_quote": "Aster Pro 512GB PH was released 2026-07-01. Local warranty is two years.",
+  "review_quote": "Battery lasts a full day. Low-light photos are weaker than the competing model.",
+  "conflict_quote": "Another reviewer measured shorter battery life during video recording.",
+  "seller_warning": "Imported 256GB offer has no local warranty and is not the PH 512GB variant.",
+  "launch_warning": "Next generation timing is a rumor, not a confirmed release date.",
+  "source_gap": "Community discussion source is disabled; no owner consensus is verified.",
+  "phone_decision": "Consider Aster Pro 512GB PH, with low-light and video-battery caveats. Price remains unknown. The imported offer is rejected. Launch timing is unconfirmed.",
+  "generic_query": "Buy a reading lamp in the Philippines for at most PHP 3000",
+  "generic_quote": "Amber Desk Lamp PH costs PHP 2499.00 from Example Official Store.",
+  "generic_decision": "Amber Desk Lamp PH is within the PHP 3000 cap; reject the separate PHP 4999 offer."
+}

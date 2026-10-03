@@ -8,6 +8,10 @@ from uuid import UUID
 
 from pydantic import AnyHttpUrl
 
+from app.agents.context_management import (
+    active_budget, context_events, managed_context, set_context_stage,
+)
+
 from app.agents import (
     AmazonProductIntelligenceAgentInput,
     CategoryRouterAgent,
@@ -149,6 +153,8 @@ from app.schemas.products import (
 from app.schemas.regions import RegionCode
 from app.schemas.runs import (
     AgentRunRecord,
+    RecomputePlan,
+    RecomputeStage,
     RunEvent,
     RunStage,
     RunStatus,
@@ -344,6 +350,19 @@ class ShoppingRunContext:
     owner_listings: tuple[ProductListing, ...] = ()
     owner_evidence: tuple[SourceEvidence, ...] = ()
     active_stage: RunStage | None = None
+    refinement_plan: RecomputePlan | None = None
+    prior_recommendation: RecommendationBundle | None = None
+
+
+@dataclass(frozen=True)
+class ReusedRefinementArtifacts:
+    products: tuple[CanonicalProduct, ...]
+    listings: tuple[ProductListing, ...]
+    evidence: tuple[SourceEvidence, ...]
+    trust_assessments: tuple[ListingTrustAssessment, ...]
+    category_analyses: tuple[CategoryAnalysis, ...]
+    recommendation: RecommendationBundle
+    user_added_products: tuple[UserAddedProduct, ...] = ()
 
 
 class ShoppingRunPersistenceHooks(Protocol):
@@ -814,41 +833,41 @@ class RepositoryShoppingRunPersistenceHooks:
                 context.run_id,
                 bundle,
             )
-        for bundle in output.community_bundles:
+        for community_bundle in output.community_bundles:
             await self._persist_bundle_source_snapshots(
                 context,
                 output,
                 SourceIntelligenceCapability.COMMUNITY_DISCUSSION,
-                bundle.source_references,
+                community_bundle.source_references,
                 source_type=SourceType.COMMUNITY_DISCUSSION,
             )
             await self._source_intelligence_repository.add_community_discussion_bundle(
                 context.run_id,
-                bundle,
+                community_bundle,
             )
-        for bundle in output.amazon_bundles:
+        for amazon_bundle in output.amazon_bundles:
             await self._persist_bundle_source_snapshots(
                 context,
                 output,
                 SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW,
-                bundle.source_references,
+                amazon_bundle.source_references,
                 source_type=SourceType.RETAILER_LISTING,
             )
             await self._source_intelligence_repository.add_amazon_product_bundle(
                 context.run_id,
-                bundle,
+                amazon_bundle,
             )
-        for bundle in output.ikea_bundles:
+        for ikea_bundle in output.ikea_bundles:
             await self._persist_bundle_source_snapshots(
                 context,
                 output,
                 SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE,
-                bundle.source_references,
+                ikea_bundle.source_references,
                 source_type=SourceType.OFFICIAL_BRAND_PAGE,
             )
             await self._source_intelligence_repository.add_ikea_store_bundle(
                 context.run_id,
-                bundle,
+                ikea_bundle,
             )
 
     async def _persist_bundle_source_snapshots(
@@ -1070,11 +1089,14 @@ class ShoppingRunOrchestrator:
     def executable_stage_order(cls) -> tuple[RunStage, ...]:
         return tuple(stage.stage for stage in cls._STAGES)
 
+    @managed_context
     async def run(
         self,
         run_id: RunId,
         brief: ShoppingBrief | None = None,
         original_input: CreateSessionRequest | None = None,
+        refinement_plan: RecomputePlan | None = None,
+        reused_artifacts: ReusedRefinementArtifacts | None = None,
     ) -> ShoppingRunContext:
         run = await self._persistence_hooks.load_run(run_id)
         if run is None:
@@ -1129,10 +1151,46 @@ class ShoppingRunOrchestrator:
             original_input=original_input,
         )
         context.fixture_output = fixture_output
+        context.refinement_plan = refinement_plan
+        if reused_artifacts is not None:
+            context.fixture_output = None
+            context.owner_products = reused_artifacts.products
+            context.owner_listings = reused_artifacts.listings
+            context.owner_evidence = reused_artifacts.evidence
+            context.trust_assessments = reused_artifacts.trust_assessments
+            context.category_analyses = reused_artifacts.category_analyses
+            context.prior_recommendation = reused_artifacts.recommendation
+            context.user_added_products = reused_artifacts.user_added_products
         await self._persistence_hooks.checkpoint()
 
         try:
-            for definition in self._STAGES:
+            if (
+                refinement_plan is not None
+                and RecomputeStage.SEARCH not in refinement_plan.stages
+            ):
+                if reused_artifacts is None:
+                    raise ValueError(
+                        "Refinement reuse requires validated saved artifacts."
+                    )
+                stages = {
+                    RunStage.COMPARISON_DECISION,
+                    RunStage.VERIFICATION,
+                }
+                if RecomputeStage.ANALYSIS in refinement_plan.stages:
+                    stages.add(RunStage.CATEGORY_ANALYSIS)
+                definitions = tuple(
+                    item for item in self._STAGES if item.stage in stages
+                )
+            elif (
+                refinement_plan is not None
+                and RecomputeStage.RE_INTAKE not in refinement_plan.stages
+            ):
+                definitions = tuple(
+                    item for item in self._STAGES if item.stage != RunStage.INTAKE
+                )
+            else:
+                definitions = self._STAGES
+            for definition in definitions:
                 context.active_stage = definition.stage
                 await self._run_stage(context, definition)
 
@@ -1176,6 +1234,9 @@ class ShoppingRunOrchestrator:
         definition: _StageDefinition,
     ) -> None:
         started_at = utc_now()
+        set_context_stage(definition.stage.value)
+        budget = active_budget()
+        context_start = len(budget.events) if budget else 0
         try:
             if definition.stage == RunStage.INTAKE:
                 stage_output = await self._run_intake(context)
@@ -1236,9 +1297,12 @@ class ShoppingRunOrchestrator:
                     else self._model_name_for_stage(definition.stage)
                 ),
                 duration_ms=_duration_ms(started_at, ended_at),
-                tool_activity=tuple(context.research_activity)
-                if definition.stage == RunStage.EXTRACTION
-                else (),
+                tool_activity=(
+                    *(tuple(context.research_activity)
+                      if definition.stage in {RunStage.EXTRACTION, RunStage.GENERAL_OWNER}
+                      else ()),
+                    *context_events(context_start),
+                ),
                 fallback_outcome="stage_error",
                 error=error,
             )
@@ -1264,7 +1328,7 @@ class ShoppingRunOrchestrator:
             output_tokens=stage_output.output_tokens,
             total_tokens=stage_output.total_tokens,
             estimated_cost_usd=stage_output.estimated_cost_usd,
-            tool_activity=stage_output.tool_activity,
+            tool_activity=(*stage_output.tool_activity, *context_events(context_start)),
             fallback_outcome=stage_output.fallback_outcome,
         )
         context.agent_records.append(agent_record)
@@ -1340,8 +1404,19 @@ class ShoppingRunOrchestrator:
             )
         )
         context.general_owner_draft = draft
+        owner_activity = _agent_tool_activity(self._general_shopping_agent)
+        if any(
+            item.get("tool_name") == "general_owner"
+            and item.get("status") == "research_failed"
+            for item in owner_activity
+        ):
+            context.research_activity.extend(owner_activity)
+            raise RuntimeError(
+                "CartCart could not complete product research. No buying decision "
+                "was made. Please retry after checking the research service."
+            )
         activity = (
-            *_agent_tool_activity(self._general_shopping_agent),
+            *owner_activity,
             {
                 "tool_name": "general_owner_draft",
                 "status": draft.outcome.value,
@@ -1367,7 +1442,7 @@ class ShoppingRunOrchestrator:
                 },
             },
         )
-        usage = next(
+        usage: dict[str, Any] = next(
             (
                 item.get("output", {}).get("usage", {})
                 for item in reversed(activity)
@@ -1745,7 +1820,7 @@ class ShoppingRunOrchestrator:
                         summary="Selected page could not be retrieved or read.",
                     )
                     gaps.append(gap)
-                    journal = {
+                    journal: dict[str, Any] = {
                         "tool_name": "research_source_gap",
                         "status": item.snapshot.extraction_status.value,
                         "input": {
@@ -1954,7 +2029,7 @@ class ShoppingRunOrchestrator:
         for user_added in context.user_added_products:
             if user_added.url is not None:
                 continue
-            matches = [
+            candidate_matches = [
                 (item.listing_extraction.product.product_id, match.confidence)
                 for item in interpreted
                 if item.listing_extraction is not None
@@ -1962,20 +2037,20 @@ class ShoppingRunOrchestrator:
                 if match.candidate_id == user_added.candidate_id
             ]
             if (
-                not matches
+                not candidate_matches
                 or any(
                     confidence == UserAddedMatchConfidence.POSSIBLE
-                    for _, confidence in matches
+                    for _, confidence in candidate_matches
                 )
-                or len({product_id for product_id, _ in matches}) > 1
+                or len({product_id for product_id, _ in candidate_matches}) > 1
             ):
                 journal = {
                     "tool_name": "user_added_product_resolution",
-                    "status": "ambiguous" if matches else "unresolved",
+                    "status": "ambiguous" if candidate_matches else "unresolved",
                     "input": {"candidate_id": str(user_added.candidate_id)},
                     "output": {
                         "possible_product_ids": list(
-                            dict.fromkeys(str(product_id) for product_id, _ in matches)
+                            dict.fromkeys(str(product_id) for product_id, _ in candidate_matches)
                         )
                     },
                 }
@@ -2722,6 +2797,35 @@ class ShoppingRunOrchestrator:
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
         if (
+            context.refinement_plan is not None
+            and context.refinement_plan.stages == (RecomputeStage.RESULT_MODE,)
+            and context.prior_recommendation is not None
+        ):
+            requested = context.refinement_plan.requested_result_mode
+            prior = context.prior_recommendation
+            mode_results = prior.mode_results
+            if requested is not None:
+                mode_results = tuple(
+                    sorted(mode_results, key=lambda item: item.mode != requested)
+                )
+            context.recommendation_bundle = prior.model_copy(
+                update={
+                    "bundle_id": new_id(),
+                    "mode_results": mode_results,
+                    "verification_action": None,
+                    "verification_changes": (),
+                }
+            )
+            return FixtureStageOutput(
+                stage=RunStage.COMPARISON_DECISION,
+                trace_id=self._stage_trace_id(
+                    context.trace_id, RunStage.COMPARISON_DECISION
+                ),
+                summary="Prepared the requested view of the saved comparison.",
+                runtime_mode=self._agent_workflow_mode.value,
+                agent_name="SavedComparisonModeSelector",
+            )
+        if (
             self._agent_workflow_mode == AgentWorkflowMode.LIVE
             and context.general_owner_draft
         ):
@@ -2748,8 +2852,11 @@ class ShoppingRunOrchestrator:
         if not _analysis_products(context) or (
             self._agent_workflow_mode == AgentWorkflowMode.FIXTURE
             and context.fixture_output is None
+            and context.prior_recommendation is None
         ):
-            context.recommendation_bundle = _no_product_recommendation(context)
+            context.recommendation_bundle = _with_manual_comparison_rows(
+                _no_product_recommendation(context), context
+            )
             return self._insufficient_stage_output(
                 context, RunStage.COMPARISON_DECISION
             )
@@ -2757,6 +2864,36 @@ class ShoppingRunOrchestrator:
             self._agent_workflow_mode != AgentWorkflowMode.LIVE
             or self._comparison_decision_agent is None
         ):
+            if context.prior_recommendation is not None:
+                from app.agents.live_comparison_decision import (
+                    evidence_backed_fallback_recommendation,
+                )
+
+                context.recommendation_bundle = evidence_backed_fallback_recommendation(
+                    ComparisonDecisionAgentInput(
+                        run_id=context.run_id,
+                        brief=context.active_brief,
+                        products=_analysis_products(context),
+                        listings=_analysis_listings(context),
+                        category_analyses=context.category_analyses,
+                        trust_assessments=context.trust_assessments,
+                        evidence=_analysis_evidence(context),
+                        user_added_products=_user_added_products(context),
+                        requested_result_mode=(
+                            context.refinement_plan.requested_result_mode
+                            if context.refinement_plan
+                            else None
+                        ),
+                    )
+                )
+                return FixtureStageOutput(
+                    stage=RunStage.COMPARISON_DECISION,
+                    trace_id=self._stage_trace_id(
+                        context.trace_id, RunStage.COMPARISON_DECISION
+                    ),
+                    summary="Recomputed the decision from saved evidence.",
+                    runtime_mode=AgentWorkflowMode.FIXTURE.value,
+                )
             return self._fixture_stage_output(context, RunStage.COMPARISON_DECISION)
 
         products = _analysis_products(context)
@@ -2773,6 +2910,11 @@ class ShoppingRunOrchestrator:
                 deduplication_decisions=_deduplication_decisions(context),
                 evidence=evidence,
                 user_added_products=_user_added_products(context),
+                requested_result_mode=(
+                    context.refinement_plan.requested_result_mode
+                    if context.refinement_plan
+                    else None
+                ),
             )
         )
         bundle = _with_manual_comparison_rows(bundle, context)
@@ -2821,7 +2963,7 @@ class ShoppingRunOrchestrator:
             if item.get("tool_name") == "sdk_handoff"
             and item.get("status") == "completed"
         )
-        provenance = {"result_author": draft.owner_agent_name, "handoff_chain": chain}
+        provenance: dict[str, Any] = {"result_author": draft.owner_agent_name, "handoff_chain": chain}
         expected_chain = (
             ()
             if draft.owner_agent_name == "GeneralShoppingAgent"
@@ -3030,7 +3172,7 @@ class ShoppingRunOrchestrator:
         ]
         runner_up_ids: list[ProductId] = []
         seen_modes = {RecommendationMode.BEST_OVERALL}
-        seen_rows = {(product.product_id, None)}
+        seen_rows: set[tuple[ProductId, ListingId | None]] = {(product.product_id, None)}
         for mode in draft.mode_selections:
             if mode.mode in seen_modes:
                 continue
@@ -3127,16 +3269,16 @@ class ShoppingRunOrchestrator:
                 RecommendationMode.WITHIN_BUDGET,
                 RecommendationMode.STRETCH_PICK,
             }:
-                budget = context.active_brief.budget
+                mode_budget = context.active_brief.budget
                 if (
-                    budget is None
+                    mode_budget is None
                     or mode_listing is None
                     or mode_listing.price is None
-                    or mode_listing.price.currency != budget.amount.currency
+                    or mode_listing.price.currency != mode_budget.amount.currency
                 ):
                     continue
                 listing_amount = Decimal(mode_listing.price.amount)
-                budget_amount = Decimal(budget.amount.amount)
+                budget_amount = Decimal(mode_budget.amount.amount)
                 if (
                     mode.mode == RecommendationMode.WITHIN_BUDGET
                     and listing_amount > budget_amount
@@ -3222,6 +3364,25 @@ class ShoppingRunOrchestrator:
         context: ShoppingRunContext,
     ) -> FixtureStageOutput:
         if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+            if (
+                context.prior_recommendation is not None
+                and context.recommendation_bundle is not None
+            ):
+                report = verify_recommendation_guardrails(
+                    VerificationAgentInput(
+                        run_id=context.run_id,
+                        brief=context.active_brief,
+                        recommendation_bundle=context.recommendation_bundle,
+                        products=_analysis_products(context),
+                        listings=_analysis_listings(context),
+                        evidence=_analysis_evidence(context),
+                        trust_assessments=context.trust_assessments,
+                        category_analyses=context.category_analyses,
+                        user_added_products=_user_added_products(context),
+                    )
+                )
+                context.verification_report = report
+                context.recommendation_bundle = report.recommendation_bundle
             return self._fixture_stage_output(context, RunStage.VERIFICATION)
 
         bundle = context.recommendation_bundle
@@ -4364,6 +4525,7 @@ def _deduplicated_user_added_products(
         product_ids = tuple(
             dict.fromkeys(
                 item.listing_extraction.product.product_id for item, _ in matches
+                if item.listing_extraction is not None
             )
         )
         confirmed = [
@@ -4392,6 +4554,7 @@ def _deduplicated_user_added_products(
             confirmed[0],
         )
         extraction = preferred.listing_extraction
+        assert extraction is not None
         updated.append(
             user_added.model_copy(
                 update={

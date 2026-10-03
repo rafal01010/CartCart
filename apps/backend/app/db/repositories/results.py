@@ -21,6 +21,7 @@ from app.schemas.analysis import (
 )
 from app.schemas.ids import CandidateId, RunId, SessionId, new_id
 from app.schemas.runs import AgentRunRecord
+from app.schemas.runs import RunStatus
 from app.schemas.timestamps import utc_now
 
 
@@ -97,7 +98,9 @@ class ResultRepository:
         statement: Select[tuple[CategoryAnalysisRecord]] = (
             select(CategoryAnalysisRecord)
             .where(CategoryAnalysisRecord.run_id == str(run_id))
-            .order_by(CategoryAnalysisRecord.product_id, CategoryAnalysisRecord.category)
+            .order_by(
+                CategoryAnalysisRecord.product_id, CategoryAnalysisRecord.category
+            )
         )
         records = (await self._session.scalars(statement)).all()
         return tuple(record.to_schema() for record in records)
@@ -248,7 +251,10 @@ class ResultRepository:
                 ShoppingRunRecordModel,
                 ResultVersionRecord.run_id == ShoppingRunRecordModel.run_id,
             )
-            .where(ShoppingRunRecordModel.session_id == str(session_id))
+            .where(
+                ShoppingRunRecordModel.session_id == str(session_id),
+                ShoppingRunRecordModel.status == RunStatus.SUCCEEDED.value,
+            )
             .order_by(
                 ResultVersionRecord.created_at.desc(),
                 ResultVersionRecord.version.desc(),
@@ -261,9 +267,39 @@ class ResultRepository:
 
         return await self._load_result_bundle_from_version(version_record)
 
+    async def load_result_bundle_by_version(
+        self, result_version_id: CandidateId
+    ) -> SavedResultBundle | None:
+        record = await self._session.get(ResultVersionRecord, str(result_version_id))
+        return await self._load_result_bundle_from_version(record) if record else None
+
+    async def list_successful_versions(
+        self, session_id: SessionId
+    ) -> tuple[ResultVersionRecord, ...]:
+        statement = (
+            select(ResultVersionRecord)
+            .join(ShoppingRunRecordModel)
+            .where(
+                ShoppingRunRecordModel.session_id == str(session_id),
+                ShoppingRunRecordModel.status == RunStatus.SUCCEEDED.value,
+            )
+            .order_by(ResultVersionRecord.version, ResultVersionRecord.created_at)
+        )
+        return tuple((await self._session.scalars(statement)).all())
+
     async def _next_result_version(self, run_id: RunId) -> int:
-        statement = select(func.max(ResultVersionRecord.version)).where(
-            ResultVersionRecord.run_id == str(run_id)
+        statement = (
+            select(func.max(ResultVersionRecord.version))
+            .join(
+                ShoppingRunRecordModel,
+                ResultVersionRecord.run_id == ShoppingRunRecordModel.run_id,
+            )
+            .where(
+                ShoppingRunRecordModel.session_id
+                == select(ShoppingRunRecordModel.session_id)
+                .where(ShoppingRunRecordModel.run_id == str(run_id))
+                .scalar_subquery()
+            )
         )
         current_version = await self._session.scalar(statement)
         if current_version is None:

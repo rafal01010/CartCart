@@ -89,6 +89,35 @@ export interface WarningView {
 	sources: SourceView[];
 }
 
+export interface ComparisonProductView {
+	key: string;
+	productId: EntityId;
+	name: string;
+	listingId: EntityId | null;
+	seller: string | null;
+	price: string | null;
+	listingRisk: string | null;
+	manual: boolean;
+	criteria: { name: string; value: string }[];
+	summary: string | null;
+	evidence: EvidenceView[];
+	sources: SourceView[];
+}
+
+export interface ConsideredProductView {
+	candidateId: EntityId;
+	askedFor: string;
+	status: 'confirmed' | 'possible' | 'unresolved' | 'manual' | 'excluded';
+	matchedName: string | null;
+	possibleNames: string[];
+	exclusionReason: string | null;
+	manualSeller: string | null;
+	manualPrice: string | null;
+	manualUnknowns: string[];
+	listingRisk: string | null;
+	inComparison: boolean;
+}
+
 export interface ResultView {
 	versionLabel: string;
 	finalMode: ModeView | null;
@@ -107,6 +136,8 @@ export interface ResultView {
 	hasWeakEvidence: boolean;
 	hasConflictingEvidence: boolean;
 	hasPartialSources: boolean;
+	comparisonProducts: ComparisonProductView[];
+	consideredProducts: ConsideredProductView[];
 }
 
 const MODE_LABELS: Record<RecommendationMode, string> = {
@@ -151,6 +182,8 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		toTrustView(trust, evidenceById, sourceById, sourceViewById),
 	);
 	const trustViewByListingId = new Map(trustViews.map((trust) => [trust.listingId, trust]));
+	const comparisonProducts = buildComparisonProducts(result, productById, listingById, evidenceById, sourceById, sourceViewById, trustViewByListingId);
+	const comparisonIds = new Set(comparisonProducts.map((item) => item.productId));
 
 	const modeViews = result.recommendation_bundle.mode_results.map((mode) =>
 		toModeView(
@@ -205,7 +238,89 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		hasPartialSources: result.source_snapshots.some(
 			(source) => !['succeeded', 'success', 'complete', 'completed'].includes(source.extraction_status),
 		),
+		comparisonProducts,
+		consideredProducts: result.considered_products.map(({ candidate, status, exclusion_reason }) => {
+			const matchedId = candidate.product?.product_id;
+			const matchedProduct = matchedId ? productById.get(matchedId) : null;
+			const listingId = candidate.listing?.listing_id;
+			const trust = listingId ? trustViewByListingId.get(listingId) : null;
+			const details = candidate.manual_details;
+			return {
+				candidateId: candidate.candidate_id,
+				askedFor: shopperSafeText(candidate.input_text ?? candidate.url ?? candidate.product?.name ?? 'Product you asked us to check'),
+				status,
+				matchedName: matchedProduct ? shopperSafeText(matchedProduct.name) : status === 'manual' ? shopperSafeText(candidate.product?.name ?? '') : null,
+				possibleNames: (candidate.possible_product_ids ?? []).map((id) => productById.get(id)?.name).filter((name): name is string => Boolean(name)).map(shopperSafeText),
+				exclusionReason: exclusion_reason ? shopperSafeText(exclusion_reason) : null,
+				manualSeller: details?.seller ? shopperSafeText(details.seller) : null,
+				manualPrice: details?.price ? moneyLabel(details.price.amount, details.price.currency) : null,
+				manualUnknowns: status === 'manual' ? [
+					...(!details?.seller ? ['seller'] : []),
+					...(!details?.price ? ['price'] : []),
+					...(!details?.availability ? ['availability'] : []),
+					...(!details?.warranty ? ['warranty'] : []),
+				] : [],
+				listingRisk: listingRiskText(trust ?? null, candidate.listing?.seller.trust_signal),
+				inComparison: matchedId ? comparisonIds.has(matchedId) : false,
+			};
+		}),
 	};
+}
+
+function buildComparisonProducts(
+	result: SessionResultsResponse,
+	productById: Map<EntityId, SessionResultsResponse['products'][number]>,
+	listingById: Map<EntityId, SessionResultsResponse['listings'][number]>,
+	evidenceById: Map<EntityId, SourceEvidence>,
+	sourceById: Map<EntityId, SourceSnapshot>,
+	sourceViewById: Map<EntityId, SourceView>,
+	trustByListingId: Map<EntityId, TrustView>,
+): ComparisonProductView[] {
+	const matrix = result.comparison_matrix;
+	const shortlist = [
+		...result.shortlist,
+		...matrix.rows.map((row) => ({ candidate_id: row.product_id, product_id: row.product_id, listing_id: row.listing_id ?? null, position: null })),
+	];
+	const seen = new Set<string>();
+	return shortlist.flatMap((item) => {
+		const product = productById.get(item.product_id);
+		if (!product) return [];
+		const row = matrix.rows.find((candidate) => candidate.product_id === item.product_id && candidate.listing_id === item.listing_id)
+			?? matrix.rows.find((candidate) => candidate.product_id === item.product_id);
+		const listingId = row?.listing_id ?? item.listing_id;
+		const key = `${item.product_id}:${listingId ?? 'no-listing'}`;
+		if (seen.has(key)) return [];
+		seen.add(key);
+		const listing = listingId ? listingById.get(listingId) : null;
+		const trust = listingId ? trustByListingId.get(listingId) : null;
+		const manual = !listing && result.considered_products.some(({ candidate }) => candidate.manual_fallback_reason && candidate.product?.product_id === item.product_id);
+		const evidence = row ? mapEvidence(row.evidence_ids, evidenceById, sourceById) : [];
+		return [{
+			key,
+			productId: item.product_id,
+			name: shopperSafeText(product.name),
+			listingId: listingId ?? null,
+			seller: manual ? null : listing ? shopperSafeText(listing.seller.seller_name) : null,
+			price: manual ? null : listing?.price ? moneyLabel(listing.price.amount, listing.price.currency) : null,
+			listingRisk: listingRiskText(trust ?? null, listing?.seller.trust_signal),
+			manual: Boolean(manual),
+			criteria: matrix.criteria.map((criterion) => ({
+				name: shopperSafeText(criterion.name),
+				value: row && evidence.length > 0 && typeof row.scores[criterion.name] === 'number'
+					? scoreLabel(row.scores[criterion.name]) : 'Unknown',
+			})),
+			summary: row?.summary ? shopperSafeText(row.summary) : null,
+			evidence,
+			sources: mapSources(evidence.map((item) => item.sourceId), sourceViewById),
+		}];
+	});
+}
+
+function listingRiskText(trust: TrustView | null, sellerSignal: string | undefined): string | null {
+	if (trust?.isRisky) return trust.summary;
+	if (sellerSignal === 'suspicious') return 'This seller or listing has a suspicious trust signal.';
+	if (sellerSignal === 'weak') return 'This seller or listing has weak trust signals.';
+	return null;
 }
 
 export function modeLabel(mode: RecommendationMode): string {

@@ -2,12 +2,14 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import QueryPlannerAgentInput
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
@@ -21,6 +23,10 @@ from app.schemas.search_sources import (
     SearchPlan,
     SearchQuery,
     SourceType,
+)
+from app.services.shopping_intent import (
+    brief_has_unconstrained_budget,
+    search_intent_text,
 )
 
 _MAX_SEARCH_QUERY_LENGTH = 500
@@ -48,7 +54,7 @@ class OpenAIAgentsSDKQueryPlannerModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -137,6 +143,8 @@ class LiveQueryPlannerAgent:
             )
             self._set_activity("schema_invalid_fallback", input_data, plan)
             return plan
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             plan = _with_user_added_lookup_queries(
                 _fallback_search_plan(input_data.brief),
@@ -236,6 +244,13 @@ def _model_input(input_data: QueryPlannerAgentInput) -> str:
 
 def _coerce_query_plan_result(value: Any, brief: ShoppingBrief) -> SearchPlan:
     plan = value if isinstance(value, SearchPlan) else SearchPlan.model_validate(value)
+    if brief_has_unconstrained_budget(brief) and any(
+        re.search(
+            r"\b(?:budget|cheap|cheapest|affordable|low.cost)\b", query.query, re.I
+        )
+        for query in plan.queries
+    ):
+        plan = _fallback_search_plan(brief)
     plan = _normalize_query_plan(plan, brief)
     _validate_query_plan_policy(plan)
     return plan
@@ -244,8 +259,7 @@ def _coerce_query_plan_result(value: Any, brief: ShoppingBrief) -> SearchPlan:
 def _normalize_query_plan(plan: SearchPlan, brief: ShoppingBrief) -> SearchPlan:
     region_code = _region_code_from_brief(brief)
     queries = tuple(
-        _normalize_query(query, region_code=region_code)
-        for query in plan.queries
+        _normalize_query(query, region_code=region_code) for query in plan.queries
     )
     return SearchPlan(
         queries=_dedupe_queries(queries),
@@ -258,8 +272,8 @@ def _normalize_query(
     *,
     region_code: RegionCode | None,
 ) -> SearchQuery:
-    required_source_types = (
-        query.required_source_types or _default_source_types(query.intent)
+    required_source_types = query.required_source_types or _default_source_types(
+        query.intent
     )
     return query.model_copy(
         update={
@@ -288,10 +302,14 @@ def _validate_query_plan_policy(plan: SearchPlan) -> None:
         texts.append(plan.rationale)
     for text in texts:
         if _contains_artificial_blocking(text):
-            raise ValueError("query planner output included artificial category blocking.")
+            raise ValueError(
+                "query planner output included artificial category blocking."
+            )
 
     if len(plan.queries) < 2:
-        raise ValueError("query planner output must include shopping and review queries.")
+        raise ValueError(
+            "query planner output must include shopping and review queries."
+        )
     if not any(_is_shopping_query(query) for query in plan.queries):
         raise ValueError("query planner output must include a shopping query.")
     if not any(_is_review_query(query) for query in plan.queries):
@@ -373,6 +391,10 @@ def _default_source_types(intent: SearchIntent) -> tuple[SourceType, ...]:
 
 def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
     descriptor = _query_descriptor(brief)
+    if brief_has_unconstrained_budget(brief):
+        descriptor = f"latest premium {descriptor}"
+    if (brief.category or "").casefold() in {"smartphone", "phone", "mobile phone"}:
+        descriptor = f"{descriptor} current models {datetime.now(timezone.utc).year}"
     region_code = _region_code_from_brief(brief)
     region_phrase = _region_phrase(region_code)
     budget_phrase = _budget_phrase(brief)
@@ -413,7 +435,7 @@ def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
         ),
         SearchQuery(
             query=_clean_query(
-                f"{descriptor} {context_phrase} video review long term comparison"
+                f"{descriptor} {context_phrase} {region_phrase} video review long term comparison"
             ),
             intent=SearchIntent.VIDEO_REVIEW,
             region_code=region_code,
@@ -487,7 +509,9 @@ def _user_added_lookup_query(
     if not lookup_text:
         return None
     return SearchQuery(
-        query=_clean_query(f"{lookup_text} official retailer listing"),
+        query=_clean_query(
+            f"{lookup_text} {_region_phrase(region_code)} official retailer listing"
+        ),
         intent=SearchIntent.DISCOVERY,
         region_code=region_code,
         required_source_types=(
@@ -502,7 +526,7 @@ def _query_descriptor(brief: ShoppingBrief) -> str:
     category = _clean_query(brief.category or "")
     if category:
         return category
-    return _clean_query(brief.original_query)
+    return _clean_query(search_intent_text(brief.original_query))
 
 
 def _region_code_from_brief(brief: ShoppingBrief) -> RegionCode | None:
@@ -512,6 +536,8 @@ def _region_code_from_brief(brief: ShoppingBrief) -> RegionCode | None:
 
 
 def _region_phrase(region_code: RegionCode | None) -> str:
+    if region_code == "PH":
+        return "in PH Philippines"
     return f"in {region_code}" if region_code is not None else ""
 
 
@@ -530,7 +556,7 @@ def _context_phrase(brief: ShoppingBrief) -> str:
         for item in (*brief.constraints, *brief.preferences)
         if item.mode in {PreferenceMode.HARD, PreferenceMode.SOFT}
     ]
-    return " ".join(texts[:2])
+    return " ".join(search_intent_text(text) for text in (brief.original_query, *texts))
 
 
 def _format_amount(amount: Decimal) -> str:

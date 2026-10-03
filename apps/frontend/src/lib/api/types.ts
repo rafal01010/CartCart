@@ -182,13 +182,14 @@ export interface UserAddedProduct {
 	input_text?: string | null;
 	url?: string | null;
 	product?: CanonicalProduct | null;
-	listing?: JsonObject | null;
+	listing?: ProductListing | null;
 	possible_product_ids?: EntityId[];
 	research_attempted?: boolean;
 	manual_fallback_reason?: 'retrieval_unavailable' | 'retrieval_insufficient' | 'user_correction' | null;
 	manual_details?: ManualProductDetails | null;
 	manual_evidence_status?: Record<string, 'unknown' | 'user_reported'> | null;
 	notes?: string | null;
+	intake_source_question_ids?: string[];
 	created_at: Timestamp;
 }
 
@@ -412,6 +413,8 @@ export interface RunEvent {
 
 export interface CreateRefinementRequest {
 	instruction: string;
+	category?: string | null;
+	result_mode?: RecommendationMode | null;
 	region?: RegionPreference | null;
 	budget?: BudgetConstraint | null;
 	constraints?: PreferenceConstraint[];
@@ -429,6 +432,30 @@ export interface RefinementRequest extends CreateRefinementRequest {
 export interface RefinementRunResponse {
 	refinement: RefinementRequest;
 	run: ShoppingRunRecord;
+	plan: RecomputePlan;
+}
+
+export type RecomputeStage = 're_intake' | 'search' | 'extraction' | 'analysis' | 'result_mode';
+export type ArtifactDisposition = 'reused' | 'invalidated';
+export interface RecomputePlan {
+	schema_version: number;
+	plan_id: CandidateId;
+	refinement_id: CandidateId;
+	session_id: SessionId;
+	run_id: RunId;
+	prior_run_id: RunId;
+	prior_result_version_id: CandidateId;
+	base_brief: ShoppingBrief;
+	target_brief: ShoppingBrief;
+	requested_result_mode: RecommendationMode | null;
+	stages: RecomputeStage[];
+	artifacts: Array<{
+		schema_version: number;
+		artifact: string;
+		disposition: ArtifactDisposition;
+		reason: string;
+	}>;
+	created_at: Timestamp;
 }
 
 export interface ResultVersionResponse {
@@ -437,6 +464,9 @@ export interface ResultVersionResponse {
 	version: number;
 	recommendation_bundle_id: CandidateId;
 	comparison_matrix_id: CandidateId;
+	refinement_id: CandidateId | null;
+	prior_result_version_id: CandidateId | null;
+	requested_result_mode: RecommendationMode | null;
 }
 
 export interface SourceQuality {
@@ -473,6 +503,7 @@ export interface SourceSnapshot {
 	provider: JsonObject;
 	title?: string | null;
 	extraction_status: string;
+	extracted_content?: JsonObject | null;
 	http_status_code?: number | null;
 	quality: SourceQuality;
 	captured_at: Timestamp;
@@ -538,6 +569,19 @@ export interface ComparisonMatrix {
 	rows: ComparisonRow[];
 }
 
+export interface ShortlistItem {
+	candidate_id: CandidateId;
+	product_id: EntityId;
+	listing_id: EntityId | null;
+	position: number | null;
+}
+
+export interface ConsideredProductOutcome {
+	candidate: UserAddedProduct;
+	status: 'confirmed' | 'possible' | 'unresolved' | 'manual' | 'excluded';
+	exclusion_reason: string | null;
+}
+
 export interface RecommendationModeResult {
 	mode: RecommendationMode;
 	product_id: EntityId;
@@ -589,6 +633,20 @@ export interface SessionResultsResponse {
 	recommendation_bundle: RecommendationBundle;
 	products: CanonicalProduct[];
 	listings: ProductListing[];
+	shortlist: ShortlistItem[];
+	considered_products: ConsideredProductOutcome[];
 	source_snapshots: SourceSnapshot[];
 	source_evidence: SourceEvidence[];
+}
+
+export interface DecisionHistoryEntry {
+	result_version_id: CandidateId;
+	version: number;
+	brief: ShoppingBrief;
+	change: string | null;
+}
+
+export interface DecisionHistoryResponse {
+	original_query: string;
+	versions: DecisionHistoryEntry[];
 }

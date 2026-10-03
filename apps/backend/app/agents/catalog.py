@@ -355,7 +355,10 @@ def _entry(
         output_schema=output_schema,
         is_reusable_source_agent=is_reusable_source_agent,
         target_research_decisions=target_research_decisions,
-        planned_tool_boundaries=planned_tool_boundaries,
+        planned_tool_boundaries=(
+            *planned_tool_boundaries,
+            *(("BoundedEvidenceContext",) if agent_name in _BOUNDED_SDK_AGENTS else ()),
+        ),
         approved_sdk_tools=approved_sdk_tools,
         planned_sdk_tools=planned_sdk_tools,
         target_handoff_agent_names=target_handoff_agent_names,
@@ -437,6 +440,8 @@ _TARGET_OWNER_RESEARCH_BOUNDARIES = (
     "SourceIntelligenceManagerAgent",
     "SellerListingTrustAgent",
     "ComparisonHelpers",
+    "CurrentRegionalResearchGuidance",
+    "ShoppingRunFailureReporting",
 )
 
 _OWNER_APPROVED_TOOLS = (
@@ -450,6 +455,18 @@ _OWNER_APPROVED_TOOLS = (
     ApprovedSDKTool.CHECK_LISTING_TRUST,
     ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE,
 )
+
+
+_BOUNDED_SDK_AGENTS = {
+    "GeneralShoppingAgent", "TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent",
+    "MonitorSpecialistAgent", "LaptopSpecialistAgent", "EarphonesHeadphonesSpecialistAgent",
+    "TVSpecialistAgent", "SmartwatchSpecialistAgent", "ShoppingScopeGuardrail",
+    "IntakeAgent", "ShoppingGuideAgent", "QueryPlannerAgent", "DiscoveryAgent", "ExtractionAgent",
+    "CategoryRouterAgent", "GenericProductAnalystAgent", "SellerListingTrustAgent",
+    "ComparisonDecisionAgent", "VerifierCriticAgent", "SourceIntelligenceManagerAgent",
+    "YouTubeReviewIntelligenceAgent", "RedditCommunityIntelligenceAgent",
+    "AmazonProductIntelligenceAgent", "IKEAStoreIntelligenceAgent",
+}
 
 
 _DEFAULT_AGENT_ENTRIES = {
@@ -663,7 +680,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "PhoneReleaseAndLaunchGuidance",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "LaptopSpecialistAgent": _entry(
@@ -771,6 +791,8 @@ _DEFAULT_AGENT_ENTRIES = {
         parent_agent_name="SourceIntelligenceManagerAgent",
         agent_as_tool_available=True,
         provider_service_name="YouTubeReviewIntelligenceService",
+        planned_tool_boundaries=("LiveProviderEvidenceGaps",),
+        fixture_fallback=FixtureFallback.EVIDENCE_GAP,
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_VIDEOS,
             ApprovedSDKTool.READ_VIDEO_METADATA,
@@ -794,6 +816,7 @@ _DEFAULT_AGENT_ENTRIES = {
         parent_agent_name="SourceIntelligenceManagerAgent",
         agent_as_tool_available=True,
         provider_service_name="RedditCommunityIntelligenceService",
+        planned_tool_boundaries=("LiveProviderEvidenceGaps",),
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_COMMUNITY_DISCUSSIONS,
             ApprovedSDKTool.READ_COMMUNITY_DISCUSSION,
@@ -817,6 +840,7 @@ _DEFAULT_AGENT_ENTRIES = {
         parent_agent_name="SourceIntelligenceManagerAgent",
         agent_as_tool_available=True,
         provider_service_name="AmazonProductIntelligenceService",
+        planned_tool_boundaries=("LiveProviderEvidenceGaps",),
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
             ApprovedSDKTool.READ_AMAZON_PRODUCT,
@@ -842,6 +866,7 @@ _DEFAULT_AGENT_ENTRIES = {
         agent_as_tool_available=True,
         sdk_implementation_pending=False,
         provider_service_name="IKEAStoreIntelligenceService",
+        planned_tool_boundaries=("LiveProviderEvidenceGaps",),
         approved_sdk_tools=(
             ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
             ApprovedSDKTool.READ_IKEA_PRODUCT,

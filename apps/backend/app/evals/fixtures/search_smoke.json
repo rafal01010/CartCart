@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "request": {
+    "query": {
+      "query": "fixture shopping source",
+      "intent": "discovery",
+      "region_code": "PH"
+    },
+    "options": {"region_code": "PH", "max_results": 1}
+  },
+  "results": [
+    {
+      "source_id": "00000000-0000-4000-8000-000000000095",
+      "query": {
+        "query": "fixture shopping source",
+        "intent": "discovery",
+        "region_code": "PH"
+      },
+      "url": "https://example.com/cartcart-eval-fixture",
+      "title": "Synthetic shopping source",
+      "provider": {"provider_name": "eval-fixture-search"}
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Current local operations reference
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 
 ## Local MVP Assumptions
 
@@ -128,6 +128,62 @@ Run it:
 - before submitting backend behavior changes
 - with a focused test path for task-local checks, such as `scripts/local/test-backend.sh tests/test_health.py`
 
+`scripts/local/run-evals.sh` defaults to the single synthetic Pydantic Evals
+scaffolding case. `--suite intake-planning` selects the scoped guide, brief and
+query-plan suite with explicit mock runners and field/behavior assertions.
+`--suite discovery-extraction` selects source selection/quality, extraction fidelity
+and conservative dedupe checks with deterministic services and explicit mocks.
+`--suite trust-recommendation` selects shopping-scope/safe-product guardrails,
+seller risk, final picks, budget/citation/conflict handling and safe result copy.
+It is required in the regular decision/safety quality gate, starting at Section Q.
+`--suite source-intelligence` selects YouTube, Reddit, Amazon and IKEA service/SDK
+contract checks with synthetic providers, explicit mock runners, provenance
+assertions and downstream evidence probes. This lane is required in the regular
+quality gate for source handling changes, starting at Section Q.
+All suites use the backend's locked, installed development dependencies. The script
+works from any working directory and does not load `.env` or call live providers/models.
+Sync dependencies first; execution uses uv's offline mode. It saves timestamped
+JSON reports under `data/artifacts/evals/` and exits nonzero on evaluation failure.
+The standalone runner uses that fixed default, independent of runtime artifact
+directory settings; `--output-dir` selects another directory. See
+[Evaluation](EVALUATION.md#run-the-local-scaffolding-eval) for report contents
+and current coverage limits, including the
+[mocked intake/planning lane](EVALUATION.md#guided-intake-and-query-planning-evals),
+the [discovery/extraction/dedupe lane](EVALUATION.md#discovery-extraction-and-dedupe-evals),
+the [trust/guardrail/recommendation lane](EVALUATION.md#trust-guardrail-and-recommendation-evals)
+and [reusable source lane](EVALUATION.md#reusable-source-intelligence-evals).
+`--suite quick` runs a fixed 27-case deterministic/mocked subset for routine CI.
+`--suite full` runs quick first, then all 110 executable offline cases, collecting
+full diagnostics even if quick fails. Any phase failure returns nonzero; the
+versioned suite manifest links every lane report. The initial 24-case corpus
+remains specification-only. See [quick/full coverage and Section Q gate](EVALUATION.md#quick-and-full-offline-evals).
+`scripts/local/verify-evals.sh` runs only the combined Tasks 95–100 gate: offline
+evals (quick before full), selected eval tests, scoped lint/type checks, syntax
+and whitespace. Reports remain in ignored `data/artifacts/evals/`; repository-local
+pytest scratch and the gate-local uv cache are deleted. The gate includes
+selected regressions for the earlier contracts changed by the repair pass, with
+both live test markers excluded. No live calls, frontend checks or earlier full
+gates run.
+The 2026-10-03 Section Q repair gate passed 355 selected tests and scoped tooling.
+Quick passed 27/27 before full passed 108/108, and the gate returned zero.
+The 26 focused repair checks reproduced the original failures before fixes and
+now pass without changing their acceptance criteria.
+See the [repair causes and saved manifest](EVALUATION.md#section-q-gate-result-2026-10-03).
+
+
+Run it:
+
+```sh
+scripts/local/run-evals.sh --suite quick
+scripts/local/run-evals.sh --suite full
+scripts/local/verify-evals.sh
+scripts/local/run-evals.sh
+scripts/local/run-evals.sh --suite intake-planning
+scripts/local/run-evals.sh --suite discovery-extraction
+scripts/local/run-evals.sh --suite trust-recommendation
+scripts/local/run-evals.sh --suite source-intelligence
+```
+
 `scripts/local/migrate-backend.sh` runs Alembic migrations from the backend project. It upgrades to `head` by default, and accepts an optional revision as the first argument.
 
 Run it:
@@ -227,7 +283,33 @@ scripts/local/start-backend.sh
 scripts/local/start-frontend.sh
 ```
 
-`start-backend.sh` and `start-frontend.sh` refuse to start a duplicate managed service when the PID file points to a running process. If the PID file is stale, the start script removes it and starts a new process. `stop-app.sh` treats missing or stale PID files as already stopped. If a service exits during the first startup second, the start script prints the last log lines and removes its PID file.
+`start-backend.sh` and `start-frontend.sh` keep an already-running managed service.
+Use `restart-app.sh` after changing `.env`; starting again does not reload that
+process. A confirmed stale PID is removed. Permission errors and invalid PIDs
+stop the operation and preserve its PID file. An HTTP server already responding
+without a managed PID blocks duplicate startup.
+
+Startup requires `curl` and waits up to 30 probe cycles for the backend
+`/healthz` or frontend `/` response. A process that exits is reported as a failed
+startup; a readiness timeout leaves its PID available for `stop-app.sh` cleanup.
+Failures point to the log file without printing raw log content. Backend startup
+prints the effective workflow mode and live-agent flag without credentials.
+
+These wrappers reload `.env` on each start and give file values precedence over
+existing shell exports. Frontend `.env` values override backend `.env` values for
+frontend startup. For an intentional shell override, pass `--use-shell-env` to
+the lifecycle command:
+
+```sh
+CARTCART_BACKEND_RELOAD=false scripts/local/restart-app.sh --use-shell-env
+```
+
+An inherited export has no timestamp or command provenance; `&&` alone cannot
+identify a fresh override. The explicit option applies only to that invocation.
+The workbench wrapper accepts this option before its normal arguments. Reset and
+artifact-cleanup wrappers accept it after `--yes`; neither operation is part of
+normal restart. Direct Python commands still use Pydantic's environment-first
+settings behavior, so use the documented wrappers for file-first startup.
 
 Lifecycle environment variables:
 
@@ -529,10 +611,10 @@ OPENAI_API_KEY=replace-with-your-real-key
 
 Without `OPENAI_API_KEY`, readiness reports `agents:openai` with
 `missing_openai_api_key`, while fixture and mocked agent modes remain available.
-If live search or page retrieval is enabled while the workflow remains
-`fixture`, readiness reports `fixture_agents_with_live_providers`. That mixed
-mode can gather provider results but uses network-free fixture agent decisions;
-it cannot validate live agent-owned research. For a no-product TV or furniture
+If any live source provider is enabled while the workflow remains
+`fixture`, readiness reports `fixture_agents_with_live_providers`. Normal
+shopping runs reject that mixed mode before calls; isolated provider probes
+remain separate. For a no-product TV or furniture
 fixture run, expect a no-strong-buy result rather than monitor candidates.
 Model, reasoning effort, timeout, and max turns resolve independently in this order: exact
 registered-agent override, catalog-assigned profile, `default` profile, then
@@ -586,9 +668,10 @@ categories and reasons accompany each handoff; the trace records completed SDK
 transfer items, source/target models, depth, and the last agent. A failed
 specialist recovery is a separate Technology owner run, not a reverse SDK
 handoff. Invalid targets, mismatched context, failed transfers, or budget
-errors yield an explicit insufficient-evidence gap. The acyclic graph is
-limited to two hops, ten initial turns plus at most two Technology recovery
-turns, the shortest configured owner timeout, and a 90,000-token run ceiling
+errors retain diagnostics; unrecovered technical failures fail the shopping run.
+The acyclic graph is limited to two hops, the configured General owner turn
+budget plus at most two Technology recovery turns within the same configured
+General timeout, and a 90,000-token owner/source ceiling enforced before calls and
 checked on completion, including nested source-agent usage. Technology has a
 1,800-token per-turn output cap and specialists have a 1,500-token cap. Every
 owner can use role-scoped hosted/provider search, same-run evidence lookup,
@@ -597,7 +680,7 @@ one bounded source-manager consultation. The manager accepts a persisted run
 product or a candidate grounded in an owner-recorded exact page quote; source
 specialists stay nested tools. `GeneralShoppingAgent` runs after scoped intake in the opt-in live
 shopping API and in the isolated workbench. It uses a `strong` profile, up to
-10 initial turns, 2,500 output tokens per turn, bounded provider search/fetch/quote
+the configured initial turn budget, 2,500 output tokens per turn, bounded provider search/fetch/quote
 tools, optional hosted search,
 and run-scoped citation persistence. The last SDK owner's draft is persisted
 after same-run reference checks and verifier review; the bundle records author,
@@ -606,12 +689,77 @@ workbench mock mode uses in-process providers and a scripted model runner.
 The resolved model and optional reasoning effort are set on each SDK `Agent`,
 not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
 caller's model profile.
+
+### Verify live shopping mode after a manual run
+
+Live search providers do not enable live agents. Set both
+`CARTCART_AGENT_WORKFLOW_MODE=live` and `CARTCART_LIVE_AGENTS_ENABLED=true` in
+`apps/backend/.env`, with the owner's existing OpenAI key and models configured.
+Normal shopping runs reject mixed live-provider/fixture-agent mode with HTTP 409
+and `research_mode_mismatch`, before starting research. The UI explains the
+configuration conflict instead of showing a completed buying decision.
+
+The lifecycle scripts give `.env` precedence over previous shell exports. Run
+from the repository root:
+
+```sh
+scripts/local/restart-app.sh
+```
+
+Start a new shopping question; saved results are not recomputed by a restart.
+The progress screen opens while the synchronous run request is pending.
+Afterward, inspect the most recent saved run without making network calls:
+
+```sh
+cd apps/backend
+.venv/bin/python -m app.tools.inspect_shopping_run
+```
+
+Pass `--run-id UUID` to inspect a specific run. The read-only command prints
+runtime mode, agent/model names, stage status, fallback outcomes and tool names
+with statuses. Handoff summaries include source/target agents, and the owner
+summary includes the last active agent even after a failed stage. It omits raw
+tool payloads, source content and credentials. A live
+phone ownership chain should show live model records and completed `sdk_handoff`
+activity, with `SmartphoneSpecialistAgent` owning the draft. A fixture record with
+no model is not proof that a specialist or hosted search ran.
+
+Hosted research uses medium context, current-date/regional instructions and
+actual SDK search-source metadata. General permits six search actions and
+eighteen hosted actions total, including page opens/finds, within the configured
+run budgets. Typed provider limits, domain policies, citations and seller checks
+remain enforced. A technical research failure becomes a failed run; missing
+independent product evidence can still produce an honest no-strong-buy result.
+The General owner runs the whole SDK handoff chain under one timeout and turn
+budget. A live phone probe completed both specialist handoffs and fetched useful
+sources but hit the previous 60-second limit before producing its draft. The
+example and local configuration now give only `GeneralShoppingAgent` an explicit
+180-second, 25-turn override. Other agent profiles retain their budgets. This is
+a bounded configuration correction. A separately authorized fresh run then
+failed before any handoff with an SDK `UserError`; it did not time out. Intake
+also received a bad-request response because the generated money schema used
+unsupported regex lookaround. That schema is now corrected without relaxing
+runtime amount validation. The new fixes have offline verification but still
+need complete live acceptance. A third authorized probe confirmed live intake
+and both Smartphone handoffs, but its 251,269 accumulated tokens exceeded the
+unchanged 90,000-token guard after research. No buying result was saved. The next
+repair must bound model context and usage before the budget is spent; the
+timeout correction alone does not establish successful recommendation behavior.
+Saved owner activity and the read-only inspector retain
+the exception class and an allowlisted handoff rejection code when available,
+without saving raw exception messages. Earlier failed runs remain failed.
+The installed SDK accepts reasoning efforts through `xhigh`; selecting the
+reserved `max` value produces an explicit configuration error before a call.
 The source specialists use the `fast` profile (`gpt-6-luna` in `.env.example`),
 which supports hosted search. An incompatible source-agent override or missing
 run-scoped citation persistence stops live setup. Workbench activity records
 each source agent's actual hosted call, returned URLs, retained weak citation
 IDs, and rejected URLs. Fixture/mock workbench runs attach no hosted tool and
 make no network call.
+In a normal live workflow, inactive or credential-missing provider adapters
+return disabled/empty evidence. They never substitute fixture page text,
+transcripts, reviews or offers. An optional source gap can coexist with useful
+verified evidence from other sources.
 Listing trust uses its `strong` profile and also requires a compatible hosted
 search model, a buyer region, a public listing or seller domain, and run-scoped
 citation persistence before a live call. Its workbench activity separates an
@@ -978,3 +1126,30 @@ Cross-session preference profiling is explicitly out of scope for MVP. CartCart 
 Logs and traces should avoid secrets and should not include full sensitive source content by default. Environment variables and provider keys must not be committed.
 
 Seller/listing legitimacy is operationally important. Suspicious deterministic flags should not be silently overridden by agent output, and user-visible warnings should be preserved where they materially affect buying safety.
+
+
+## Context limits and offline gate
+
+Run `scripts/local/verify-context.sh` from the repository root for Task 100B's
+affected regressions, scoped lint/typing, audit and Section Q quick-before-full
+evals. No server, credential or live call is needed. Audit reports stay in
+ignored `data/artifacts/context`; the script removes its repository-local test
+and cache scratch on exit.
+
+[CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md) documents the measured costs,
+field matrix and uncertainty. Defaults bound estimated known input at 16,000
+tokens and whole-pipeline cumulative usage at 150,000. The existing 90,000-token
+owner/source and 30,000-token source-manager allowances remain. Comparison and
+verification reserve 10,000 and 8,000 tokens respectively. Hosted search reserves
+an additional estimated 8,000 tokens per enabled request. Returned actual usage
+settles each model call once; unknown/failed/cancelled usage consumes its entire
+reservation. These are offline assumptions pending separately authorized live
+calibration, not exact hosted-tool or tokenizer measurements.
+
+`context_call` stage activity records sizes, schema/instruction overhead,
+estimated versus actual tokens and finalization/blocking status without raw
+shopper/source text or exception bodies. Budget exhaustion is a technical run
+failure; it must not become a no-strong-buy result. Recovery cannot spend past
+its original allowance. Context preparation creates no runtime working files;
+full original support follows the existing durable evidence retention policy.
+Task 100A remains open and Task 101 is unstarted.

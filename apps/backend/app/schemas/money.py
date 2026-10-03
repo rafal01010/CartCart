@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BeforeValidator, Field, StringConstraints
+from pydantic import BeforeValidator, Field, StringConstraints, WithJsonSchema
 
 from app.schemas.base import CartCartBaseModel
 
@@ -24,5 +24,19 @@ CurrencyCode = Annotated[
 
 
 class Money(CartCartBaseModel):
-    amount: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    amount: Annotated[
+        Decimal,
+        WithJsonSchema(
+            {
+                "anyOf": [
+                    {"type": "number", "minimum": 0},
+                    {
+                        "type": "string",
+                        "pattern": r"^[0-9]{1,10}(?:\.[0-9]{1,2})?$",
+                    },
+                ]
+            },
+            mode="validation",
+        ),
+    ] = Field(ge=0, max_digits=12, decimal_places=2)
     currency: CurrencyCode

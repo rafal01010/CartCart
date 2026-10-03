@@ -90,14 +90,9 @@ describe('contextual refinement prompt helpers', () => {
 		expect(refinementPromptCanContinue(draft)).toBe(true);
 		expect(buildRefinementRequestFromPrompt(draft)).toEqual({
 			instruction: 'Compare office chair instead.',
+			category: 'office chair',
 			constraints: [],
-			preferences: [
-				{
-					text: 'Correct product category: office chair',
-					mode: 'soft',
-					source: 'user_provided',
-				},
-			],
+			preferences: [],
 		});
 	});
 

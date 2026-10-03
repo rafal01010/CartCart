@@ -14,6 +14,7 @@ from app.agents.research_tools import (
     SearchSourcesRequest,
 )
 from app.agents.workbench import _workbench_activity
+from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.core.settings import Settings
 from app.db.base import Base
 from app.db.repositories.runs import RunRepository
@@ -86,6 +87,7 @@ class RecordingExtractionProvider:
                 text="A review covering several TVs. " * 100,
                 extractor="fixture",
                 word_count=600,
+                published_date="2020-10-03",
             ),
         )
 
@@ -108,6 +110,72 @@ class FailedExtractionProvider(RecordingExtractionProvider):
             ),
             extraction_status=ExtractionStatus.FAILED,
         )
+
+
+@pytest.mark.asyncio
+async def test_late_source_span_exact_quote_and_same_run_scope(tmp_path: Path) -> None:
+    engine, factory, run_id, other_run = await _database(tmp_path)
+    quote = "Imported 256GB offer has no local warranty; PH 512GB is a different variant."
+    page = "Unrelated navigation. " * 2000 + quote
+    source = _generic_result()
+    snapshot = SourceSnapshot(url=source.url, source_type=SourceType.PRODUCT_PAGE,
+        provider=ProviderMetadata(provider_name="fixture"), extraction_status=ExtractionStatus.SUCCEEDED,
+        extracted_content=ExtractedPageContent(text=page, extractor="fixture", word_count=4000))
+    try:
+        async with factory() as session:
+            repository = SearchSourceRepository(session)
+            await repository.add_search_result(run_id, source)
+            await repository.add_source_snapshot(run_id, snapshot, search_result_id=source.source_id)
+            await session.commit()
+        tools = AgentResearchTools(agent_name="SmartphoneSpecialistAgent", run_id=run_id,
+            session_factory=factory, search_provider=RecordingSearchProvider(),
+            extraction_provider=RecordingExtractionProvider())
+        first = await tools.fetch(FetchSourceRequest(source_id=source.source_id))
+        assert first.text == page[:4000]
+        assert (await tools.record_quote(source.source_id, quote)).status == ResearchToolStatus.GAP
+        late = await tools.fetch(FetchSourceRequest(source_id=source.source_id, focus="Imported 256GB"))
+        assert quote in (late.text or "")
+        assert late.start_char > 4000 and late.total_characters == len(page)
+        recorded = await tools.record_quote(source.source_id, quote)
+        assert recorded.quote == quote and recorded.evidence_id is not None
+        reader = SnapshotInterpretationTools(run_id=run_id, allowed_snapshot_ids=(snapshot.source_id,), session_factory=factory)
+        assert quote in ((await reader.read(str(snapshot.source_id), focus="Imported 256GB")).text or "")
+        other = SnapshotInterpretationTools(run_id=other_run, allowed_snapshot_ids=(snapshot.source_id,), session_factory=factory)
+        assert (await other.read(str(snapshot.source_id))).status == "unknown_snapshot"
+        assert (await reader.read("/private/tmp/page.txt")).status == "invalid_request"
+        async with factory() as session:
+            repository = SearchSourceRepository(session)
+            durable = await repository.get_source_snapshot_for_run(run_id, snapshot.source_id)
+            evidence = await repository.list_source_evidence(run_id)
+        assert durable is not None and durable.extracted_content is not None
+        assert durable.extracted_content.text == page
+        assert evidence[0].claim == quote
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_dedup_keeps_distinct_variant_urls_and_derived_query(tmp_path: Path) -> None:
+    engine, factory, run_id, _ = await _database(tmp_path)
+    first = _generic_result("https://shop.example.com/phone?variant=256")
+    second = _generic_result("https://shop.example.com/phone?variant=512")
+    provider = RecordingSearchProvider((first, first, second))
+    tools = AgentResearchTools(agent_name="GeneralShoppingAgent", run_id=run_id, session_factory=factory,
+                              search_provider=provider, extraction_provider=RecordingExtractionProvider())
+    try:
+        found = await tools.search(SearchSourcesRequest(query="current phone Philippines official warranty"))
+        reused = await tools.search(SearchSourcesRequest(query="current phone Philippines official warranty"))
+        followup = await tools.search(SearchSourcesRequest(query="phone 512GB Philippines seller"))
+        assert [item.source_id for item in found.sources] == [first.source_id, second.source_id]
+        assert [item.source_id for item in followup.sources] == [first.source_id, second.source_id]
+        assert reused == found
+        assert [q.query for q, _ in provider.calls] == [
+            "current phone Philippines official warranty", "phone 512GB Philippines seller"]
+        assert tools.workbench_activity[-1]["input"]["query"] == "phone 512GB Philippines seller"
+        async with factory() as session:
+            assert len(await SearchSourceRepository(session).list_search_results(run_id)) == 2
+    finally:
+        await engine.dispose()
 
 
 async def _database(tmp_path: Path):
@@ -220,6 +288,7 @@ async def test_sdk_tools_persist_generic_sources_and_fetch_by_run_scoped_id(
                 json.dumps({"source_id": str(source.source_id)}),
             )
         )
+        assert fetched["published_date"] == "2020-10-03"
         assert fetched["status"] == "succeeded"
         assert fetched["source_id"] == str(source.source_id)
         assert fetched["snapshot_id"] != fetched["source_id"]
@@ -247,7 +316,8 @@ async def test_sdk_tools_persist_generic_sources_and_fetch_by_run_scoped_id(
             "fetch_source",
         ]
         assert all(
-            item.input == {"agent": "DiscoveryAgent", "run_id": str(run_id)}
+            {key: item.input[key] for key in ("agent", "run_id")}
+            == {"agent": "DiscoveryAgent", "run_id": str(run_id)}
             for item in _workbench_activity(tools)
         )
     finally:

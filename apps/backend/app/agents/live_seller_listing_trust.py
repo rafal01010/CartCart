@@ -4,9 +4,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field, ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import SellerListingTrustAgentInput
 from app.agents.hosted_web_search import build_hosted_web_search_tool
 from app.agents.openai_config import (
@@ -15,7 +16,7 @@ from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
-from app.agents.research_tools import HostedCitationStore
+from app.agents.research_tools import HostedCitationStore, PersistedHostedCitation
 from app.agents.trust_hosted_search import (
     persist_trust_search_leads,
     trust_search_policy,
@@ -75,7 +76,7 @@ class OpenAIAgentsSDKSellerListingTrustModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -189,7 +190,7 @@ class LiveSellerListingTrustAgent:
                 input_data,
                 rule_based,
             )
-            persisted = {}
+            persisted: dict[str, PersistedHostedCitation] = {}
             gap = None
             if citation_store is not None:
                 assert region_code is not None
@@ -238,6 +239,8 @@ class LiveSellerListingTrustAgent:
                 hosted_tool is not None,
             )
             return assessment
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             assessment = rule_based
             self._set_activity(

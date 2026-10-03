@@ -5,9 +5,10 @@ from collections.abc import Callable
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
-from agents import Agent, ModelSettings, RunConfig, Runner, WebSearchTool
+from agents import Agent, ModelSettings, RunConfig, WebSearchTool, Tool
 from pydantic import Field, ValidationError
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import (
     DiscoveryAgentInput,
     DiscoveryAgentOutcome,
@@ -88,7 +89,7 @@ class OpenAIAgentsSDKDiscoveryModelRunner:
         run_config: RunConfig,
         max_turns: int,
     ) -> Any:
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent,
             model_input,
             run_config=run_config,
@@ -200,7 +201,7 @@ class LiveDiscoveryAgent:
                 ),
                 timeout=configuration.timeout_seconds,
             )
-            hosted_decisions = ()
+            hosted_decisions: tuple[PersistedHostedCitation, ...] = ()
             if hosted_tool is not None:
                 if not hasattr(raw_result, "raw_responses") and isinstance(
                     self.model_runner, OpenAIAgentsSDKDiscoveryModelRunner
@@ -237,12 +238,15 @@ class LiveDiscoveryAgent:
                     )
                     raise ValueError("Hosted web search returned no URL citations.")
                 if activity.calls:
+                    assert self._research_tools is not None
                     try:
                         persisted = await self._research_tools.persist_hosted_citations(
                             activity.citations,
                             query=input_data.brief.original_query,
                             region_code=region_code,
                         )
+                    except ContextBudgetExceeded:
+                        raise
                     except Exception as exc:
                         self._hosted_error_status = (
                             "hosted_search_persistence_failed_fallback"
@@ -299,6 +303,8 @@ class LiveDiscoveryAgent:
             )
             self._set_activity(status, input_data, output)
             return output
+        except ContextBudgetExceeded:
+            raise
         except Exception:
             output = _fallback_discovery_output(
                 input_data,
@@ -364,6 +370,9 @@ def _build_discovery_agent(
     research_tools: AgentResearchTools | None,
     hosted_tool: WebSearchTool | None = None,
 ) -> Agent[Any]:
+    sdk_tools: list[Tool] = list(research_tools.sdk_tools()) if research_tools else []
+    if hosted_tool:
+        sdk_tools.append(hosted_tool)
     return Agent(
         name="CartCartDiscoveryAgent",
         model=model,
@@ -416,8 +425,7 @@ def _build_discovery_agent(
             "return insufficient_candidates with explicit reasons. Never invent "
             "IDs, prices, specs, sellers, or product facts."
         ),
-        tools=(list(research_tools.sdk_tools()) if research_tools else [])
-        + ([hosted_tool] if hosted_tool else []),
+        tools=sdk_tools,
         output_type=DiscoveryModelOutput,
     )
 

@@ -1,4 +1,5 @@
 from app.core.settings import (
+    AgentWorkflowMode,
     AmazonProductIntelligenceProviderName,
     ExtractionProviderName,
     IKEAStoreIntelligenceProviderName,
@@ -37,16 +38,22 @@ class SearchProviderConfigurationError(RuntimeError):
     """Raised when live search is enabled for an unsupported configuration."""
 
 
+def _fallback_search_provider(settings: Settings) -> FakeSearchProvider:
+    if settings.agent_workflow_mode == AgentWorkflowMode.LIVE:
+        return FakeSearchProvider(results=(), provider_name="disabled-search")
+    return FakeSearchProvider()
+
+
 def build_search_provider(settings: Settings) -> SearchProvider:
     if (
         not settings.search_provider_enabled
         or settings.search_provider == SearchProviderName.FIXTURE
     ):
-        return FakeSearchProvider()
+        return _fallback_search_provider(settings)
 
     if settings.search_provider == SearchProviderName.TAVILY:
         if settings.tavily_api_key is None:
-            return FakeSearchProvider()
+            return _fallback_search_provider(settings)
         return TavilySearchProvider(
             api_key=settings.tavily_api_key.get_secret_value(),
             timeout_seconds=settings.provider_timeout_seconds,
@@ -66,7 +73,9 @@ def build_extraction_provider(settings: Settings) -> ExtractionProvider:
         not settings.extraction_provider_enabled
         or provider_name == ExtractionProviderName.FIXTURE
     ):
-        return FakeExtractionProvider()
+        return FakeExtractionProvider(
+            disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        )
 
     if provider_name == ExtractionProviderName.HTTP_STATIC:
         return HttpStaticExtractionProvider(
@@ -77,9 +86,7 @@ def build_extraction_provider(settings: Settings) -> ExtractionProvider:
             max_attempts=settings.source_fetch_max_attempts,
             retry_backoff_seconds=settings.source_fetch_retry_backoff_seconds,
             max_redirects=settings.source_fetch_max_redirects,
-            minimum_static_word_count=(
-                settings.source_extraction_minimum_word_count
-            ),
+            minimum_static_word_count=(settings.source_extraction_minimum_word_count),
         )
 
     raise AssertionError(f"Unhandled extraction provider: {provider_name.value}")
@@ -108,11 +115,15 @@ def build_amazon_product_intelligence_provider(
         not settings.amazon_product_intelligence_provider_enabled
         or provider_name == AmazonProductIntelligenceProviderName.FIXTURE
     ):
-        return FakeAmazonProductIntelligenceProvider()
+        return FakeAmazonProductIntelligenceProvider(
+            disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        )
 
     if provider_name == AmazonProductIntelligenceProviderName.SERPAPI:
         if settings.serpapi_api_key is None:
-            return FakeAmazonProductIntelligenceProvider()
+            return FakeAmazonProductIntelligenceProvider(
+                disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+            )
         return SerpApiAmazonProductIntelligenceProvider(
             api_key=settings.serpapi_api_key.get_secret_value(),
             timeout_seconds=settings.provider_timeout_seconds,
@@ -139,19 +150,25 @@ def build_ikea_store_intelligence_provider(
         not settings.ikea_store_intelligence_provider_enabled
         or provider_name == IKEAStoreIntelligenceProviderName.FIXTURE
     ):
-        return FakeIKEAStoreIntelligenceProvider()
+        return FakeIKEAStoreIntelligenceProvider(
+            disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        )
 
     if provider_name == IKEAStoreIntelligenceProviderName.SEARCH:
         if (
             not settings.search_provider_enabled
             or settings.search_provider == SearchProviderName.FIXTURE
         ):
-            return FakeIKEAStoreIntelligenceProvider()
+            return FakeIKEAStoreIntelligenceProvider(
+                disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+            )
         if (
             settings.search_provider == SearchProviderName.TAVILY
             and settings.tavily_api_key is None
         ):
-            return FakeIKEAStoreIntelligenceProvider()
+            return FakeIKEAStoreIntelligenceProvider(
+                disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+            )
         return IKEARegionalStoreDiscoveryProvider(
             search_provider=build_search_provider(settings),
         )
@@ -174,11 +191,15 @@ def build_video_search_provider(settings: Settings) -> VideoSearchProvider:
         not settings.video_search_provider_enabled
         or settings.video_search_provider == VideoSearchProviderName.FIXTURE
     ):
-        return FakeVideoSearchProvider()
+        return FakeVideoSearchProvider(
+            disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        )
 
     if settings.video_search_provider == VideoSearchProviderName.YOUTUBE:
         if settings.youtube_data_api_key is None:
-            return FakeVideoSearchProvider()
+            return FakeVideoSearchProvider(
+                disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+            )
         return YouTubeDataApiVideoSearchProvider(
             api_key=settings.youtube_data_api_key.get_secret_value(),
             timeout_seconds=settings.provider_timeout_seconds,
@@ -198,7 +219,9 @@ def build_transcript_provider(settings: Settings) -> TranscriptProvider:
         not settings.transcript_provider_enabled
         or settings.transcript_provider == TranscriptProviderName.FIXTURE
     ):
-        return FakeTranscriptProvider()
+        return FakeTranscriptProvider(
+            disabled=settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        )
 
     if settings.transcript_provider == TranscriptProviderName.YT_DLP:
         return YtDlpTranscriptProvider(

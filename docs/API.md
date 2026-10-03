@@ -1,7 +1,7 @@
 # CartCart API
 
 Status: Implemented API and future contract direction
-Last updated: 2026-09-27
+Last updated: 2026-10-02
 
 ## Contract Direction
 
@@ -13,6 +13,12 @@ The frontend currently uses hand-written TypeScript contracts under
 `apps/frontend/src/lib/api` for these implemented endpoints. Generated frontend
 types should replace or narrow those contracts once OpenAPI type generation is
 added.
+
+Money input schemas accept a non-negative number or a plain decimal string with
+up to ten integer digits and two decimal places. The generated string pattern
+uses no regex lookaround, so SDK structured outputs can use the same contract.
+Runtime Decimal validation still enforces non-negative amounts, at most twelve
+digits and two decimal places; responses continue to serialize amounts as strings.
 
 API responses should hide internal agent implementation details while exposing
 human-useful guided questions, recoverable errors, result versions, source
@@ -91,8 +97,12 @@ GET    /api/sessions/{session_id}/runs/{run_id}
 GET    /api/sessions/{session_id}/runs/{run_id}/events
 
 GET    /api/sessions/{session_id}/results
+GET    /api/sessions/{session_id}/results/history
+GET    /api/sessions/{session_id}/results/{result_version_id}
 POST   /api/sessions/{session_id}/products
 POST   /api/sessions/{session_id}/refinements
+GET    /api/sessions/{session_id}/refinements/{refinement_id}/plan
+POST   /api/sessions/{session_id}/refinements/{refinement_id}/execute
 
 GET    /healthz
 GET    /readyz
@@ -164,8 +174,10 @@ or enough metadata for the frontend to ask for region setup outside the main
 shopping-question flow. It does not ask for product links. The isolated live
 `ShoppingGuideAgent` follows the same response schema and workbench constraints,
 but this endpoint is not routed through it yet.
-An HTTP(S) link included in the first question is currently retained in the
-query text; it is not saved as a user-added URL candidate by guided intake.
+Volunteered HTTP(S) links in the first question are saved as distinct
+`UserAddedProduct.url` candidates for direct listing extraction. Explicitly
+named products are saved as separate text candidates for research. A question
+containing only a link prompts for the shopper's goal before analysis can start.
 
 `GET /api/sessions/{session_id}/guide`
 
@@ -182,9 +194,10 @@ The fixture implementation updates the in-memory guide state and persists a
 ready `ShoppingBrief` to the session once intake has enough information. Natural
 language known-product mentions are preserved as user-added product text without
 asking the shopper to provide links.
-If an answer includes a link, the current implementation stores it as text,
-not as a `UserAddedProduct.url` for direct URL extraction. Clients that need
-URL extraction currently use the product endpoint below.
+Volunteered HTTP(S) links in guided answers are also saved as URL candidates.
+Reanswering replaces candidates that came only from the superseded answer;
+repeated links are collapsed to one candidate per listing URL. The product
+endpoint below remains available for adding a listing after intake.
 
 `POST /api/sessions/{session_id}/guide/skip`
 
@@ -250,6 +263,14 @@ the endpoint returns `shopping_guardrail_blocked` with short user-safe copy and
 does not create a run. If live workflow mode is requested without live-agent
 configuration, the endpoint returns `live_agents_not_configured`.
 
+With fixture agents and any enabled live source provider, this endpoint returns
+HTTP 409 with `research_mode_mismatch` before creating a run or calling sources.
+The error includes non-secret required mode flags in `details`. Isolated provider
+probes are separate from normal shopping runs. A technical General-owner research
+failure produces a terminal failed `ShoppingRunRecord` with a failed event and
+saved owner activity, rather than a completed no-strong-buy result. Successfully
+completed research with insufficient evidence retains the no-strong-buy outcome.
+
 `GET /api/sessions/{session_id}/runs/{run_id}`
 
 Returns run status and human-useful stage summaries. It should not expose raw internal prompts or private provider payloads by default.
@@ -284,9 +305,20 @@ Current implementation returns the latest persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
 recommendation bundle, plus the run's canonical products, preserved listings,
-source snapshots, and source evidence so
+ordered shortlist memberships (`candidate_id`, `product_id`, optional
+`listing_id`), run-linked `considered_products` outcomes, source snapshots, and
+source evidence so
 the frontend can render inspectable source links for result claims. The persisted
-recommendation bundle is trust-aware: weak or suspicious listing assessments are
+considered-product outcome includes the session candidate and an explicit
+`confirmed`, `possible`, `unresolved`, `manual`, or `excluded` status. A meaningful
+rejection supplies `exclusion_reason`; manual details retain their field-level
+`user_reported` or `unknown` status. The frontend uses these IDs and the saved
+comparison matrix to show matches, gaps, and seller/listing concerns without
+matching products by name. Shortlist and considered-product data belong to the
+run that produced this result; a candidate added after that run appears after
+the next completed run.
+
+The persisted recommendation bundle is trust-aware: weak or suspicious listing assessments are
 surfaced as listing-level warnings or rejections, and a suspicious final listing
 is blocked instead of being returned as an unqualified best buy. When
 `no_strong_buy=true`, `no_strong_buy_reason` should explain what blocked a
@@ -316,6 +348,13 @@ are normalized and deduplicated with app-generated candidates; the user-added
 record gains the canonical product and one linked listing. Ambiguous matches
 remain separate in `possible_product_ids`, while each matched listing retains
 its `user_added_matches`, seller, price, availability, and trust context.
+Submitting the same listing URL again (including a tracking-parameter variant)
+returns the existing session candidate. A later `POST /runs` checks the added
+link in the same session; `GET /results` returns the newest completed result and
+`GET /sessions/{session_id}` returns the candidate's research state. A candidate
+with no confirmed listing remains an uncertain or unreadable lead, not a verified
+offer. The result's source snapshots identify direct link attempts by candidate
+ID and record whether the page was readable.
 
 Manual fallback uses `manual_fallback_reason` (`retrieval_unavailable`,
 `retrieval_insufficient`, or `user_correction`), `name`, optional identity fields,
@@ -330,16 +369,67 @@ response exposes `manual_evidence_status` per field as `user_reported` or
 `unknown`, with source always unknown, plus `research_attempted`. A manual-only
 candidate enters the shortlist and comparison without a listing or invented
 evidence; it cannot be selected as a buy until independent research confirms it.
+The result UI offers this endpoint after a candidate has been researched without
+a confirmed match, and for an explicit correction to a wrong match. It sends
+`fallback_candidate_id` so the same session candidate is replaced, then starts
+another run and reloads session state and the latest result. A correction sends
+the corrected name as `input_text` for the next research attempt and clears the
+old matched listing. The UI shows shopper-supplied fields separately from
+unknown fields and does not turn either into a verified offer.
 
 `POST /api/sessions/{session_id}/refinements`
 
-Submits a refinement such as changed budget, corrected category, new constraint, or added preference. The backend should start targeted recompute where cached artifacts make that possible.
+Accepts a new `budget`, `region`, `category`, `result_mode`, constraints, or
+preferences with a short instruction. An existing result is required (`409
+refinement_requires_result` otherwise). The response contains the stored
+`RefinementRequest`, a new **pending** run, and a typed `RecomputePlan` linked
+to the prior run and exact result version. Planning does not execute the run or
+replace the current result. The plan saves the base and target shopping
+briefs, required stages, and a reason for each reused or invalidated artifact.
+Budget changes can reuse source-backed candidate evidence in the same region;
+category, region, currency, and new requirement changes trigger research.
+Free-text changes without a typed field require re-intake. A mode-only change
+can reuse the saved comparison.
 
-Current implementation stores a `RefinementRequest`, creates a new
-`ShoppingRunRecord`, links the refinement to that run, executes the same fixture
-orchestrator path used by `POST /runs`, and returns both records. It does not
-perform targeted recompute yet. Existing result versions remain attached to
-their original runs.
+`GET /api/sessions/{session_id}/refinements/{refinement_id}/plan`
+
+Loads the stored plan for the same session, including its prior result link and
+artifact decisions. Returns `404 refinement_not_found` for a missing plan or
+one belonging to another session.
+
+`POST /api/sessions/{session_id}/refinements/{refinement_id}/execute`
+
+Executes the saved pending plan once. Research plans run fresh discovery,
+extraction, candidate grouping, trust, analysis, decision, and verification
+against the target brief. Budget and mode plans use the prior run's validated
+candidate evidence and skip discovery and extraction; budget changes rerun
+analysis, while mode changes reuse it. Every path produces a new decision and
+verification record. The response is the completed or failed run record;
+`GET /runs/{run_id}` and its events expose the same status. A stale plan or
+repeat execution returns `409`. Failed execution leaves the last successful
+result available.
+
+`GET /api/sessions/{session_id}/results/{result_version_id}`
+
+Returns one successful saved result version in the session. The ordinary
+`GET /results` endpoint returns the latest successful version. Result version
+numbers increase across the session; refinement results include their
+`refinement_id`, `prior_result_version_id`, and requested result mode. When a
+refinement reuses prior research, the response resolves the products, shortlist,
+sources, and evidence from that prior run through the saved plan.
+Considered-product outcomes are saved per research run so later candidate
+corrections do not rewrite an older result view.
+
+`GET /api/sessions/{session_id}/results/history`
+
+Returns `original_query` and an ordered `versions` list of successful decisions
+in that session. Each entry contains `result_version_id`, `version`, the saved
+shopping `brief`, and a short `change` instruction (null for the original).
+Context comes from saved refinement base/target briefs; pending or failed
+plans never replace successful history context. An existing session with no
+result returns an empty list; a missing session returns `404 session_not_found`.
+Use the version endpoint above to inspect a selected decision. This response
+omits agent records, run events, and recompute stages.
 
 `GET /healthz`
 
@@ -378,7 +468,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Search and source schemas in `app.schemas`: `SearchPlan`, `SearchQuery`, `SearchResult`, `SourceSnapshot`, `RawSourceSnapshotArtifact`, `SourceEvidence`, `EvidenceTarget`, `EvidenceConflict`, provider metadata, source quality, `ReusableSourceIntelligenceRequest`, `SourceIntelligenceCapabilityDescriptor`, `SourceEvidenceGap`, video source primitives, transcript availability, transcript segments, timestamped video review evidence, metadata-only video evidence, channel signals, sponsorship/affiliate-bias signals, Reddit/community discussion evidence, Amazon product/listing/review evidence, and IKEA regional official-store evidence.
 - Product and listing schemas in `app.schemas`: `CanonicalProduct`, `ProductListing`, `ProductListingExtraction`, `ListingExtractionMissingField`, `SellerProfile`, `UserAddedProduct`, product/listing identity fields such as model, SKU, UPC, EAN, canonical listing URL, and retailer product ID, price money fields, region availability, listing source quality, deterministic extraction confidence, explicit extraction gaps, and extracted seller trust signals that remain separate from later listing trust assessments.
 - Analysis and recommendation schemas in `app.schemas`: `DeduplicationDecision`, `ListingTrustAssessment`, structured listing trust signals, `CategoryAnalysis`, `ComparisonMatrix`, `RecommendationMode`, `RecommendationModeResult`, `RecommendationBundle`, and `RejectedItem`. `RejectedItem` includes an explicit `reason_code` for meaningful avoid reasons: suspicious listing, poor fit, overpaying, missing critical feature, or weak evidence.
-- Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, and links to the shared `ErrorEnvelope`.
+- Run and refinement schemas in `app.schemas`: `ShoppingRunRecord`, `RunEvent`, `RunEventLog`, `RunStage`, `RunStatus`, `AgentRunRecord`, `RefinementRequest`, `RecomputePlan`, artifact decisions, and links to the shared `ErrorEnvelope`.
 - Guided intake schemas in `app.schemas.guided_intake` cover current
   user-facing question state, natural-language answer submission, yes/no and
   inline choice controls, combined optional prompt text, skip/reanswer
@@ -473,3 +563,11 @@ Errors should use a typed `ErrorEnvelope` with stable machine-readable codes and
 - Result not ready.
 
 Recoverable errors should include enough context for the frontend to offer retry, correction, or partial-result paths.
+
+
+Task 100B adds internal `context_call` activity to existing run stage traces.
+It records context sizes and estimated/actual usage without raw source or shopper
+text. The public API shape is unchanged. Exhausted context budgets use the
+existing failed-run error path, preserving the distinction between technical
+failure and a completed no-strong-buy decision. See
+[context limits](CONTEXT_MANAGEMENT.md#limits-and-accounting).

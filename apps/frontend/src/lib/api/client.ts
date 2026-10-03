@@ -2,6 +2,7 @@ import { buildApiUrl, getBackendBaseUrl } from './config.js';
 import { ApiError, apiErrorFromResponse } from './errors.js';
 import type {
 	CreateRefinementRequest,
+	DecisionHistoryResponse,
 	CreateGuidedSessionRequest,
 	CreateSessionRequest,
 	CreateUserAddedProductRequest,
@@ -138,6 +139,16 @@ export class CartCartApiClient {
 		return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/results`);
 	}
 
+	getResultVersion(sessionId: SessionId, resultVersionId: string): Promise<SessionResultsResponse> {
+		return this.request(
+			`/api/sessions/${encodeURIComponent(sessionId)}/results/${encodeURIComponent(resultVersionId)}`,
+		);
+	}
+
+	getDecisionHistory(sessionId: SessionId): Promise<DecisionHistoryResponse> {
+		return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/results/history`);
+	}
+
 	createRefinement(
 		sessionId: SessionId,
 		request: CreateRefinementRequest,
@@ -146,6 +157,13 @@ export class CartCartApiClient {
 			method: 'POST',
 			body: request,
 		});
+	}
+
+	executeRefinement(sessionId: SessionId, refinementId: string): Promise<ShoppingRunRecord> {
+		return this.request(
+			`/api/sessions/${encodeURIComponent(sessionId)}/refinements/${encodeURIComponent(refinementId)}/execute`,
+			{ method: 'POST' },
+		);
 	}
 
 	runEventsUrl(sessionId: SessionId, runId: RunId): string {

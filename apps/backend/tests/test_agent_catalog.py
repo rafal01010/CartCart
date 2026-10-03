@@ -15,6 +15,17 @@ from app.agents.catalog import ApprovedSDKTool, FixtureFallback, ResearchDecisio
 from app.core.agent_run_profiles import AgentRunProfileName
 
 
+def test_phone_owner_declares_current_research_and_failure_boundaries() -> None:
+    phone = DEFAULT_AGENT_CATALOG.require("SmartphoneSpecialistAgent")
+    assert {
+        "CurrentRegionalResearchGuidance",
+        "ShoppingRunFailureReporting",
+        "PhoneReleaseAndLaunchGuidance",
+    }.issubset(phone.planned_tool_boundaries)
+    assert phone.parent_agent_name == "TechnologyDomainAnalystAgent"
+    assert ApprovedSDKTool.HOSTED_WEB_SEARCH in phone.approved_sdk_tools
+
+
 def test_agent_catalog_assigns_workload_profiles() -> None:
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").run_profile == (
         AgentRunProfileName.FAST
@@ -129,6 +140,7 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
     youtube, reddit, amazon, ikea = source_agents
     assert youtube.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert youtube.sdk_implementation_pending is False
+    assert youtube.fixture_fallback == FixtureFallback.EVIDENCE_GAP
     assert {tool.value for tool in youtube.approved_sdk_tools} == {
         "search_videos",
         "read_video_metadata",
@@ -350,6 +362,7 @@ def test_agent_catalog_declares_agent_owned_research_and_extraction() -> None:
     assert discovery.planned_tool_boundaries == (
         "SearchProvider",
         "ExtractionProvider",
+        "BoundedEvidenceContext",
     )
     assert set(extraction.target_research_decisions) == {
         ResearchDecision.PAGE_SHAPE_INTERPRETATION,
@@ -363,6 +376,7 @@ def test_agent_catalog_declares_agent_owned_research_and_extraction() -> None:
     assert extraction.planned_tool_boundaries == (
         "SourceSnapshotReader",
         "MechanicalExtractionHelpers",
+        "BoundedEvidenceContext",
     )
     assert legacy.status == AgentStatus.TRANSITIONAL
     assert legacy.superseded_by == extraction.agent_name
@@ -407,3 +421,9 @@ def test_agent_catalog_requires_explicit_entries_for_reusable_source_agents() ->
             ),
             reusable_source_agent_names=("OfficialBrandStoreAgent",),
         )
+
+
+def test_reusable_source_catalog_preserves_live_unavailable_provider_boundary() -> None:
+    for name in DEFAULT_AGENT_CATALOG.reusable_source_agent_names:
+        entry = DEFAULT_AGENT_CATALOG.require(name)
+        assert "LiveProviderEvidenceGaps" in entry.planned_tool_boundaries

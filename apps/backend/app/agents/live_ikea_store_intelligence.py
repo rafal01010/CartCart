@@ -10,9 +10,10 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Protocol
 
-from agents import Agent, ModelSettings, RunConfig, Runner
+from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field, WithJsonSchema
 
+from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.agents.ikea_regional_tools import IKEARegionalStoreTools
 from app.agents.openai_config import (
@@ -121,7 +122,7 @@ class OpenAIAgentsSDKIKEAStoreModelRunner:
         tools: IKEARegionalStoreTools,
     ) -> Any:
         del tools
-        return await Runner.run(
+        return await BoundedRunner.run(
             agent, model_input, run_config=run_config, max_turns=max_turns
         )
 
@@ -149,7 +150,7 @@ class MockIKEAStoreModelRunner:
             raise self.error
         if self.output is not None:
             return _MockResult(self.output)
-        selected = []
+        selected: list[SelectedIKEARegionalSource] = []
         for product in tools.product_summaries()[: tools.max_searches]:
             found = await tools.search(product["product_id"])
             for source in found["sources"][: tools.max_reads - len(selected)]:
@@ -162,7 +163,7 @@ class MockIKEAStoreModelRunner:
                 )
                 price = (
                     Money(
-                        currency=price_match[1], amount=price_match[2].replace(",", "")
+                        currency=price_match[1], amount=Decimal(price_match[2].replace(",", ""))
                     )
                     if price_match
                     else None
@@ -318,6 +319,8 @@ class IKEAStoreIntelligenceAgent:
             )
             output = _validated_bundle(tools, decision)
             status = "model_evidence_completed"
+        except ContextBudgetExceeded:
+            raise
         except Exception as exc:
             if isinstance(exc, OpenAIAgentConfigurationError):
                 hosted_activity = (
@@ -438,6 +441,7 @@ def _validated_bundle(
         _supported_fields(
             selected, record.text, str(record.reference.url), tools.region
         )
+        assert tools.region is not None
         context = IKEAStoreContext(
             source_id=selected.source_id,
             country_code=tools.region,

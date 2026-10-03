@@ -196,7 +196,9 @@ class YouTubeReviewIntelligenceService:
         if self.video_search_provider is not None:
             return self.video_search_provider
         if self.settings is None:
-            raise ValueError("settings are required to build the video search provider.")
+            raise ValueError(
+                "settings are required to build the video search provider."
+            )
         return build_video_search_provider(self.settings)
 
     def _transcript_provider(self) -> TranscriptProvider:
@@ -466,8 +468,12 @@ def _annotate_video_bias(
 
 
 def _video_with_bias(video: VideoSource, text: str) -> VideoSource:
-    sponsorship_disclosed = bool(_SPONSORSHIP_PATTERN.search(text))
-    affiliate_links_disclosed = bool(_AFFILIATE_PATTERN.search(text))
+    sponsorship_disclosed = video.sponsorship_disclosed is True or bool(
+        _SPONSORSHIP_PATTERN.search(text)
+    )
+    affiliate_links_disclosed = video.affiliate_links_disclosed is True or bool(
+        _AFFILIATE_PATTERN.search(text)
+    )
     signals = list(video.channel_signals)
     if ChannelSignal.REVIEW_FOCUSED not in signals:
         signals.append(ChannelSignal.REVIEW_FOCUSED)
@@ -488,6 +494,13 @@ def _video_with_bias(video: VideoSource, text: str) -> VideoSource:
     else:
         risk = _confidence(0.2, "No visible sponsorship or affiliate disclosure found.")
         notes = None
+
+    if (
+        video.affiliate_bias_risk is not None
+        and video.affiliate_bias_risk.score > risk.score
+    ):
+        risk = video.affiliate_bias_risk
+        notes = video.bias_notes or notes
 
     return video.model_copy(
         update={
@@ -535,7 +548,9 @@ def _transcript_claims(
                     video_id=video.video_id,
                     claim=claim,
                     confidence=_claim_confidence(segment.text),
-                    source_quality=_source_quality_for_video(videos_by_id[video.video_id]),
+                    source_quality=_source_quality_for_video(
+                        videos_by_id[video.video_id]
+                    ),
                     transcript_segment_ids=(segment.segment_id,),
                 )
             )
@@ -581,10 +596,7 @@ def _claim_confidence(text: str) -> Confidence:
 
 
 def _source_quality_for_video(video: VideoSource) -> SourceQuality:
-    if (
-        video.affiliate_bias_risk is not None
-        and video.affiliate_bias_risk.score >= 0.7
-    ):
+    if video.affiliate_bias_risk is not None and video.affiliate_bias_risk.score >= 0.7:
         return SourceQuality(
             level=SourceQualityLevel.MIXED,
             score=0.58,
@@ -648,8 +660,7 @@ def _source_ids_by_video(bundle: VideoReviewEvidenceBundle) -> dict[str, SourceI
         for reference in bundle.source_references
     }
     return {
-        video.video_id: source_ids_by_url[str(video.url)]
-        for video in bundle.videos
+        video.video_id: source_ids_by_url[str(video.url)] for video in bundle.videos
     }
 
 

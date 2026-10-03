@@ -88,6 +88,11 @@ from app.schemas.products import (
 from app.schemas.regions import Region, RegionCode
 from app.schemas.runs import (
     AgentRunRecord,
+    ArtifactDecision,
+    ArtifactDisposition,
+    RecomputePlan,
+    RecomputeStage,
+    RefinementArtifact,
     RefinementRequest,
     RunEvent,
     RunEventLog,
@@ -231,6 +236,11 @@ __all__ = [
     "RegionSetupSubmission",
     "RegionalStoreAvailability",
     "RefinementRequest",
+    "ArtifactDecision",
+    "ArtifactDisposition",
+    "RecomputePlan",
+    "RecomputeStage",
+    "RefinementArtifact",
     "RecommendationBundle",
     "RecommendationMode",
     "RecommendationModeResult",

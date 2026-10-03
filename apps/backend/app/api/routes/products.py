@@ -17,6 +17,7 @@ from app.schemas.products import (
     ManualProductDetails,
     UserAddedProduct,
 )
+from app.services.product_deduplication import canonical_listing_url
 
 
 router = APIRouter(prefix="/api/sessions/{session_id}/products", tags=["products"])
@@ -80,6 +81,15 @@ async def add_user_added_product(
         raise _session_not_found(session_id)
 
     product_repository = ProductRepository(db_session)
+    if request.url is not None and request.manual_fallback_reason is None:
+        requested_url = canonical_listing_url(str(request.url))
+        existing = await product_repository.list_user_added_products(session_id)
+        if any(
+            item.url is not None
+            and canonical_listing_url(str(item.url)) == requested_url
+            for item in existing
+        ):
+            return to_session_state_response(session, existing)
     prior = (
         await product_repository.get_user_added_product(
             session_id, request.fallback_candidate_id

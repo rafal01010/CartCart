@@ -387,3 +387,32 @@ def test_grouping_preserves_listing_specific_seller_price_availability_and_quali
     )
     assert official.source_quality.level == SourceQualityLevel.STRONG
     assert risky.source_quality.level == SourceQualityLevel.WEAK
+
+
+def test_repeated_listing_id_preserves_all_user_matches_once() -> None:
+    from app.schemas.products import UserAddedListingMatch
+
+    first = make_extraction(url="https://example.com/products/arc-27")
+    source_id = first.listing.source_ids[0]
+    first_match = UserAddedListingMatch(
+        candidate_id=new_id(), source_id=source_id, confidence="confirmed"
+    )
+    second_match = UserAddedListingMatch(
+        candidate_id=new_id(), source_id=source_id, confidence="confirmed"
+    )
+    first = first.model_copy(
+        update={"listing": first.listing.model_copy(update={"user_added_matches": (first_match,)})}
+    )
+    repeat = first.model_copy(
+        update={"listing": first.listing.model_copy(update={"user_added_matches": (second_match,)})}
+    )
+    different_offer = make_extraction(
+        url="https://other.example/products/arc-27", seller_name="Other seller", price="250"
+    )
+    result = DeterministicProductDeduplicator().group((first, repeat, different_offer))
+    assert len(result.groups) == 1
+    assert len(result.listings) == 2
+    assert result.listings[0].user_added_matches == (first_match, second_match)
+    assert result.listings[1].seller.seller_name == "Other seller"
+    assert result.listings[1].price is not None
+    assert result.groups[0].product.listing_ids == tuple(item.listing_id for item in result.listings)

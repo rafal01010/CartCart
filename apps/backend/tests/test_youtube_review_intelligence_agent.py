@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from agents import Agent
+from agents import Agent, RunConfig
 
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.agents.live_youtube_review_intelligence import (
@@ -168,7 +168,7 @@ async def test_sdk_runner_invokes_openai_agents_runner(
         return object()
 
     monkeypatch.setattr(
-        "app.agents.live_youtube_review_intelligence.Runner.run", fake_run
+        "app.agents.context_management.Runner.run", fake_run
     )
     tools = YouTubeReviewTools(
         _input(), FakeVideoSearchProvider(), _WorkbenchYouTubeTranscriptProvider()
@@ -176,9 +176,33 @@ async def test_sdk_runner_invokes_openai_agents_runner(
     result = await OpenAIAgentsSDKYouTubeReviewModelRunner().run(
         Agent(name="YouTubeReviewIntelligenceAgent", instructions="test"),
         "fixture",
-        run_config=object(),
+        run_config=RunConfig(tracing_disabled=True),
         max_turns=4,
         tools=tools,
     )
     assert result is not None
     assert called == [4]
+
+@pytest.mark.asyncio
+async def test_exact_late_caption_quote_requires_an_observed_span():
+    class LongTranscriptProvider(_WorkbenchYouTubeTranscriptProvider):
+        async def fetch_transcript(self, video, options=None):
+            result = await super().fetch_transcript(video, options)
+            return result.model_copy(update={"segments": tuple(segment.model_copy(update={
+                "text": "Unrelated setup. " * 130 + segment.text,
+            }) for segment in result.segments)})
+
+    class UnreadQuoteRunner(_SelectingRunner):
+        async def run(self, *args, **kwargs):
+            result = await super().run(*args, **kwargs)
+            original = kwargs["tools"].bundle.transcript_segments[0]
+            quote = original.text.split("Unrelated setup. " * 130)[-1]
+            result.final_output.claims = (result.final_output.claims[0].model_copy(update={"quote": quote}),)
+            return result
+
+    agent = YouTubeReviewIntelligenceAgent(settings=Settings(_env_file=None),
+        video_search_provider=FakeVideoSearchProvider(), transcript_provider=LongTranscriptProvider(),
+        model_runner=UnreadQuoteRunner())
+    result = await agent.run(_input())
+    assert all(item.metadata_only for item in result.evidence)
+    assert "Model interpretation failed" in " ".join(result.transcript_gap_notes)

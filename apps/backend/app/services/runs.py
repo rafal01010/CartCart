@@ -32,6 +32,7 @@ from app.agents import (
     require_live_openai_agent_configuration,
 )
 from app.db.repositories.products import ProductRepository
+from app.db.repositories.refinements import RefinementRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
@@ -42,6 +43,7 @@ from app.orchestration import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunOrchestrator,
 )
+from app.orchestration.shopping_runs import ReusedRefinementArtifacts
 from app.providers import (
     AmazonProductIntelligenceProvider,
     CommunityDiscussionProvider,
@@ -54,7 +56,13 @@ from app.providers import (
 from app.schemas.ids import RunId, SessionId
 from app.schemas.guided_intake import ShoppingGuardrailDecision
 from app.schemas.regions import RegionCode
-from app.schemas.runs import RunEvent, RunStatus, ShoppingRunRecord
+from app.schemas.runs import (
+    RecomputePlan,
+    RecomputeStage,
+    RunEvent,
+    RunStatus,
+    ShoppingRunRecord,
+)
 from app.services.shopping_guardrails import blocked_guardrail_or_none
 
 
@@ -129,7 +137,160 @@ class RunService:
         ):
             return run
 
-        orchestrator = ShoppingRunOrchestrator(
+        orchestrator = self._orchestrator()
+        try:
+            await orchestrator.run(
+                run.run_id,
+                session.current_brief,
+                original_input=session.original_input,
+            )
+        except Exception:
+            failed_run = await self._run_repository.get(run.run_id)
+            if failed_run is not None and failed_run.status == RunStatus.FAILED:
+                return failed_run
+            raise
+        return await self._run_repository.get(run.run_id)
+
+    async def execute_refinement(
+        self, session_id: SessionId, plan: RecomputePlan, instruction: str
+    ) -> ShoppingRunRecord:
+        run = await self.get_run_status(session_id, plan.run_id)
+        if run is None or run.status != RunStatus.PENDING:
+            raise ApplicationError(
+                "refinement_not_pending",
+                "This refinement cannot be started again.",
+                status_code=409,
+            )
+        if (
+            self._result_repository is None
+            or self._search_source_repository is None
+            or self._product_repository is None
+        ):
+            raise ValueError(
+                "Refinement execution requires result and research repositories."
+            )
+        prior = await self._result_repository.load_result_bundle_by_version(
+            plan.prior_result_version_id
+        )
+        latest = await self._result_repository.load_latest_result_bundle_for_session(
+            session_id
+        )
+        if (
+            prior is None
+            or latest is None
+            or prior.result_version.run_id != plan.prior_run_id
+            or latest.result_version.result_version_id != plan.prior_result_version_id
+        ):
+            raise ApplicationError(
+                "refinement_base_changed",
+                "A newer shopping result is available. Start a new refinement from it.",
+                status_code=409,
+            )
+        session = await self._session_repository.get(session_id)
+        assert session is not None
+        if session.current_brief != plan.base_brief:
+            raise ApplicationError(
+                "refinement_brief_changed",
+                "Shopping details changed. Start a new refinement from the current result.",
+                status_code=409,
+            )
+        refined_request = (
+            f"{session.original_input.query}\n{instruction}\n"
+            f"{plan.target_brief.category or ''}"
+        )
+        blocked_guardrail = blocked_guardrail_or_none(refined_request)
+        if blocked_guardrail is not None:
+            raise ApplicationError(
+                "shopping_guardrail_blocked",
+                blocked_guardrail.message
+                or "This request is outside ordinary shopping help.",
+                status_code=409,
+                details={"reason": blocked_guardrail.reason},
+            )
+        await self._check_live_agent_start(refined_request)
+        reused = None
+        if RecomputeStage.SEARCH not in plan.stages:
+            research_run_id = await RefinementRepository(
+                self._search_source_repository.session
+            ).research_run_for(plan.prior_run_id)
+            products = await self._product_repository.list_canonical_products_for_run(
+                research_run_id
+            )
+            listings = await self._product_repository.list_product_listings_for_run(
+                research_run_id
+            )
+            evidence = await self._search_source_repository.list_source_evidence(
+                research_run_id
+            )
+            snapshots = await self._search_source_repository.list_source_snapshots(
+                research_run_id
+            )
+            product_ids = {item.product_id for item in products}
+            listing_ids = {item.listing_id for item in listings}
+            candidate_ids = {
+                item.candidate_id
+                for item in await self._product_repository.list_shortlist_memberships(
+                    research_run_id
+                )
+            }
+            source_ids = {item.source_id for item in snapshots}
+            if (
+                not products
+                or not evidence
+                or any(item.source_id not in source_ids for item in evidence)
+                or not any(
+                    item.target.product_id in product_ids
+                    or item.target.listing_id in listing_ids
+                    or item.target.candidate_id in candidate_ids
+                    for item in evidence
+                )
+            ):
+                raise ApplicationError(
+                    "refinement_evidence_changed",
+                    "Saved research is no longer usable. Start a new refinement to research again.",
+                    status_code=409,
+                )
+            reused = ReusedRefinementArtifacts(
+                products=products,
+                listings=listings,
+                evidence=evidence,
+                trust_assessments=prior.trust_assessments,
+                category_analyses=prior.category_analyses,
+                recommendation=prior.recommendation_bundle,
+                user_added_products=await self._product_repository.list_user_added_products_for_run(
+                    session_id, research_run_id
+                ),
+            )
+        original_input = session.original_input
+        if RecomputeStage.RE_INTAKE in plan.stages:
+            original_input = original_input.model_copy(
+                update={
+                    "query": f"{original_input.query}\nRefinement: {instruction}"[:4000]
+                }
+            )
+        try:
+            await self._orchestrator().run(
+                plan.run_id,
+                plan.target_brief,
+                original_input=original_input,
+                refinement_plan=plan,
+                reused_artifacts=reused,
+            )
+        except Exception:
+            failed_run = await self._run_repository.get(plan.run_id)
+            if failed_run is not None and failed_run.status == RunStatus.FAILED:
+                return failed_run
+            raise
+        completed = await self._run_repository.get(plan.run_id)
+        assert completed is not None
+        if completed.status == RunStatus.SUCCEEDED:
+            await self._session_repository.update_current_brief(
+                session_id, plan.target_brief
+            )
+        return completed
+
+    def _orchestrator(self) -> ShoppingRunOrchestrator:
+        return ShoppingRunOrchestrator(
             RepositoryShoppingRunPersistenceHooks(
                 run_repository=self._run_repository,
                 result_repository=self._result_repository,
@@ -154,18 +315,6 @@ class RunService:
             ikea_store_intelligence_provider=self._ikea_store_intelligence_provider,
             default_region_code=self._default_region_code,
         )
-        try:
-            await orchestrator.run(
-                run.run_id,
-                session.current_brief,
-                original_input=session.original_input,
-            )
-        except Exception:
-            failed_run = await self._run_repository.get(run.run_id)
-            if failed_run is not None and failed_run.status == RunStatus.FAILED:
-                return failed_run
-            raise
-        return await self._run_repository.get(run.run_id)
 
     async def get_run_status(
         self,
@@ -206,6 +355,24 @@ class RunService:
         ).model
 
     async def _check_live_agent_start(self, user_input: str) -> None:
+        if self._settings is not None and any(
+            warning.code == "fixture_agents_with_live_providers"
+            for warning in self._settings.agent_readiness_warnings()
+        ):
+            raise ApplicationError(
+                "research_mode_mismatch",
+                "CartCart cannot research this request because sample-data mode "
+                "is combined with live research settings. Enable live research "
+                "or use sample data, then restart CartCart.",
+                status_code=409,
+                details={
+                    "agent_workflow_mode": "fixture",
+                    "required_settings": {
+                        "CARTCART_AGENT_WORKFLOW_MODE": "live",
+                        "CARTCART_LIVE_AGENTS_ENABLED": "true",
+                    },
+                },
+            )
         if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
             return
         if self._settings is None:

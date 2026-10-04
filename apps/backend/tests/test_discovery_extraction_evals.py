@@ -224,6 +224,59 @@ def test_manual_valid_discovery_and_extraction_and_group_output_pass_assertions(
         assert not failures(case, make(case))
 
 
+@pytest.mark.asyncio
+async def test_editorial_extraction_keeps_exact_quote_and_rejects_invented_punctuation(
+    monkeypatch,
+):
+    import httpx
+    import socket
+
+    monkeypatch.setattr(Runner, "run", lambda *a, **kw: pytest.fail("No SDK calls."))
+    monkeypatch.setattr(
+        Dataset, "evaluate", lambda *a, **kw: pytest.fail("No Dataset runs.")
+    )
+    monkeypatch.setattr(
+        Dataset, "evaluate_sync", lambda *a, **kw: pytest.fail("No Dataset runs.")
+    )
+    monkeypatch.setattr(
+        httpx.AsyncClient, "request", lambda *a, **kw: pytest.fail("No network.")
+    )
+    monkeypatch.setattr(
+        httpx.Client, "request", lambda *a, **kw: pytest.fail("No network.")
+    )
+    monkeypatch.setattr(
+        socket.socket, "connect", lambda *a, **kw: pytest.fail("No network.")
+    )
+    case = named("extraction/review-without-store-offer")
+    before = case.inputs.model_dump(mode="json")
+    task = offline_discovery_extraction_task()
+    output = await task(case.inputs)
+    assert not failures(case, output)
+    assert case.inputs.model_dump(mode="json") == before
+    extraction = output.extraction
+    assert extraction.products[0].name == "Harbor M27 Monitor"
+    assert extraction.listings == ()
+    evidence = extraction.source_evidence[0]
+    assert evidence.claim == "Sharp 1440p text;"
+    assert evidence.source_quality.level.value == "weak"
+    assert evidence.source_id == case.inputs.extraction.request.snapshot_ids[0]
+    assert (
+        evidence.evidence_id
+        == case.inputs.extraction.model_output.source_evidence[0].evidence_id
+    )
+    assert extraction.evidence_gaps[0].summary == "Stand adjustment not tested."
+    invalid = case.inputs.model_copy(deep=True)
+    invalid.extraction.model_output.source_evidence[0].claim = "Sharp 1440p text."
+    rejected = await task(invalid)
+    assert rejected.extraction.products == ()
+    assert rejected.extraction.source_evidence == ()
+    assert (
+        rejected.extraction.evidence_gaps[0].summary
+        == "Agent extraction was invalid or timed out."
+    )
+    assert "field.extraction.products[0]" in failures(case, rejected)
+
+
 @pytest.mark.parametrize(
     "damage, key",
     [

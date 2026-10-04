@@ -220,7 +220,79 @@ checks. Gate exit was zero. Final manifest:
 Audit reports remain in `data/artifacts/context`; disposable test/cache scratch
 and the superseded Task 100B gate reports were removed. No live calls ran.
 
-Acceptance review reopened Task 100B; the repair gate is recorded below when it passes.
+Acceptance review reopened Task 100B. Verification on 2026-10-04 passed 464
+affected regressions with 16 live tests deselected, scoped lint and formatting.
+The context gate then stopped on two audit-helper typing errors. The verifier
+fixture now validates through the existing `VerificationAgentInput`; its existing
+offline audit regression and the full 36-module scoped typing selection passed.
+The refreshed audit captures 25 contracts and 25 initial inputs. Lossless
+partial-read history retains 95,191 of 95,276 characters. Duplicate history
+retains 17,470 characters. Bounded retrieval supplies 3,744 characters while
+preserving 90,144 canonical page characters. These are synthetic size estimates.
+
+The required Section Q gate passed quick 27/27 before full 106/110 and exited 1.
+Its 370 selected tests passed with two live tests deselected, along with scoped
+lint, 11-module typing, shell syntax and whitespace checks. The failures are
+`extraction/review-without-store-offer`, `downstream/youtube-cited`,
+`downstream/reddit-cited` and `downstream/ikea-cited`. The editorial fixture's
+`Sharp 1440p text.` quote is absent from its page, which contains
+`Sharp 1440p text;`. The downstream controls fail factual-support verification
+for synthetic recommendation, comparison and warning copy. These reproduce
+Task 209, which previous invocations left pending before rerunning the Task 100B
+gate. The failure manifest is
+`data/artifacts/evals/suite-full-20261004T142409838971Z.json`.
+Task 100B remained pending after that attempt. No live calls ran.
+
+A fresh complete `scripts/local/verify-context.sh` rerun on 2026-10-04 passed
+464 affected tests, lint, formatting, 36-module typing and the offline audit.
+Section Q passed quick 27/27 before full 106/110 and reproduced the same four
+Task 209 failures. Its 370 selected tests, lint, 11-module typing, shell syntax
+and whitespace checks passed. The complete gate exited 1. That rerun's manifest
+is `data/artifacts/evals/suite-full-20261004T143724444519Z.json`; the log is
+`data/artifacts/context/task100b-current-gate.log`. Disposable gate directories
+were removed. The then-applicable one-task instruction left Task 209 for a
+separate invocation. Task 100B remained pending after that rerun. No production
+changes or live calls ran.
+
+
+The acceptance unit passed on 2026-10-04 after the owner authorized necessary
+prerequisites within the selected task. Task 209 repaired the exact editorial
+quote and supported synthetic copy for YouTube, Reddit and IKEA. The eval-only
+bridge grounds comparison/no-buy/rejection copy in each surface's existing
+cited evidence, retains actual picks and citations, and exposes the draft it
+submits to verification. Seller, sponsorship, community manipulation and
+regional cautions remain visible. Equivalent source-claim and delivery wording
+avoids mismatched factual markers; original typed source metadata stays exact.
+All 57 discovery/extraction and source-intelligence case expectations remain
+unchanged. Production verification and agent/source capability contracts did
+not change.
+
+Nine new focused controls failed before repair and passed afterward. Both
+changed eval test modules passed 128 tests. The editorial control now retains
+`Sharp 1440p text;`, weak review evidence, no retailer offer and the untested-stand
+gap; invented punctuation still fails extraction. All four supported source
+controls are approved, all four unsupported 240Hz OLED controls remain blocked,
+and Reddit retains its no-strong-buy decision and corroboration guidance.
+
+The complete `scripts/local/verify-context.sh` passed 464 affected tests with
+16 live tests deselected, scoped lint/format, 36-module typing and the offline
+audit. Section Q passed quick 27/27 before full 110/110, then 379 selected tests
+with two live tests deselected, scoped lint, 11-module typing, shell syntax and
+whitespace checks. Saved reports confirm the supported and unsupported controls
+above. The passing manifest is
+`data/artifacts/evals/suite-full-20261004T150704584777Z.json`; the complete log is
+`data/artifacts/context/task100b-acceptance-gate.log`. Focused reproduction and
+repair results are in `data/artifacts/context/task209-focused.log`. Disposable
+gate directories were removed. Whole-file formatting differences outside touched
+eval ranges predate this repair; changed-range formatting passed.
+
+The refreshed audit captures 25 contracts and 25 initial inputs. Distinct
+partial reads retain 95,191 of 95,276 characters, byte-identical duplicate history
+retains 17,470, and bounded retrieval supplies 3,744 characters while preserving
+90,144 canonical page characters. These are synthetic size estimates, not live
+token savings. Task 100B and prerequisite 209 are complete. The next main P0 task
+is 200. No live calls, next-main-task work or unrelated gates ran.
+
 Task 100A remains unchecked. Full repository suites, builds, browser E2E and live
 phone acceptance remain deferred. Task 101 is unstarted.
 

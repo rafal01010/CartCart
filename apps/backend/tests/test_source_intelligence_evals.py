@@ -360,6 +360,93 @@ async def test_representative_adapters_are_offline_and_do_not_mutate_inputs(
     assert not failures, failures
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["youtube", "reddit", "amazon", "ikea"])
+@pytest.mark.parametrize("supported", [True, False])
+async def test_downstream_controls_preserve_grounding_decisions_and_cautions(
+    monkeypatch, stage, supported
+):
+    import httpx
+    import socket
+
+    monkeypatch.setattr(Runner, "run", no_execution)
+    monkeypatch.setattr(Dataset, "evaluate", no_execution)
+    monkeypatch.setattr(Dataset, "evaluate_sync", no_execution)
+    monkeypatch.setattr(httpx.AsyncClient, "request", no_execution)
+    monkeypatch.setattr(httpx.Client, "request", no_execution)
+    monkeypatch.setattr(socket.socket, "connect", no_execution)
+    c = case(f"downstream/{stage}-{'cited' if supported else 'unsupported'}")
+    before = c.inputs.model_dump(mode="json")
+    output = await offline_source_intelligence_task()(c.inputs)
+    checks = score_source_intelligence(c.inputs, output, c.expected_output)
+    assert {k: r.reason for k, r in checks.items() if not r.value} == {}
+    assert c.inputs.model_dump(mode="json") == before
+    assert output.verification.approved is supported
+    draft = output.recommendation
+    assert draft.final_rationale == c.inputs.recommendation_claim
+    source_ids = {e.evidence_id for e in output.bundle.evidence}
+    assert source_ids.issubset(set(draft.evidence_ids))
+    assert set(draft.source_ids) == {
+        e.source_id for e in (*output.bundle.evidence, *c.inputs.offer_evidence)
+    }
+    assert draft.no_strong_buy is (stage == "reddit")
+    assert draft.final_product_id == (
+        None if stage == "reddit" else c.inputs.request.products[0].product_id
+    )
+    assert draft.final_listing_id == (
+        None if stage == "reddit" else c.inputs.request.listings[0].listing_id
+    )
+    claims = {e.evidence_id: e.claim for e in output.bundle.evidence}
+    for row in draft.comparison_matrix.rows:
+        assert row.summary == " ".join(
+            claim
+            for evidence_id, claim in claims.items()
+            if evidence_id in row.evidence_ids
+        )
+    cautions = " ".join(draft.warnings)
+    if stage == "youtube":
+        assert (
+            "treat review claims with bias caution"
+            in output.bundle.videos[0].bias_notes
+        )
+        assert "sponsorship and affiliate-link disclosures" in cautions
+        assert "bias caution" in cautions
+    elif stage == "reddit":
+        assert "qualitative" in cautions
+        assert "brigaded or astroturfed" in cautions
+        assert "biased or manipulated" in cautions
+        assert (
+            "Do not use Reddit alone for specifications, warranty, price, or availability."
+            in cautions
+        )
+        assert "ear pads split after a few months" in draft.no_strong_buy_reason
+        assert "Next," in draft.no_strong_buy_reason
+        assert draft.rejected_items[0].reason_code.value == "poor_fit"
+        assert "ear pads split after a few months" in draft.rejected_items[0].reason
+    elif stage == "amazon":
+        assert (
+            "listing trust must be assessed separately from product quality" in cautions
+        )
+        assert "not independently authenticated" in cautions
+        assert "pool multiple Amazon variants" in cautions
+    else:
+        assert (
+            "shipping elsewhere"
+            in output.bundle.evidence[0].evidence_quality_warnings[0]
+        )
+        assert "applies only to PH" in cautions
+        assert "postcode" in draft.comparison_matrix.rows[0].summary
+    if supported:
+        assert output.verification.blocking_issues == ()
+        assert output.verification.recommendation_bundle == draft
+    else:
+        assert "240Hz OLED" in draft.final_rationale
+        assert any(
+            "factual claim not backed" in issue
+            for issue in output.verification.blocking_issues
+        )
+
+
 @pytest.mark.parametrize(
     "mutation",
     ["missing-citations", "invented-citation", "unsupported-spec", "wrong-source-kind"],

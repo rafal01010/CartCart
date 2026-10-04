@@ -272,3 +272,5 @@ apps/backend/app/evals/output/
 cartcart_codex_initial_prompt*
 IMPLEMENTATION_PLAN.md
 IMPLEMENTATION_PLAN_ARCHIVE.md
+TASK_PRIORITY.md
+TASK_EXECUTION_PROMPTS.md

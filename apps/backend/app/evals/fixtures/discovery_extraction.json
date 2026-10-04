@@ -1451,7 +1451,7 @@
                   "product_id": "00000000-0000-4000-8000-0000000ef439"
                 },
                 "evidence_type": "review_claim",
-                "claim": "Sharp 1440p text.",
+                "claim": "Sharp 1440p text;",
                 "confidence": {
                   "level": "medium",
                   "score": 0.7

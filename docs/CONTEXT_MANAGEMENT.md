@@ -1,8 +1,12 @@
 # Context management
 
-Task 100B is undergoing the acceptance repairs described below. Its initial gate is
-recorded in [EVALUATION.md](EVALUATION.md#context-management-gate). Live phone
-acceptance remains Task 100A and requires separate authorization.
+Task 100B passed its offline acceptance gate on 2026-10-04 after completing
+prerequisite Task 209. The [gate results](EVALUATION.md#context-management-gate)
+record affected regressions, the refreshed audit and quick 27/27 before full
+110/110. The stage/field handling matrix and spending limits below describe the
+existing context repairs. The prerequisite corrected synthetic eval inputs and
+bridge copy without changing production verification or independent criteria.
+Live phone acceptance remains Task 100A and requires separate authorization.
 
 ## What caused the investigation
 

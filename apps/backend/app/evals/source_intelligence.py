@@ -687,15 +687,79 @@ class OfflineSourceIntelligenceTask:
             recommendation = await LiveComparisonDecisionAgent(
                 settings=self.settings, model_runner=MockComparisonDecisionModelRunner()
             ).run(request)
-            # Retain the actual decision/citations; only proposed shopper copy is replaced.
+            cited_copy = {
+                ids: " ".join(e.claim for e in bundle.evidence if e.evidence_id in ids)
+                for ids in (
+                    recommendation.evidence_ids,
+                    *(
+                        row.evidence_ids
+                        for row in recommendation.comparison_matrix.rows
+                    ),
+                    *(item.evidence_ids for item in recommendation.rejected_items),
+                )
+            }
+            quoted = cited_copy[recommendation.evidence_ids]
+            no_buy_reason = (
+                f"{quoted} These concerns and limited evidence do not support a strong buy. "
+                "Next, corroborate the concerns before buying."
+                if recommendation.no_strong_buy
+                else None
+            )
+            cautions = tuple(
+                dict.fromkeys(
+                    (
+                        *(
+                            "These concerns and limited evidence do not support a strong buy."
+                            if warning
+                            == "No candidate clears the fit, budget, evidence, and listing-trust bar."
+                            else warning
+                            for warning in recommendation.warnings
+                        ),
+                        *(
+                            warning.replace(
+                                "availability or shipping elsewhere",
+                                "availability or delivery elsewhere",
+                            )
+                            for e in bundle.evidence
+                            for warning in getattr(e, "evidence_quality_warnings", ())
+                        ),
+                        *(
+                            video.bias_notes.replace("review claims", "source claims")
+                            for video in getattr(bundle, "videos", ())
+                            if video.bias_notes
+                        ),
+                    )
+                )
+            )
             draft = recommendation.model_copy(
                 deep=True,
                 update={
                     "final_rationale": f.recommendation_claim,
+                    "no_strong_buy_reason": no_buy_reason,
                     "mode_results": tuple(
                         m.model_copy(update={"rationale": f.recommendation_claim})
                         for m in recommendation.mode_results
                     ),
+                    "comparison_matrix": recommendation.comparison_matrix.model_copy(
+                        update={
+                            "rows": tuple(
+                                row.model_copy(
+                                    update={"summary": cited_copy[row.evidence_ids]}
+                                )
+                                for row in recommendation.comparison_matrix.rows
+                            )
+                        }
+                    ),
+                    "rejected_items": tuple(
+                        item.model_copy(
+                            update={
+                                "reason": f"{cited_copy[item.evidence_ids]} "
+                                "These concerns do not support a strong buy."
+                            }
+                        )
+                        for item in recommendation.rejected_items
+                    ),
+                    "warnings": tuple(f"{quoted} {warning}" for warning in cautions),
                 },
             )
             report = await LiveVerifierCriticAgent(
@@ -710,7 +774,7 @@ class OfflineSourceIntelligenceTask:
             )
             result.analysis, result.recommendation, result.verification = (
                 analysis,
-                recommendation,
+                draft,
                 report,
             )
             result.model_calls += 3

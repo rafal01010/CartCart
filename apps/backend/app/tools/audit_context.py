@@ -16,7 +16,11 @@ from app.agents.catalog import DEFAULT_AGENT_CATALOG
 from app.agents.context_metrics import input_breakdown, measure
 from app.agents.source_spans import source_span
 from app.agents.context_management import compact_json, prepare_history
-from app.agents.contracts import ExtractionAgentInput, GeneralShoppingAgentInput
+from app.agents.contracts import (
+    ExtractionAgentInput,
+    GeneralShoppingAgentInput,
+    VerificationAgentInput,
+)
 from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_extraction import LiveExtractionAgent
 from app.agents.live_general_shopping import LiveGeneralShoppingAgent
@@ -257,7 +261,7 @@ async def audit() -> dict[str, Any]:
         factory = create_session_factory(engine)
         from app.agents.live_verifier_critic import _build_verifier_critic_agent
 
-        verifier_input = definitions["VerifierCriticAgent"].input_model.model_validate(
+        verifier_input = VerificationAgentInput.model_validate(
             definitions["VerifierCriticAgent"].scenarios[0].input
         )
         verifier_tools = SnapshotInterpretationTools(

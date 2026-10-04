@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 from agents import Agent, RunConfig, Runner, WebSearchTool
 from agents.exceptions import UserError
 from agents.items import ModelResponse
@@ -214,6 +215,7 @@ class _ScriptedOwnerModel(Model):
                         type="output_text",
                         annotations=[],
                         text=GeneralModelOutput(
+                            rationale="There is not enough checked evidence to choose a product yet.",
                             category="smartphone"
                             if self.specialist or self.recovery
                             else "keyboard"
@@ -390,6 +392,7 @@ class _SourceCallingPhoneModel(Model):
                         type="output_text",
                         annotations=[],
                         text=GeneralModelOutput(
+                            rationale="Test Phone lasted all day in the review test, with a 5000 mAh battery.",
                             category="smartphone",
                             candidates=(
                                 GeneralCandidateSelection(
@@ -537,7 +540,10 @@ class _RecordingRunner:
             (),
             {
                 "final_output": self.output
-                or GeneralModelOutput(category="walking cane"),
+                or GeneralModelOutput(
+                    rationale="There is not enough checked evidence to choose a product yet.",
+                    category="walking cane",
+                ),
                 "raw_responses": self.raw_responses,
             },
         )()
@@ -1145,6 +1151,7 @@ async def test_phone_hosted_citation_is_persisted_under_receiving_owner() -> Non
             )
             return SimpleNamespace(
                 final_output=GeneralModelOutput(
+                    rationale="There is not enough checked evidence to choose a product yet.",
                     category="smartphone",
                     evidence_gap="A cited review lead needs page verification.",
                     hosted_lead_urls=(url,),
@@ -1705,6 +1712,7 @@ async def test_mock_workbench_records_actual_domain_and_phone_sdk_handoffs() -> 
 async def test_model_cannot_select_uncited_or_unpersisted_evidence() -> None:
     runner = _RecordingRunner(
         output=GeneralModelOutput(
+            rationale="There is not enough checked evidence to choose a product yet.",
             category="walking cane",
             candidates=(
                 GeneralCandidateSelection(
@@ -1804,6 +1812,7 @@ async def test_live_configuration_attaches_optional_hosted_and_provider_tools() 
 async def test_hosted_call_persists_only_cited_weak_lead() -> None:
     runner = _RecordingRunner(
         output=GeneralModelOutput(
+            rationale="There is not enough checked evidence to choose a product yet.",
             category="walking cane",
             hosted_lead_urls=("https://example.com/cane",),
         ),
@@ -1862,7 +1871,11 @@ async def test_hosted_call_persists_only_cited_weak_lead() -> None:
 async def test_search_open_and_find_do_not_discard_valid_hosted_leads() -> None:
     url = "https://example.com/phone"
     runner = _RecordingRunner(
-        output=GeneralModelOutput(category="smartphone", hosted_lead_urls=(url,)),
+        output=GeneralModelOutput(
+            rationale="There is not enough checked evidence to choose a product yet.",
+            category="smartphone",
+            hosted_lead_urls=(url,),
+        ),
         raw_responses=(
             SimpleNamespace(
                 output=[
@@ -1928,6 +1941,7 @@ async def test_model_failure_is_reported_as_research_failure() -> None:
 async def test_model_selected_uncited_hosted_url_is_rejected() -> None:
     runner = _RecordingRunner(
         output=GeneralModelOutput(
+            rationale="There is not enough checked evidence to choose a product yet.",
             category="walking cane",
             hosted_lead_urls=("https://invented.example/cane",),
         ),
@@ -2068,3 +2082,17 @@ async def test_generic_provider_hits_can_be_classified_after_fetch() -> None:
         }
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize("rationale", [None, "", " \t\n", "x" * 1501])
+def test_primary_owner_rationale_is_required_nonblank_and_bounded(rationale) -> None:
+    payload = {"category": "walking cane"}
+    if rationale is not None:
+        payload["rationale"] = rationale
+    with pytest.raises(ValidationError):
+        GeneralModelOutput.model_validate(payload)
+    authored = "  A wooden aid was comfortable in the walking test.  "
+    assert (
+        GeneralModelOutput(category="walking cane", rationale=authored).rationale
+        == authored
+    )

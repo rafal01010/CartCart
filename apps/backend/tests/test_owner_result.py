@@ -54,6 +54,7 @@ from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.intake import CreateSessionRequest, ShoppingBrief
 from app.schemas.money import Money
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
+from app.schemas.runs import RunStage, RunStatus
 from app.schemas.search_sources import (
     EvidenceTarget,
     EvidenceTargetType,
@@ -365,6 +366,7 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                     for item in candidate.evidence
                 )
                 model_output = GeneralModelOutput(
+                    rationale=draft.rationale,
                     category="walking cane",
                     candidates=tuple(
                         GeneralCandidateSelection(
@@ -422,6 +424,12 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
             if verifier_mode != "skip":
                 await orchestrator._run_verification(context)
             await hooks.persist_live_output(context)
+            await RunRepository(session).append_event(
+                run.run_id,
+                stage=RunStage.COMPLETE,
+                status=RunStatus.SUCCEEDED,
+                message="Offline owner-result analysis completed.",
+            )
             await session.commit()
             app = create_app(settings)
 

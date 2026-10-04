@@ -21,6 +21,7 @@ from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.hosted_web_search import HostedWebCitation
 from app.agents.source_spans import source_span
 from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.session import shared_tool_session
 from app.providers.contracts import (
     ExtractionProvider,
     ExtractionProviderOptions,
@@ -171,15 +172,16 @@ class HostedCitationStore:
             return (), ()
         async with self.lock:
             if self.shared_session is not None:
-                persisted, _, decisions = await save_hosted_citations(
-                    session=self.shared_session,
-                    agent_name=agent_name,
-                    run_id=self.run_id,
-                    citations=citations,
-                    query=query,
-                    region_code=region_code,
-                    source_policy=source_policy,
-                )
+                async with shared_tool_session(self.shared_session) as session:
+                    persisted, _, decisions = await save_hosted_citations(
+                        session=session,
+                        agent_name=agent_name,
+                        run_id=self.run_id,
+                        citations=citations,
+                        query=query,
+                        region_code=region_code,
+                        source_policy=source_policy,
+                    )
             else:
                 assert self.session_factory is not None
                 async with self.session_factory() as session:
@@ -401,7 +403,8 @@ class AgentResearchTools:
     @asynccontextmanager
     async def _session(self) -> AsyncIterator[AsyncSession]:
         if self._shared_session is not None:
-            yield self._shared_session
+            async with shared_tool_session(self._shared_session) as session:
+                yield session
         else:
             assert self._session_factory is not None
             async with self._session_factory() as session:

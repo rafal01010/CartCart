@@ -301,6 +301,27 @@ agent-tool activity. Fixture mode keeps a provider-service simulation.
 
 Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, supported comparison modes, trust notes, warnings, source references, and result version. Live bundles retain `result_author`, `handoff_chain`, `verification_action`, and `verification_changes` for audit. The shopper view renders the recommendation and evidence without agent or handoff details.
 
+For an approved live owner result, `final_rationale` and the best-overall mode
+rationale preserve the final SDK owner's primary explanation. Verifier
+revisions record the changed fields and authored reasons in
+`verification_changes`. A missing revision reason blocks the result even when
+automatic guardrail checks pass. Blocked results return a cautious
+no-strong-buy answer without the unsupported primary explanation. The internal
+owner contract requires a nonblank explanation of at most 1500 characters.
+The public result schema and result-version links remain unchanged.
+
+`final_product_id` and the exact `final_listing_id` identify the saved final
+decision. `mode_results` is optional supporting data and may be empty or contain
+only alternatives. The frontend builds the main pick from the final references,
+`final_rationale`, and preserved evidence. A null final listing stays a
+product-only recommendation, even when an optional mode names a purchase offer.
+Mode tabs include the saved final decision so shoppers can return to it after
+viewing an alternative. Saved `runner_up_product_ids` remain visible without
+duplicate mode records, using available comparison or category analysis data.
+Explicit saved runner-up offers retain their product/listing pairs.
+Missing explanations, confidence, and offer details remain unavailable rather
+than inferred from scores or unrelated candidates.
+
 Current implementation returns the latest persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and

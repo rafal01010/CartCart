@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { SessionResultsResponse } from '$lib/api/types.js';
 import { buildResultView, neutralOutboundUrl, selectModeView } from './result-view.js';
 
+const comparisonMatrix: SessionResultsResponse['comparison_matrix'] = {
+	schema_version: 1,
+	criteria: [{ name: 'fit', weight: 1, higher_is_better: true }],
+	rows: [
+		{ product_id: 'product-dell', listing_id: 'listing-dell', scores: { fit: 0.9 }, evidence_ids: ['evidence-dell'], summary: 'Strong fit.' },
+		{ product_id: 'product-asus', listing_id: 'listing-asus', scores: { fit: 0.8 }, evidence_ids: ['evidence-asus'], summary: 'Lower price with credible evidence.' },
+		{ product_id: 'product-lg', listing_id: 'listing-lg', scores: { fit: 0.75 }, evidence_ids: ['evidence-lg'], summary: 'More resolution for a higher price.' },
+	],
+};
+
 const baseResult: SessionResultsResponse = {
 	result_version: {
 		result_version_id: 'result-version-1',
@@ -29,19 +39,7 @@ const baseResult: SessionResultsResponse = {
 	],
 	category_analyses: [],
 	agent_records: [],
-	comparison_matrix: {
-		schema_version: 1,
-		criteria: [{ name: 'fit', weight: 1, higher_is_better: true }],
-		rows: [
-			{
-				product_id: 'product-dell',
-				listing_id: 'listing-dell',
-				scores: { fit: 0.9 },
-				evidence_ids: ['evidence-dell'],
-				summary: 'Strong fit.',
-			},
-		],
-	},
+	comparison_matrix: comparisonMatrix,
 	recommendation_bundle: {
 		schema_version: 1,
 		bundle_id: 'bundle-1',
@@ -92,11 +90,7 @@ const baseResult: SessionResultsResponse = {
 				source_ids: ['source-lg'],
 			},
 		],
-		comparison_matrix: {
-			schema_version: 1,
-			criteria: [{ name: 'fit', weight: 1, higher_is_better: true }],
-			rows: [],
-		},
+		comparison_matrix: comparisonMatrix,
 		rejected_items: [],
 		warnings: [],
 		evidence_ids: ['evidence-dell', 'evidence-asus', 'evidence-lg'],
@@ -239,6 +233,246 @@ function listing(
 }
 
 describe('result view helpers', () => {
+	it('renders the authoritative final decision without optional mode records', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: { ...baseResult.recommendation_bundle, mode_results: [] },
+		});
+		expect(view.finalMode).toMatchObject({
+			productId: 'product-dell', listingId: 'listing-dell',
+			productName: 'Dell UltraSharp U2724DE', sellerName: 'Dell Official',
+			priceLabel: '$499', purchaseUrl: 'https://example.test/listing-dell',
+			rationale: 'Best balance of fit and seller trust.',
+		});
+		expect(view.finalMode?.listingTrust?.levelLabel).toBe('Reasonable listing');
+		expect(view.finalMode?.evidence.map((item) => item.id)).toContain('evidence-dell');
+		expect(view.finalMode?.sources.map((item) => item.id)).toContain('source-dell');
+		expect(selectModeView(view, null)).toBe(view.finalMode);
+		expect(view.decisionModes).toEqual([view.finalMode]);
+	});
+
+	it('keeps the final pick selectable when only alternate modes are saved', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				mode_results: baseResult.recommendation_bundle.mode_results.slice(1),
+			},
+		});
+		expect(selectModeView(view, null)?.productId).toBe('product-dell');
+		expect(view.decisionModes.map((item) => item.mode)).toEqual([
+			'best_overall', 'best_value', 'within_budget', 'stretch_pick',
+		]);
+		const alternate = view.decisionModes.find((item) => item.mode === 'best_value');
+		expect(selectModeView(view, alternate?.key ?? null)?.productId).toBe('product-asus');
+		expect(selectModeView(view, view.finalMode?.key ?? null)?.productId).toBe('product-dell');
+		expect(view.finalMode?.rationale).toBe('Best balance of fit and seller trust.');
+	});
+
+	it('uses the final listing identity even when best-overall names another listing', () => {
+		const view = buildResultView({
+			...baseResult,
+			listings: [...baseResult.listings, listing('listing-dell-other', 'product-dell', 'Dell from another seller', 'Other seller', 399, 'source-dell')],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				mode_results: [{ ...baseResult.recommendation_bundle.mode_results[0], listing_id: 'listing-dell-other' }],
+			},
+		});
+		expect(view.finalMode).toMatchObject({ listingId: 'listing-dell', sellerName: 'Dell Official', priceLabel: '$499' });
+		expect(selectModeView(view, null)?.purchaseUrl).toBe('https://example.test/listing-dell');
+	});
+
+	it('keeps a product-only final pick when a saved mode has a listing', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: { ...baseResult.recommendation_bundle, final_listing_id: null },
+		});
+		expect(view.finalMode).toMatchObject({
+			productId: 'product-dell', listingId: null, listingTitle: null,
+			sellerName: null, priceLabel: null, purchaseUrl: null, listingTrust: null,
+		});
+	});
+
+	it('resolves saved runner-ups through comparison and analysis without mode duplicates', () => {
+		const view = buildResultView({
+			...baseResult,
+			comparison_matrix: {
+				...baseResult.comparison_matrix,
+				rows: [...baseResult.comparison_matrix.rows.filter((row) => row.product_id !== 'product-asus' && row.product_id !== 'product-lg'), {
+					product_id: 'product-asus', listing_id: 'listing-asus', scores: { fit: 0.8 },
+					summary: 'Lower price with a checked fit.', evidence_ids: ['evidence-asus'],
+				}],
+			},
+			category_analyses: [{
+				schema_version: 1, product_id: 'product-lg', listing_ids: ['listing-lg'], category: 'monitor',
+				fit_summary: 'Extra resolution for a higher price.', strengths: [], weaknesses: [], warnings: [],
+				confidence: { level: 'medium', score: 0.7 }, evidence_ids: ['evidence-lg'], source_ids: ['source-lg'],
+			}],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, mode_results: [],
+				runner_up_product_ids: ['product-asus', 'product-lg'],
+			},
+		});
+		expect(view.runnerUps.map((item) => item.productName)).toEqual(['ASUS ProArt PA278CV', 'LG 27UP850']);
+		expect(view.runnerUps[0]).toMatchObject({
+			listingId: 'listing-asus', priceLabel: '$349', rationale: 'Lower price with a checked fit.',
+		});
+		expect(view.runnerUps[0]?.evidence.map((item) => item.id)).toEqual(['evidence-asus']);
+		expect(view.runnerUps[0]?.sources.map((item) => item.id)).toEqual(['source-asus']);
+		expect(view.runnerUps[1]).toMatchObject({
+			listingId: null, purchaseUrl: null, rationale: 'Extra resolution for a higher price.', confidence: 'medium 70%',
+		});
+		expect(view.runnerUps[1]?.evidence.map((item) => item.id)).toEqual(['evidence-lg']);
+	});
+
+	it('does not invent runner-up details or borrow unrelated evidence', () => {
+		const view = buildResultView({
+			...baseResult,
+			shortlist: [], comparison_matrix: { ...baseResult.comparison_matrix, rows: [] },
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, mode_results: [],
+				runner_up_product_ids: ['product-asus', 'product-asus', 'missing-product'],
+			},
+		});
+		expect(view.runnerUps).toHaveLength(1);
+		expect(view.runnerUps[0]).toMatchObject({
+			productName: 'ASUS ProArt PA278CV', listingId: null, sellerName: null,
+			priceLabel: null, purchaseUrl: null, listingTrust: null, confidence: 'unknown',
+			rationale: '',
+		});
+		expect(view.runnerUps[0]?.rationale).not.toContain('Lower price');
+		expect(view.runnerUps[0]?.evidence).toEqual([]);
+		expect(view.runnerUps[0]?.sources.map((item) => item.id)).not.toContain('source-dell');
+	});
+
+	it('keeps no-strong-buy unselectable even with saved alternate modes', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, no_strong_buy: true,
+				no_strong_buy_reason: 'The listings need more checks.', final_product_id: null, final_listing_id: null,
+			},
+		});
+		expect(view.finalMode).toBeNull();
+		expect(selectModeView(view, null)).toBeNull();
+		expect(selectModeView(view, view.decisionModes[0]?.key ?? null)).toBeNull();
+	});
+
+	it('does not replace an unavailable final reference with a best-overall mode', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: { ...baseResult.recommendation_bundle, final_product_id: null, final_listing_id: null },
+		});
+		expect(view.finalMode).toBeNull();
+		expect(selectModeView(view, null)).toBeNull();
+	});
+
+	it('uses final rationale even when the exact best-overall mode has different reasoning', () => {
+		const view = buildResultView(baseResult);
+		expect(view.finalMode?.rationale).toBe('Best balance of fit and seller trust.');
+		expect(view.decisionModes[0]?.rationale).toBe('Best balance of fit and seller trust.');
+	});
+
+	it('preserves stored runner-up trust and neutral links without a mode', () => {
+		const view = buildResultView({
+			...baseResult,
+			listings: baseResult.listings.map((item) => item.listing_id === 'listing-asus'
+				? { ...item, canonical_url: 'https://example.test/asus?tag=affiliate&utm_source=test&color=black' } : item),
+			trust_assessments: [...baseResult.trust_assessments, {
+				...baseResult.trust_assessments[0], listing_id: 'listing-asus', level: 'suspicious',
+				summary: 'Seller details do not line up.', evidence_ids: ['evidence-asus'], source_ids: ['source-asus'],
+			}],
+			comparison_matrix: { ...baseResult.comparison_matrix, rows: [{
+				product_id: 'product-asus', listing_id: 'listing-asus', scores: { fit: 0.8 },
+				summary: 'The product fits, but seller checks block this listing.', evidence_ids: ['evidence-asus'],
+			}] },
+			recommendation_bundle: { ...baseResult.recommendation_bundle, mode_results: [] },
+		});
+		expect(view.runnerUps[0]?.purchaseUrl).toBe('https://example.test/asus?color=black');
+		expect(view.runnerUps[0]?.listingTrust).toMatchObject({ isBlocking: true, summary: 'Seller details do not line up.' });
+		expect(view.runnerUps[0]?.listingTrust?.sources[0]?.id).toBe('source-asus');
+		expect(view.runnerUps[0]?.confidence).toBe('unknown');
+	});
+
+	it('shows missing final details honestly when no saved mode or analysis explains them', () => {
+		const view = buildResultView({
+			...baseResult, listings: [], trust_assessments: [], source_snapshots: [], source_evidence: [],
+			comparison_matrix: { ...baseResult.comparison_matrix, rows: [] },
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, mode_results: [], final_rationale: null,
+				evidence_ids: [], source_ids: [],
+			},
+		});
+		expect(view.finalMode).toMatchObject({
+			productId: 'product-dell', listingId: 'listing-dell', productName: 'Dell UltraSharp U2724DE',
+			priceLabel: null, sellerName: null, purchaseUrl: null, listingTrust: null,
+			rationale: '', confidence: 'unknown', evidence: [], sources: [],
+		});
+	});
+
+	it('does not choose an arbitrary runner-up listing when saved offers are ambiguous', () => {
+		const view = buildResultView({
+			...baseResult,
+			listings: [...baseResult.listings, listing('listing-asus-other', 'product-asus', 'ASUS from another seller', 'Other seller', 299, 'source-asus')],
+			shortlist: [
+				{ candidate_id: 'asus-a', product_id: 'product-asus', listing_id: 'listing-asus', position: 2 },
+				{ candidate_id: 'asus-b', product_id: 'product-asus', listing_id: 'listing-asus-other', position: 3 },
+			],
+			comparison_matrix: { ...baseResult.comparison_matrix, rows: [
+				{ product_id: 'product-asus', listing_id: 'listing-asus', scores: {}, summary: 'First offer.', evidence_ids: ['evidence-asus'] },
+				{ product_id: 'product-asus', listing_id: 'listing-asus-other', scores: {}, summary: 'Second offer.', evidence_ids: [] },
+			] },
+			recommendation_bundle: { ...baseResult.recommendation_bundle, mode_results: [] },
+		});
+		expect(view.runnerUps[0]).toMatchObject({
+			productId: 'product-asus', listingId: null, sellerName: null, priceLabel: null, purchaseUrl: null, rationale: '',
+		});
+		expect(view.runnerUps[0]?.evidence.map((item) => item.id)).toEqual(['evidence-asus']);
+	});
+
+	it('preserves distinct explicit saved offers for the same runner-up product', () => {
+		const view = buildResultView({
+			...baseResult,
+			listings: [...baseResult.listings, listing('listing-asus-other', 'product-asus', 'ASUS from another seller', 'Other seller', 299, 'source-asus-other')],
+			source_snapshots: [...baseResult.source_snapshots, {
+				...baseResult.source_snapshots[1], source_id: 'source-asus-other', title: 'Other ASUS offer', url: 'https://example.test/asus-other',
+			}],
+			source_evidence: [...baseResult.source_evidence, {
+				...baseResult.source_evidence[1], evidence_id: 'evidence-asus-other', source_id: 'source-asus-other',
+				target: { target_type: 'listing', product_id: 'product-asus', listing_id: 'listing-asus-other' }, claim: 'The other ASUS offer has a different price.',
+			}],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				mode_results: [...baseResult.recommendation_bundle.mode_results, {
+					mode: 'runner_up', product_id: 'product-asus', listing_id: 'listing-asus-other', title: 'Runner-up',
+					rationale: 'Another saved offer for the same product.', confidence: { level: 'medium', score: 0.7 },
+					evidence_ids: ['evidence-asus-other'], source_ids: ['source-asus-other'],
+				}],
+			},
+		});
+		expect(view.runnerUps.map((item) => item.listingId)).toEqual(['listing-asus', 'listing-asus-other']);
+		expect(view.runnerUps.map((item) => item.evidence.map((evidence) => evidence.id))).toEqual([
+			['evidence-asus'], ['evidence-asus-other'],
+		]);
+		expect(view.runnerUps.map((item) => item.sources.map((source) => source.id))).toEqual([
+			['source-asus'], ['source-asus-other'],
+		]);
+	});
+
+	it('keeps a product-only runner comparison even when its shortlist has a listing', () => {
+		const view = buildResultView({
+			...baseResult,
+			comparison_matrix: { ...baseResult.comparison_matrix, rows: [{
+				product_id: 'product-asus', listing_id: null, scores: {},
+				summary: 'Only the product was compared.', evidence_ids: ['evidence-asus'],
+			}] },
+			recommendation_bundle: { ...baseResult.recommendation_bundle, mode_results: [] },
+		});
+		expect(view.runnerUps[0]).toMatchObject({
+			productId: 'product-asus', listingId: null, sellerName: null, priceLabel: null, purchaseUrl: null,
+			rationale: 'Only the product was compared.',
+		});
+	});
 	it('uses saved candidate links and comparison evidence without inventing manual facts or scores', () => {
 		const manualProduct = {
 			schema_version: 1, product_id: 'manual-product', name: 'Local Kettle', source_ids: [], listing_ids: [],
@@ -577,7 +811,8 @@ describe('result view helpers', () => {
 
 		expect(view.whyItWins).toBe('best pick because the official listing is safer.');
 		expect(view.finalMode?.label).toBe('best overall');
-		expect(view.finalMode?.rationale).toBe('rationale.');
+		expect(view.finalMode?.rationale).toBe('best pick because the official listing is safer.');
+		expect(view.modeViews[0]?.rationale).toBe('rationale.');
 		expect(view.warnings.map((warning) => warning.text)).toEqual(['Avoid this seller.']);
 	});
 

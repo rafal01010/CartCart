@@ -1509,6 +1509,7 @@ class _WorkbenchOwnerModel(Model):
                         type="output_text",
                         annotations=[],
                         text=GeneralModelOutput(
+                            rationale="There is not enough checked evidence to choose a product yet.",
                             category=self.category,
                             evidence_gap="No verified product and independent review pair was supplied.",
                         ).model_dump_json(),

@@ -207,6 +207,18 @@ initial candidates are:
 - `ProcessingState.svelte`
 - `RecommendationResult.svelte`
 
+The result view treats the bundle's final product and exact listing references
+as the saved decision. Optional modes provide local alternative views and never
+replace that decision by default. The saved final decision remains selectable
+when only alternate modes are present. A product-only final decision has no
+purchase link or attached seller offer.
+
+Supporting details resolve saved runner-up product references even without mode
+records. Comparison summaries and category fit summaries retain their saved
+evidence links. Ambiguous offers stay product-only, and unavailable explanations
+or confidence appear as gaps. The result view does not invent scores, citations,
+or alternative reasons.
+
 ## Focused Checks For Replacement Tasks
 
 For guided frontend changes, focused checks should prefer:

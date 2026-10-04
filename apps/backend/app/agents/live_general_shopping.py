@@ -80,6 +80,7 @@ class GeneralCandidateSelection(CartCartBaseModel):
 
 
 class GeneralModelOutput(CartCartBaseModel):
+    rationale: str = Field(min_length=1, max_length=1500)
     category: str = Field(min_length=1, max_length=200)
     specialist_helpful: bool = False
     candidates: tuple[GeneralCandidateSelection, ...] = Field(default_factory=tuple)
@@ -89,6 +90,13 @@ class GeneralModelOutput(CartCartBaseModel):
     selected_candidate_name: str | None = None
     evidence_gap: str | None = Field(default=None, max_length=500)
     hosted_lead_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+
+    @field_validator("rationale")
+    @classmethod
+    def _nonblank_rationale(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Primary rationale must not be blank.")
+        return value
 
 
 class TechnologyHandoffContext(CartCartBaseModel):
@@ -223,6 +231,11 @@ class MockGeneralShoppingModelRunner:
                 else "Oak walking cane"
             )
             output = GeneralModelOutput(
+                rationale=(
+                    "Oak walking cane was comfortable in the walking test and is a wooden walking aid."
+                    if evidence_ids and candidate_name == "Oak walking cane"
+                    else "There is not enough checked evidence to choose a product yet."
+                ),
                 category="garden seat"
                 if "garden seat" in query.casefold()
                 else "walking cane",
@@ -242,6 +255,7 @@ class MockGeneralShoppingModelRunner:
         return _MockResult(
             final_output=self.output
             or GeneralModelOutput(
+                rationale="There is not enough checked evidence to choose a product yet.",
                 category=query[:200],
                 evidence_gap="No verified page evidence was supplied by this offline mock.",
             ),
@@ -452,7 +466,9 @@ class LiveGeneralShoppingAgent:
                 instructions=(
                     RESEARCH_QUERY_GUIDANCE
                     + "You now own this product shopping request. Finish with "
-                    "GeneralModelOutput, not CategoryAnalysis. The parent agents must "
+                    "GeneralModelOutput, not CategoryAnalysis. Write the required primary rationale "
+                    "in shopper-safe language, supported only by the selected candidate evidence. "
+                    "The parent agents must "
                     "not rewrite your draft. "
                     + _SPECIALIST_INSTRUCTIONS[specialist_name]
                     + " You may search, fetch, inspect persisted run evidence, compare it, "
@@ -559,7 +575,9 @@ class LiveGeneralShoppingAgent:
             instructions=(
                 RESEARCH_QUERY_GUIDANCE
                 + "You now own this whole technology shopping request. Interpret the original "
-                "brief and the handoff reason, then finish with GeneralModelOutput. You may "
+                "brief and the handoff reason, then finish with GeneralModelOutput. Write the "
+                "required primary rationale in shopper-safe language, supported only by the "
+                "selected candidate evidence. You may "
                 "finish broad or unsupported technology categories yourself; do not invent "
                 "a product specialist or return control to General. Hand off only when "
                 "one of the declared product specialists fits the buyer's exact category; "
@@ -643,6 +661,8 @@ class LiveGeneralShoppingAgent:
                 "intelligence helpers when useful; fetch before recording exact quotes. "
                 "Use hosted web search or the approved provider tools for current research; "
                 "citations are only leads until fetched. "
+                "Write the required primary rationale in shopper-safe language, supported only "
+                "by the selected candidate evidence. "
                 "Organize candidates using only evidence IDs returned by record_source_quote. "
                 "Seek independent product/listing and review evidence before choosing a candidate. "
                 "Optionally name distinct best-value, within-budget, stretch, or runner-up modes only when cited evidence supports them; price modes also need a checked listing and quote. "
@@ -1438,11 +1458,7 @@ class LiveGeneralShoppingAgent:
                 mode_selections=tuple(validated_modes),
                 selected_candidate_name=selected.name,
                 hosted_lead_source_ids=tuple(c.source_id for c in citations),
-                rationale=(
-                    f"{selected.name}: "
-                    + " ".join(item.quote for item in selected.evidence[:2])
-                    + " Price, regional availability, and seller trust still need checks."
-                ),
+                rationale=model.rationale,
             )
         return GeneralShoppingDecisionDraft(
             category=model.category,

@@ -89,6 +89,13 @@ Persistence records the originating owner, actual handoff chain, citations,
 verification changes, model/usage, and result version. The parent does not
 resume to write a replacement answer.
 
+General, Technology, and terminal specialists must include a nonblank primary
+`rationale` of at most 1500 characters in `GeneralModelOutput`. Successful
+drafts retain that authored explanation through best-overall result conversion
+and independent verification. Unsupported copy becomes a safe no-strong-buy
+answer. Verifier corrections require an authored audit reason, which is recorded
+with changed fields and the unchanged owner/handoff provenance.
+
 Research semantics belong to agents, not to provider metadata or page-shape
 heuristics. `DiscoveryAgent` classifies and judges search results, identifies
 product leads from reviews, and chooses bounded follow-up searches and pages to

@@ -973,6 +973,30 @@ the sole draft author. A separate case accepts a quote-backed candidate before
 product persistence and rejects an unrelated name. The broader evaluation
 remains deferred to the Tasks 89Q-89Y section gate.
 
+Task 200's `tests/test_owner_tool_concurrency.py` invokes the SDK callbacks
+assembled by the normal RunService owner. A controlled commit pause exercises
+simultaneous search and evidence or listing-trust reads, with sequential
+controls. Hosted citation writes share the same guard, and nested source
+consultation completes without deadlock. Fresh database sessions check durable
+source IDs, exact quotes, PH queries, neutral links, and source exclusions.
+The owner-result API fixtures seed a completed run before loading its result,
+preserving the API's successful-run filter and all result assertions.
+
+Task 204's primary-explanation checks in
+`tests/test_context_decision_fidelity.py` use the real offline SDK runner for
+General and General -> Technology -> Smartphone ownership. They retain distinct
+owner-authored text through typed draft conversion, verification, persistence,
+and result API reads from a fresh database session. Exact primary and
+best-overall explanations, citations, owner identity, handoff chain, and result
+version are checked together. An unsupported 8000mAh claim blocks both owner
+paths with the recorded claim failure. A supported verifier revision preserves
+the owner and records changed fields plus its authored reason. A revision with
+no authored reason, including whitespace-only notes, is blocked before
+automatic guardrail notes can act as a reason. Owner-contract checks reject missing, empty, whitespace-only, and
+oversized explanations while preserving accepted text verbatim. Mock and
+workbench owners supply explicit fixture explanations or honest evidence gaps.
+These checks make no live model or provider calls.
+
 ## Evaluation Dimensions
 
 Eval cases should check whether the system:

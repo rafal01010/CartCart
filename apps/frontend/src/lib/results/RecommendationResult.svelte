@@ -59,7 +59,7 @@
 			{result.noStrongBuyReason ? 'Buying decision' : 'CartCart recommendation'}
 		</p>
 		<h1 class="mt-4 text-balance text-[clamp(2.8rem,6vw,5.6rem)] leading-[0.98] font-light tracking-[-0.045em] text-foreground">
-			{result.noStrongBuyReason ? 'None are strong buys yet.' : 'Here is the clear pick.'}
+			{result.noStrongBuyReason ? 'None are strong buys yet.' : result.finalMode ? 'Here is the clear pick.' : 'The saved pick is unavailable.'}
 		</h1>
 		<p class="mt-6 max-w-[760px] text-pretty text-base leading-7 text-muted-foreground sm:text-[17px]">
 			{decisionCopy}
@@ -94,7 +94,7 @@
 					<h2 class="mt-4 text-balance text-3xl leading-tight font-[510] tracking-[-0.03em] text-foreground sm:text-4xl">
 						{selectedMode.productName}
 					</h2>
-					<p class="mt-4 max-w-[680px] text-base leading-7 text-muted-foreground">{selectedMode.rationale}</p>
+					<p class="mt-4 max-w-[680px] text-base leading-7 text-muted-foreground">{selectedMode.rationale || 'No explanation was saved for this pick.'}</p>
 
 					<div class="mt-7 flex flex-wrap items-center gap-3">
 						{#if selectedMode.purchaseUrl && !selectedMode.listingTrust?.isBlocking}
@@ -110,7 +110,7 @@
 					<div class="grid gap-6">
 						<div>
 							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Price found</p>
-							<p class="mt-2 text-xl font-[510] text-foreground">{selectedMode.priceLabel ?? 'Price varies'}</p>
+							<p class="mt-2 text-xl font-[510] text-foreground">{selectedMode.priceLabel ?? 'Price unavailable'}</p>
 						</div>
 						<div>
 							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Seller</p>
@@ -141,8 +141,9 @@
 			</div>
 		{:else}
 			<div class="p-5 sm:p-8 lg:p-10">
+				{#if !result.noStrongBuyReason}<p class="text-sm leading-6 text-muted-foreground">The saved final pick is unavailable.</p>{/if}
 				<div class="mt-5 max-w-[680px]">
-					<EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label="What blocked a recommendation" />
+					<EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label={result.noStrongBuyReason ? 'What blocked a recommendation' : 'Saved decision evidence'} />
 				</div>
 			</div>
 		{/if}
@@ -215,7 +216,7 @@
 										<a href={runner.purchaseUrl} target="_blank" rel="noreferrer noopener" class="shrink-0 rounded-md text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none" aria-label={`Open listing for ${runner.productName}`}><ExternalLink class="size-4" /></a>
 									{/if}
 								</div>
-								<p class="mt-3 text-sm leading-6 text-muted-foreground">{runner.rationale}</p>
+								<p class="mt-3 text-sm leading-6 text-muted-foreground">{runner.rationale || 'No explanation was saved for this alternative.'}</p>
 								{#if runner.listingTrust?.isRisky}<p class="mt-2 text-sm leading-6 text-destructive">{runner.listingTrust.summary}</p>{/if}
 								<div class="mt-3"><EvidenceDetails evidence={runner.evidence} sources={runner.sources} label="Why it placed" /></div>
 							</article>

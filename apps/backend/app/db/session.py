@@ -1,4 +1,6 @@
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import (
@@ -31,6 +33,15 @@ def create_session_factory(
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
+@asynccontextmanager
+async def shared_tool_session(session: AsyncSession) -> AsyncIterator[AsyncSession]:
+    lock: asyncio.Lock = session.info.setdefault(
+        "cartcart.shared_tool_session_lock", asyncio.Lock()
+    )
+    async with lock:
+        yield session
+
+
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
@@ -52,4 +63,3 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     async with get_session_factory()() as session:
         yield session
-

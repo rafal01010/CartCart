@@ -311,6 +311,16 @@ and hosted OpenAI `web_search` for `DiscoveryAgent`. The four source specialists
 all three tools with optional model choice and emits a
 structured decision for every observed source, including generic provider
 results; planned query source types are not stamped onto provider results.
+
+Owner provider tools, evidence helpers, and hosted citation stores share the
+normal run's request database session. Their database contexts use one access
+guard owned by that session, including research tools created for a receiving
+owner. The guard covers reads, writes, flushes, and commits so concurrent SDK
+tools cannot read during another tool's commit. Provider requests and nested
+source-agent execution run outside the guard. Factory-backed tool sessions
+retain their separate lifetimes. Returned source and quote IDs remain durable
+before the tools expose them.
+
 `POST /api/sessions/{session_id}/runs` executes synchronously; search is called by
 orchestration, live `DiscoveryAgent` can conduct bounded follow-up searches and
 select generic results for inspection. Live `ExtractionAgent` reads selected
@@ -523,14 +533,24 @@ never silently rewrites a transferred owner's answer. Persist
 the actual handoff chain, last owner/author, cited sources and evidence,
 verification changes, models/usage, and result version before UI projection.
 
+All shopper owners return a required, nonblank `GeneralModelOutput.rationale`
+of at most 1500 characters. A successful `GeneralShoppingDecisionDraft` keeps
+that text verbatim. Result conversion uses the same explanation for
+`final_rationale` and the best-overall mode, with the selected candidate's
+validated same-run evidence. Backend reference checks and independent claim
+checks still apply before display. Missing or unsafe research retains the
+existing cautious no-strong-buy path. Verifier revisions require an authored
+audit reason before automatic guardrail notes are added. Approved revisions
+record changed fields and reasons while retaining the actual owner and handoffs.
+
 Hosted OpenAI web search is implemented alongside existing approved provider
 tools for live `DiscoveryAgent`, all eight shopper owners, and the four
 site/source specialists, and as a scoped optional tool for live
 `SellerListingTrustAgent`. Owners also have typed provider search/fetch and
 exact-page quote recording. Hosted citations remain weak leads; the decision draft
 requires fetched excerpts from two independent domains including a review
-and a product/listing page. It does not assert price, regional availability,
-or seller trust. Hosted search is not planned for the source manager as unrestricted search
+and a product/listing page. Price, regional availability, and seller-trust
+claims still require their existing independent checks. Hosted search is not planned for the source manager as unrestricted search
 or for intake-only, extraction-only, comparison-only, and verification-only
 roles. The model may choose either research path; a search hit is not a
 verified listing, and only validated persisted citations support claims.

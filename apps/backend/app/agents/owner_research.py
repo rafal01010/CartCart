@@ -25,6 +25,7 @@ from app.agents.research_tools import (
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.session import shared_tool_session
 from app.schemas.ids import ListingId, RunId, SourceId
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing
@@ -110,7 +111,8 @@ class OwnerResearchContext:
     @asynccontextmanager
     async def _session(self) -> AsyncIterator[AsyncSession]:
         if self.shared_session is not None:
-            yield self.shared_session
+            async with shared_tool_session(self.shared_session) as session:
+                yield session
         else:
             assert self.session_factory is not None
             async with self.session_factory() as session:

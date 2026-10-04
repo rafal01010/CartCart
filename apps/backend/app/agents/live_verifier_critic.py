@@ -500,6 +500,19 @@ def _coerce_verification_report_result(
     )
     if report.approved and report.blocking_issues:
         raise ValueError("approved verifier output cannot include blocking issues.")
+    if (
+        report.approved
+        and report.recommendation_bundle.model_dump(
+            exclude={"verification_action", "verification_changes"}
+        )
+        != input_data.recommendation_bundle.model_dump(
+            exclude={"verification_action", "verification_changes"}
+        )
+        and not any(note.strip() for note in report.notes)
+    ):
+        return _failure_report(
+            input_data, "Verifier revision did not include an audit reason."
+        )
     return _apply_output_guardrails(report, input_data)
 
 

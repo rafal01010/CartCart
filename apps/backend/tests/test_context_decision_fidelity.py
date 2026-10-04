@@ -1,9 +1,11 @@
 import json
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from agents.items import ModelResponse
 from agents.models.interface import Model, ModelProvider
 from agents.usage import Usage
@@ -12,7 +14,7 @@ from openai.types.responses import (
     ResponseOutputMessage,
     ResponseOutputText,
 )
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import app.db.models  # noqa: F401
 from app.agents.context_management import BoundedRunner, ContextBudget, context_scope
@@ -27,14 +29,16 @@ from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_general_shopping import LiveGeneralShoppingAgent
 from app.agents.live_verifier_critic import LiveVerifierCriticAgent
 from app.agents.research_tools import AgentResearchTools
-from app.core.settings import Settings
+from app.core.settings import AgentWorkflowMode, Settings
 from app.db.base import Base
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
-from app.db.session import create_session_factory
+from app.db.session import create_session_factory, get_db_session
+from app.main import create_app
+from app.api.routes.results import SessionResultsResponse
 from app.orchestration.shopping_runs import (
     RepositoryShoppingRunPersistenceHooks,
     ShoppingRunContext,
@@ -64,6 +68,7 @@ from app.schemas.ids import new_id
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
 from app.providers.fakes import FakeExtractionProvider, FakeSearchProvider
 from app.schemas.regions import Region
+from app.schemas.runs import RunStage, RunStatus
 from app.schemas.search_sources import (
     ExtractedPageContent,
     ExtractionStatus,
@@ -275,7 +280,7 @@ async def _seed(factory, *, phone: bool):
     return shopping_session, run, brief, sources, snapshots, quotes
 
 
-def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = False):
+def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = False, rationale: str | None = None):
     name = "Aster Pro 512GB PH" if phone else "Amber Desk Lamp PH"
     steps = []
     for source, quote in zip(sources, quotes, strict=True):
@@ -314,6 +319,13 @@ def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = 
                     }
                 ],
                 "selected_candidate_name": name,
+                "rationale": rationale
+                or (
+                    "Aster Pro 512GB PH lasts a full day. Low-light photos are weaker than its competitor. "
+                    "Next generation timing is unconfirmed. A two year local warranty supports this choice."
+                    if phone
+                    else "Amber Desk Lamp PH has even light for reading. Brightness is limited for detailed work."
+                ),
             }
         )
 
@@ -437,7 +449,7 @@ async def test_long_phone_pages_reach_production_draft_and_unknown_price_decisio
         "TechnologyDomainAnalystAgent -> SmartphoneSpecialistAgent",
     )
     assert (
-        "Price, regional availability, and seller trust still need checks."
+        "A two year local warranty supports this choice."
         in bundle.final_rationale
     )
     assert len(model.inputs) == 7
@@ -743,3 +755,168 @@ async def test_saved_research_refinement_uses_current_ph_hard_cap(stored_researc
             "Amber Desk Lamp PH has even light for reading. Brightness is limited for detailed work.",
             "Amber Desk Lamp imported offer costs PHP 4999.00 and has no local warranty.",
         }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phone", [False, True], ids=["general", "two-hop-phone"])
+@pytest.mark.parametrize(
+    "verification",
+    ["approve", "unsupported", "revise", "unexplained-revision", "blank-revision"],
+)
+async def test_owner_primary_explanation_survives_sdk_verification_and_saved_api(
+    stored_research, phone: bool, verification: str
+):
+    factory = stored_research
+    shopping_session, run, brief, sources, snapshots, quotes = await _seed(
+        factory, phone=phone
+    )
+    authored = (
+        "For all-day use, Aster Pro 512GB PH lasts a full day. "
+        "Its low-light photos are weaker than its competitor."
+        if phone
+        else "For reading, Amber Desk Lamp PH has even light. "
+        "Its brightness is limited for detailed work."
+    )
+    if verification == "unsupported":
+        authored += " It has an 8000mAh battery."
+    owner, request, model = _owner(
+        factory, run, brief, sources, quotes, phone=phone, rationale=authored
+    )
+    draft = await owner.run(request)
+    assert draft.outcome == GeneralShoppingOutcome.DRAFT
+    assert draft.rationale == authored
+    expected_owner = "SmartphoneSpecialistAgent" if phone else "GeneralShoppingAgent"
+    assert draft.owner_agent_name == expected_owner
+    bundle, context = await _owner_bundle(
+        factory, shopping_session, run, brief, owner, draft
+    )
+    assert bundle.final_rationale == authored
+    assert bundle.mode_results[0].rationale == authored
+    expected_chain = (
+        (
+            "GeneralShoppingAgent -> TechnologyDomainAnalystAgent",
+            "TechnologyDomainAnalystAgent -> SmartphoneSpecialistAgent",
+        )
+        if phone
+        else ()
+    )
+    assert bundle.handoff_chain == expected_chain
+    revised = (
+        "Aster Pro 512GB PH lasts a full day. Low-light photos are weaker than its competitor."
+        if phone
+        else "Amber Desk Lamp PH has even light for reading. Brightness is limited for detailed work."
+    )
+    reviewed = bundle
+    if verification in {"revise", "unexplained-revision", "blank-revision"}:
+        reviewed = bundle.model_copy(
+            update={
+                "final_rationale": revised,
+                "mode_results": (
+                    bundle.mode_results[0].model_copy(update={"rationale": revised}),
+                ),
+            }
+        )
+    verifier_model = _ScriptModel(
+        [
+            _message(
+                {
+                    "approved": True,
+                    "recommendation_bundle": reviewed.model_dump(mode="json"),
+                    "notes": ["Shortened the explanation to the checked source facts."]
+                    if verification == "revise"
+                    else [" \t\n"]
+                    if verification == "blank-revision"
+                    else [],
+                }
+            )
+        ]
+    )
+    async with factory() as session:
+        hooks = RepositoryShoppingRunPersistenceHooks(
+            run_repository=RunRepository(session),
+            result_repository=ResultRepository(session),
+            search_source_repository=SearchSourceRepository(session),
+            product_repository=ProductRepository(session),
+        )
+        verifier = LiveVerifierCriticAgent(
+            settings=_settings(),
+            model_runner=_BoundedSDKRunner({"gpt-6-sol": verifier_model}),
+            snapshot_tools_factory=lambda _: SnapshotInterpretationTools(
+                run_id=run.run_id,
+                allowed_snapshot_ids=tuple(item.source_id for item in snapshots),
+                shared_session=session,
+                agent_name="VerifierCriticAgent",
+            ),
+        )
+        orchestrator = ShoppingRunOrchestrator(
+            hooks,
+            agent_workflow_mode=AgentWorkflowMode.LIVE,
+            general_shopping_agent=owner,
+            verifier_critic_agent=verifier,
+        )
+        context.recommendation_bundle = bundle
+        await orchestrator._run_verification(context)
+        await hooks.persist_live_output(context)
+        await RunRepository(session).append_event(
+            run.run_id,
+            stage=RunStage.COMPLETE,
+            status=RunStatus.SUCCEEDED,
+            message="Offline primary explanation checked.",
+        )
+        await session.commit()
+    app = create_app(_settings())
+
+    async def override_db_session() -> AsyncIterator[AsyncSession]:
+        async with factory() as fresh_session:
+            yield fresh_session
+
+    app.dependency_overrides[get_db_session] = override_db_session
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/sessions/{shopping_session.session_id}/results"
+        )
+    assert response.status_code == 200
+    saved = SessionResultsResponse.model_validate(response.json())
+    result = saved.recommendation_bundle
+    assert result.result_author == expected_owner
+    assert result.handoff_chain == expected_chain
+    assert saved.result_version.version == 1
+    assert saved.result_version.run_id == run.run_id
+    if verification in {"unsupported", "unexplained-revision", "blank-revision"}:
+        assert result.verification_action == "blocked"
+        assert result.no_strong_buy is True
+        assert result.final_rationale is None
+        assert result.mode_results == ()
+        reason = (
+            "final rationale includes a factual claim not backed by its evidence."
+            if verification == "unsupported"
+            else "Verifier revision did not include an audit reason."
+        )
+        assert reason in result.verification_changes
+        if verification == "unsupported":
+            assert verifier_model.inputs == []
+    else:
+        expected = revised if verification == "revise" else authored
+        assert result.final_rationale == expected
+        assert result.mode_results[0].rationale == expected
+        assert result.verification_action == (
+            "revised" if verification == "revise" else "approved"
+        )
+        assert result.no_strong_buy is False
+        assert result.final_product_id == saved.products[0].product_id
+        assert result.evidence_ids == tuple(
+            item.evidence_id for item in draft.candidates[0].evidence
+        )
+        assert result.source_ids == tuple(
+            item.snapshot_id for item in draft.candidates[0].evidence
+        )
+        assert len(model.inputs) == 7
+        if verification == "revise":
+            assert "final_rationale" in result.verification_changes
+            assert "mode_results" in result.verification_changes
+            assert (
+                "Shortened the explanation to the checked source facts."
+                in result.verification_changes
+            )

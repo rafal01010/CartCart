@@ -185,7 +185,7 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 	const comparisonProducts = buildComparisonProducts(result, productById, listingById, evidenceById, sourceById, sourceViewById, trustViewByListingId);
 	const comparisonIds = new Set(comparisonProducts.map((item) => item.productId));
 
-	const modeViews = result.recommendation_bundle.mode_results.map((mode) =>
+	const projectMode = (mode: RecommendationModeResult) =>
 		toModeView(
 			mode,
 			productById.get(mode.product_id),
@@ -194,9 +194,10 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 			sourceById,
 			sourceViewById,
 			trustViewByListingId,
-		),
-	);
-	const finalMode = findFinalMode(result, modeViews);
+		);
+	const modeViews = result.recommendation_bundle.mode_results.map(projectMode);
+	const finalRecommendation = buildFinalRecommendation(result);
+	const finalMode = finalRecommendation ? projectMode(finalRecommendation) : null;
 	const resultEvidence = mapEvidence(result.recommendation_bundle.evidence_ids, evidenceById, sourceById);
 	const resultSources = mapSources(
 		[
@@ -209,7 +210,7 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 	return {
 		versionLabel: `v${result.result_version.version}`,
 		finalMode,
-		decisionModes: findDecisionModes(modeViews),
+		decisionModes: findDecisionModes(modeViews, finalMode),
 		resultEvidence,
 		resultSources,
 		noStrongBuyReason: result.recommendation_bundle.no_strong_buy
@@ -221,7 +222,7 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 			result.recommendation_bundle.final_rationale ?? finalMode?.rationale ?? null,
 		),
 		modeViews,
-		runnerUps: findRunnerUps(result, modeViews, finalMode),
+		runnerUps: dedupeModes(buildRunnerUpRecommendations(result).map(projectMode)),
 		trustViews,
 		warnings: buildWarningViews(result, trustViews, evidenceById, sourceById, sourceViewById),
 		rejectedItems: result.recommendation_bundle.rejected_items
@@ -328,12 +329,11 @@ export function modeLabel(mode: RecommendationMode): string {
 }
 
 export function selectModeView(view: ResultView, selectedKey: string | null): ModeView | null {
-	if (!selectedKey) return view.finalMode ?? view.decisionModes[0] ?? null;
+	if (!view.finalMode || view.noStrongBuyReason) return null;
+	if (!selectedKey) return view.finalMode;
 	return (
 		view.decisionModes.find((mode) => mode.key === selectedKey) ??
-		view.finalMode ??
-		view.decisionModes[0] ??
-		null
+		view.finalMode
 	);
 }
 
@@ -347,45 +347,72 @@ export function scoreLabel(score: number | null | undefined): string {
 	return `${Math.round(score * 100)}%`;
 }
 
-function findFinalMode(result: SessionResultsResponse, modes: ModeView[]): ModeView | null {
+function buildFinalRecommendation(result: SessionResultsResponse): RecommendationModeResult | null {
 	const bundle = result.recommendation_bundle;
-	if (bundle.no_strong_buy) return null;
-	const matchingBestOverall = modes.find(
+	const productId = bundle.final_product_id;
+	if (bundle.no_strong_buy || !productId || !result.products.some((product) => product.product_id === productId)) return null;
+	const listingId = bundle.final_listing_id ?? null;
+	const matchingBestOverall = bundle.mode_results.find(
 		(mode) =>
 			mode.mode === 'best_overall' &&
-			mode.productId === bundle.final_product_id &&
-			(!bundle.final_listing_id || mode.listingId === bundle.final_listing_id),
+			mode.product_id === productId &&
+			(mode.listing_id ?? null) === listingId,
 	);
-	return (
-		matchingBestOverall ??
-		modes.find((mode) => mode.mode === 'best_overall') ??
-		modes.find(
-			(mode) =>
-				mode.productId === bundle.final_product_id &&
-				(!bundle.final_listing_id || mode.listingId === bundle.final_listing_id),
-		) ??
-		modes[0] ??
-		null
+	const analysis = result.category_analyses.find((item) => item.product_id === productId);
+	const row = result.comparison_matrix.rows.find(
+		(item) => item.product_id === productId && (item.listing_id ?? null) === listingId,
 	);
+	return {
+		mode: 'best_overall',
+		product_id: productId,
+		listing_id: listingId,
+		title: matchingBestOverall?.title ?? modeLabel('best_overall'),
+		rationale: bundle.final_rationale ?? matchingBestOverall?.rationale ?? '',
+		confidence: matchingBestOverall?.confidence ?? analysis?.confidence ?? { level: 'unknown' },
+		evidence_ids: [...new Set([
+			...bundle.evidence_ids,
+			...(matchingBestOverall?.evidence_ids ?? []),
+			...(row?.evidence_ids ?? []),
+			...(analysis?.evidence_ids ?? []),
+		])],
+		source_ids: [...new Set([
+			...bundle.source_ids,
+			...(matchingBestOverall?.source_ids ?? []),
+			...(analysis?.source_ids ?? []),
+		])],
+	};
 }
 
-function findRunnerUps(
-	result: SessionResultsResponse,
-	modes: ModeView[],
-	finalMode: ModeView | null,
-): ModeView[] {
-	const runnerIds = new Set(result.recommendation_bundle.runner_up_product_ids);
-	const finalKey = finalMode ? resultKey(finalMode.productId, finalMode.listingId) : null;
-	const runnerModes = modes.filter((mode) => {
-		const isRunner = runnerIds.has(mode.productId) || mode.mode === 'runner_up';
-		return isRunner && resultKey(mode.productId, mode.listingId) !== finalKey;
+function buildRunnerUpRecommendations(result: SessionResultsResponse): RecommendationModeResult[] {
+	const bundle = result.recommendation_bundle;
+	const runnerIds = new Set([
+		...bundle.runner_up_product_ids,
+		...bundle.mode_results.filter((mode) => mode.mode === 'runner_up').map((mode) => mode.product_id),
+	]);
+	return [...runnerIds].flatMap((productId) => {
+		if (productId === bundle.final_product_id || !result.products.some((product) => product.product_id === productId)) return [];
+		const savedModes = bundle.mode_results.filter((mode) => mode.product_id === productId);
+		if (savedModes.length) return savedModes;
+		const rows = result.comparison_matrix.rows.filter((item) => item.product_id === productId);
+		const listingReferences = rows.length ? rows : result.shortlist.filter((item) => item.product_id === productId);
+		const listingIds = new Set(listingReferences.map((item) => item.listing_id ?? null));
+		const analysis = result.category_analyses.find((item) => item.product_id === productId);
+		return [{
+			mode: 'runner_up',
+			product_id: productId,
+			listing_id: listingIds.size === 1 ? [...listingIds][0] ?? null : null,
+			title: modeLabel('runner_up'),
+			rationale: (rows.length === 1 ? rows[0]?.summary : null) ?? analysis?.fit_summary ?? '',
+			confidence: analysis?.confidence ?? { level: 'unknown' },
+			evidence_ids: [...new Set([...rows.flatMap((row) => row.evidence_ids), ...(analysis?.evidence_ids ?? [])])],
+			source_ids: analysis?.source_ids ?? [],
+		} satisfies RecommendationModeResult];
 	});
-
-	return dedupeModes(runnerModes);
 }
 
-function findDecisionModes(modes: ModeView[]): ModeView[] {
-	return modes.filter((mode) => mode.mode !== 'runner_up');
+function findDecisionModes(modes: ModeView[], finalMode: ModeView | null): ModeView[] {
+	if (!finalMode) return [];
+	return [finalMode, ...modes.filter((mode) => mode.mode !== 'runner_up' && mode.mode !== 'best_overall')];
 }
 
 function dedupeModes(modes: ModeView[]): ModeView[] {

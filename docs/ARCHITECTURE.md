@@ -543,6 +543,17 @@ existing cautious no-strong-buy path. Verifier revisions require an authored
 audit reason before automatic guardrail notes are added. Approved revisions
 record changed fields and reasons while retaining the actual owner and handoffs.
 
+Final verification binds recognized factual specifications to the candidate
+asserted in each displayed claim. The shared backend check runs before model
+verification and again after an approved revision. A citation for another
+product cannot establish the selected product's specification. Supported
+comparisons can cite both products; the check retains each claim's subject
+rather than requiring every citation to describe the winner. Listing targets
+resolve through stored product relationships. Canonical original support remains
+the factual authority; derived analysis does not establish new facts. These
+bounded lexical checks supplement the model verifier and do not prove arbitrary
+natural-language entailment or repair incorrectly created evidence targets.
+
 Hosted OpenAI web search is implemented alongside existing approved provider
 tools for live `DiscoveryAgent`, all eight shopper owners, and the four
 site/source specialists, and as a scoped optional tool for live

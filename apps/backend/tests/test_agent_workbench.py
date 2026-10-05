@@ -2024,3 +2024,30 @@ async def test_workbench_direct_runner_requires_opt_in_flag() -> None:
         )
 
     assert exc_info.value.code == "agent_workbench_disabled"
+
+
+@pytest.mark.parametrize(
+    "scenario, approved",
+    [
+        ("verifier/wrong-candidate-specification", False),
+        ("verifier/supported-candidate-comparison", True),
+    ],
+)
+def test_workbench_mock_verifier_binds_candidate_facts(scenario, approved):
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "VerifierCriticAgent",
+            "scenario_name": scenario,
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    output = response.json()["output"]
+    assert output["approved"] is approved
+    if not approved:
+        assert (
+            "final rationale includes a factual claim not backed by its evidence."
+            in output["blocking_issues"]
+        )

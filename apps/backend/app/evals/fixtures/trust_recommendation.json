@@ -5748,6 +5748,614 @@
           "offline"
         ]
       }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/wrong-candidate-specification",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose a comfortable office monitor in the Philippines.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "PH",
+                  "currency": "PHP"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Alpha Monitor",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "brand": "Shared",
+                "model": "Alpha"
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000189001",
+                "name": "Beta Monitor",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000189002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000189003"
+                ],
+                "brand": "Shared",
+                "model": "Beta"
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Alpha Monitor",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "14000",
+                  "currency": "PHP"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000189003",
+                "product_id": "00000000-0000-4000-8000-000000189001",
+                "title": "Beta Monitor",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                },
+                "price": {
+                  "amount": "14000",
+                  "currency": "PHP"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000189002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Alpha Monitor supports 60Hz refresh rate.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000189004",
+                "source_id": "00000000-0000-4000-8000-000000189002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000189001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Beta Monitor supports 120Hz refresh rate.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Alpha Monitor supports 120Hz refresh rate.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Alpha Monitor supports 120Hz refresh rate.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d",
+                    "00000000-0000-4000-8000-000000189004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9",
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                },
+                {
+                  "mode": "best_value",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Alpha Monitor supports 120Hz refresh rate.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d",
+                    "00000000-0000-4000-8000-000000189004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9",
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Alpha Monitor supports 120Hz refresh rate.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d",
+                      "00000000-0000-4000-8000-000000189004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000189004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000189002"
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Each claimed refresh rate must belong to its named candidate."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored Alpha 60Hz and Beta 120Hz candidate-binding control.",
+        "tags": [
+          "verification",
+          "task-189",
+          "offline"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/supported-candidate-comparison",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose a comfortable office monitor in the Philippines.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "PH",
+                  "currency": "PHP"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Alpha Monitor",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "brand": "Shared",
+                "model": "Alpha"
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000189001",
+                "name": "Beta Monitor",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000189002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000189003"
+                ],
+                "brand": "Shared",
+                "model": "Beta"
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Alpha Monitor",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "14000",
+                  "currency": "PHP"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000189003",
+                "product_id": "00000000-0000-4000-8000-000000189001",
+                "title": "Beta Monitor",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                },
+                "price": {
+                  "amount": "14000",
+                  "currency": "PHP"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000189002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Alpha Monitor supports 60Hz refresh rate.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000189004",
+                "source_id": "00000000-0000-4000-8000-000000189002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000189001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Beta Monitor supports 120Hz refresh rate.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d",
+                    "00000000-0000-4000-8000-000000189004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9",
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                },
+                {
+                  "mode": "best_value",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d",
+                    "00000000-0000-4000-8000-000000189004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9",
+                    "00000000-0000-4000-8000-000000189002"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d",
+                      "00000000-0000-4000-8000-000000189004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000189004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000189002"
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Each claimed refresh rate must belong to its named candidate."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored Alpha 60Hz and Beta 120Hz candidate-binding control.",
+        "tags": [
+          "verification",
+          "task-189",
+          "offline"
+        ]
+      }
     }
   ]
 }

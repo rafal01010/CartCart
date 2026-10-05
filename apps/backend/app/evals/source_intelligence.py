@@ -73,6 +73,8 @@ from app.schemas.analysis import CategoryAnalysis, RecommendationBundle
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.search_sources import (
     AmazonProductEvidenceBundle,
+    AmazonProductEvidence,
+    EvidenceTargetType,
     CommunityDiscussionEvidenceBundle,
     EvidenceType,
     IKEAStoreEvidenceBundle,
@@ -542,11 +544,33 @@ def _analysis_evidence(bundle: Bundle) -> tuple[SourceEvidence, ...]:
         if isinstance(bundle, VideoReviewEvidenceBundle)
         else {}
     )
+    context_listing_ids = {}
+    if isinstance(bundle, AmazonProductEvidenceBundle):
+        for context in bundle.listing_contexts:
+            listing_ids = {
+                item.target.listing_id
+                for item in bundle.evidence
+                if item.listing_context_source_id == context.source_id
+                and item.target.listing_id is not None
+            }
+            if len(listing_ids) == 1:
+                context_listing_ids[context.source_id] = next(iter(listing_ids))
     return tuple(
         SourceEvidence(
             evidence_id=e.evidence_id,
             source_id=e.source_id,
-            target=e.target,
+            target=e.target.model_copy(
+                update={"listing_id": context_listing_ids[e.listing_context_source_id]}
+            )
+            if isinstance(e, AmazonProductEvidence)
+            and e.target.target_type
+            in {EvidenceTargetType.REVIEW, EvidenceTargetType.REGION}
+            and not (
+                e.target.product_id or e.target.listing_id or e.target.candidate_id
+            )
+            and e.listing_context_source_id is not None
+            and e.listing_context_source_id in context_listing_ids
+            else e.target,
             evidence_type=EvidenceType.OTHER
             if getattr(e, "metadata_only", False)
             else EvidenceType.VIDEO_CLAIM

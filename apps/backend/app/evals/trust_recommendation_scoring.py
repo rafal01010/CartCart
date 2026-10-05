@@ -196,24 +196,15 @@ def _bundle_checks(
     ]:
         if not text:
             continue
-        corpus = " ".join(
-            evidence[i].claim.casefold()
-            for i in cited
-            if i in evidence
-            and (
-                evidence[i].target.product_id == product_id
-                or (
-                    listing_id is not None
-                    and evidence[i].target.listing_id == listing_id
-                )
-            )
-        )
         facts = re.findall(
             r"\b\d+(?:\.\d+)?\s?(?:hz|mah|gb|tb|nits|inch|inches|ms|w)\b|\b(?:4k|8k|oled|usb-c|\d{3,4}p)\b",
             text.casefold(),
         )
+        supported = _candidate_fact_support(
+            text, cited, product_id, request.products, evidence, listings
+        )
         results[f"evidence.{label}.factual_claims"] = _check(
-            bool(cited) and all(fact in corpus for fact in facts),
+            bool(cited) and supported,
             "Specific product specifications must occur in supplied cited claims; citations alone do not substantiate new facts.",
             facts,
         )
@@ -278,6 +269,64 @@ def _bundle_checks(
             text,
         )
     return results
+
+
+def _candidate_fact_support(
+    text, cited, default_product_id, products, evidence, listings
+):
+    aliases = {}
+    for product in products:
+        for name in (product.name, product.model):
+            if name and name.casefold() != (product.brand or "").casefold():
+                aliases.setdefault(name.casefold(), set()).add(product.product_id)
+    pattern = r"\b\d+(?:\.\d+)?\s?(?:hz|mah|gb|tb|nits|inch|inches|ms|w)\b|\b(?:4k|8k|oled|usb-c|\d{3,4}p)\b"
+    for sentence in re.split(r"[;!?]|\.(?=\s|$)", text.casefold()):
+        names = []
+        for alias in sorted(aliases, key=len, reverse=True):
+            for match in re.finditer(
+                r"(?<!\w)" + re.escape(alias) + r"(?!\w)", sentence
+            ):
+                if not any(
+                    match.start() < end and match.end() > start
+                    for start, end, _ in names
+                ):
+                    names.append((match.start(), match.end(), aliases[alias]))
+        names.sort()
+        for fact in re.finditer(pattern, sentence):
+            preceding = [name for name in names if name[0] < fact.start()]
+            owners = preceding[-1][2] if preceding else {default_product_id}
+            if len(owners) != 1:
+                return False
+            if len(preceding) > 1:
+                for prior, following in reversed(tuple(zip(preceding, preceding[1:]))):
+                    between = sentence[prior[1] : following[0]].strip()
+                    if re.search(
+                        r"\b(unlike|rather than|instead of)\b", between
+                    ) and not re.search(pattern, between):
+                        owners = prior[2]
+                        if len(owners) != 1:
+                            return False
+                        break
+                    if between not in {"and", "&", ",", ", and"}:
+                        break
+                    if len(prior[2]) != 1:
+                        return False
+                    owners = owners | prior[2]
+            for owner in owners:
+                if not any(
+                    (
+                        item.target.product_id == owner
+                        or (
+                            item.target.listing_id in listings
+                            and listings[item.target.listing_id].product_id == owner
+                        )
+                    )
+                    and fact.group() in item.claim.casefold()
+                    for key in cited
+                    if (item := evidence.get(key)) is not None
+                ):
+                    return False
+    return True
 
 
 def score_trust_recommendation(

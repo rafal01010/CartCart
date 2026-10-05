@@ -310,6 +310,14 @@ no-strong-buy answer without the unsupported primary explanation. The internal
 owner contract requires a nonblank explanation of at most 1500 characters.
 The public result schema and result-version links remain unchanged.
 
+Recognized factual specifications require evidence for the candidate asserted
+in the claim, including final, mode, and comparison explanations. Correctly
+targeted evidence for another product cannot establish the winner's
+specification. Supported comparisons retain citations for each named product.
+The backend repeats this check after an approved verifier revision. A blocked
+live result records the reason in `verification_changes` and clears the purchase
+pick through the existing cautious result contract.
+
 `final_product_id` and the exact `final_listing_id` identify the saved final
 decision. `mode_results` is optional supporting data and may be empty or contain
 only alternatives. The frontend builds the main pick from the final references,

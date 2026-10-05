@@ -1366,6 +1366,8 @@ def _build_workbench_definitions(
                 _scenario_verifier_warning,
                 _scenario_verifier_unsupported_claim_block,
                 _scenario_verifier_suspicious_listing_warning,
+                _scenario_verifier_wrong_candidate_specification,
+                _scenario_verifier_supported_candidate_comparison,
             ),
             mock_agent_factory=_mock_verifier_critic_agent,
             live_agent_factory=LiveVerifierCriticAgent,
@@ -5143,6 +5145,105 @@ def _scenario_verifier_unsupported_claim_block() -> AgentWorkbenchScenario:
         ),
         boundary=True,
     )
+
+
+def _verifier_candidate_scenario(*, supported: bool) -> AgentWorkbenchScenario:
+    original = VerificationAgentInput.model_validate(
+        _scenario_verifier_approved().input
+    )
+    alpha = original.products[0].model_copy(
+        update={"name": "Alpha Monitor", "brand": "Shared", "model": "Alpha"}
+    )
+    beta = alpha.model_copy(
+        update={
+            "product_id": new_id(),
+            "name": "Beta Monitor",
+            "model": "Beta",
+            "source_ids": (new_id(),),
+        }
+    )
+    alpha_listing = original.listings[0].model_copy(update={"title": "Alpha Monitor"})
+    beta_listing = alpha_listing.model_copy(
+        update={
+            "listing_id": new_id(),
+            "product_id": beta.product_id,
+            "title": "Beta Monitor",
+            "source_ids": beta.source_ids,
+        }
+    )
+    beta = beta.model_copy(update={"listing_ids": (beta_listing.listing_id,)})
+    alpha_evidence = original.evidence[0].model_copy(
+        update={"claim": "Alpha Monitor supports 60Hz refresh rate."}
+    )
+    beta_evidence = alpha_evidence.model_copy(
+        update={
+            "evidence_id": new_id(),
+            "source_id": beta.source_ids[0],
+            "target": EvidenceTarget(
+                target_type=EvidenceTargetType.PRODUCT, product_id=beta.product_id
+            ),
+            "claim": "Beta Monitor supports 120Hz refresh rate.",
+        }
+    )
+    citations = (alpha_evidence.evidence_id, beta_evidence.evidence_id)
+    text = (
+        "Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz."
+        if supported
+        else "Alpha Monitor supports 120Hz refresh rate."
+    )
+    bundle = original.recommendation_bundle
+    bundle = bundle.model_copy(
+        update={
+            "final_rationale": text,
+            "evidence_ids": citations,
+            "source_ids": (*alpha.source_ids, *beta.source_ids),
+            "mode_results": tuple(
+                mode.model_copy(
+                    update={
+                        "rationale": text,
+                        "evidence_ids": citations,
+                        "source_ids": (*alpha.source_ids, *beta.source_ids),
+                    }
+                )
+                for mode in bundle.mode_results
+            ),
+            "comparison_matrix": bundle.comparison_matrix.model_copy(
+                update={
+                    "rows": tuple(
+                        row.model_copy(
+                            update={"summary": text, "evidence_ids": citations}
+                        )
+                        for row in bundle.comparison_matrix.rows
+                    )
+                }
+            ),
+        }
+    )
+    return _scenario(
+        "verifier/supported-candidate-comparison"
+        if supported
+        else "verifier/wrong-candidate-specification",
+        "Both candidates have their own cited refresh rates."
+        if supported
+        else "Beta's cited refresh rate must not establish Alpha's specification.",
+        original.model_copy(
+            update={
+                "products": (alpha, beta),
+                "listings": (alpha_listing, beta_listing),
+                "evidence": (alpha_evidence, beta_evidence),
+                "recommendation_bundle": bundle,
+            }
+        ),
+        boundary=not supported,
+    )
+
+
+def _scenario_verifier_wrong_candidate_specification() -> AgentWorkbenchScenario:
+    return _verifier_candidate_scenario(supported=False)
+
+
+def _scenario_verifier_supported_candidate_comparison() -> AgentWorkbenchScenario:
+    return _verifier_candidate_scenario(supported=True)
 
 
 def _scenario_verifier_suspicious_listing_warning() -> AgentWorkbenchScenario:

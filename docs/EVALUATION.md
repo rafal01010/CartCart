@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Evaluation strategy and implemented regression coverage
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 ## Evaluation Direction
 
@@ -14,9 +14,9 @@ fixture-search case and saves a JSON report. A separate 17-case intake/planning
 suite exercises production contracts with mock runners and named field/behavior
 assertions. A separate 21-case discovery/extraction/dedupe suite checks source
 selection, source quality, extraction fidelity and conservative grouping.
-A separate 35-case trust/guardrail/recommendation suite checks shopping safety,
+A separate 37-case trust/guardrail/recommendation suite checks shopping safety,
 seller risk, decision quality, budgets, citations, conflicts and safe result copy.
-A separate 34-case reusable source-intelligence suite covers YouTube, Reddit,
+A separate 36-case reusable source-intelligence suite covers YouTube, Reddit,
 Amazon and IKEA services/specialist contracts and downstream evidence probes.
 These offline checks measure deterministic and mocked-contract behavior, not
 live-model judgment. The initial corpus contains 24 documented,
@@ -313,7 +313,7 @@ mocked intake/planning suite; `--suite discovery-extraction` selects the scoped
 Task 98 suite; `--suite trust-recommendation` selects the Task 99 quality checks;
 `--suite source-intelligence` selects Task 99A's reusable source checks.
 `--suite quick` runs the fixed 27-case CI subset. `--suite full` runs that subset
-first, then all 110 executable cases. See [quick/full commands](#quick-and-full-offline-evals).
+first, then all 112 executable cases. See [quick/full commands](#quick-and-full-offline-evals).
 
 Reports are timestamped JSON files under `data/artifacts/evals/`, ignored by git.
 Use `scripts/local/run-evals.sh --output-dir ../../data/artifacts/evals/custom`
@@ -361,8 +361,8 @@ scripts/local/run-evals.sh --suite full
 ```
 
 Quick runs **27 fixed cases** across all five lanes, in the table order below.
-Full automatically runs those same five quick lanes first, then **110 cases**:
-one scaffolding, 17 intake/planning, 21 discovery/extraction, 35 trust/recommendation,
+Full automatically runs those same five quick lanes first, then **112 cases**:
+one scaffolding, 17 intake/planning, 21 discovery/extraction, 37 trust/recommendation,
 and 36 source-intelligence cases. It continues after assertion failures to collect
 full diagnostics; any quick or full failure keeps the overall command nonzero.
 There is no passing-case filter, random sampling, retry, live judge, provider,
@@ -688,8 +688,8 @@ to reject unsupported amounts and truncated decimals.
 
 ## Trust, Guardrail And Recommendation Evals
 
-`app/evals/fixtures/trust_recommendation.json` contains 35 synthetic cases:
-nine input guardrails, six seller/listing trust cases, nine decisions and eleven
+`app/evals/fixtures/trust_recommendation.json` contains 37 synthetic cases:
+nine input guardrails, six seller/listing trust cases, nine decisions and thirteen
 output verification cases. `app.evals.trust_recommendation` validates fresh typed
 fixtures and registers `cartcart-trust-recommendation` with a Pydantic evaluator.
 All requests, seller offers, evidence, analyses and draft copy are synthetic;
@@ -754,6 +754,8 @@ No SDK Runner, hosted search, provider, database or telemetry exporter is used.
 | `recommendation/conflict-disclosure` | Conflicting professional reviews must remain visible in final caveats. |
 | `verification/supported-claims` | Supported plain-language draft can be approved. |
 | `verification/unsupported-specification` | Invented 240Hz/4K facts block display despite a valid citation ID. |
+| `verification/wrong-candidate-specification` | Beta's cited 120Hz cannot establish Alpha's specification in final, mode, or row copy. |
+| `verification/supported-candidate-comparison` | Alpha 60Hz and Beta 120Hz remain supported in an explicitly cited comparison. |
 | `verification/invented-citation` | Unknown evidence reference blocks display. |
 | `verification/conflict-disclosed` | Honest review-conflict caveat can be approved. |
 | `verification/conflict-hidden` | Hidden material review conflict blocks display. |
@@ -776,6 +778,34 @@ links, label budgets honestly, retain risky-offer rejections and avoid duplicate
 modes. No-strong-buy output must clear purchase modes and give a next step.
 Blocked verification reports are checked for rejection and reasons; their unsafe
 draft text is retained for diagnosis and must not be treated as shopper output.
+
+Task 189 adds candidate-specific factual-support checks at the final boundary.
+The offline controls use Alpha evidence for 60Hz and Beta evidence for 120Hz.
+Transferring Beta's specification to Alpha must block final, mode, and comparison
+copy. Correctly cited facts and explicit comparisons must remain supported.
+Focused workflow checks exercise both the draft precheck and the check of an
+approved verifier revision. Original source support, listing relationships,
+source cautions, and honest evidence gaps remain required. The deterministic
+check covers recognized factual markers and candidate identity; deeper meaning
+still requires the independent verifier.
+
+The independent decision scorer checks named candidates within comparative
+clauses instead of assigning every specification to the selected product.
+The eval-only Amazon bridge retains a review's unique typed listing-context
+relationship when projecting source evidence. Explicit targets and original
+claims remain intact. These compatibility repairs preserve the supported
+comparison and Amazon controls without changing their expected outcomes or
+the production source-creation workflow.
+
+Task 189 acceptance on 2026-10-05 passed 285 distinct affected pytest checks,
+scoped Ruff, verifier typing, changed-range Python formatting, and whitespace
+checks. The final offline suite passed quick 27/27 before full 112/112.
+The local manifest is
+`data/artifacts/task189/evals-final/suite-full-20261005T141711308738Z.json`.
+The scorer retains 18 unchanged baseline typing diagnostics; this acceptance
+does not claim a passing whole-backend typing gate. Independent review confirmed
+the repaired valid controls and found no remaining issue in scope. No live calls
+were made.
 
 These checks are bounded contract/deterministic quality regressions, not a model
 judge or exhaustive natural-language fact checker. Specific specification checks
@@ -1367,6 +1397,10 @@ For Task 83 verifier acceptance, use `verifier/unsupported-claim-block` to
 confirm uncited product/spec claims block output, and
 `verifier/suspicious-listing-warning` to confirm suspicious final listings are
 rejected or made visibly unsafe for display unless a trust caveat is present.
+For Task 189, pair mocked `verifier/wrong-candidate-specification` with
+`verifier/supported-candidate-comparison`. The first must block a correctly
+identified citation used for the wrong product. The second must preserve
+supported facts about both candidates.
 Starter scenarios are registered in
 `app.agents.workbench` for the current fake and live-agent implementations.
 Later live-agent tasks should add their normal and boundary/failure scenarios to

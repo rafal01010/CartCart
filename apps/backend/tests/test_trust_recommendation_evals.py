@@ -60,12 +60,12 @@ def test_corpus_is_documented_and_load_only(monkeypatch):
     monkeypatch.setattr(Dataset, "evaluate", forbidden)
     monkeypatch.setattr(Runner, "run", forbidden)
     cases = trust_recommendation_cases()
-    assert len(cases) == 35
+    assert len(cases) == 37
     assert Counter(c.inputs.stage for c in cases) == {
         "guardrail": 9,
         "trust": 6,
         "recommendation": 9,
-        "verification": 11,
+        "verification": 13,
     }
     dataset = trust_recommendation_dataset()
     assert dataset.name == "cartcart-trust-recommendation"
@@ -401,7 +401,7 @@ def test_cli_registers_regular_gate_suite_without_executing(
         )
         == expected_exit
     )
-    assert seen == [("cartcart-trust-recommendation", 35, True, tmp_path.resolve())]
+    assert seen == [("cartcart-trust-recommendation", 37, True, tmp_path.resolve())]
     assert not (tmp_path / "stub-report.json").exists()
     assert "trust/guardrail/recommendation" in capsys.readouterr().out
 
@@ -481,3 +481,46 @@ def test_seller_trust_mutations_keep_listing_and_price_risk_specific():
     broken = failures(case, output)
     assert "trust.listing_identity" in broken
     assert "trust.citations.0" in broken
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name, approved",
+    [
+        ("verification/wrong-candidate-specification", False),
+        ("verification/supported-candidate-comparison", True),
+    ],
+)
+async def test_named_candidate_binding_cases_match_independent_expectations(
+    name, approved
+):
+    case = named(name)
+    output = await offline_trust_recommendation_task()(case.inputs)
+    assert output.verification.approved is approved
+    assert not failures(case, output)
+
+
+@pytest.mark.parametrize(
+    "text, supported",
+    [
+        ("Alpha Monitor supports 60Hz; Beta Monitor supports 120Hz.", True),
+        ("Alpha Monitor supports 120Hz; Beta Monitor supports 60Hz.", False),
+        ("Alpha Monitor and Beta Monitor both support 120Hz.", False),
+        ("Alpha Monitor, unlike Beta Monitor, supports 60Hz.", True),
+        ("Alpha Monitor, unlike Beta Monitor, supports 120Hz.", False),
+    ],
+)
+def test_independent_scoring_binds_comparative_specifications(text, supported):
+    from app.agents.contracts import VerificationReport
+
+    case = named("verification/supported-candidate-comparison")
+    bundle = case.inputs.verification.request.recommendation_bundle.model_copy(
+        update={"final_rationale": text}
+    )
+    output = TrustRecommendationOutput(
+        verification=VerificationReport(approved=True, recommendation_bundle=bundle),
+        runtime_status="model_verifier_critic_completed",
+        model_calls=1,
+    )
+    broken = failures(case, output)
+    assert ("evidence.final.factual_claims" not in broken) is supported

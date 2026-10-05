@@ -153,7 +153,7 @@ the [discovery/extraction/dedupe lane](EVALUATION.md#discovery-extraction-and-de
 the [trust/guardrail/recommendation lane](EVALUATION.md#trust-guardrail-and-recommendation-evals)
 and [reusable source lane](EVALUATION.md#reusable-source-intelligence-evals).
 `--suite quick` runs a fixed 27-case deterministic/mocked subset for routine CI.
-`--suite full` runs quick first, then all 110 executable offline cases, collecting
+`--suite full` runs quick first, then all 112 executable offline cases, collecting
 full diagnostics even if quick fails. Any phase failure returns nonzero; the
 versioned suite manifest links every lane report. The initial 24-case corpus
 remains specification-only. See [quick/full coverage and Section Q gate](EVALUATION.md#quick-and-full-offline-evals).

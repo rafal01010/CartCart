@@ -304,7 +304,7 @@ with source references and confidence, not final purchase recommendations.
 
 `SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Its live SDK agent can choose hosted web search for the supplied seller/listing and buyer region, or use supplied evidence alone. Exact cited URLs are retained as weak, run-scoped trust leads with source/evidence IDs. These leads can identify a question to check but cannot verify seller reputation, policy terms, or a listing claim or raise trust. Suspicious deterministic trust flags cannot be silently overridden by agent output.
 
-`ComparisonDecisionAgent` can produce comparative modes in its isolated typed path; the active SDK owner authors the live result and any supported modes. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint.
+`ComparisonDecisionAgent` can produce comparative modes in its isolated typed path; the active SDK owner authors the live result and any supported modes. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint. Recognized factual specifications must be supported for the asserted candidate through evidence targets and stored product/listing relationships. Supported comparisons may cite several candidates; another candidate's facts cannot establish the winner's specifications. Shared backend checks enforce this before verification and after approved revisions.
 
 ## Why These Are Source Intelligence Agents
 

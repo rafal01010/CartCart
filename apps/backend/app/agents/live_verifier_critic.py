@@ -35,6 +35,8 @@ from app.schemas.intake import BudgetMode
 from app.schemas.products import MANUAL_UNVERIFIED_SUMMARY
 from app.schemas.search_sources import (
     EvidenceType,
+    EvidenceTargetType,
+    SourceEvidence,
     SourceQualityLevel,
 )
 
@@ -414,6 +416,9 @@ def _build_verifier_critic_agent(
             "recommendation issues are not exposed; unsafe or off-scope purchase "
             "guidance is blocked; and shopper-facing copy does not mention agents, "
             "tools, providers, prompts, traces, schemas, tokens, JSON, or models. "
+            "Bind each factual assertion to its named or implied candidate and the evidence target. "
+            "Never transfer another product or listing's specifications through shared citations. "
+            "Keep correctly supported comparative clauses for each candidate. "
             "Treat analyses as derived judgments that cannot establish new source facts. "
             "Use read_source_snapshot to reload bounded original support when needed, "
             "using only assigned snapshot IDs and supplied offsets or focus terms. "
@@ -634,6 +639,7 @@ def _citation_issues(
     input_data: VerificationAgentInput,
 ) -> tuple[str, ...]:
     issues: list[str] = []
+    support = _candidate_support(input_data)
     corpus = _evidence_corpus(input_data)
     manual_ids = {
         item.product.product_id
@@ -649,7 +655,8 @@ def _citation_issues(
         and row.summary == MANUAL_UNVERIFIED_SUMMARY
         and all(score == 0 for score in row.scores.values())
     }
-    for label, text, evidence_ids in _cited_text_surfaces(bundle):
+    for surface in _cited_text_surfaces(bundle):
+        label, text, evidence_ids = surface.label, surface.text, surface.evidence_ids
         if not text:
             continue
         if label in safe_manual_rows:
@@ -665,7 +672,9 @@ def _citation_issues(
         if not evidence_ids:
             issues.append(f"{label} needs source evidence before it can be shown.")
             continue
-        if not _surface_supported_by_evidence(text, evidence_ids, corpus):
+        if not _surface_supported_by_evidence(
+            text, evidence_ids, corpus
+        ) or not _candidate_facts_supported(surface, support):
             issues.append(
                 f"{label} includes a factual claim not backed by its evidence."
             )
@@ -803,28 +812,330 @@ def _failure_report(
     )
 
 
-def _cited_text_surfaces(
-    bundle: RecommendationBundle,
-) -> tuple[tuple[str, str | None, tuple[SourceId, ...]], ...]:
-    surfaces: list[tuple[str, str | None, tuple[SourceId, ...]]] = [
-        ("final rationale", bundle.final_rationale, bundle.evidence_ids),
-        ("no-strong-buy reason", bundle.no_strong_buy_reason, bundle.evidence_ids),
+@dataclass(frozen=True)
+class _CitedTextSurface:
+    label: str
+    text: str | None
+    evidence_ids: tuple[SourceId, ...]
+    product_id: ProductId | None = None
+    listing_id: ListingId | None = None
+
+
+def _cited_text_surfaces(bundle: RecommendationBundle) -> tuple[_CitedTextSurface, ...]:
+    surfaces = [
+        _CitedTextSurface(
+            "final rationale",
+            bundle.final_rationale,
+            bundle.evidence_ids,
+            bundle.final_product_id,
+            bundle.final_listing_id,
+        ),
+        _CitedTextSurface(
+            "no-strong-buy reason", bundle.no_strong_buy_reason, bundle.evidence_ids
+        ),
     ]
     for result in bundle.mode_results:
         surfaces.append(
-            (
+            _CitedTextSurface(
                 f"{result.mode.value} rationale",
                 result.rationale,
                 result.evidence_ids,
+                result.product_id,
+                result.listing_id,
             )
         )
+        if _texts_match_any_pattern(
+            _normalize_text(result.title), _FACTUAL_SPEC_PATTERNS
+        ):
+            surfaces.append(
+                _CitedTextSurface(
+                    f"{result.mode.value} title",
+                    result.title,
+                    result.evidence_ids,
+                    result.product_id,
+                    result.listing_id,
+                )
+            )
     for index, row in enumerate(bundle.comparison_matrix.rows, start=1):
-        surfaces.append((f"comparison row {index}", row.summary, row.evidence_ids))
+        surfaces.append(
+            _CitedTextSurface(
+                f"comparison row {index}",
+                row.summary,
+                row.evidence_ids,
+                row.product_id,
+                row.listing_id,
+            )
+        )
     for index, item in enumerate(bundle.rejected_items, start=1):
-        surfaces.append((f"rejected item {index}", item.reason, item.evidence_ids))
+        surfaces.append(
+            _CitedTextSurface(
+                f"rejected item {index}",
+                item.reason,
+                item.evidence_ids,
+                item.product_id,
+                item.listing_id,
+            )
+        )
     for index, warning in enumerate(bundle.warnings, start=1):
-        surfaces.append((f"warning {index}", warning, bundle.evidence_ids))
+        surfaces.append(
+            _CitedTextSurface(f"warning {index}", warning, bundle.evidence_ids)
+        )
     return tuple(surfaces)
+
+
+@dataclass(frozen=True)
+class _AttributedEvidence:
+    evidence: SourceEvidence
+    product_ids: frozenset[ProductId]
+    listing_ids: frozenset[ListingId]
+
+
+@dataclass(frozen=True)
+class _CandidateSupport:
+    claims: dict[SourceId, tuple[_AttributedEvidence, ...]]
+    aliases: dict[str, frozenset[ProductId]]
+    listing_products: dict[ListingId, ProductId]
+    region_code: str | None
+
+
+def _candidate_support(input_data: VerificationAgentInput) -> _CandidateSupport:
+    listing_products = {
+        item.listing_id: item.product_id for item in input_data.listings
+    }
+    aliases: dict[str, set[ProductId]] = {}
+    for product in input_data.products:
+        for alias in (product.name, product.model):
+            if alias and _normalize_text(alias) != _normalize_text(product.brand or ""):
+                aliases.setdefault(_normalize_text(alias), set()).add(
+                    product.product_id
+                )
+    claims: dict[SourceId, list[_AttributedEvidence]] = {}
+    for evidence in input_data.evidence:
+        target = evidence.target
+        product_ids = {target.product_id} if target.product_id else set()
+        listing_ids = {target.listing_id} if target.listing_id else set()
+        if target.listing_id:
+            listing_product = listing_products.get(target.listing_id)
+            if listing_product and (not product_ids or listing_product in product_ids):
+                product_ids.add(listing_product)
+            else:
+                product_ids.clear()
+                listing_ids.clear()
+        elif target.candidate_id:
+            candidate = next(
+                (
+                    item
+                    for item in input_data.user_added_products
+                    if item.candidate_id == target.candidate_id
+                    and item.manual_fallback_reason is None
+                ),
+                None,
+            )
+            if candidate:
+                candidate_product = (
+                    candidate.product.product_id
+                    if candidate.product
+                    else candidate.listing.product_id
+                    if candidate.listing
+                    else None
+                )
+                if candidate_product and (
+                    not product_ids or candidate_product in product_ids
+                ):
+                    product_ids.add(candidate_product)
+                    if candidate.listing:
+                        listing_ids.add(candidate.listing.listing_id)
+                else:
+                    product_ids.clear()
+                    listing_ids.clear()
+        elif not product_ids:
+            for listing in input_data.listings:
+                source_ids = (
+                    *listing.source_ids,
+                    *(
+                        source
+                        for region in listing.region_availability
+                        for source in region.source_ids
+                    ),
+                )
+                seller_matches = (
+                    target.target_type == EvidenceTargetType.SELLER
+                    and target.seller_name
+                    and _normalize_text(target.seller_name)
+                    == _normalize_text(listing.seller.seller_name)
+                    and evidence.source_id in listing.seller.source_ids
+                )
+                if evidence.source_id in source_ids or seller_matches:
+                    product_ids.add(listing.product_id)
+                    listing_ids.add(listing.listing_id)
+            for product in input_data.products:
+                if evidence.source_id in product.source_ids:
+                    product_ids.add(product.product_id)
+        if (
+            not (target.product_id or target.listing_id or target.candidate_id)
+            and target.target_type
+            not in {EvidenceTargetType.SOURCE_METADATA, EvidenceTargetType.SELLER}
+            and len(product_ids) != 1
+        ):
+            product_ids.clear()
+            listing_ids.clear()
+        claims.setdefault(evidence.evidence_id, []).append(
+            _AttributedEvidence(
+                evidence, frozenset(product_ids), frozenset(listing_ids)
+            )
+        )
+    return _CandidateSupport(
+        {key: tuple(value) for key, value in claims.items()},
+        {key: frozenset(value) for key, value in aliases.items()},
+        listing_products,
+        input_data.brief.region.region.country_code
+        if input_data.brief.region
+        else None,
+    )
+
+
+def _candidate_mentions(
+    text: str, aliases: dict[str, frozenset[ProductId]]
+) -> list[tuple[int, int, frozenset[ProductId]]]:
+    mentions: list[tuple[int, int, frozenset[ProductId]]] = []
+    for alias in sorted(aliases, key=len, reverse=True):
+        for match in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", text):
+            if not any(
+                match.start() < end and match.end() > start
+                for start, end, _ in mentions
+            ):
+                mentions.append((match.start(), match.end(), aliases[alias]))
+    return sorted(mentions)
+
+
+def _fact_subjects(
+    sentence: str,
+    position: int,
+    aliases: dict[str, frozenset[ProductId]],
+    default: ProductId | None,
+) -> frozenset[ProductId]:
+    mentions = [
+        item for item in _candidate_mentions(sentence, aliases) if item[0] < position
+    ]
+    if not mentions:
+        return frozenset((default,)) if default else frozenset()
+    start, end, owners = mentions[-1]
+    if len(owners) != 1:
+        return frozenset()
+    if len(mentions) > 1:
+        for prior, following in reversed(tuple(zip(mentions, mentions[1:]))):
+            between = sentence[prior[1] : following[0]].strip()
+            if re.search(
+                r"\b(unlike|rather than|instead of)\b", between
+            ) and not _texts_match_any_pattern(between, _FACTUAL_SPEC_PATTERNS):
+                return prior[2] if len(prior[2]) == 1 else frozenset()
+            if between not in {"and", "&", ",", ", and"}:
+                break
+            if len(prior[2]) != 1:
+                return frozenset()
+            owners = owners | prior[2]
+    return owners
+
+
+def _candidate_facts_supported(
+    surface: _CitedTextSurface, support: _CandidateSupport
+) -> bool:
+    default = surface.product_id or (
+        support.listing_products.get(surface.listing_id) if surface.listing_id else None
+    )
+    cited = tuple(
+        claim
+        for evidence_id in surface.evidence_ids
+        for claim in support.claims.get(evidence_id, ())
+    )
+    for sentence in re.split(r"[;!?]|\.(?=\s|$)", _normalize_text(surface.text or "")):
+        for pattern in _FACTUAL_SPEC_PATTERNS:
+            for match in re.finditer(pattern, sentence):
+                fact = match.group(0)
+                owners = _fact_subjects(
+                    sentence, match.start(), support.aliases, default
+                )
+                if not owners:
+                    if _candidate_mentions(sentence, support.aliases):
+                        return False
+                    continue
+                if (
+                    fact in {"shipping", "ships to", "warranty", "return policy"}
+                    and re.search(
+                        r"\b(check|confirm|uncertain|unconfirmed|unknown|verify)\b",
+                        sentence,
+                    )
+                    and not _candidate_mentions(sentence, support.aliases)
+                ):
+                    continue
+                for owner in owners:
+                    listing_id = surface.listing_id if owner == default else None
+                    if not any(
+                        _claim_supports_fact(claim, fact, owner, listing_id, support)
+                        for claim in cited
+                    ):
+                        return False
+    return True
+
+
+def _claim_supports_fact(
+    claim: _AttributedEvidence,
+    fact: str,
+    product_id: ProductId,
+    listing_id: ListingId | None,
+    support: _CandidateSupport,
+) -> bool:
+    evidence = claim.evidence
+    if product_id not in claim.product_ids:
+        return False
+    target = evidence.target
+    regional_fact = fact in {
+        "shipping",
+        "ships to",
+        "warranty",
+        "return policy",
+        "in stock",
+        "out of stock",
+    }
+    review_fact = fact in {"rating", "review", "reviews"}
+    if target.target_type == EvidenceTargetType.SELLER and not regional_fact:
+        return False
+    if target.target_type == EvidenceTargetType.REGION and not regional_fact:
+        return False
+    if target.target_type == EvidenceTargetType.REVIEW and not review_fact:
+        return False
+    if (
+        target.region_code
+        and regional_fact
+        and target.region_code != support.region_code
+    ):
+        return False
+    if (
+        listing_id
+        and regional_fact
+        and claim.listing_ids
+        and listing_id not in claim.listing_ids
+    ):
+        return False
+    if target.target_type == EvidenceTargetType.SOURCE_METADATA:
+        for sentence in re.split(r"[;!?]|\.(?=\s|$)", _normalize_text(evidence.claim)):
+            for match in re.finditer(re.escape(fact), sentence):
+                named = {
+                    owner
+                    for _, _, owners in _candidate_mentions(sentence, support.aliases)
+                    for owner in owners
+                }
+                subjects = _fact_subjects(
+                    sentence, match.start(), support.aliases, None
+                )
+                if not subjects and named == {product_id}:
+                    subjects = _fact_subjects(
+                        sentence, match.start(), support.aliases, product_id
+                    )
+                if product_id in subjects:
+                    return True
+        return False
+    return fact in _normalize_text(evidence.claim)
 
 
 def _surface_supported_by_evidence(

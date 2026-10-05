@@ -2,7 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
 	import { userFacingErrorMessage } from '$lib/api/user-facing-error.js';
-	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionStateResponse } from '$lib/api/types.js';
+	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import RefinementPrompt from '$lib/refinements/RefinementPrompt.svelte';
 	import DecisionHistory from '$lib/refinements/DecisionHistory.svelte';
@@ -44,6 +44,12 @@
 	import { manualCandidateViews, type ManualCandidateView } from '$lib/user-products/manual-fallback.js';
 
 	type HomeState = 'question' | 'region_setup' | 'guiding' | 'blocked' | 'processing' | 'result' | 'refining';
+	type RequestedRun = Readonly<{
+		kind: 'analysis' | 'refinement';
+		sessionId: SessionId;
+		runId: RunId;
+		generation: number;
+	}>;
 
 	const api = createApiClient();
 
@@ -71,6 +77,7 @@
 	let historyPending = $state(false);
 	let historyError = $state<string | null>(null);
 	let flowGeneration = 0;
+	let activeAnalysisRun: RequestedRun | null = null;
 	let historyLoadSequence = 0;
 	let selectedModeKey = $state<string | null>(null);
 	let activeListingCandidateId = $state<string | null>(null);
@@ -196,6 +203,7 @@
 
 	function resetFlow({ preserveQuestion = false }: { preserveQuestion?: boolean } = {}) {
 		flowGeneration += 1;
+		activeAnalysisRun = null;
 		currentSession = null;
 		decisionHistory = null;
 		displayedVersionId = null;
@@ -336,33 +344,43 @@
 
 	async function startAnalysis() {
 		if (!sessionId || guidedState?.status !== 'ready_for_analysis' || isGuidedRequestPending) return;
+		const activeSessionId = sessionId;
+		const generation = flowGeneration;
 		isGuidedRequestPending = true;
 		guideError = null;
 		resultView = null;
 		selectedModeKey = null;
 		activeListingCandidateId = null;
 		activeManualCandidateId = null;
+		activeAnalysisRun = null;
 		shopperProgress = createInitialShopperProgress();
 		closeRunEventSubscription();
 		try {
 			homeState = 'processing';
-			const run = await api.createRun(sessionId);
-			subscribeToAnalysisProgress(sessionId, run.run_id);
+			const run = await api.createRun(activeSessionId);
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
+			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
 		} catch (error) {
-			guideError = userFacingErrorMessage(error);
+			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('initial', userFacingErrorMessage(error));
 		} finally {
-			isGuidedRequestPending = false;
+			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
 		}
 	}
 
 	async function checkListing(url: string) {
 		if (!sessionId || decisionBusy || viewingPrevious) return;
+		const activeSessionId = sessionId;
+		const generation = flowGeneration;
 		isGuidedRequestPending = true;
 		listingCheckError = null;
+		activeListingCandidateId = null;
 		activeManualCandidateId = null;
+		activeAnalysisRun = null;
 		manualError = null;
+		closeRunEventSubscription();
 		try {
-			const updated = await api.addUserProduct(sessionId, { url });
+			const updated = await api.addUserProduct(activeSessionId, { url });
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
 			const candidate = updated.user_added_products.find(
 				(item) => normalizeListingLink(item.url ?? '') === url,
 			);
@@ -370,38 +388,42 @@
 			activeListingCandidateId = candidate.candidate_id;
 			listingCheckOutcome = null;
 			shopperProgress = createInitialShopperProgress();
-			closeRunEventSubscription();
 			homeState = 'processing';
-			const run = await api.createRun(sessionId);
-			subscribeToAnalysisProgress(sessionId, run.run_id);
+			const run = await api.createRun(activeSessionId);
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
+			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
 		} catch (error) {
-			homeState = 'result';
-			listingCheckError = userFacingErrorMessage(error);
+			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('listing', userFacingErrorMessage(error));
 		} finally {
-			isGuidedRequestPending = false;
+			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
 		}
 	}
 
 	async function saveManualProduct(request: CreateUserAddedProductRequest) {
 		if (!sessionId || !request.fallback_candidate_id || decisionBusy || viewingPrevious) return;
+		const activeSessionId = sessionId;
+		const generation = flowGeneration;
 		isGuidedRequestPending = true;
 		manualError = null;
+		activeManualCandidateId = null;
+		activeAnalysisRun = null;
+		closeRunEventSubscription();
 		try {
-			await api.addUserProduct(sessionId, request);
+			await api.addUserProduct(activeSessionId, request);
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
 			activeManualCandidateId = request.fallback_candidate_id;
 			activeListingCandidateId = null;
 			listingCheckOutcome = null;
 			listingCheckError = null;
 			shopperProgress = createInitialShopperProgress();
-			closeRunEventSubscription();
 			homeState = 'processing';
-			const run = await api.createRun(sessionId);
-			subscribeToAnalysisProgress(sessionId, run.run_id);
+			const run = await api.createRun(activeSessionId);
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
+			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
 		} catch (error) {
-			homeState = 'result';
-			manualError = userFacingErrorMessage(error);
+			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('manual', userFacingErrorMessage(error));
 		} finally {
-			isGuidedRequestPending = false;
+			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
 		}
 	}
 
@@ -413,85 +435,126 @@
 		answerDraft = { ...answerDraft, choiceId: null, isCustomAnswer: true };
 	}
 
-	function subscribeToAnalysisProgress(activeSessionId: SessionId, runId: RunId) {
+	function isCurrentRun(request: RequestedRun): boolean {
+		return request.generation === flowGeneration && request.sessionId === sessionId
+			&& (request.kind === 'refinement' || request === activeAnalysisRun);
+	}
+
+	function showAnalysisFailure(
+		kind: 'initial' | 'listing' | 'manual' = activeListingCandidateId ? 'listing' : activeManualCandidateId ? 'manual' : 'initial',
+		safeMessage?: string,
+	) {
+		if (kind === 'listing' && resultView) {
+			homeState = 'result';
+			listingCheckError = safeMessage
+				? `Your previous decision is still shown. ${safeMessage}`
+				: 'CartCart could not check that listing. Your previous decision is still shown. Try another link.';
+		} else if (kind === 'manual' && resultView) {
+			homeState = 'result';
+			manualError = safeMessage
+				? `Your previous decision is still shown. ${safeMessage}`
+				: 'CartCart could not finish checking your details. Your previous decision is still shown. Try again.';
+		} else {
+			homeState = 'processing';
+			guideError = safeMessage ?? 'CartCart could not finish checking options. Try again.';
+		}
+		activeListingCandidateId = null;
+		activeManualCandidateId = null;
+		activeAnalysisRun = null;
+	}
+
+	function subscribeToAnalysisProgress(request: RequestedRun, run: ShoppingRunRecord) {
 		closeRunEventSubscription();
+		activeAnalysisRun = request;
+		if (run.session_id !== request.sessionId || run.status === 'failed' || run.status === 'cancelled') {
+			showAnalysisFailure();
+			return;
+		}
+		let completionStarted = false;
+		const recover = async () => {
+			if (!isCurrentRun(request) || completionStarted) return;
+			completionStarted = true;
+			closeRunEventSubscription();
+			try {
+				if (run.status !== 'succeeded') {
+					const savedRun = await api.getRun(request.sessionId, request.runId);
+					if (!isCurrentRun(request)) return;
+					if (savedRun.session_id !== request.sessionId || savedRun.run_id !== request.runId || savedRun.status !== 'succeeded') {
+						showAnalysisFailure();
+						return;
+					}
+				}
+				await revealResults(request);
+			} catch (error) {
+				if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+			}
+		};
 		try {
 			runEventSubscription = subscribeToRunEvents(
-				{ sessionId: activeSessionId, runId },
+				{ sessionId: request.sessionId, runId: request.runId },
 				{
 					onEvent: (event) => {
+						if (!isCurrentRun(request) || completionStarted || event.run_id !== request.runId) return;
 						shopperProgress = applyShopperProgressEvent(shopperProgress, event);
 						if (!isTerminalRunEvent(event)) return;
+						completionStarted = true;
 						closeRunEventSubscription();
 						if (event.status === 'failed' || event.status === 'cancelled') {
-							if ((activeListingCandidateId || activeManualCandidateId) && resultView) {
-								homeState = 'result';
-								if (activeListingCandidateId) listingCheckError = 'CartCart could not check that listing. Try another link.';
-								if (activeManualCandidateId) manualError = 'CartCart could not finish checking your details. Try again.';
-							} else {
-								guideError = 'CartCart could not finish checking options. Try again.';
-							}
+							showAnalysisFailure();
 							return;
 						}
-						void revealResults();
+						void revealResults(request);
 					},
-					onError: () => {
-						closeRunEventSubscription();
-						void revealResults();
-					},
+					onError: () => { void recover(); },
 				},
 			);
 		} catch {
-			void revealResults();
+			void recover();
 		}
 	}
 
-	async function revealResults(expectedRunId?: RunId): Promise<boolean> {
-		if (!sessionId) return false;
-		const generation = flowGeneration;
+	async function revealResults(request: RequestedRun): Promise<boolean> {
+		if (!isCurrentRun(request)) return false;
 		try {
 			const [results, loadedSession] = await Promise.all([
-				api.getResults(sessionId),
-				api.getSession(sessionId),
+				api.getResults(request.sessionId),
+				api.getSession(request.sessionId),
 			]);
-			if (generation !== flowGeneration) return false;
-			if (expectedRunId && results.result_version.run_id !== expectedRunId) throw new Error('The new result is not available yet.');
+			if (!isCurrentRun(request)) return false;
+			if (results.result_version.run_id !== request.runId) throw new Error('The new result is not available yet.');
+			const nextResultView = buildResultView(results);
 			currentSession = loadedSession;
 			displayedVersionId = results.result_version.result_version_id;
 			latestVersionId = displayedVersionId;
-			const nextResultView = buildResultView(results);
 			manualCandidates = manualCandidateViews(loadedSession.user_added_products, results);
-			if (activeListingCandidateId) {
+			const listingCandidateId = activeListingCandidateId;
+			const manualCandidateId = activeManualCandidateId;
+			listingCheckError = null;
+			manualError = null;
+			if (listingCandidateId) {
 				const candidate = loadedSession.user_added_products.find(
-					(item) => item.candidate_id === activeListingCandidateId,
+					(item) => item.candidate_id === listingCandidateId,
 				);
 				listingCheckOutcome = candidate ? resolveListingCheckOutcome(candidate, results) : null;
 				listingCheckError = listingCheckOutcome ? null : 'CartCart could not confirm that listing. Try another link.';
 			}
-			if (activeManualCandidateId) manualError = null;
 			resultView = nextResultView;
 			selectedModeKey = nextResultView.finalMode?.key ?? nextResultView.decisionModes[0]?.key ?? null;
 			guideError = null;
 			homeState = 'result';
 			void loadDecisionHistory();
-			if (activeListingCandidateId) {
+			if (listingCandidateId || manualCandidateId) {
 				await tick();
-				document.getElementById('listing-correction')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				if (!isCurrentRun(request)) return false;
+				document.getElementById(listingCandidateId ? 'listing-correction' : 'manual-product-fallback')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			}
-			if (activeManualCandidateId) {
-				await tick();
-				document.getElementById('manual-product-fallback')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			}
+			activeListingCandidateId = null;
+			activeManualCandidateId = null;
+			if (request.kind === 'analysis') activeAnalysisRun = null;
 			return true;
 		} catch (error) {
-			if (generation !== flowGeneration) return false;
-			if ((activeListingCandidateId || activeManualCandidateId) && resultView) {
-				homeState = 'result';
-				if (activeListingCandidateId) listingCheckError = userFacingErrorMessage(error);
-				if (activeManualCandidateId) manualError = userFacingErrorMessage(error);
-			} else {
-				guideError = userFacingErrorMessage(error);
-			}
+			if (!isCurrentRun(request)) return false;
+			if (request.kind === 'analysis') showAnalysisFailure(undefined, userFacingErrorMessage(error));
 			return false;
 		}
 	}
@@ -525,31 +588,33 @@
 		refinementPending = true;
 		refinementError = null;
 		homeState = 'result';
-		let refinementRunId: RunId | null = null;
+		let requestedRun: RequestedRun | null = null;
+		let executedRun: ShoppingRunRecord | null = null;
 		try {
 			const planned = await api.createRefinement(activeSessionId, request);
-			if (generation !== flowGeneration) return;
-			refinementRunId = planned.run.run_id;
-			const run = await api.executeRefinement(activeSessionId, planned.refinement.refinement_id);
-			if (generation !== flowGeneration) return;
-			if (run.status !== 'succeeded') throw new Error('The update did not finish.');
-			if (!await revealResults(run.run_id)) throw new Error('The saved update could not be opened.');
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
+			if (planned.run.session_id !== activeSessionId) throw new Error('The update belongs to another search.');
+			if (planned.run.status === 'failed' || planned.run.status === 'cancelled') throw new Error('The update did not finish.');
+			requestedRun = { kind: 'refinement', sessionId: activeSessionId, runId: planned.run.run_id, generation };
+			executedRun = await api.executeRefinement(activeSessionId, planned.refinement.refinement_id);
+			if (!isCurrentRun(requestedRun)) return;
+			if (executedRun.session_id !== activeSessionId || executedRun.run_id !== requestedRun.runId || executedRun.status !== 'succeeded') throw new Error('The update did not finish.');
+			if (!await revealResults(requestedRun)) throw new Error('The saved update could not be opened.');
 			await loadDecisionHistory();
 		} catch {
-			if (generation !== flowGeneration) return;
-			// A lost HTTP response may follow a saved success. Read status before offering recovery.
+			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
 			let recovered = false;
-			if (refinementRunId) {
+			if (requestedRun && (!executedRun || (executedRun.status === 'succeeded' && executedRun.session_id === requestedRun.sessionId && executedRun.run_id === requestedRun.runId))) {
 				try {
-					const run = await api.getRun(activeSessionId, refinementRunId);
-					if (run.status === 'succeeded' && generation === flowGeneration) {
-						recovered = await revealResults(run.run_id);
+					const run = await api.getRun(requestedRun.sessionId, requestedRun.runId);
+					if (isCurrentRun(requestedRun) && run.session_id === requestedRun.sessionId && run.run_id === requestedRun.runId && run.status === 'succeeded') {
+						recovered = await revealResults(requestedRun);
 					}
 				} catch { /* Keep the displayed saved decision available. */ }
 			}
-			if (!recovered && generation === flowGeneration) refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
+			if (!recovered && generation === flowGeneration && sessionId === activeSessionId) refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
 		} finally {
-			if (generation === flowGeneration) {
+			if (generation === flowGeneration && sessionId === activeSessionId) {
 				if (!refinementError && request.region) {
 					selectedRegionCode = request.region.region.country_code;
 					regionPreference = writeProvidedRegionPreference(window.localStorage, selectedRegionCode);

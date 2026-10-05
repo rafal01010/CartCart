@@ -1191,6 +1191,17 @@ execution tests that prove a real failed run preserves its previous result.
 
 Eval tests should run against stable local fixtures first. Live provider or live model evals should be opt-in because they require credentials, cost, and network access.
 
+`run-recovery.spec.ts` exercises the real route against isolated fixture services
+with controlled HTTP/SSE failures. It covers returned failed/cancelled status,
+matching successful results without events, older results after retries,
+nonterminal status recovery, listing/manual previous-decision messages,
+explicit refinement failures, stale responses after Home, and configuration
+guidance. Matching successful refinements must clear obsolete correction errors.
+Keep the existing refinement lost-response and saved-history controls alongside
+these checks. Run the two focused files with
+`pnpm --dir apps/frontend exec playwright test tests/e2e/run-recovery.spec.ts tests/e2e/refinement-flow.spec.ts`.
+These offline browser checks prove recovery behavior, not live shopping quality.
+
 Local frontend verification wrappers live under `scripts/local/`: `lint-frontend.sh`, `check-frontend.sh`, `test-frontend.sh`, `build-frontend.sh`, and `setup-playwright.sh`. Use focused unit test arguments during normal feature work and reserve full frontend verification, production builds, and browser checks such as `pnpm --dir apps/frontend run test:e2e` for the relevant gate or explicit release-like checks.
 
 ## Isolated Agent Workbench

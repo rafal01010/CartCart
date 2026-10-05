@@ -322,7 +322,7 @@ Explicit saved runner-up offers retain their product/listing pairs.
 Missing explanations, confidence, and offer details remain unavailable rather
 than inferred from scores or unrelated candidates.
 
-Current implementation returns the latest persisted result bundle for the
+Current implementation returns the latest successful persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust
 assessments, category analyses, agent records, comparison matrix, and
 recommendation bundle, plus the run's canonical products, preserved listings,
@@ -433,8 +433,13 @@ result available.
 `GET /api/sessions/{session_id}/results/{result_version_id}`
 
 Returns one successful saved result version in the session. The ordinary
-`GET /results` endpoint returns the latest successful version. Result version
-numbers increase across the session; refinement results include their
+`GET /results` endpoint returns the latest successful version, which can belong
+to an earlier run after a newer run fails. Clients
+must respect a returned failed or cancelled run and require a matching
+`result_version.run_id` before presenting a fallback lookup as completion of the
+requested run. Retained earlier decisions must remain distinguishable from the
+failed work. This applies to initial analysis, listing/manual checks, and refinements.
+Result version numbers increase across the session; refinement results include their
 `refinement_id`, `prior_result_version_id`, and requested result mode. When a
 refinement reuses prior research, the response resolves the products, shortlist,
 sources, and evidence from that prior run through the saved plan.

@@ -52,6 +52,14 @@ After analysis starts, the route subscribes to the existing SSE run events but
 renders only shopper-safe progress labels, then reveals the recommendation first
 with runner-ups, trust notes, warnings, and source details behind explicit
 supporting-detail controls.
+Analysis completion belongs to the requested run. A returned failed or cancelled
+run keeps the technical error and retry visible. If progress events are unavailable,
+the route opens only a saved result whose `result_version.run_id` matches that run.
+For a nonterminal response, it reads the requested run's status once before opening
+results. It does not poll or reconnect. Failed listing and manual checks retain the
+displayed decision and identify it as the previous decision. Refinements also keep
+the requested run identity; a lost execution response can recover a saved success,
+while an explicit failed or cancelled response remains a failure.
 Budget and user-considered products are separate guided questions. Products are
 captured as names or descriptions through guided answers, not through a
 URL/manual entry panel. The normal flow uses Back rather than result shortcut
@@ -109,6 +117,12 @@ Focused guided Playwright smoke test:
 
 ```sh
 pnpm --dir apps/frontend exec playwright test tests/e2e/guided-flow-smoke.spec.ts
+```
+
+Focused offline run-recovery and refinement checks:
+
+```sh
+pnpm --dir apps/frontend exec playwright test tests/e2e/run-recovery.spec.ts tests/e2e/refinement-flow.spec.ts
 ```
 
 ## Building

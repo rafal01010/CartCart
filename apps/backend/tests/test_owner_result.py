@@ -51,7 +51,12 @@ from app.schemas.analysis import (
     RecommendationMode,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.intake import CreateSessionRequest, ShoppingBrief
+from app.schemas.intake import (
+    BudgetConstraint,
+    BudgetMode,
+    CreateSessionRequest,
+    ShoppingBrief,
+)
 from app.schemas.money import Money
 from app.schemas.products import CanonicalProduct, ProductListing, SellerProfile
 from app.schemas.runs import RunStage, RunStatus
@@ -100,8 +105,10 @@ class _Verifier:
 
     def __init__(self, mode: str = "approve") -> None:
         self.mode = mode
+        self.calls = 0
 
     async def run(self, input_data: VerificationAgentInput) -> VerificationReport:
+        self.calls += 1
         if self.mode == "block":
             return VerificationReport(
                 approved=False,
@@ -138,6 +145,29 @@ class _Verifier:
         ("Unchecked cane", "GeneralShoppingAgent", False, "skip", False),
         ("Mode cane", "GeneralShoppingAgent", False, "approve", True),
         ("Price mismatch cane", "GeneralShoppingAgent", False, "bad_price", True),
+        (
+            "Suspicious alternate cane",
+            "GeneralShoppingAgent",
+            False,
+            "suspicious_mode",
+            True,
+        ),
+        (
+            "Hard cap alternate cane",
+            "GeneralShoppingAgent",
+            False,
+            "hard_alternate",
+            True,
+        ),
+        ("Hard cap primary cane", "GeneralShoppingAgent", False, "hard_primary", True),
+        ("Safe hard cap cane", "GeneralShoppingAgent", False, "hard_safe", True),
+        (
+            "Preferred stretch cane",
+            "GeneralShoppingAgent",
+            False,
+            "preferred_stretch",
+            True,
+        ),
     ],
 )
 async def test_active_owner_result_is_verified_persisted_and_returned(
@@ -156,6 +186,28 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
         factory = create_session_factory(engine)
         async with factory() as session:
             brief = ShoppingBrief(original_query=f"Should I buy {name}?")
+            budget_case = verifier_mode in {
+                "hard_alternate",
+                "hard_primary",
+                "hard_safe",
+                "preferred_stretch",
+            }
+            if budget_case:
+                brief = brief.model_copy(
+                    update={
+                        "budget": BudgetConstraint(
+                            amount=Money(
+                                amount="45.00"
+                                if verifier_mode == "hard_safe"
+                                else "35.00",
+                                currency="USD",
+                            ),
+                            mode=BudgetMode.PREFERRED
+                            if verifier_mode == "preferred_stretch"
+                            else BudgetMode.HARD_CAP,
+                        )
+                    }
+                )
             shopping_session = await SessionRepository(session).create(
                 original_input=CreateSessionRequest(query=brief.original_query),
                 current_brief=brief,
@@ -163,6 +215,10 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
             run = await RunRepository(session).create(shopping_session.session_id)
             sources = SearchSourceRepository(session)
             references = []
+            page_claim = f"{name} was described on this product page."
+            if budget_case:
+                primary_amount = "49.00" if verifier_mode == "hard_primary" else "29.00"
+                page_claim += f" {name} costs ${primary_amount} at Primary Shop."
             for index, source_type in enumerate(
                 (SourceType.PRODUCT_PAGE, SourceType.PROFESSIONAL_REVIEW)
             ):
@@ -186,7 +242,7 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                         text=(
                             f"Our review describes {name} as a promising option."
                             if index
-                            else f"{name} was described on this product page."
+                            else page_claim
                         ),
                         extractor="offline-test",
                         word_count=10,
@@ -205,7 +261,7 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                     claim=(
                         f"Our review describes {name} as a promising option."
                         if index
-                        else f"{name} was described on this product page."
+                        else page_claim
                     ),
                     confidence=Confidence(score=0.8, level=ConfidenceLevel.HIGH),
                     source_quality=snapshot.quality,
@@ -224,6 +280,33 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                         source_type=source_type,
                         quote=quote.claim,
                     )
+                )
+            if budget_case:
+                primary_product = await ProductRepository(
+                    session
+                ).add_canonical_product(
+                    run.run_id,
+                    CanonicalProduct(
+                        name=name,
+                        category="walking cane",
+                        source_ids=tuple(item.snapshot_id for item in references),
+                    ),
+                )
+                primary_listing = await ProductRepository(session).add_product_listing(
+                    run.run_id,
+                    ProductListing(
+                        product_id=primary_product.product_id,
+                        title=name,
+                        url=references[0].url,
+                        seller=SellerProfile(seller_name="Primary Shop"),
+                        price=Money(
+                            amount="49.00"
+                            if verifier_mode == "hard_primary"
+                            else "29.00",
+                            currency="USD",
+                        ),
+                        source_ids=(references[0].snapshot_id,),
+                    ),
                 )
             if tampered:
                 references[0] = references[0].model_copy(
@@ -332,10 +415,16 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                 )
                 mode_selections = (
                     GeneralShoppingModeSelection(
-                        mode=RecommendationMode.BEST_VALUE,
+                        mode=RecommendationMode.STRETCH_PICK
+                        if verifier_mode in {"hard_alternate", "preferred_stretch"}
+                        else RecommendationMode.BEST_VALUE,
                         candidate_name=alternate_name,
                         listing_id=alternate_listing.listing_id,
-                        rationale="Maple walking cane costs $39.00 at this shop.",
+                        rationale=(
+                            "Maple walking cane costs $39.00 at this shop. Consider this stretch only if your preferred budget is flexible."
+                            if verifier_mode == "preferred_stretch"
+                            else "Maple walking cane costs $39.00 at this shop."
+                        ),
                         evidence_ids=(alternate_references[0].evidence_id,),
                     ),
                 )
@@ -396,11 +485,12 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                 search_source_repository=sources,
                 product_repository=ProductRepository(session),
             )
+            verifier = _Verifier(verifier_mode)
             orchestrator = ShoppingRunOrchestrator(
                 hooks,
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 general_shopping_agent=_Owner(owner),  # type: ignore[arg-type]
-                verifier_critic_agent=_Verifier(verifier_mode),  # type: ignore[arg-type]
+                verifier_critic_agent=verifier,  # type: ignore[arg-type]
             )
             context = ShoppingRunContext(
                 run_id=run.run_id,
@@ -413,14 +503,41 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                 context.trust_assessments = (
                     ListingTrustAssessment(
                         listing_id=alternate_listing.listing_id,
-                        level=ListingTrustLevel.REASONABLE,
+                        level=ListingTrustLevel.SUSPICIOUS
+                        if verifier_mode == "suspicious_mode"
+                        else ListingTrustLevel.REASONABLE,
                         confidence=Confidence(score=0.8, level=ConfidenceLevel.HIGH),
                         summary="The listing details were checked.",
                         evidence_ids=(alternate_references[0].evidence_id,),
                         source_ids=(alternate_references[0].snapshot_id,),
                     ),
                 )
+                if budget_case:
+                    context.trust_assessments += (
+                        ListingTrustAssessment(
+                            listing_id=primary_listing.listing_id,
+                            level=ListingTrustLevel.REASONABLE,
+                            confidence=Confidence(
+                                score=0.8, level=ConfidenceLevel.HIGH
+                            ),
+                            summary="The primary listing details were checked.",
+                            evidence_ids=(references[0].evidence_id,),
+                            source_ids=(references[0].snapshot_id,),
+                        ),
+                    )
             await orchestrator._run_comparison_decision(context)
+            if verifier_mode == "hard_alternate":
+                assert context.recommendation_bundle is not None
+                assert (
+                    context.recommendation_bundle.final_product_id
+                    == primary_product.product_id
+                )
+                assert primary_listing.price == Money(amount="29.00", currency="USD")
+                assert any(
+                    mode.mode == RecommendationMode.STRETCH_PICK
+                    and mode.listing_id == alternate_listing.listing_id
+                    for mode in context.recommendation_bundle.mode_results
+                )
             if verifier_mode != "skip":
                 await orchestrator._run_verification(context)
             await hooks.persist_live_output(context)
@@ -451,16 +568,23 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
             assert response.recommendation_bundle.result_author == owner
             expected_action = (
                 "blocked"
-                if tampered or verifier_mode in {"block", "skip"}
+                if tampered
+                or verifier_mode in {"block", "skip", "hard_alternate", "hard_primary"}
                 else "revised"
                 if verifier_mode == "revise"
                 else "approved"
             )
             assert response.recommendation_bundle.verification_action == expected_action
             assert response.recommendation_bundle.no_strong_buy is (
-                tampered or verifier_mode in {"block", "skip"}
+                tampered
+                or verifier_mode in {"block", "skip", "hard_alternate", "hard_primary"}
             )
-            if tampered or verifier_mode in {"block", "skip"}:
+            if tampered or verifier_mode in {
+                "block",
+                "skip",
+                "hard_alternate",
+                "hard_primary",
+            }:
                 assert response.recommendation_bundle.final_product_id is None
                 if tampered:
                     assert response.products == ()
@@ -475,23 +599,38 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                 assert response.recommendation_bundle.final_listing_id is None
                 assert len(response.recommendation_bundle.evidence_ids) == 2
             if with_mode:
-                if verifier_mode == "bad_price":
+                if verifier_mode in {"hard_alternate", "hard_primary"}:
+                    assert response.recommendation_bundle.mode_results == ()
+                    assert verifier.calls == 0
+                    assert any(
+                        "hard budget cap" in issue
+                        for issue in response.recommendation_bundle.verification_changes
+                    )
+                elif verifier_mode in {"bad_price", "suspicious_mode"}:
                     assert [
                         item.mode
                         for item in response.recommendation_bundle.mode_results
                     ] == [RecommendationMode.BEST_OVERALL]
+                    assert response.recommendation_bundle.final_listing_id is None
                 else:
                     assert {
                         item.mode
                         for item in response.recommendation_bundle.mode_results
                     } == {
                         RecommendationMode.BEST_OVERALL,
-                        RecommendationMode.BEST_VALUE,
+                        RecommendationMode.STRETCH_PICK
+                        if verifier_mode == "preferred_stretch"
+                        else RecommendationMode.BEST_VALUE,
                     }
                     value_mode = next(
                         item
                         for item in response.recommendation_bundle.mode_results
-                        if item.mode == RecommendationMode.BEST_VALUE
+                        if item.mode
+                        == (
+                            RecommendationMode.STRETCH_PICK
+                            if verifier_mode == "preferred_stretch"
+                            else RecommendationMode.BEST_VALUE
+                        )
                     )
                     assert value_mode.listing_id == alternate_listing.listing_id
                     assert value_mode.evidence_ids == (

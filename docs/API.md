@@ -1,7 +1,7 @@
 # CartCart API
 
 Status: Implemented API and future contract direction
-Last updated: 2026-10-02
+Last updated: 2026-10-06
 
 ## Contract Direction
 
@@ -327,6 +327,9 @@ Mode tabs include the saved final decision so shoppers can return to it after
 viewing an alternative. Saved `runner_up_product_ids` remain visible without
 duplicate mode records, using available comparison or category analysis data.
 Explicit saved runner-up offers retain their product/listing pairs.
+Shortlist membership alone does not attach a purchase offer. A runner-up without
+a saved mode or comparison-row listing stays product-only, retaining its saved
+analysis and evidence.
 Missing explanations, confidence, and offer details remain unavailable rather
 than inferred from scores or unrelated candidates.
 
@@ -347,9 +350,15 @@ matching products by name. Shortlist and considered-product data belong to the
 run that produced this result; a candidate added after that run appears after
 the next completed run.
 
-The persisted recommendation bundle is trust-aware: weak or suspicious listing assessments are
-surfaced as listing-level warnings or rejections, and a suspicious final listing
-is blocked instead of being returned as an unqualified best buy. When
+The persisted recommendation bundle preserves listing trust. Weak or suspicious
+listing assessments produce listing-level warnings or rejections. Every explicit
+recommended listing, including alternate modes and saved runner-up offers,
+must satisfy seller safety and comparable-price hard caps. A suspicious offer
+requires a blocking warning identifying that offer or exclusion. An ordinary
+seller mention or another offer's warning does not qualify. Comparison-only
+rows and rejected offers can remain visible without becoming buying picks.
+Product-only recommendations do not infer listing IDs. Unknown prices and
+different currencies do not establish a hard-cap breach. When
 `no_strong_buy=true`, `no_strong_buy_reason` should explain what blocked a
 responsible recommendation and include a plain-language next step for the
 shopper. If the session exists but no result has been saved yet, the API

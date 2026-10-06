@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { SessionResultsResponse } from '../../src/lib/api/types.js';
 
-for (const variant of ['no modes', 'alternate only', 'product only', 'no strong buy'] as const) {
+for (const variant of ['no modes', 'alternate only', 'product only', 'no strong buy', 'rowless runner-ups'] as const) {
 	test(`preserves the saved decision with ${variant}`, async ({ page }) => {
 		await page.addInitScript(() => {
 			window.localStorage.setItem('cartcart.region', JSON.stringify({ status: 'refused' }));
@@ -17,6 +17,11 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 				bundle.mode_results = [];
 			}
 			if (variant === 'product only') bundle.final_listing_id = null;
+			if (variant === 'rowless runner-ups') {
+				const runnerIds = new Set(bundle.runner_up_product_ids);
+				bundle.comparison_matrix.rows = bundle.comparison_matrix.rows.filter((row) => !runnerIds.has(row.product_id));
+				result.comparison_matrix.rows = bundle.comparison_matrix.rows;
+			}
 			if (variant === 'no strong buy') {
 				bundle.final_product_id = null;
 				bundle.final_listing_id = null;
@@ -69,6 +74,9 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 			const product = saved.products.find((item) => item.product_id === id);
 			if (!product) throw new Error('A saved fixture runner-up is missing.');
 			await expect(runners).toContainText(product.name);
+			if (variant === 'rowless runner-ups') {
+				await expect(runners.getByRole('link', { name: `Open listing for ${product.name}`, exact: true })).toHaveCount(0);
+			}
 		}
 	});
 }

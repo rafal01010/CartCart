@@ -394,8 +394,7 @@ function buildRunnerUpRecommendations(result: SessionResultsResponse): Recommend
 		const savedModes = bundle.mode_results.filter((mode) => mode.product_id === productId);
 		if (savedModes.length) return savedModes;
 		const rows = result.comparison_matrix.rows.filter((item) => item.product_id === productId);
-		const listingReferences = rows.length ? rows : result.shortlist.filter((item) => item.product_id === productId);
-		const listingIds = new Set(listingReferences.map((item) => item.listing_id ?? null));
+		const listingIds = new Set(rows.map((item) => item.listing_id ?? null));
 		const analysis = result.category_analyses.find((item) => item.product_id === productId);
 		return [{
 			mode: 'runner_up',

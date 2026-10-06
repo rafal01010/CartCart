@@ -347,6 +347,12 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "verifier/approved-fixture",
         "verifier/unsupported-claim-block",
         "verifier/suspicious-listing-warning",
+        "verifier/suspicious-alternate-seller-mention",
+        "verifier/hard-cap-alternate",
+        "verifier/safe-alternate",
+        "verifier/suspicious-alternate-warning",
+        "verifier/over-cap-comparison-only",
+        "verifier/suspicious-rejected-offer",
     }
     assert verifier["modes"] == ["fixture", "mock", "live"]
 
@@ -501,6 +507,52 @@ def test_workbench_mock_verifier_blocks_suspicious_listing_without_warning() -> 
     assert any("suspicious" in issue for issue in body["output"]["blocking_issues"])
     warnings = body["output"]["recommendation_bundle"]["warnings"]
     assert any("blocked for review" in warning.casefold() for warning in warnings)
+
+
+@pytest.mark.parametrize(
+    "scenario,approved,issue",
+    [
+        ("suspicious-alternate-seller-mention", False, "suspicious"),
+        ("hard-cap-alternate", False, "hard budget cap"),
+        ("safe-alternate", True, None),
+        ("suspicious-alternate-warning", True, None),
+        ("over-cap-comparison-only", True, None),
+        ("suspicious-rejected-offer", True, None),
+    ],
+)
+def test_workbench_mock_verifier_checks_alternate_offers(
+    scenario: str, approved: bool, issue: str | None
+) -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "VerifierCriticAgent",
+            "scenario_name": f"verifier/{scenario}",
+            "mode": "mock",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    output = body["output"]
+    assert output["approved"] is approved
+    bundle = output["recommendation_bundle"]
+    assert bundle["final_listing_id"] == body["input"]["listings"][0]["listing_id"]
+    if issue is not None:
+        assert any(issue in message for message in output["blocking_issues"])
+    elif scenario in {"safe-alternate", "suspicious-alternate-warning"}:
+        assert (
+            bundle["mode_results"][1]["listing_id"]
+            == body["input"]["listings"][1]["listing_id"]
+        )
+    elif scenario == "over-cap-comparison-only":
+        assert len(bundle["mode_results"]) == 1
+        assert len(bundle["comparison_matrix"]["rows"]) == 2
+    else:
+        assert (
+            bundle["rejected_items"][0]["listing_id"]
+            == body["input"]["listings"][1]["listing_id"]
+        )
 
 
 def test_workbench_mock_intake_infers_monitor_ph_budget_scenario() -> None:

@@ -60,12 +60,12 @@ def test_corpus_is_documented_and_load_only(monkeypatch):
     monkeypatch.setattr(Dataset, "evaluate", forbidden)
     monkeypatch.setattr(Runner, "run", forbidden)
     cases = trust_recommendation_cases()
-    assert len(cases) == 37
+    assert len(cases) == 42
     assert Counter(c.inputs.stage for c in cases) == {
         "guardrail": 9,
         "trust": 6,
         "recommendation": 9,
-        "verification": 13,
+        "verification": 18,
     }
     dataset = trust_recommendation_dataset()
     assert dataset.name == "cartcart-trust-recommendation"
@@ -401,7 +401,7 @@ def test_cli_registers_regular_gate_suite_without_executing(
         )
         == expected_exit
     )
-    assert seen == [("cartcart-trust-recommendation", 37, True, tmp_path.resolve())]
+    assert seen == [("cartcart-trust-recommendation", 42, True, tmp_path.resolve())]
     assert not (tmp_path / "stub-report.json").exists()
     assert "trust/guardrail/recommendation" in capsys.readouterr().out
 
@@ -498,6 +498,53 @@ async def test_named_candidate_binding_cases_match_independent_expectations(
     output = await offline_trust_recommendation_task()(case.inputs)
     assert output.verification.approved is approved
     assert not failures(case, output)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,approved",
+    [
+        ("verification/suspicious-alternate-seller-mention", False),
+        ("verification/hard-cap-alternate", False),
+        ("verification/safe-alternate", True),
+        ("verification/over-cap-comparison-only", True),
+        ("verification/suspicious-rejected-offer", True),
+    ],
+)
+async def test_named_alternate_offer_cases_match_independent_expectations(
+    name, approved
+):
+    case = named(name)
+    output = await offline_trust_recommendation_task()(case.inputs)
+    assert output.verification.approved is approved
+    assert not failures(case, output)
+
+
+@pytest.mark.parametrize(
+    "name,key",
+    [
+        (
+            "verification/suspicious-alternate-seller-mention",
+            "recommendation.modes.best_value.1.trust",
+        ),
+        ("verification/hard-cap-alternate", "budget.modes.best_value.1.hard_cap"),
+    ],
+)
+def test_fabricated_verifier_approval_cannot_pass_alternate_offer_controls(name, key):
+    from app.agents.contracts import VerificationReport
+
+    case = named(name)
+    output = TrustRecommendationOutput(
+        verification=VerificationReport(
+            approved=True,
+            recommendation_bundle=case.inputs.verification.request.recommendation_bundle,
+        ),
+        runtime_status="model_verifier_critic_completed",
+        model_calls=1,
+    )
+    broken = failures(case, output)
+    assert key in broken
+    assert "field.verification.approved[0]" in broken
 
 
 @pytest.mark.parametrize(

@@ -6356,6 +6356,1793 @@
           "offline"
         ]
       }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/suspicious-alternate-seller-mention",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose an office monitor under a hard USD 300 cap.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "US",
+                  "currency": "USD"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "300",
+                  "currency": "USD"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Harbor M1",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "name": "Maple M2",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Harbor M1",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "249",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "title": "Maple M2",
+                "url": "https://fixture-store.example/items/maple-m2",
+                "seller": {
+                  "seller_name": "Maple Shop",
+                  "trust_signal": "suspicious",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                },
+                "price": {
+                  "amount": "229",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "level": "suspicious",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Unclear seller identity makes this listing suspicious.",
+                "red_flags": [
+                  "Seller identity is unclear."
+                ],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Comfortable office monitor with clear fit, price value, seller trust and product evidence.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000190004",
+                "source_id": "00000000-0000-4000-8000-000000190002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000190001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Maple M2 is a comfortable office monitor.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Comfortable office fit with clear seller evidence.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Comfortable office fit with clear seller evidence.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                {
+                  "mode": "best_value",
+                  "product_id": "00000000-0000-4000-8000-000000190001",
+                  "listing_id": "00000000-0000-4000-8000-000000190003",
+                  "title": "Alternative office pick",
+                  "rationale": "Maple M2 is a comfortable office monitor.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-000000190004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Comfortable office fit.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d"
+                    ]
+                  },
+                  {
+                    "product_id": "00000000-0000-4000-8000-000000190001",
+                    "listing_id": "00000000-0000-4000-8000-000000190003",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Maple M2 is a comfortable office monitor.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-000000190004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000190004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000190002"
+              ],
+              "warnings": [
+                "Maple M2 is offered by seller Maple Shop."
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Every explicitly recommended listing must satisfy seller safety and the hard budget cap; comparison and rejected listings remain inspectable."
+          },
+          {
+            "field": "verification.blocking_issues",
+            "operator": "contains_text",
+            "value": "suspicious",
+            "requirement": "Blocking must identify the alternate offer safety or hard-cap failure."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored alternate-offer control, suspicious-alternate-seller-mention.",
+        "tags": [
+          "verification",
+          "task-190",
+          "offline"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/hard-cap-alternate",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose an office monitor under a hard USD 300 cap.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "US",
+                  "currency": "USD"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "300",
+                  "currency": "USD"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Harbor M1",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "name": "Maple M2",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Harbor M1",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "249",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "title": "Maple M2",
+                "url": "https://fixture-store.example/items/maple-m2",
+                "seller": {
+                  "seller_name": "Maple Shop",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                },
+                "price": {
+                  "amount": "399",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Comfortable office monitor with clear fit, price value, seller trust and product evidence.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000190004",
+                "source_id": "00000000-0000-4000-8000-000000190002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000190001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Maple M2 is a comfortable office monitor.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Comfortable office fit with clear seller evidence.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Comfortable office fit with clear seller evidence.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                {
+                  "mode": "best_value",
+                  "product_id": "00000000-0000-4000-8000-000000190001",
+                  "listing_id": "00000000-0000-4000-8000-000000190003",
+                  "title": "Alternative office pick",
+                  "rationale": "Maple M2 is a comfortable office monitor.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-000000190004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Comfortable office fit.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d"
+                    ]
+                  },
+                  {
+                    "product_id": "00000000-0000-4000-8000-000000190001",
+                    "listing_id": "00000000-0000-4000-8000-000000190003",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Maple M2 is a comfortable office monitor.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-000000190004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000190004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000190002"
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": false,
+            "requirement": "Every explicitly recommended listing must satisfy seller safety and the hard budget cap; comparison and rejected listings remain inspectable."
+          },
+          {
+            "field": "verification.blocking_issues",
+            "operator": "contains_text",
+            "value": "hard budget cap",
+            "requirement": "Blocking must identify the alternate offer safety or hard-cap failure."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored alternate-offer control, hard-cap-alternate.",
+        "tags": [
+          "verification",
+          "task-190",
+          "offline"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/safe-alternate",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose an office monitor under a hard USD 300 cap.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "US",
+                  "currency": "USD"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "300",
+                  "currency": "USD"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Harbor M1",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "name": "Maple M2",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Harbor M1",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "249",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "title": "Maple M2",
+                "url": "https://fixture-store.example/items/maple-m2",
+                "seller": {
+                  "seller_name": "Maple Shop",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                },
+                "price": {
+                  "amount": "229",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Comfortable office monitor with clear fit, price value, seller trust and product evidence.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000190004",
+                "source_id": "00000000-0000-4000-8000-000000190002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000190001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Maple M2 is a comfortable office monitor.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Comfortable office fit with clear seller evidence.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Comfortable office fit with clear seller evidence.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                {
+                  "mode": "best_value",
+                  "product_id": "00000000-0000-4000-8000-000000190001",
+                  "listing_id": "00000000-0000-4000-8000-000000190003",
+                  "title": "Alternative office pick",
+                  "rationale": "Maple M2 is a comfortable office monitor.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-000000190004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Comfortable office fit.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d"
+                    ]
+                  },
+                  {
+                    "product_id": "00000000-0000-4000-8000-000000190001",
+                    "listing_id": "00000000-0000-4000-8000-000000190003",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Maple M2 is a comfortable office monitor.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-000000190004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000190004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000190002"
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Every explicitly recommended listing must satisfy seller safety and the hard budget cap; comparison and rejected listings remain inspectable."
+          },
+          {
+            "field": "verification.recommendation_bundle.final_product_id",
+            "operator": "equals",
+            "value": "00000000-0000-4000-8000-0000000f1b31",
+            "requirement": "The safe final pick remains approved."
+          },
+          {
+            "field": "verification.recommendation_bundle.mode_results.*.listing_id",
+            "operator": "set_equals",
+            "value": [
+              "00000000-0000-4000-8000-0000000f1b95",
+              "00000000-0000-4000-8000-000000190003"
+            ],
+            "requirement": "A safe within-cap alternate remains a selectable offer."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored alternate-offer control, safe-alternate.",
+        "tags": [
+          "verification",
+          "task-190",
+          "offline"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/over-cap-comparison-only",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose an office monitor under a hard USD 300 cap.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "US",
+                  "currency": "USD"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "300",
+                  "currency": "USD"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Harbor M1",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "name": "Maple M2",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Harbor M1",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "249",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "title": "Maple M2",
+                "url": "https://fixture-store.example/items/maple-m2",
+                "seller": {
+                  "seller_name": "Maple Shop",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                },
+                "price": {
+                  "amount": "399",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Comfortable office monitor with clear fit, price value, seller trust and product evidence.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000190004",
+                "source_id": "00000000-0000-4000-8000-000000190002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000190001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Maple M2 is a comfortable office monitor.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Comfortable office fit with clear seller evidence.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Comfortable office fit with clear seller evidence.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Comfortable office fit.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d"
+                    ]
+                  },
+                  {
+                    "product_id": "00000000-0000-4000-8000-000000190001",
+                    "listing_id": "00000000-0000-4000-8000-000000190003",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Maple M2 is a comfortable office monitor.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-000000190004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000190004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000190002"
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Every explicitly recommended listing must satisfy seller safety and the hard budget cap; comparison and rejected listings remain inspectable."
+          },
+          {
+            "field": "verification.recommendation_bundle.final_product_id",
+            "operator": "equals",
+            "value": "00000000-0000-4000-8000-0000000f1b31",
+            "requirement": "The safe final pick remains approved."
+          },
+          {
+            "field": "verification.recommendation_bundle.comparison_matrix.rows.*.listing_id",
+            "operator": "set_equals",
+            "value": [
+              "00000000-0000-4000-8000-0000000f1b95",
+              "00000000-0000-4000-8000-000000190003"
+            ],
+            "requirement": "The over-cap comparison row remains inspectable without becoming a recommended offer."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored alternate-offer control, over-cap-comparison-only.",
+        "tags": [
+          "verification",
+          "task-190",
+          "offline"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "verification/suspicious-rejected-offer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "verification",
+        "verification": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000f1eb4",
+            "brief": {
+              "schema_version": 1,
+              "original_query": "Choose an office monitor under a hard USD 300 cap.",
+              "category": "monitor",
+              "category_source": "user_provided",
+              "region": {
+                "region": {
+                  "country_code": "US",
+                  "currency": "USD"
+                },
+                "source": "user_provided"
+              },
+              "budget": {
+                "amount": {
+                  "amount": "300",
+                  "currency": "USD"
+                },
+                "mode": "hard_cap"
+              }
+            },
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "name": "Harbor M1",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "name": "Maple M2",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "title": "Harbor M1",
+                "url": "https://fixture-store.example/items/1",
+                "seller": {
+                  "seller_name": "Fixture Store",
+                  "trust_signal": "reasonable",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                },
+                "price": {
+                  "amount": "249",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "title": "Maple M2",
+                "url": "https://fixture-store.example/items/maple-m2",
+                "seller": {
+                  "seller_name": "Maple Shop",
+                  "trust_signal": "suspicious",
+                  "is_marketplace_seller": false,
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                },
+                "price": {
+                  "amount": "229",
+                  "currency": "USD"
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "category_analyses": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000f1b95"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ]
+              },
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-000000190001",
+                "listing_ids": [
+                  "00000000-0000-4000-8000-000000190003"
+                ],
+                "category": "monitor",
+                "fit_summary": "Comfortable office monitor fit.",
+                "strengths": [
+                  "Comfortable office fit"
+                ],
+                "warnings": [],
+                "confidence": {
+                  "level": "high",
+                  "score": 0.9,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ]
+              }
+            ],
+            "trust_assessments": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                "level": "reasonable",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Seller identity and price context are clear.",
+                "red_flags": [],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-0000000f1c5d"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000f1bf9"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              },
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-000000190003",
+                "level": "suspicious",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.8,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "summary": "Unclear seller identity makes this listing suspicious.",
+                "red_flags": [
+                  "Seller identity is unclear."
+                ],
+                "evidence_ids": [
+                  "00000000-0000-4000-8000-000000190004"
+                ],
+                "source_ids": [
+                  "00000000-0000-4000-8000-000000190002"
+                ],
+                "assessed_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000f1c5d",
+                "source_id": "00000000-0000-4000-8000-0000000f1bf9",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Comfortable office monitor with clear fit, price value, seller trust and product evidence.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              },
+              {
+                "evidence_id": "00000000-0000-4000-8000-000000190004",
+                "source_id": "00000000-0000-4000-8000-000000190002",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-000000190001"
+                },
+                "evidence_type": "product_spec",
+                "claim": "Maple M2 is a comfortable office monitor.",
+                "confidence": {
+                  "level": "high",
+                  "score": 0.85,
+                  "rationale": "Fixture evidence confidence."
+                },
+                "source_quality": {
+                  "level": "strong",
+                  "score": 0.9
+                }
+              }
+            ],
+            "recommendation_bundle": {
+              "schema_version": 1,
+              "bundle_id": "00000000-0000-4000-8000-0000000f1eb5",
+              "final_product_id": "00000000-0000-4000-8000-0000000f1b31",
+              "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
+              "final_rationale": "Comfortable office fit with clear seller evidence.",
+              "mode_results": [
+                {
+                  "mode": "best_overall",
+                  "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                  "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                  "title": "Comfortable office pick",
+                  "rationale": "Comfortable office fit with clear seller evidence.",
+                  "confidence": {
+                    "level": "high",
+                    "score": 0.85,
+                    "rationale": "Fixture evidence confidence."
+                  },
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-0000000f1c5d"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000f1bf9"
+                  ]
+                }
+              ],
+              "comparison_matrix": {
+                "schema_version": 1,
+                "criteria": [
+                  {
+                    "name": "fit"
+                  }
+                ],
+                "rows": [
+                  {
+                    "product_id": "00000000-0000-4000-8000-0000000f1b31",
+                    "listing_id": "00000000-0000-4000-8000-0000000f1b95",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Comfortable office fit.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-0000000f1c5d"
+                    ]
+                  },
+                  {
+                    "product_id": "00000000-0000-4000-8000-000000190001",
+                    "listing_id": "00000000-0000-4000-8000-000000190003",
+                    "scores": {
+                      "fit": 0.9
+                    },
+                    "summary": "Maple M2 is a comfortable office monitor.",
+                    "evidence_ids": [
+                      "00000000-0000-4000-8000-000000190004"
+                    ]
+                  }
+                ]
+              },
+              "evidence_ids": [
+                "00000000-0000-4000-8000-0000000f1c5d",
+                "00000000-0000-4000-8000-000000190004"
+              ],
+              "source_ids": [
+                "00000000-0000-4000-8000-0000000f1bf9",
+                "00000000-0000-4000-8000-000000190002"
+              ],
+              "rejected_items": [
+                {
+                  "product_id": "00000000-0000-4000-8000-000000190001",
+                  "listing_id": "00000000-0000-4000-8000-000000190003",
+                  "reason_code": "suspicious_listing",
+                  "reason": "Do not buy this suspicious listing.",
+                  "severity": "high",
+                  "evidence_ids": [
+                    "00000000-0000-4000-8000-000000190004"
+                  ],
+                  "source_ids": [
+                    "00000000-0000-4000-8000-000000190002"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "verification.approved",
+            "operator": "equals",
+            "value": true,
+            "requirement": "Every explicitly recommended listing must satisfy seller safety and the hard budget cap; comparison and rejected listings remain inspectable."
+          },
+          {
+            "field": "verification.recommendation_bundle.final_product_id",
+            "operator": "equals",
+            "value": "00000000-0000-4000-8000-0000000f1b31",
+            "requirement": "The safe final pick remains approved."
+          },
+          {
+            "field": "verification.recommendation_bundle.rejected_items.*.listing_id",
+            "operator": "set_equals",
+            "value": [
+              "00000000-0000-4000-8000-000000190003"
+            ],
+            "requirement": "The rejected suspicious listing remains visible."
+          }
+        ]
+      },
+      "metadata": {
+        "description": "Independently authored alternate-offer control, suspicious-rejected-offer.",
+        "tags": [
+          "verification",
+          "task-190",
+          "offline"
+        ]
+      }
     }
   ]
 }

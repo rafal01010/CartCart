@@ -1,7 +1,7 @@
 # CartCart Architecture
 
 Status: Current architecture and remaining design direction
-Last updated: 2026-10-02
+Last updated: 2026-10-06
 
 ## Product Model
 
@@ -652,7 +652,8 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Price plausibility checks compare same-product listing prices first and use
   category-level prices only as a conservative fallback, so extreme low-price
   outliers can be flagged without treating normal retailer discounts as unsafe.
-- A suspicious listing must not be the final purchase link unless the result clearly blocks or warns against buying from that listing.
+- Every explicit recommended offer is subject to listing safety and comparable-price hard caps. This includes final and alternate mode listings and unambiguous saved runner-up comparison-row offers. Product-only recommendations do not infer an offer. Ordinary comparison-only rows and rejected items are not purchase recommendations.
+- A suspicious recommended offer requires a blocking warning attached to that exact offer or an unambiguous warning identifying it. A seller mention, another offer's warning, or a rejected-item entry cannot authorize the recommended offer. Excluding the offer also satisfies this rule.
 - A good product from a bad listing should be shown as a product/listing mismatch, not as a safe buy.
 - Trust notes should cite the source or listing signals that support them when available.
 
@@ -707,6 +708,11 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Recommendation assembly should convert material listing-trust assessments into
   listing-level warnings or rejections. A suspicious final listing must become a
   no-strong-buy outcome or be replaced by a safer listing for the same product.
+  Shared verification checks every explicit recommended offer before model
+  review and after approved revisions. An alternate above a comparable hard cap
+  blocks the draft even when the primary offer is within budget. Preferred-budget
+  stretch rules and unknown or different-currency prices retain their existing
+  behavior.
 
 ### Conditional Why-Not Output
 

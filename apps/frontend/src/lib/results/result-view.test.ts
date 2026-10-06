@@ -345,6 +345,45 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.sources.map((item) => item.id)).not.toContain('source-dell');
 	});
 
+	it.each(['suspicious', 'over-cap', 'safe'])('keeps a runner-up product-only when only the shortlist supplies its %s offer', (risk) => {
+		const rows = baseResult.comparison_matrix.rows.filter((row) => row.product_id !== 'product-asus');
+		const trustLevel = risk === 'suspicious' ? 'suspicious' : 'reasonable';
+		const result: SessionResultsResponse = {
+			...baseResult,
+			listings: baseResult.listings.map((item) => item.listing_id === 'listing-dell'
+				? { ...item, price: { amount: 249, currency: 'USD' } }
+				: item.listing_id === 'listing-asus'
+					? { ...item, seller: { ...item.seller, trust_signal: trustLevel }, price: { amount: risk === 'over-cap' ? 399 : 349, currency: 'USD' } }
+					: item),
+			trust_assessments: [...baseResult.trust_assessments, {
+				...baseResult.trust_assessments[0], listing_id: 'listing-asus', level: trustLevel,
+				summary: risk === 'suspicious' ? 'Seller identity could not be confirmed.' : 'Seller details were checked.',
+				positive_signals: risk === 'suspicious' ? [] : ['Checked seller'],
+				red_flags: risk === 'suspicious' ? ['Unconfirmed seller identity'] : [],
+				evidence_ids: ['evidence-asus'], source_ids: ['source-asus'],
+			}],
+			comparison_matrix: { ...baseResult.comparison_matrix, rows },
+			category_analyses: [{
+				schema_version: 1, product_id: 'product-asus', listing_ids: ['listing-asus'], category: 'monitor',
+				fit_summary: 'The product fits the design workspace.', strengths: [], weaknesses: [], warnings: [],
+				confidence: { level: 'medium', score: 0.72 }, evidence_ids: ['evidence-asus'], source_ids: ['source-asus'],
+			}],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, mode_results: [],
+				comparison_matrix: { ...baseResult.comparison_matrix, rows },
+			},
+		};
+		const view = buildResultView(result);
+		expect(view.runnerUps).toHaveLength(1);
+		expect(view.runnerUps[0]).toMatchObject({
+			productId: 'product-asus', productName: 'ASUS ProArt PA278CV',
+			listingId: null, listingTitle: null, sellerName: null, priceLabel: null, purchaseUrl: null, listingTrust: null,
+			rationale: 'The product fits the design workspace.', confidence: 'medium 72%',
+		});
+		expect(view.runnerUps[0]?.evidence.map((item) => item.id)).toEqual(['evidence-asus']);
+		expect(view.runnerUps[0]?.sources.map((item) => item.id)).toEqual(['source-asus']);
+	});
+
 	it('keeps no-strong-buy unselectable even with saved alternate modes', () => {
 		const view = buildResultView({
 			...baseResult,

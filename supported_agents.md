@@ -1,7 +1,7 @@
 # CartCart Supported Agents And Source Capabilities
 
 Status: Agent-first research runtime with fixture limitations called out below
-Last updated: 2026-09-27
+Last updated: 2026-10-06
 
 ## Purpose
 
@@ -305,6 +305,16 @@ with source references and confidence, not final purchase recommendations.
 `SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Its live SDK agent can choose hosted web search for the supplied seller/listing and buyer region, or use supplied evidence alone. Exact cited URLs are retained as weak, run-scoped trust leads with source/evidence IDs. These leads can identify a question to check but cannot verify seller reputation, policy terms, or a listing claim or raise trust. Suspicious deterministic trust flags cannot be silently overridden by agent output.
 
 `ComparisonDecisionAgent` can produce comparative modes in its isolated typed path; the active SDK owner authors the live result and any supported modes. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint. Recognized factual specifications must be supported for the asserted candidate through evidence targets and stored product/listing relationships. Supported comparisons may cite several candidates; another candidate's facts cannot establish the winner's specifications. Shared backend checks enforce this before verification and after approved revisions.
+
+Listing safety and comparable-price hard caps apply to every explicit recommended
+offer, including alternate modes and explicit saved runner-up offers. A suspicious
+offer requires a blocking warning tied to its own listing or exclusion. Generic
+seller mentions, unrelated warnings and rejected-item entries do not authorize
+recommended offers. Comparison-only rows, rejected offers and product-only
+recommendations retain their existing meaning. Preferred-budget stretch, missing
+prices and non-comparable currencies retain their existing policies. Workbench
+scenarios expose these checks through the existing runtime registry; agent roles,
+SDK tools, routing and fallback behavior do not change.
 
 ## Why These Are Source Intelligence Agents
 

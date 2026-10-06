@@ -1,7 +1,7 @@
 # CartCart Evaluation
 
 Status: Evaluation strategy and implemented regression coverage
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 ## Evaluation Direction
 
@@ -14,7 +14,7 @@ fixture-search case and saves a JSON report. A separate 17-case intake/planning
 suite exercises production contracts with mock runners and named field/behavior
 assertions. A separate 21-case discovery/extraction/dedupe suite checks source
 selection, source quality, extraction fidelity and conservative grouping.
-A separate 37-case trust/guardrail/recommendation suite checks shopping safety,
+A separate 42-case trust/guardrail/recommendation suite checks shopping safety,
 seller risk, decision quality, budgets, citations, conflicts and safe result copy.
 A separate 36-case reusable source-intelligence suite covers YouTube, Reddit,
 Amazon and IKEA services/specialist contracts and downstream evidence probes.
@@ -313,7 +313,7 @@ mocked intake/planning suite; `--suite discovery-extraction` selects the scoped
 Task 98 suite; `--suite trust-recommendation` selects the Task 99 quality checks;
 `--suite source-intelligence` selects Task 99A's reusable source checks.
 `--suite quick` runs the fixed 27-case CI subset. `--suite full` runs that subset
-first, then all 112 executable cases. See [quick/full commands](#quick-and-full-offline-evals).
+first, then all 117 executable cases. See [quick/full commands](#quick-and-full-offline-evals).
 
 Reports are timestamped JSON files under `data/artifacts/evals/`, ignored by git.
 Use `scripts/local/run-evals.sh --output-dir ../../data/artifacts/evals/custom`
@@ -361,8 +361,8 @@ scripts/local/run-evals.sh --suite full
 ```
 
 Quick runs **27 fixed cases** across all five lanes, in the table order below.
-Full automatically runs those same five quick lanes first, then **112 cases**:
-one scaffolding, 17 intake/planning, 21 discovery/extraction, 37 trust/recommendation,
+Full automatically runs those same five quick lanes first, then **117 cases**:
+one scaffolding, 17 intake/planning, 21 discovery/extraction, 42 trust/recommendation,
 and 36 source-intelligence cases. It continues after assertion failures to collect
 full diagnostics; any quick or full failure keeps the overall command nonzero.
 There is no passing-case filter, random sampling, retry, live judge, provider,
@@ -688,8 +688,8 @@ to reject unsupported amounts and truncated decimals.
 
 ## Trust, Guardrail And Recommendation Evals
 
-`app/evals/fixtures/trust_recommendation.json` contains 37 synthetic cases:
-nine input guardrails, six seller/listing trust cases, nine decisions and thirteen
+`app/evals/fixtures/trust_recommendation.json` contains 42 synthetic cases:
+nine input guardrails, six seller/listing trust cases, nine decisions and eighteen
 output verification cases. `app.evals.trust_recommendation` validates fresh typed
 fixtures and registers `cartcart-trust-recommendation` with a Pydantic evaluator.
 All requests, seller offers, evidence, analyses and draft copy are synthetic;
@@ -763,6 +763,11 @@ No SDK Runner, hosted search, provider, database or telemetry exporter is used.
 | `verification/overconfident-wording` | Guaranteed/perfect/no-risk advice blocks output. |
 | `verification/unsafe-purchase-copy` | Unsafe procurement/bypass advice blocks output. |
 | `verification/hard-cap-breach` | Over-cap final pick cannot be approved. |
+| `verification/suspicious-alternate-seller-mention` | A safe final listing cannot hide a suspicious alternate behind an ordinary seller mention. |
+| `verification/hard-cap-alternate` | An alternate above the comparable hard cap blocks approval despite a safe final offer. |
+| `verification/safe-alternate` | A supported, safe alternate remains approved. |
+| `verification/over-cap-comparison-only` | An over-cap offer shown only for comparison does not block the safe recommendation. |
+| `verification/suspicious-rejected-offer` | A separately rejected suspicious listing does not block the safe recommendation. |
 | `verification/timeout-blocks-display` | Timeout leaves output unapproved with a blocking reason. |
 | `verification/invalid-output-blocks-display` | Invalid verifier output leaves output unapproved. |
 
@@ -806,6 +811,42 @@ The scorer retains 18 unchanged baseline typing diagnostics; this acceptance
 does not claim a passing whole-backend typing gate. Independent review confirmed
 the repaired valid controls and found no remaining issue in scope. No live calls
 were made.
+
+Task 190 regressions exercise explicit mode and saved runner-up offers through
+the public comparison agent, public verifier and shared backend guardrails.
+The warning controls distinguish blocking offer-specific cautions from ordinary
+seller mentions and another seller's warnings. Safe offers, comparison-only and
+rejected rows, product-only recommendations, unknown or non-comparable prices,
+and preferred-budget stretch remain valid controls. The normal owner-result test
+uses persisted same-run sources and the saved results API. It checks a USD 29
+primary with a USD 39 stretch under a USD 35 hard cap, keeps the USD 49 primary
+blocking control, and retains within-cap and preferred-stretch alternatives.
+
+The final gate on 2026-10-06 passed quick 27/27 before full 117/117, followed by
+393 Section Q tests and 187 non-overlapping affected tests. Two live tests were
+excluded. Scoped lint, typing, Python formatting and whitespace checks passed.
+Saved report inspection confirms the five new controls match their independent
+decisions and the 37 prior trust cases remain unchanged. The suite manifest is
+`data/artifacts/evals/suite-full-20261006T132451799720Z.json`; gate and extra test
+logs are under `data/artifacts/task190/`. Independent review's eleven warning
+controls pass after direct blocking statements resolve their actual offer
+targets. Negated cautions and another offer's warning cannot authorize a listing;
+valid warnings may still suggest a safer seller. The matcher recognizes bounded
+explicit warning forms and does not claim general language entailment. No live
+calls were made.
+
+Final review identified a display dependency: rowless, mode-free runner-ups
+inherited purchase offers from shortlist inventory. The frontend now keeps
+those recommendations product-only while preserving saved explanations and
+evidence. Three regressions failed before repair; all 32 result-view tests and
+five fixture-only Chrome browser tests pass afterward. A captured-response
+browser reproduction retains the runner-up without its over-cap price or
+purchase link and records zero page errors. Frontend and browser-test typing
+pass. Evidence is under `data/artifacts/task190/`, including
+`frontend-before.log`, `frontend-after.log`, `frontend-check.log`,
+`frontend-browser-tests.log`, and `rowless-browser-after.json`. The complete
+quick/full gate was rerun after this repair; its log is
+`acceptance-repair-gate.log`.
 
 These checks are bounded contract/deterministic quality regressions, not a model
 judge or exhaustive natural-language fact checker. Specific specification checks

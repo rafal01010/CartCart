@@ -1,7 +1,7 @@
 # Frontend Replacement Note
 
 Status: Guided shopping flow rebuild complete
-Last updated: 2026-07-17
+Last updated: 2026-10-06
 
 ## Purpose
 
@@ -215,8 +215,11 @@ purchase link or attached seller offer.
 
 Supporting details resolve saved runner-up product references even without mode
 records. Comparison summaries and category fit summaries retain their saved
-evidence links. Ambiguous offers stay product-only, and unavailable explanations
-or confidence appear as gaps. The result view does not invent scores, citations,
+evidence links. Only saved modes or unambiguous comparison rows supply runner-up
+purchase offers; shortlist inventory alone cannot attach a listing, price,
+seller, or purchase link. Rowless runner-ups retain their product analysis and
+evidence as product-only recommendations. Ambiguous offers stay product-only.
+Unavailable explanations or confidence appear as gaps. The result view does not invent scores, citations,
 or alternative reasons.
 
 ## Focused Checks For Replacement Tasks

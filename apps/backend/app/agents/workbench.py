@@ -208,6 +208,8 @@ from app.schemas.analysis import (
     RecommendationBundle,
     RecommendationMode,
     RecommendationModeResult,
+    RejectedItem,
+    RejectionReason,
 )
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence, ConfidenceLevel
@@ -1368,6 +1370,12 @@ def _build_workbench_definitions(
                 _scenario_verifier_suspicious_listing_warning,
                 _scenario_verifier_wrong_candidate_specification,
                 _scenario_verifier_supported_candidate_comparison,
+                _scenario_verifier_suspicious_alternate_seller_mention,
+                _scenario_verifier_hard_cap_alternate,
+                _scenario_verifier_safe_alternate,
+                _scenario_verifier_suspicious_alternate_warning,
+                _scenario_verifier_over_cap_comparison_only,
+                _scenario_verifier_suspicious_rejected_offer,
             ),
             mock_agent_factory=_mock_verifier_critic_agent,
             live_agent_factory=LiveVerifierCriticAgent,
@@ -5269,4 +5277,192 @@ def _scenario_verifier_suspicious_listing_warning() -> AgentWorkbenchScenario:
             category_analyses=(analysis,),
         ),
         boundary=True,
+    )
+
+
+def _verifier_alternate_request() -> VerificationAgentInput:
+    original = VerificationAgentInput.model_validate(
+        _scenario_verifier_approved().input
+    )
+    source_id = new_id()
+    alternate = original.products[0].model_copy(
+        update={
+            "product_id": new_id(),
+            "name": "Maple Monitor",
+            "source_ids": (source_id,),
+        }
+    )
+    listing = original.listings[0].model_copy(
+        update={
+            "listing_id": new_id(),
+            "product_id": alternate.product_id,
+            "title": "Maple Monitor",
+            "url": AnyHttpUrl("https://fixture-store.example/items/maple-monitor"),
+            "price": Money(amount="229", currency="USD"),
+            "source_ids": (source_id,),
+            "seller": original.listings[0].seller.model_copy(
+                update={"seller_name": "Maple Shop", "source_ids": (source_id,)}
+            ),
+        }
+    )
+    alternate = alternate.model_copy(update={"listing_ids": (listing.listing_id,)})
+    evidence = original.evidence[0].model_copy(
+        update={
+            "evidence_id": new_id(),
+            "source_id": source_id,
+            "target": EvidenceTarget(
+                target_type=EvidenceTargetType.PRODUCT,
+                product_id=alternate.product_id,
+            ),
+            "claim": "Maple Monitor is suitable for office use.",
+        }
+    )
+    bundle = original.recommendation_bundle
+    mode = bundle.mode_results[0].model_copy(
+        update={
+            "mode": RecommendationMode.BEST_VALUE,
+            "product_id": alternate.product_id,
+            "listing_id": listing.listing_id,
+            "title": "Alternative office pick",
+            "rationale": evidence.claim,
+            "evidence_ids": (evidence.evidence_id,),
+            "source_ids": (source_id,),
+        }
+    )
+    return original.model_copy(
+        update={
+            "brief": original.brief.model_copy(
+                update={
+                    "budget": BudgetConstraint(
+                        amount=Money(amount="300", currency="USD"),
+                        mode=BudgetMode.HARD_CAP,
+                    )
+                }
+            ),
+            "products": (*original.products, alternate),
+            "listings": (
+                original.listings[0].model_copy(
+                    update={"price": Money(amount="249", currency="USD")}
+                ),
+                listing,
+            ),
+            "evidence": (*original.evidence, evidence),
+            "trust_assessments": (
+                *original.trust_assessments,
+                _trust_assessment(listing, evidence),
+            ),
+            "category_analyses": (
+                *original.category_analyses,
+                _category_analysis(alternate, listing, evidence),
+            ),
+            "recommendation_bundle": bundle.model_copy(
+                update={
+                    "mode_results": (*bundle.mode_results, mode),
+                    "comparison_matrix": bundle.comparison_matrix.model_copy(
+                        update={
+                            "rows": (
+                                *bundle.comparison_matrix.rows,
+                                ComparisonRow(
+                                    product_id=alternate.product_id,
+                                    listing_id=listing.listing_id,
+                                    scores={"fit": 0.8},
+                                    summary=evidence.claim,
+                                    evidence_ids=(evidence.evidence_id,),
+                                ),
+                            )
+                        }
+                    ),
+                    "evidence_ids": (*bundle.evidence_ids, evidence.evidence_id),
+                    "source_ids": (*bundle.source_ids, source_id),
+                }
+            ),
+        }
+    )
+
+
+def _scenario_verifier_suspicious_alternate_seller_mention() -> AgentWorkbenchScenario:
+    request = _verifier_alternate_request()
+    request.trust_assessments[1].level = ListingTrustLevel.SUSPICIOUS
+    request.trust_assessments[1].summary = "The listing has unclear seller identity."
+    request.recommendation_bundle.warnings = (
+        "Maple Monitor is offered by seller Maple Shop.",
+    )
+    return _scenario(
+        "verifier/suspicious-alternate-seller-mention",
+        "A seller mention cannot approve a suspicious alternate listing.",
+        request,
+        boundary=True,
+    )
+
+
+def _scenario_verifier_hard_cap_alternate() -> AgentWorkbenchScenario:
+    request = _verifier_alternate_request()
+    request.listings[1].price = Money(amount="399", currency="USD")
+    return _scenario(
+        "verifier/hard-cap-alternate",
+        "The final offer is within the hard cap but the alternate offer exceeds it.",
+        request,
+        boundary=True,
+    )
+
+
+def _scenario_verifier_safe_alternate() -> AgentWorkbenchScenario:
+    return _scenario(
+        "verifier/safe-alternate",
+        "A safe alternate within the hard cap remains approved.",
+        _verifier_alternate_request(),
+    )
+
+
+def _scenario_verifier_suspicious_alternate_warning() -> AgentWorkbenchScenario:
+    request = VerificationAgentInput.model_validate(
+        _scenario_verifier_suspicious_alternate_seller_mention().input
+    )
+    request.recommendation_bundle.warnings = ()
+    request.recommendation_bundle.mode_results[
+        1
+    ].rationale = "Do not buy this suspicious listing."
+    return _scenario(
+        "verifier/suspicious-alternate-warning",
+        "A blocking warning in the alternate rationale applies to that exact offer.",
+        request,
+    )
+
+
+def _scenario_verifier_over_cap_comparison_only() -> AgentWorkbenchScenario:
+    request = VerificationAgentInput.model_validate(
+        _scenario_verifier_hard_cap_alternate().input
+    )
+    request.recommendation_bundle.mode_results = (
+        request.recommendation_bundle.mode_results[0],
+    )
+    return _scenario(
+        "verifier/over-cap-comparison-only",
+        "An over-cap comparison row remains inspectable without recommending it.",
+        request,
+    )
+
+
+def _scenario_verifier_suspicious_rejected_offer() -> AgentWorkbenchScenario:
+    request = VerificationAgentInput.model_validate(
+        _scenario_verifier_suspicious_alternate_seller_mention().input
+    )
+    request.recommendation_bundle.mode_results = (
+        request.recommendation_bundle.mode_results[0],
+    )
+    request.recommendation_bundle.warnings = ()
+    request.recommendation_bundle.rejected_items = (
+        RejectedItem(
+            product_id=request.products[1].product_id,
+            listing_id=request.listings[1].listing_id,
+            reason_code=RejectionReason.SUSPICIOUS_LISTING,
+            reason="Do not buy this suspicious listing.",
+            evidence_ids=(request.evidence[1].evidence_id,),
+            source_ids=(request.evidence[1].source_id,),
+        ),
+    )
+    return _scenario(
+        "verifier/suspicious-rejected-offer",
+        "A rejected suspicious listing does not block the safe final offer.",
+        request,
     )

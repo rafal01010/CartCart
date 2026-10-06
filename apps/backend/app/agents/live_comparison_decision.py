@@ -15,6 +15,10 @@ from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
+from app.agents.recommendation_offers import (
+    has_blocking_listing_warning,
+    recommendation_listing_surfaces,
+)
 from app.core.settings import Settings
 from app.schemas.analysis import (
     CategoryAnalysis,
@@ -307,9 +311,14 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
             "separate from listing trust. "
             "A manual-only shopper report has no verified offer or evidence; show "
             "its unknowns in comparison, but never select it as a buying pick. "
-            "Do not recommend a suspicious listing "
-            "unless the output blocks or excludes it with a clear warning. Respect "
-            "hard budget caps; with a preferred budget, include a within-budget "
+            "Apply listing safety and comparable-price hard caps to every final, "
+            "alternate-mode, and runner-up offer with an explicit listing. "
+            "Comparison-only and rejected offers may remain visible. Exclude a "
+            "suspicious recommended offer or give it a direct blocking caution "
+            "such as 'Do not buy this listing.' in its own rationale. A global "
+            "warning must name its exact unique listing or seller. An ordinary "
+            "seller mention or another offer's warning does not qualify. "
+            "Respect hard budget caps; with a preferred budget, include a within-budget "
             "alternative or explicit no-strong-buy reasoning if a stretch pick is "
             "mentioned. Do not search, browse, call tools, or expose agents, "
             "providers, prompts, traces, policies, or schemas to shoppers."
@@ -621,6 +630,17 @@ def _validate_recommendation_policy(
     bundle: RecommendationBundle,
     input_data: ComparisonDecisionAgentInput,
 ) -> None:
+    for label, listing_id in recommendation_listing_surfaces(bundle):
+        assessment = _trust_by_listing_id(input_data).get(listing_id)
+        if assessment is not None and assessment.level in _BLOCKING_TRUST_LEVELS:
+            if not has_blocking_listing_warning(
+                bundle, listing_id, input_data.listings
+            ):
+                raise ValueError(
+                    f"suspicious {label} listings require blocking warning or exclusion."
+                )
+        if _budget_status_for_listing_id(listing_id, input_data).hard_over:
+            raise ValueError(f"{label} is above the user's hard budget cap.")
     if bundle.no_strong_buy:
         return
 
@@ -649,14 +669,6 @@ def _validate_recommendation_policy(
         if RecommendationMode.STRETCH_PICK not in mode_set:
             raise ValueError("soft-budget stretch candidates require a stretch mode.")
 
-    if bundle.final_listing_id is not None:
-        assessment = _trust_by_listing_id(input_data).get(bundle.final_listing_id)
-        if assessment is not None and assessment.level in _BLOCKING_TRUST_LEVELS:
-            if not _has_blocking_listing_warning(bundle, bundle.final_listing_id):
-                raise ValueError(
-                    "suspicious final listings require blocking warning or exclusion."
-                )
-
 
 def _validate_budget_semantics(
     bundle: RecommendationBundle,
@@ -673,9 +685,6 @@ def _validate_budget_semantics(
         return
 
     if budget.mode == BudgetMode.HARD_CAP:
-        for label, listing_id in _recommendation_listing_surfaces(bundle):
-            if _budget_status_for_listing_id(listing_id, input_data).hard_over:
-                raise ValueError(f"{label} is above the user's hard budget cap.")
         if any(
             result.mode == RecommendationMode.STRETCH_PICK
             for result in bundle.mode_results
@@ -713,7 +722,10 @@ def _validate_budget_semantics(
 
     soft_over_surfaces = tuple(
         (label, listing_id)
-        for label, listing_id in _recommendation_listing_surfaces(bundle)
+        for label, listing_id in (
+            ("final pick", bundle.final_listing_id),
+            *((result.mode.value, result.listing_id) for result in bundle.mode_results),
+        )
         if _budget_status_for_listing_id(listing_id, input_data).soft_over
     )
     if not soft_over_surfaces:
@@ -739,14 +751,6 @@ def _validate_budget_semantics(
         raise ValueError(
             "preferred-budget stretch recommendations must explain the tradeoff."
         )
-
-
-def _recommendation_listing_surfaces(
-    bundle: RecommendationBundle,
-) -> tuple[tuple[str, ListingId | None], ...]:
-    return (("final pick", bundle.final_listing_id),) + tuple(
-        (result.mode.value, result.listing_id) for result in bundle.mode_results
-    )
 
 
 def _budget_status_for_listing_id(
@@ -1559,26 +1563,6 @@ def _has_soft_budget_stretch_candidate(
         _is_soft_budget_stretch(decision, input_data) and _is_recommendable(decision)
         for decision in decisions
     )
-
-
-def _has_blocking_listing_warning(
-    bundle: RecommendationBundle,
-    listing_id: ListingId,
-) -> bool:
-    warning_text = " ".join((*bundle.warnings, bundle.final_rationale or "")).casefold()
-    has_warning = any(
-        marker in warning_text
-        for marker in (
-            "suspicious",
-            "unsafe",
-            "avoid",
-            "block",
-            "listing trust",
-            "seller",
-        )
-    )
-    has_rejection = any(item.listing_id == listing_id for item in bundle.rejected_items)
-    return has_warning or has_rejection
 
 
 def _evidence_ids_from_modes(

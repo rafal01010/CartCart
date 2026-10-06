@@ -1,7 +1,7 @@
 # CartCart Operations
 
 Status: Current local operations reference
-Last updated: 2026-10-03
+Last updated: 2026-10-06
 
 ## Local MVP Assumptions
 
@@ -153,7 +153,7 @@ the [discovery/extraction/dedupe lane](EVALUATION.md#discovery-extraction-and-de
 the [trust/guardrail/recommendation lane](EVALUATION.md#trust-guardrail-and-recommendation-evals)
 and [reusable source lane](EVALUATION.md#reusable-source-intelligence-evals).
 `--suite quick` runs a fixed 27-case deterministic/mocked subset for routine CI.
-`--suite full` runs quick first, then all 112 executable offline cases, collecting
+`--suite full` runs quick first, then all 117 executable offline cases, collecting
 full diagnostics even if quick fails. Any phase failure returns nonzero; the
 versioned suite manifest links every lane report. The initial 24-case corpus
 remains specification-only. See [quick/full coverage and Section Q gate](EVALUATION.md#quick-and-full-offline-evals).
@@ -943,7 +943,14 @@ and evidence do not support a safe recommendation. For `VerifierCriticAgent`,
 `verifier/unsupported-claim-block` checks that an uncited product/spec claim
 blocks output, while `verifier/suspicious-listing-warning` checks that a
 suspicious final listing without a trust caveat is rejected or made visibly
-unsafe for display. `--mode live` still requires
+unsafe for display. The `verifier/suspicious-alternate-seller-mention` and
+`verifier/hard-cap-alternate` scenarios check unsafe alternate offers despite a
+safe final listing. `verifier/safe-alternate`,
+`verifier/over-cap-comparison-only` and `verifier/suspicious-rejected-offer`
+preserve supported offers and comparison or rejection records.
+`verifier/suspicious-alternate-warning` checks an offer-specific blocking caution.
+Use `--mode mock` for these offline contract checks. They do not require live
+research or credentials. `--mode live` still requires
 `CARTCART_LIVE_AGENTS_ENABLED=true`, `OPENAI_API_KEY`, and a live runner
 registered for the selected agent; otherwise the workbench returns a typed
 configuration error. The local browser page is available at

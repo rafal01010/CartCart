@@ -21,6 +21,10 @@ from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
+from app.agents.recommendation_offers import (
+    has_blocking_listing_warning,
+    recommendation_listing_surfaces,
+)
 from app.core.settings import Settings
 from app.schemas.analysis import (
     DeduplicationOutcome,
@@ -74,17 +78,6 @@ _OVERCONFIDENT_PATTERNS = (
     r"\bperfect\b",
     r"\bno risk\b",
     r"\bbest in every way\b",
-)
-_SUSPICIOUS_CAVEAT_PATTERNS = (
-    r"\bsuspicious\b",
-    r"\brisk[y]?\b",
-    r"\bred flag\b",
-    r"\bavoid\b",
-    r"\bdo not buy\b",
-    r"\bdo not recommend\b",
-    r"\bnot a safe buy\b",
-    r"\btrust\b",
-    r"\bseller\b",
 )
 _CONFLICT_CAVEAT_PATTERNS = (
     r"\bconflict",
@@ -416,6 +409,14 @@ def _build_verifier_critic_agent(
             "recommendation issues are not exposed; unsafe or off-scope purchase "
             "guidance is blocked; and shopper-facing copy does not mention agents, "
             "tools, providers, prompts, traces, schemas, tokens, JSON, or models. "
+            "Check every explicit recommended final, alternate-mode, and "
+            "row-backed runner-up listing against comparable-price hard caps "
+            "and listing trust. Retain comparison-only and rejected offers. "
+            "A suspicious recommended listing needs exclusion or a direct "
+            "blocking caution tied to that offer, such as 'Do not buy this "
+            "listing.' in its own rationale. A global warning must identify "
+            "the exact unique listing or seller. Ordinary seller mentions, "
+            "negated caution, and warnings about another offer do not qualify. "
             "Bind each factual assertion to its named or implied candidate and the evidence target. "
             "Never transfer another product or listing's specifications through shared citations. "
             "Keep correctly supported comparative clauses for each candidate. "
@@ -688,39 +689,41 @@ def _budget_issues(
     budget = input_data.brief.budget
     if budget is None or budget.mode != BudgetMode.HARD_CAP:
         return ()
-    if bundle.no_strong_buy or bundle.final_listing_id is None:
-        return ()
-    listing = _listings_by_id(input_data).get(bundle.final_listing_id)
-    if listing is None or listing.price is None:
-        return ()
-    if listing.price.currency != budget.amount.currency:
-        return ()
-    try:
-        price = Decimal(listing.price.amount)
-        cap = Decimal(budget.amount.amount)
-    except InvalidOperation:
-        return ()
-    if price > cap:
-        return (
-            "The final pick is above the user's hard budget cap and cannot be approved.",
-        )
-    return ()
+    issues = []
+    listings = _listings_by_id(input_data)
+    for label, listing_id in recommendation_listing_surfaces(bundle):
+        listing = listings.get(listing_id)
+        if listing is None or listing.price is None:
+            continue
+        if listing.price.currency != budget.amount.currency:
+            continue
+        try:
+            price = Decimal(listing.price.amount)
+            cap = Decimal(budget.amount.amount)
+        except InvalidOperation:
+            continue
+        if price > cap:
+            issues.append(
+                f"The {label} is above the user's hard budget cap and cannot be approved."
+            )
+    return tuple(issues)
 
 
 def _suspicious_listing_issues(
     bundle: RecommendationBundle,
     input_data: VerificationAgentInput,
 ) -> tuple[str, ...]:
-    if bundle.no_strong_buy or bundle.final_listing_id is None:
-        return ()
-    assessment = _trust_by_listing_id(input_data).get(bundle.final_listing_id)
-    if assessment is None or assessment.level != ListingTrustLevel.SUSPICIOUS:
-        return ()
-    if _has_suspicious_listing_caveat(bundle, bundle.final_listing_id):
-        return ()
-    return (
-        "The final listing is marked suspicious but the result does not clearly warn the shopper.",
-    )
+    issues = []
+    assessments = _trust_by_listing_id(input_data)
+    for label, listing_id in recommendation_listing_surfaces(bundle):
+        assessment = assessments.get(listing_id)
+        if assessment is None or assessment.level != ListingTrustLevel.SUSPICIOUS:
+            continue
+        if not has_blocking_listing_warning(bundle, listing_id, input_data.listings):
+            issues.append(
+                f"The {label} listing is marked suspicious but the result does not clearly warn the shopper."
+            )
+    return tuple(issues)
 
 
 def _duplicate_issues(
@@ -1230,25 +1233,6 @@ def _final_candidate_evidence_ids(
         if row.product_id == bundle.final_product_id:
             evidence_ids.extend(row.evidence_ids)
     return _dedupe_ids(evidence_ids)
-
-
-def _has_suspicious_listing_caveat(
-    bundle: RecommendationBundle,
-    listing_id: ListingId,
-) -> bool:
-    for warning in bundle.warnings:
-        if _texts_match_any_pattern(warning, _SUSPICIOUS_CAVEAT_PATTERNS):
-            return True
-    for item in bundle.rejected_items:
-        if item.listing_id == listing_id and _texts_match_any_pattern(
-            item.reason,
-            _SUSPICIOUS_CAVEAT_PATTERNS,
-        ):
-            return True
-    return _texts_match_any_pattern(
-        _all_user_facing_text(bundle),
-        _SUSPICIOUS_CAVEAT_PATTERNS,
-    )
 
 
 def _has_conflict_or_weak_evidence_caveat(bundle: RecommendationBundle) -> bool:

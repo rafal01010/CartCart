@@ -306,6 +306,13 @@ should each open the evidence snippets and source metadata that support the
 displayed claim, using neutral outbound links and omitting provider/debug
 payloads.
 
+"What to watch" shows the first three distinct saved warnings. When more
+warnings exist, "More warnings" opens the remaining specific cautions in saved
+order. Each warning retains its own evidence control and neutral source links.
+Duplicate warning text appears once with its combined evidence and sources.
+The disclosure supports keyboard use and can be closed again. A result without
+warnings or evidence cautions has no warning section.
+
 Acceptance checklist:
 
 - Open evidence details from result claims, warnings, trust notes, and source

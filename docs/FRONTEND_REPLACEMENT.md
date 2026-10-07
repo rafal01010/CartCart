@@ -1,7 +1,7 @@
 # Frontend Replacement Note
 
 Status: Guided shopping flow rebuild complete
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ## Purpose
 
@@ -266,6 +266,9 @@ Gate review outcome:
   trace IDs, fixture labels, and other developer/process language.
 - Progress and result reveal use plain shopping language with recommendation,
   warnings, seller/listing checks, and source details behind explicit controls.
+- "What to watch" previews three distinct warnings. "More warnings" exposes
+  every remaining caution with its supporting evidence and neutral source links.
+  Duplicate warnings merge evidence references without repeating their text.
 - Task 53J tightened the flow further: no normal-flow eyebrow/helper copy,
   homepage starter animation lives in the large main text, budget and product
   prompts are separate, analysis auto-starts when ready, and result shortcut edit

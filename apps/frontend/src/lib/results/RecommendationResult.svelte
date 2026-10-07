@@ -165,6 +165,22 @@
 								<div class="mt-2 max-w-[680px]"><EvidenceDetails evidence={warning.evidence} sources={warning.sources} label="Supporting evidence" /></div>
 							</div>
 						{/each}
+						{#if result.warnings.length > 3}
+							<details class="group/warnings border-t border-destructive/20 pt-3">
+								<summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-[510] text-foreground marker:hidden focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
+									<span>More warnings ({result.warnings.length - 3})</span>
+									<ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-open/warnings:rotate-90" />
+								</summary>
+								<div class="mt-3 grid gap-3">
+									{#each result.warnings.slice(3) as warning}
+										<div>
+											<p>{warning.text}</p>
+											<div class="mt-2 max-w-[680px]"><EvidenceDetails evidence={warning.evidence} sources={warning.sources} label="Supporting evidence" /></div>
+										</div>
+									{/each}
+								</div>
+							</details>
+						{/if}
 					</div>
 				</div>
 			</div>

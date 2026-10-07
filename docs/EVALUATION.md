@@ -1273,6 +1273,13 @@ these checks. Run the two focused files with
 `pnpm --dir apps/frontend exec playwright test tests/e2e/run-recovery.spec.ts tests/e2e/refinement-flow.spec.ts`.
 These offline browser checks prove recovery behavior, not live shopping quality.
 
+`result-warnings.spec.ts` checks compact warning previews and keyboard access to
+fourth and later warnings, their evidence snippets and neutral source links. It
+also covers duplicate-warning evidence, listing-trust red flags, partial-source
+cautions, short warning lists, and a quiet result without cautions. Run it with
+`pnpm --dir apps/frontend exec playwright test tests/e2e/result-warnings.spec.ts`.
+The fixture services disable live providers and model calls.
+
 Local frontend verification wrappers live under `scripts/local/`: `lint-frontend.sh`, `check-frontend.sh`, `test-frontend.sh`, `build-frontend.sh`, and `setup-playwright.sh`. Use focused unit test arguments during normal feature work and reserve full frontend verification, production builds, and browser checks such as `pnpm --dir apps/frontend run test:e2e` for the relevant gate or explicit release-like checks.
 
 ## Isolated Agent Workbench

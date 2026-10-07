@@ -766,6 +766,47 @@ describe('result view helpers', () => {
 		expect(warning?.sources[0]?.id).toBe('source-asus');
 	});
 
+	it('deduplicates warning text while retaining evidence from the bundle, category, and seller checks', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				warnings: ['Check return coverage.', 'Check delivery costs.', 'Check return coverage.'],
+				evidence_ids: ['evidence-dell'], source_ids: ['source-dell'],
+			},
+			category_analyses: [{
+				schema_version: 1, product_id: 'product-asus', listing_ids: ['listing-asus'], category: 'monitor',
+				fit_summary: 'Fits the workspace.', strengths: [], weaknesses: [],
+				warnings: ['Check return coverage.'], confidence: { level: 'medium', score: 0.7 },
+				evidence_ids: ['evidence-asus', 'evidence-dell'], source_ids: ['source-asus', 'source-dell'],
+			}],
+			trust_assessments: baseResult.trust_assessments.map((trust) => ({
+				...trust, red_flags: ['Check return coverage.', 'Check warranty coverage.'],
+				evidence_ids: ['evidence-lg', 'evidence-asus'], source_ids: ['source-lg', 'source-asus'],
+			})),
+		});
+
+		expect(view.warnings.map((warning) => ({
+			text: warning.text,
+			claims: warning.evidence.map((evidence) => evidence.claim),
+			urls: warning.sources.map((source) => source.url),
+		}))).toEqual([
+			{
+				text: 'Check return coverage.',
+				claims: ['Dell has USB-C support.', 'ASUS is a credible value pick.', 'LG is a credible stretch pick.'],
+				urls: ['https://example.test/dell', 'https://example.test/asus', 'https://example.test/lg'],
+			},
+			{
+				text: 'Check delivery costs.', claims: ['Dell has USB-C support.'], urls: ['https://example.test/dell'],
+			},
+			{
+				text: 'Check warranty coverage.',
+				claims: ['LG is a credible stretch pick.', 'ASUS is a credible value pick.'],
+				urls: ['https://example.test/lg', 'https://example.test/asus'],
+			},
+		]);
+	});
+
 	it('neutralizes outbound source links and strips affiliate or tracking parameters', () => {
 		const view = buildResultView({
 			...baseResult,

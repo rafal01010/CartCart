@@ -585,8 +585,14 @@ selected pages still pass approved extraction and backend claim validation.
 The buying region is sent as an approximate country hint, allowed domains are
 passed to hosted search when configured, and all returned URLs are checked
 again before persistence. A missing citation or failed hosted call is recorded
-as a discovery gap; unsupported model overrides fail configuration before a
-model run. Fixture runs remain network-free.
+as a discovery gap. The tool builder checks catalog permissions, domain limits,
+and region scope independently of the selected model. Environment settings,
+profiles, and exact-agent overrides supply the SDK model. The OpenAI API
+validates the submitted model, tools, and reasoning settings. API rejection
+keeps the existing explicit failure or fallback status and does not trigger
+changes to an agent's selected model or removal of required tools. Technology
+owner recovery after specialist failure remains separately recorded. Fixture
+runs remain network-free.
 
 Live listing trust receives a run-scoped citation store and the buyer region.
 Its hosted domain filter permits only the current listing or seller site, and
@@ -610,8 +616,9 @@ rejected URLs are recorded under the specialist's name. A retained citation
 is only weak source metadata. Transcript claims still require validated
 segments, community signals require read discussions, marketplace offers
 require the Amazon read tool, and IKEA prices or stock require official
-regional read evidence. Missing/failed hosted calls yield gaps; incompatible
-model profiles fail configuration before a live run.
+regional read evidence. Missing or failed hosted calls yield gaps. Model
+profiles reach the API with the required scoped tool, and API rejection leaves
+an explicit source evidence gap.
 
 Required MVP reusable source intelligence roles include:
 

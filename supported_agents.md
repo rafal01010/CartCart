@@ -165,6 +165,13 @@ with persisted IDs. The agent can reject those leads. A hosted citation alone
 never verifies a listing, price, seller, or product claim; page extraction and
 backend evidence checks remain necessary. Missing citations, failed hosted
 calls, and incompatible model overrides surface as explicit gaps/errors.
+Models are selected through the existing environment settings, run profiles,
+and exact-agent overrides. Hosted-tool attachment does not use a model-name
+allowlist. The OpenAI API validates model availability, hosted-tool support,
+and the submitted reasoning settings during the bounded request. CartCart
+does not change the selected model for an agent or drop required tools after
+an API rejection. Technology owner recovery after a specialist failure remains
+a separately recorded run.
 
 Specialized product/domain agents should normally be invoked as typed sub-runs or agents-as-tools when the orchestrator needs a scoped analysis result. OpenAI Agents SDK handoffs should be used only when a specialist should actually take over control of a conversational turn.
 

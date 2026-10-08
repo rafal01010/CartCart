@@ -61,7 +61,6 @@ def source_hosted_tool(
         )
     return build_hosted_web_search_tool(
         agent_name=agent_name,
-        model=config.model,
         region_code=source_region_code(input_data),
         source_policy=source_specialist_search_policy(
             agent_name, source_region_code(input_data)

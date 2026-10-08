@@ -148,7 +148,6 @@ class LiveSellerListingTrustAgent:
                 )
             hosted_tool = build_hosted_web_search_tool(
                 agent_name="SellerListingTrustAgent",
-                model=configuration.model,
                 region_code=region_code,
                 source_policy=trust_search_policy(input_data.listing),
             )

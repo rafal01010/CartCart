@@ -417,7 +417,6 @@ class LiveGeneralShoppingAgent:
         hosted_tool = (
             build_hosted_web_search_tool(
                 agent_name="GeneralShoppingAgent",
-                model=configuration.model,
                 region_code=region_code,
                 source_policy=tools.source_policy,
             )
@@ -473,7 +472,6 @@ class LiveGeneralShoppingAgent:
             specialist_hosted = (
                 build_hosted_web_search_tool(
                     agent_name=specialist_name,
-                    model=specialist_configuration.model,
                     region_code=region_code,
                     source_policy=specialist_research.source_policy,
                 )
@@ -646,7 +644,6 @@ class LiveGeneralShoppingAgent:
         technology_hosted = (
             build_hosted_web_search_tool(
                 agent_name=technology_agent.name,
-                model=technology_configuration.model,
                 region_code=region_code,
                 source_policy=technology_tools.source_policy,
             )

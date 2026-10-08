@@ -746,7 +746,6 @@ async def test_hosted_discovery_maps_actual_sdk_citation_to_run_evidence() -> No
 def test_hosted_search_tool_uses_region_and_allowed_domains() -> None:
     tool = build_hosted_web_search_tool(
         agent_name="DiscoveryAgent",
-        model="gpt-6-sol",
         region_code="US",
         source_policy=SourceAllowAvoidPolicy(
             allow=(
@@ -853,24 +852,46 @@ async def test_hosted_discovery_rejects_source_or_reports_failure(
 
 
 @pytest.mark.asyncio
-async def test_hosted_discovery_rejects_unverified_model_profile() -> None:
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "future-responses-model"])
+@pytest.mark.parametrize("selection", ["global", "profile", "override"])
+async def test_hosted_discovery_passes_selected_model_to_runner(
+    model: str, selection: str
+) -> None:
     engine, _, input_data, tools = await _hosted_test_setup()
-    runner = RecordingDiscoveryRunner()
+    runner = RecordingDiscoveryRunner(
+        output=DiscoveryModelOutput(
+            source_decisions=_decisions(input_data),
+            selected_source_ids=tuple(
+                item.source_id for item in input_data.seed_results[:2]
+            ),
+            outcome=DiscoveryAgentOutcome.SELECTED,
+        )
+    )
     try:
         agent = LiveDiscoveryAgent(
             settings=_settings(
                 live_agents_enabled=True,
                 openai_api_key="offline-test-key",
-                openai_agent_overrides={
-                    "DiscoveryAgent": {"model": "unsupported-model"}
-                },
+                **{
+                    "global": {"openai_model": model},
+                    "profile": {"openai_run_profiles": {"strong": {"model": model}}},
+                    "override": {
+                        "openai_agent_overrides": {"DiscoveryAgent": {"model": model}}
+                    },
+                }[selection],
             ),
             model_runner=runner,
             research_tools_factory=lambda _run_id: tools,
         )
-        with pytest.raises(Exception, match="no verified hosted web-search profile"):
-            await agent.run(input_data)
-        assert runner.calls == 0
+        result = await agent.run(input_data)
+        assert result.selected_source_ids == tuple(
+            item.source_id for item in input_data.seed_results[:2]
+        )
+        assert runner.calls == 1
+        assert runner.seen_agent is not None
+        assert runner.seen_agent.model == model
+        assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+        assert agent.workbench_activity[-1]["status"] == "model_discovery_completed"
     finally:
         await engine.dispose()
 

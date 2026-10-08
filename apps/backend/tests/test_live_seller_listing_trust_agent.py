@@ -15,7 +15,6 @@ from app.agents import (
     MockSellerListingTrustModelRunner,
     SellerListingTrustAgentInput,
 )
-from app.agents.openai_config import OpenAIAgentConfigurationError
 from app.agents.research_tools import HostedCitationStore
 from app.agents.trust_hosted_search import trust_citation_matches_target
 from app.core.settings import Settings
@@ -697,9 +696,7 @@ async def test_failed_hosted_trust_call_records_gap_and_no_new_evidence() -> Non
 
 
 @pytest.mark.asyncio
-async def test_hosted_trust_uncited_url_falls_back_and_unknown_model_fails_closed() -> (
-    None
-):
+async def test_hosted_trust_uncited_url_falls_back() -> None:
     input_data = _hosted_input()
     runner = RecordingSellerListingTrustRunner(
         output={
@@ -732,17 +729,42 @@ async def test_hosted_trust_uncited_url_falls_back_and_unknown_model_fails_close
             agent.workbench_activity[0]["status"]
             == "schema_invalid_rule_based_fallback"
         )
-        incompatible = LiveSellerListingTrustAgent(
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "future-responses-model"])
+async def test_hosted_trust_passes_selected_model_to_runner(model: str) -> None:
+    input_data = _hosted_input()
+    runner = RecordingSellerListingTrustRunner(
+        output={"assessment": input_data.rule_based_assessment.model_dump(mode="json")}
+    )
+    engine, factory = await _hosted_database(input_data)
+    try:
+        agent = LiveSellerListingTrustAgent(
             settings=_live_settings(
                 openai_agent_overrides={
-                    "SellerListingTrustAgent": {"model": "unsupported-web-model"}
+                    "SellerListingTrustAgent": {"model": model}
                 }
             ),
-            citation_store_factory=store_factory,
+            citation_store_factory=lambda run_id: HostedCitationStore(
+                run_id=run_id, session_factory=factory
+            ),
             model_runner=runner,
         )
-        with pytest.raises(OpenAIAgentConfigurationError):
-            await incompatible.run(input_data)
+        assessment = await agent.run(input_data)
+        assert assessment.listing_id == input_data.listing.listing_id
+        assert assessment.level == ListingTrustLevel.SUSPICIOUS
+        assert any(
+            signal.kind == ListingTrustSignalKind.SUSPICIOUS_PRICE
+            for signal in assessment.trust_signals
+        )
+        assert runner.calls == 1
+        assert runner.seen_agent is not None
+        assert runner.seen_agent.model == model
+        assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+        assert agent.workbench_activity[0]["status"] == "hard_suspicious_flag_preserved"
     finally:
         await engine.dispose()
 

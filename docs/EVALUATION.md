@@ -1022,11 +1022,11 @@ application-provider `search_sources`/`fetch_source`, allow the model to use
 or skip each approved path, persist valid citations/evidence IDs, and reject
 unsupported product/listing claims. Task 89R's focused mocked-SDK cases check
 Discovery's live tool attachment, hosted call and citation-ID mapping, no-call
-choice, rejected URL, missing citation, failure, and incompatible model.
+choice, rejected URL, missing citation, and failure.
 Task 89R1's focused offline cases cover all four source specialists' live tool
 attachment and optional use, site/region rejection, run-scoped citation IDs,
-and incompatible models. Site evidence contracts still reject snippet-only
-transcript, discussion, offer, and official IKEA claims. General's isolated
+and selected model pass-through. Site evidence contracts still reject
+snippet-only transcript, discussion, offer, and official IKEA claims. General's isolated
 owner now has mocked cane, ambiguous-request, and weak-search cases. Its cane
 draft needs fetched product/listing and review excerpts from independent
 domains with persisted source, snapshot, and evidence IDs; weak or invented
@@ -1050,6 +1050,15 @@ failure gap, retaining a hosted citation under its own identity, and ending as
 the sole draft author. A separate case accepts a quote-backed candidate before
 product persistence and rejects an unrelated name. The broader evaluation
 remains deferred to the Tasks 89Q-89Y section gate.
+
+Task 100A replaces local hosted-search model-name rejection cases with SDK
+model pass-through controls for `gpt-6.1-sol` and an unfamiliar future identifier.
+Discovery exercises global, profile, and exact-agent selection. General,
+listing trust, and all four source specialists retain the hosted tool on the
+configured SDK agent. A real-shaped OpenAI `BadRequestError` produces an
+explicit owner research failure after one attempt, with no product selection,
+model substitution, or tool removal. These are offline controls. Live API
+acceptance requires a separately recorded real request.
 
 Task 200's `tests/test_owner_tool_concurrency.py` invokes the SDK callbacks
 assembled by the normal RunService owner. A controlled commit pause exercises
@@ -1423,8 +1432,8 @@ Task 89R2 adds mocked SDK branches for those trust fixtures: a concrete
 seller/listing and region can trigger hosted search, the established retailer
 can skip it, and a cited exact seller page yields persisted source/evidence IDs
 for a neutral unverified lead. Wrong-seller URLs, missing citations, failed
-calls, and incompatible model profiles must leave the existing trust level or
-an explicit gap; snippets, marketplace ratings, and model-only positives must
+calls, and API rejection of incompatible model settings must leave the existing
+trust level or an explicit gap; snippets, marketplace ratings, and model-only positives must
 not upgrade weak or unknown seller trust. Execute the full trust eval set at
 the Tasks 89Q-89Y section gate.
 For Task 81A YouTube review intelligence acceptance, use
@@ -1589,3 +1598,23 @@ cases precede and pass before all 117 full cases in
 SDK audit shows 52.57%/52.62% tool-output reductions and approved phone/generic
 verification; payload measurements and simulated usage are recorded in
 `data/artifacts/task211/acceptance.json`. No live acceptance is inferred.
+
+## Task 100A verification on 2026-10-08
+
+The initial combined context gate passed 499 tests plus Section Q's 393 tests.
+After the model-replacement prerequisite and stale Task 211 expectation repairs,
+the combined gate passed 508 plus 393 tests, with 15 and two live tests deselected
+respectively. Both gates ran 27 quick cases before all 117 full cases. The final
+manifest is `data/artifacts/evals/suite-full-20261008T125830029536Z.json`.
+Model-replacement checks passed 157 focused tests with two live tests deselected,
+scoped lint and five-module typing. Additional affected checks passed 71 backend
+and 53 frontend tests; Svelte checking reported zero errors and warnings.
+
+A real bounded configured-model hosted-search probe passed. The subsequent real
+guided PH phone run failed on per-call context after both SDK handoffs, three
+searches and four fetches. It saved no recommendation. These are distinct
+outcomes: model replacement passes, Task 100A does not. Task 213 records the
+new active research-context blocker for the next invocation. Keep the main
+acceptance unchecked until a matching guided result meets every criterion.
+Logs, safe diagnostics, exact result responses and browser evidence are in
+`data/artifacts/task100a-20261008/`.

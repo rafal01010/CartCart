@@ -652,8 +652,17 @@ remain network-free unless a non-fixture provider was explicitly selected.
 Live Discovery also receives OpenAI's hosted `WebSearchTool` with
 `tool_choice=auto`; a tool attachment does not imply a call. Its `strong`
 profile uses `gpt-6-sol` in `.env.example`, a documented Responses web-search
-model. `gpt-6-astra` and `gpt-6-luna` are also verified profiles; an unknown
-Discovery model override fails before a live call instead of dropping the tool.
+model. Change the model through `CARTCART_OPENAI_MODEL`,
+`CARTCART_OPENAI_RUN_PROFILES`, or `CARTCART_OPENAI_AGENT_OVERRIDES` and restart
+the backend. Exact-agent overrides take precedence over the role profile,
+default profile, and global model. There is no application model-name allowlist
+for hosted search. The OpenAI API validates availability, tool compatibility,
+and reasoning settings on the bounded request. Choose a reasoning effort
+supported by the selected model. API rejection retains the role's explicit
+failure, evidence gap, or deterministic fallback status. CartCart does not
+change the selected model for an agent or remove required tools after API
+rejection. A failed specialist can still trigger the separately recorded
+Technology owner recovery.
 SDK `web_search_call` activity and retained citation/source/evidence IDs appear
 in internal workbench activity. Hosted citations enter persistence as weak,
 unextracted source leads, not verified product listings. Missing annotations
@@ -761,9 +770,10 @@ repair; these tests alone do not establish live acceptance.
 The installed SDK accepts reasoning efforts through `xhigh`; selecting the
 reserved `max` value produces an explicit configuration error before a call.
 The source specialists use the `fast` profile (`gpt-6-luna` in `.env.example`),
-which supports hosted search. An incompatible source-agent override or missing
-run-scoped citation persistence stops live setup. Workbench activity records
-each source agent's actual hosted call, returned URLs, retained weak citation
+which supports hosted search. A source-agent override reaches the configured
+model with its scoped hosted tool. API rejection produces an evidence gap.
+Missing run-scoped citation persistence stops live setup. Workbench activity
+records each source agent's actual hosted call, returned URLs, retained weak citation
 IDs, and rejected URLs. Fixture/mock workbench runs attach no hosted tool and
 make no network call.
 In a normal live workflow, inactive or credential-missing provider adapters
@@ -1193,3 +1203,22 @@ Canonical tool-view lookup lives only for the current invocation; persisted
 source, page and evidence records use existing SQLite repositories. Processing
 receipts never establish reviewed safety for omitted passages. Task 100A still
 requires a fresh authorized guided attempt and its matching saved result.
+
+## Live acceptance on 2026-10-08
+
+The owner changed the local strong profile to `gpt-6.1-sol`. Task 100A's first
+run failed at the removed local hosted-search name gate. Environment-selected
+models now reach the API with their required scoped tools. A bounded real call
+under the unchanged local model/reasoning configuration returned one completed
+hosted search and a citation, using 8,787 tokens. This verifies that request for
+this account at that time; it is not phone-shopping acceptance. OpenAI's
+[model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+also lists Responses web search support.
+
+The subsequent guided PH phone retry completed both handoffs and fetched
+sources, but failed the 19,000-token application input guard before a decision.
+The matching saved result endpoint returned 404/result_not_ready. Task 213 is
+the next P0 repair, followed by the real Task 100A checkpoint. No local model,
+credential, provider flag or token allowance was changed for this invocation.
+Evidence is under `data/artifacts/task100a-20261008/` and in the implementation
+plan. The public API and runtime agent/tool catalog are unchanged.

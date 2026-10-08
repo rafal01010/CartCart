@@ -170,7 +170,6 @@ class LiveDiscoveryAgent:
             )
             hosted_tool = build_hosted_web_search_tool(
                 agent_name="DiscoveryAgent",
-                model=configuration.model,
                 region_code=region_code,
                 source_policy=self._research_tools.source_policy,
             )

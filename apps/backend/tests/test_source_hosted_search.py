@@ -76,6 +76,7 @@ class _Runner:
     output: dict[str, Any]
     raw_responses: list[Any]
     seen_agent: Any = None
+    calls: int = 0
 
     async def run(
         self,
@@ -88,6 +89,7 @@ class _Runner:
     ) -> Any:
         del model_input, run_config, max_turns, tools
         self.seen_agent = agent
+        self.calls += 1
         return type(
             "Result",
             (),
@@ -194,7 +196,7 @@ async def test_four_specialists_attach_optional_hosted_tool_and_persist_scoped_c
         assert sdk_agent.name == name
         assert sdk_agent.model_settings.tool_choice == "auto"
         assert {tool.name for tool in sdk_agent.tools} == provider_tools | {
-            "web_search"
+            "web_search", "complete_research_result", "read_research_result"
         }
         assert sum(isinstance(tool, WebSearchTool) for tool in sdk_agent.tools) == 1
         web_tool = next(
@@ -263,24 +265,36 @@ async def test_specialist_rejects_wrong_site_or_region_without_site_evidence(
     ), agent.workbench_activity
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("name,input_type,scenario,factory,url,provider_tools", CASES)
-def test_unsupported_model_fails_closed(
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "future-responses-model"])
+async def test_selected_model_reaches_source_runner_with_scoped_tools(
     name: str,
     input_type: Any,
     scenario: Any,
     factory: Any,
     url: str,
     provider_tools: set[str],
+    model: str,
 ) -> None:
-    del name, url, provider_tools
+    del url
     input_data = input_type.model_validate(scenario().input)
-    agent = factory(_settings("unknown-web-tool-model"))
+    agent = factory(_settings(model))
     agent.citation_store = HostedCitationStore(
         run_id=input_data.run_id,
         session_factory=object(),  # type: ignore[arg-type]
     )
-    with pytest.raises(OpenAIAgentConfigurationError, match="no verified hosted"):
-        agent.prepare_delegated_run(input_data)
+    runner = _Runner(_empty_output(name), [])
+    agent.model_runner = runner
+    bundle = await agent.run(input_data)
+    assert runner.calls == 1
+    assert runner.seen_agent.model == model
+    assert {tool.name for tool in runner.seen_agent.tools} == provider_tools | {
+        "web_search", "complete_research_result", "read_research_result"
+    }
+    assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+    assert bundle.evidence == ()
+    assert agent.workbench_activity[-1]["status"] == "model_evidence_completed"
 
 
 @pytest.mark.asyncio

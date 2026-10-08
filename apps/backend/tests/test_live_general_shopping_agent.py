@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import httpx
+from openai import BadRequestError
 from pydantic import ValidationError
 from agents import Agent, RunConfig, Runner, WebSearchTool
 from agents.exceptions import UserError
@@ -33,7 +35,6 @@ from app.agents.live_general_shopping import (
     ProductSpecialistHandoffContext,
     TechnologyHandoffContext,
 )
-from app.agents.openai_config import OpenAIAgentConfigurationError
 from app.agents.live_source_intelligence_manager import (
     SourceIntelligenceManagerAgent,
     SourceManagerDecision,
@@ -531,6 +532,7 @@ class _RecordingRunner:
     error: Exception | None = None
     seen_agent: Agent[Any] | None = None
     max_turns: int = 0
+    calls: int = 0
 
     async def run(
         self,
@@ -543,6 +545,7 @@ class _RecordingRunner:
         del model_input, run_config
         self.seen_agent = agent
         self.max_turns = max_turns
+        self.calls += 1
         if self.error is not None:
             raise self.error
         return type(
@@ -2212,15 +2215,60 @@ async def test_failed_hosted_call_and_runner_error_fall_back_honestly() -> None:
 
 
 @pytest.mark.asyncio
-async def test_incompatible_hosted_model_fails_before_mocked_runner() -> None:
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "future-responses-model"])
+async def test_owner_passes_selected_model_with_hosted_search(model: str) -> None:
     runner = _RecordingRunner()
     agent, input_data, _, engine = await _isolated_agent(
-        runner, model="unverified-model"
+        runner, model=model
     )
     try:
-        with pytest.raises(OpenAIAgentConfigurationError):
-            await agent.run(input_data)
-        assert runner.seen_agent is None
+        result = await agent.run(input_data)
+        assert result.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+        assert result.selected_candidate_name is None
+        assert runner.calls == 1
+        assert runner.seen_agent is not None
+        assert runner.seen_agent.model == model
+        assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+        activity = next(
+            item for item in agent.workbench_activity if item["tool_name"] == "general_owner"
+        )
+        assert activity["output"]["model"] == model
+        assert activity["output"]["failure_type"] is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_owner_api_rejection_reports_failure_without_model_or_tool_retry() -> None:
+    runner = _RecordingRunner(
+        error=BadRequestError(
+            "This model does not support web search.",
+            response=httpx.Response(
+                400, request=httpx.Request("POST", "https://api.openai.com/v1/responses")
+            ),
+            body={"code": "unsupported_tool", "param": "tools"},
+        )
+    )
+    agent, input_data, _, engine = await _isolated_agent(
+        runner, model="future-responses-model"
+    )
+    try:
+        result = await agent.run(input_data)
+        assert result.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+        assert result.selected_candidate_name is None
+        assert result.evidence_gaps == (
+            "Shopping research could not be verified (BadRequestError).",
+        )
+        assert runner.calls == 1
+        assert runner.seen_agent is not None
+        assert runner.seen_agent.model == "future-responses-model"
+        assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
+        activity = next(
+            item for item in agent.workbench_activity if item["tool_name"] == "general_owner"
+        )
+        assert activity["status"] == "research_failed"
+        assert activity["output"]["failure_type"] == "BadRequestError"
+        assert result.hosted_lead_source_ids == ()
     finally:
         await engine.dispose()
 

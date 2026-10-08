@@ -21,6 +21,48 @@ and synthetic page-body savings do not prove real search-history capacity.
 Matching safe diagnostics are in
 `data/artifacts/task100a-20261007/attempt3-safe-diagnostics.json`.
 
+## Remaining automatic-shortening gap
+
+Task 211 passed its offline controls, but the authorized 2026-10-08 guided retry
+exposed a gap with fresh distinct replies. The next call's base estimate was
+17,443 tokens. Instructions contributed 2,123, schemas 3,752 and prepared
+input/history 11,568. The shared guard applies `ceil(base * 1.25) + 256`, producing
+22,060 against the 19,000 cap. This is a conservative rejected estimate, not
+measured provider input. The call never reached transport. Its active tool replies
+occupied 27,084 of 34,601 input characters. History preparation removed only 77
+characters. No explicit research-result completion was recorded before the block.
+The matching diagnostics are in
+`data/artifacts/task100a-20261008/attempt2-safe-diagnostics.json`.
+
+The current boundary preserves distinct unprocessed bodies and raises
+`ContextBudgetExceeded` if the prepared request is too large. Its finalization
+mode responds to cumulative spending, not per-call input pressure. A larger cap
+does not replace automatic shortening or recovery. The observed run saved no
+buying result.
+
+Pending P0 Task 213 now requires automatic shortening at every model-call
+boundary. It includes bounded LLM rewriting and structure-preserving truncation
+fallback, with originals retained for lookup and exact support validation.
+Shortening must preserve buyer meaning, structured contracts, material cautions,
+source identity and unreviewed gaps. The task also requires bounded continuation
+through independent verification and a saved matching result. Adequate evidence
+must yield a useful supported suggestion. Insufficient evidence must yield an
+honest limited result, with the technical limitation distinguished from a buying
+judgment. These are acceptance requirements, not implemented behavior. Task 213
+and live checkpoint 100A remain incomplete.
+
+The current provider research tool retrieves up to ten leads per query by default
+and exposes four per result page. Ordinary snippets are limited to 200 characters,
+with bounded caution metadata and original lookup. It filters unsafe/disallowed
+URLs and exact duplicate records, then keeps provider order. Page fetching is
+separate and model-selected, with a default 4,000-character returned span.
+The retry saved fifteen leads across three searches and fetched four pages.
+Saved lead counts are not the count of full results shown in a single reply.
+Pending Task 213 additionally requires usefulness/novelty thinning across batches,
+targeted fetches, a compact active shortlist and widening only for unresolved
+support. Count limits alone do not prove that useful results were selected or
+that replay remains within budget.
+
 ## What caused the investigation
 
 The [2026-10-08 retention review](CONTEXT_REVIEW.md) inventories the current
@@ -334,3 +376,24 @@ tests plus 393 Section Q tests, with 27 quick eval cases before 117 full cases.
 See `data/artifacts/task211/gate-deduplicated.log` and the implementation plan
 for the final manifest and repair evidence. These results do not complete
 Task 100A's live guided acceptance.
+
+## Guided phone retry on 2026-10-08
+
+The authorized Task 100A retry `0c85a922-efb3-42b1-b2cc-2c1b8fa855d4`
+used the owner's configured `gpt-6.1-sol`. Both SDK handoffs and three searches
+completed. Four fetched snapshots and one quoted evidence record were saved.
+The next model request failed the application input guard at 22,060 estimated
+tokens against 19,000. Input preparation reduced 34,678 characters to 34,601.
+Active tool replies contributed 27,084 characters, with no recorded research
+completion call. Distinct unprocessed bodies remain active; one quote cannot
+justify discarding their unreviewed support or cautions.
+
+Shared settled usage was 53,145 tokens, including 52,155 owner tokens. Neither
+cumulative ceiling was exhausted. The blocked call's actual usage and final
+SDK aggregate usage are unknown. This was not an observed OpenAI context-window
+rejection. Task 213 must address active research admission/processing under the
+existing limits. Task 211's passing offline gate does not establish that this
+live failure shape is resolved. No buying result was saved and Task 100A remains
+unchecked. Matching diagnostics and source-tool activity are in
+`data/artifacts/task100a-20261008/attempt2-safe-diagnostics.json` and
+`attempt2-tool-summary.json`.

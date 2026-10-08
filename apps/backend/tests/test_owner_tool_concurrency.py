@@ -297,6 +297,7 @@ async def test_normal_owner_sdk_tools_share_session_safely(
                 {
                     "evidence_id": results["quote"]["evidence_id"],
                     "quote": "Oak walking cane has a comfortable handle.",
+                    "source_id": results["fetched"]["snapshot_id"],
                 }
             ]
         else:

@@ -19,11 +19,6 @@ from app.providers.contracts import (
 from app.schemas.regions import RegionCode
 
 
-# These Responses API profiles document hosted web search support. Unknown model
-# overrides fail closed until their tool compatibility is checked explicitly.
-HOSTED_WEB_SEARCH_MODELS = frozenset({"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"})
-
-
 @dataclass(frozen=True)
 class HostedWebSearchCall:
     call_id: str | None
@@ -49,7 +44,6 @@ class HostedWebSearchActivity:
 def build_hosted_web_search_tool(
     *,
     agent_name: str,
-    model: str,
     region_code: RegionCode | None,
     source_policy: SourceAllowAvoidPolicy,
 ) -> WebSearchTool:
@@ -57,11 +51,6 @@ def build_hosted_web_search_tool(
     if ApprovedSDKTool.HOSTED_WEB_SEARCH not in entry.approved_sdk_tools:
         raise OpenAIAgentConfigurationError(
             f"{agent_name} is not approved for hosted web search."
-        )
-    if model not in HOSTED_WEB_SEARCH_MODELS:
-        raise OpenAIAgentConfigurationError(
-            f"{agent_name} model {model!r} has no verified hosted web-search "
-            "profile. Select a documented compatible model before live use."
         )
     domains = tuple(
         dict.fromkeys(

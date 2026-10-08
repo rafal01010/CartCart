@@ -998,6 +998,7 @@ Fixture-backed routing eval cases live in
 - broad non-technology fallback to `GenericProductAnalystAgent`
 - non-specialist technology routing to `TechnologyDomainAnalystAgent`
 - every MVP specialist route through `TechnologyDomainAnalystAgent`
+- plural phone aliases through the existing Smartphone specialist route
 - fallback availability from each MVP specialist to technology-domain analysis
   and then generic analysis
 
@@ -1010,6 +1011,12 @@ handoffs. Mocked SDK cases cover a broad request finishing with
 General, a broad technology request can finish with Technology, and a phone
 request transferring General -> Technology -> Smartphone with the smartphone as
 last agent and draft author. Source agents remain agents-as-tools.
+`test_sdk_phone_aliases_transfer_at_each_boundary` exercises singular and
+plural phone labels independently in the buyer brief and both transfer
+arguments through the actual SDK Runner with scripted models. Rejection cases
+retain non-technology and wrong-specialist controls, plus bounded diagnostic
+checks for unknown text, control characters, and the category length limit.
+They make no live calls and do not prove a completed buying result.
 Research cases must distinguish actual OpenAI hosted web-search calls from
 application-provider `search_sources`/`fetch_source`, allow the model to use
 or skip each approved path, persist valid citations/evidence IDs, and reject
@@ -1523,6 +1530,22 @@ non-secret model profiles and limits, and used in-process fixture application
 providers. Task 89Y is complete. Live source-provider availability remains
 unverified; no live source-provider calls were made.
 
+## Guided live phone acceptance on 2026-10-07
+
+The 2026-10-07 real guided PH phone acceptance remains failed. Before live
+attempts, offline quick 27/27 then full 117/117, 393 selected eval regressions,
+364 affected backend tests, 61 frontend tests and scoped tooling passed.
+After the minor phone-alias repair, 136 focused backend tests and scoped repair
+tooling passed; the quick/full eval gate and 393 selected regressions passed
+again. The final guided attempt completed both specialist handoffs
+and three searches but stopped before any source fetch: its next call estimated
+17,685 input tokens against the 16,000 limit. Sixteen search leads were persisted;
+no evidence or buying result was saved. Task 211 covers bounded search-history
+context; Task 100A still requires a fresh real guided result after that repair.
+Neither offline alias controls nor successful ownership transfer establish
+current phone age/support, launch uncertainty or recommendation quality.
+Local evidence is under `data/artifacts/task100a-20261007/`.
+
 ## Refinement Regression Coverage
 
 The offline refinement gate selects guided-intake/product/result API and
@@ -1538,3 +1561,31 @@ version lookup, and omission of pending changes. A repeated-listing regression
 keeps the same listing ID once while retaining each shopper-candidate match;
 separate seller offers remain distinct. Gate execution excludes live provider
 and model calls, scored eval suites, and unrelated full repository suites.
+
+### Task 211 offline SDK acceptance
+
+The saved-shaped probe runs the actual SDK ownership chain with three distinct
+searches and 16 original leads. It compares the original history with the old
+limit, higher headroom alone and the complete repair. Passing requires at least
+50% fewer model-visible post-search tool characters, useful later-lead retrieval,
+exact quotes, a literal independently expected owner decision, actual comparison
+and verifier execution, and funded continuation under unchanged cumulative
+ceilings. Payload sizes and simulated transport usage are separate measurements.
+
+Additional controls cover explicit processing, changed/unprocessed views,
+partial quotes with warranty warnings, categorical safety and warranty
+rejection with no free retry, skipped checkpoints, unrelated qualifiers,
+parent quota exhaustion with fresh child tools, late cautions, same-run original lookup,
+cached replies, nested source tools, evidence readers, typed original support,
+metadata deduplication, unmatched products, generic categories and refinement
+citation graphs. Tiny replies must not grow a deferred-reference wrapper. The
+shared `scripts/local/verify-context.sh` gate includes these checks and runs
+quick evals before full evals. Offline success cannot complete Task 100A.
+
+Task 211's final shared gate passed 499 affected tests and 393 Section Q tests.
+Shared SDK regressions are selected once across the two phases. All 27 quick
+cases precede and pass before all 117 full cases in
+`data/artifacts/evals/suite-full-20261007T234134572589Z.json`. The saved-shaped
+SDK audit shows 52.57%/52.62% tool-output reductions and approved phone/generic
+verification; payload measurements and simulated usage are recorded in
+`data/artifacts/task211/acceptance.json`. No live acceptance is inferred.

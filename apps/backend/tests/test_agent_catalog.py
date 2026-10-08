@@ -49,14 +49,21 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
         ApprovedSDKTool.SEARCH_SOURCES,
         ApprovedSDKTool.FETCH_SOURCE,
         ApprovedSDKTool.HOSTED_WEB_SEARCH,
+        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_SEARCH_RESULTS,
     )
     assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").planned_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
     assert DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
+        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
     )
     assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
+        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
     )
 
 
@@ -69,8 +76,11 @@ def test_fixture_research_fallbacks_are_explicit_in_catalog() -> None:
     )
 
 
-def test_agent_catalog_routes_unknown_categories_to_generic_fallback() -> None:
-    route = DEFAULT_AGENT_CATALOG.route_product_analysis("office chair")
+@pytest.mark.parametrize("category", ("office chair", "phonebook", "megaphones"))
+def test_agent_catalog_routes_unknown_categories_to_generic_fallback(
+    category: str,
+) -> None:
+    route = DEFAULT_AGENT_CATALOG.route_product_analysis(category)
 
     assert route.agent_path == ("GenericProductAnalystAgent",)
     assert route.fallback_agent_names == ()
@@ -89,6 +99,9 @@ def test_agent_catalog_routes_broad_technology_categories_to_domain_agent() -> N
         ("monitor", "MonitorSpecialistAgent"),
         ("gaming monitor", "MonitorSpecialistAgent"),
         ("smartphone", "SmartphoneSpecialistAgent"),
+        ("phones", "SmartphoneSpecialistAgent"),
+        ("smartphones", "SmartphoneSpecialistAgent"),
+        ("mobile phones", "SmartphoneSpecialistAgent"),
         ("laptop", "LaptopSpecialistAgent"),
         ("headphones", "EarphonesHeadphonesSpecialistAgent"),
         ("tv", "TVSpecialistAgent"),
@@ -149,6 +162,8 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "read_video_metadata",
         "read_video_transcript",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     }
     assert reddit.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert reddit.sdk_implementation_pending is False
@@ -156,6 +171,8 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "search_community_discussions",
         "read_community_discussion",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     }
     assert amazon.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert amazon.sdk_implementation_pending is False
@@ -163,6 +180,8 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "search_amazon_products",
         "read_amazon_product",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     }
     assert ikea.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
     assert ikea.sdk_implementation_pending is False
@@ -170,6 +189,8 @@ def test_agent_catalog_exposes_required_reusable_source_tools() -> None:
         "search_ikea_products",
         "read_ikea_product",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     }
     assert all(agent.agent_as_tool_available for agent in source_agents)
     assert all(agent.approved_sdk_tools for agent in source_agents)
@@ -228,6 +249,8 @@ def test_ikea_source_agent_has_explicit_fast_profile_and_bounded_tools() -> None
         ApprovedSDKTool.SEARCH_IKEA_PRODUCTS,
         ApprovedSDKTool.READ_IKEA_PRODUCT,
         ApprovedSDKTool.HOSTED_WEB_SEARCH,
+        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
     )
     assert entry.agent_as_tool_available is True
 
@@ -320,6 +343,8 @@ def test_amazon_source_agent_has_explicit_fast_profile_and_bounded_tools() -> No
         ApprovedSDKTool.SEARCH_AMAZON_PRODUCTS,
         ApprovedSDKTool.READ_AMAZON_PRODUCT,
         ApprovedSDKTool.HOSTED_WEB_SEARCH,
+        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
     )
     assert entry.agent_as_tool_available is True
 

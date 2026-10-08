@@ -72,6 +72,10 @@ session; those leads still need source checks. General can now use a real SDK
 handoff to Technology for a matching technology request. Technology can then
 SDK-handoff to a matching monitor, phone, laptop, audio, TV, or watch specialist.
 The completed transfer chain and last owner are recorded internally.
+Internal `general_owner` activity includes `rejected_handoff` on a category
+rejection, or `null` otherwise. It contains source and target agent names,
+requested and buyer catalog routes, the bounded category length, and an exact
+known category label or `null`. It omits raw arguments and handoff reasons.
 `ProductAnalysisRoute` remains a Python-selected analysis route; source
 agents-as-tools do not transfer shopper ownership. Shopper-facing endpoints do
 not expose tool calls or agent names; internal activity can report an actual
@@ -614,3 +618,27 @@ text. The public API shape is unchanged. Exhausted context budgets use the
 existing failed-run error path, preserving the distinction between technical
 failure and a completed no-strong-buy decision. See
 [context limits](CONTEXT_MANAGEMENT.md#limits-and-accounting).
+
+### Internal research processing and continuation
+
+Task 211 adds SDK-only `complete_research_result`, `read_research_result`,
+`read_search_results` and `read_source_bundle` controls. They preserve original
+same-run source support while bounding active tool views. Search previews expose
+deferred source IDs; evidence reads expose offsets, hashes and unreviewed
+coverage. These controls do not change public run/result schemas or turn
+snippets into citation evidence. Public results still require independent
+canonical and candidate-specific verification.
+
+Owner consultations return `consultation_id` and `consultation_sha256` when
+notes or bundles need continuation. Pass that ID as `bundle_id` to
+`read_source_bundle`, with the optional `content_sha256`, to read the original
+consultation notes and exact bundle-version references. Evidence readers
+support `evidence_offset` independently of the page-text offset. The internal
+owner response cap is 11,000 characters before lifecycle metadata, using UTF-8
+JSON without ASCII escape expansion. Public result schemas remain unchanged.
+
+Task 211 owner completion can report the internal technical code
+`unreviewed_research` when a categorical safety or local-warranty assurance
+uses unreviewed or conflicting cited support. The public result retains its
+existing insufficient-evidence shape and a precise evidence gap. This failure
+does not authorize a new model attempt.

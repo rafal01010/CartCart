@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agents import FunctionTool, function_tool
+from app.agents.research_history import tracked_tools
 
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
 from app.agents.source_spans import SourceSpan, source_span
@@ -114,7 +115,10 @@ class YouTubeReviewTools:
                 video_id, start_segment=start_segment, focus=focus, start_char=start_char
             ))
 
-        return (search_videos, read_video_metadata, read_video_transcript)
+        return tracked_tools(
+            (search_videos, read_video_metadata, read_video_transcript),
+            include_controls=True,
+        )
 
     async def search(self, query: str) -> dict[str, Any]:
         query = query.strip()

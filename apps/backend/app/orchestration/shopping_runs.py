@@ -3809,16 +3809,23 @@ def _evidence_for_product(
     for listing in listings:
         source_ids.update(listing.source_ids)
         source_ids.update(listing.seller.source_ids)
+        for availability in listing.region_availability:
+            source_ids.update(availability.source_ids)
     selected = tuple(
         item
         for item in evidence
-        if item.target.product_id == product.product_id
-        or (
-            item.target.listing_id is not None and item.target.listing_id in listing_ids
+        if item.target.product_id in {None, product.product_id}
+        and item.target.listing_id in {None, *listing_ids}
+        and (
+            item.target.product_id == product.product_id
+            or (
+                item.target.listing_id is not None
+                and item.target.listing_id in listing_ids
+            )
+            or item.source_id in source_ids
         )
-        or item.source_id in source_ids
     )
-    return selected or evidence
+    return selected
 
 
 def _unique_listings(

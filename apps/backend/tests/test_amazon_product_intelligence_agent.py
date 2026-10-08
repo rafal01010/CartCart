@@ -71,6 +71,8 @@ class _SelectingRunner:
         self.calls += 1
         assert agent.name == "AmazonProductIntelligenceAgent"
         assert {tool.name for tool in agent.tools} == {
+            "complete_research_result",
+            "read_research_result",
             "search_amazon_products",
             "read_amazon_product",
         }

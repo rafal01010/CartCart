@@ -493,6 +493,9 @@ async def test_discovery_uses_sdk_search_twice_and_classifies_generic_results() 
             assert {tool.name for tool in agent.tools} == {
                 "search_sources",
                 "fetch_source",
+                "read_search_results",
+                "complete_research_result",
+                "read_research_result",
             }
             search_tool = next(
                 tool for tool in agent.tools if tool.name == "search_sources"
@@ -699,6 +702,9 @@ async def test_hosted_discovery_maps_actual_sdk_citation_to_run_evidence() -> No
         assert {tool.name for tool in runner.seen_agent.tools} == {
             "search_sources",
             "fetch_source",
+            "read_search_results",
+            "complete_research_result",
+            "read_research_result",
             "web_search",
         }
         hosted = [

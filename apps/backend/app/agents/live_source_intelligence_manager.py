@@ -55,6 +55,7 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
 )
 from app.agents.research_tools import HostedCitationStore
+from app.agents.research_history import tracked_tools
 from app.agents.source_hosted_search import (
     process_source_specialist_output,
     source_tool_activity,
@@ -396,7 +397,7 @@ class SourceIntelligenceManagerAgent:
                 "After delegating, give a concise summary and a reason for every available source you skipped. "
                 "The backend, not your summary, decides which validated evidence is persisted and passed downstream."
             ),
-            tools=tools,
+            tools=list(tracked_tools(tuple(tools), include_controls=True)),
             output_type=SourceManagerDecision,
         )
         apply_openai_agent_run_profile(parent, config)

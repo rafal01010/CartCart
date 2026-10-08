@@ -17,6 +17,13 @@ from app.agents.context_management import (
 )
 from app.agents.contracts import VerificationAgentInput, VerificationReport
 from app.agents.extraction_tools import SnapshotInterpretationTools
+from app.agents.model_input_projection import (
+    model_input_json,
+    restore_explanations,
+    canonical_support_model_fields,
+    evidence_model_fields,
+    restore_evidence,
+)
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
@@ -401,7 +408,11 @@ def _build_verifier_critic_agent(
             "Verify the final shopping recommendation bundle and return only a "
             "structured VerificationReport. Use only the supplied brief, draft "
             "recommendation bundle, products, listings, source evidence, trust "
-            "assessments, category analyses, and deduplication decisions. Check "
+            "assessments, category analyses, and deduplication decisions. "
+            "Resolve video_metadata_ref through video_metadata, explanation_ref "
+            "through shared_explanations, and source_context_ref through "
+            "original_source_contexts. supporting_evidence_id identifies the exact "
+            "supporting claim in evidence after independent canonical checks. Check "
             "that factual product, listing, seller, price, region, review, and "
             "trust claims are backed by supplied evidence IDs; material conflicts "
             "or weak evidence are disclosed; hard budgets are respected; "
@@ -440,10 +451,10 @@ def _model_input(
     *,
     canonical_support: tuple[dict[str, Any], ...] = (),
 ) -> str:
-    return json.dumps(
+    return model_input_json(
         {
             "run_id": str(input_data.run_id),
-            "canonical_support": canonical_support,
+            **canonical_support_model_fields(canonical_support, input_data.evidence),
             "brief": input_data.brief.model_dump(mode="json"),
             "recommendation_bundle": input_data.recommendation_bundle.model_dump(
                 mode="json"
@@ -454,9 +465,7 @@ def _model_input(
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            "evidence": [
-                evidence.model_dump(mode="json") for evidence in input_data.evidence
-            ],
+            **evidence_model_fields(input_data.evidence),
             "trust_assessments": [
                 assessment.model_dump(mode="json")
                 for assessment in input_data.trust_assessments
@@ -473,12 +482,11 @@ def _model_input(
                 item.model_dump(mode="json") for item in input_data.user_added_products
             ],
         },
-        sort_keys=True,
     )
 
 
 def _mock_report_from_model_input(model_input: str) -> VerificationReport:
-    payload = json.loads(model_input)
+    payload = restore_explanations(json.loads(model_input))
     input_data = VerificationAgentInput.model_validate(
         {
             "run_id": payload["run_id"],
@@ -486,7 +494,7 @@ def _mock_report_from_model_input(model_input: str) -> VerificationReport:
             "recommendation_bundle": payload["recommendation_bundle"],
             "products": payload["products"],
             "listings": payload["listings"],
-            "evidence": payload["evidence"],
+            "evidence": restore_evidence(payload),
             "trust_assessments": payload["trust_assessments"],
             "category_analyses": payload["category_analyses"],
             "deduplication_decisions": payload["deduplication_decisions"],

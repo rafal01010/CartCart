@@ -11,6 +11,12 @@ from pydantic import ValidationError
 
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import ComparisonDecisionAgentInput
+from app.agents.model_input_projection import (
+    evidence_model_fields,
+    restore_evidence,
+    model_input_json,
+    restore_explanations,
+)
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
@@ -304,7 +310,9 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
             "only for meaningful reasons such as suspicious listing, hard-budget "
             "miss, poor fit, weak evidence, or missing critical requirements. "
             "Use only the supplied brief, products, listings, category analyses, "
-            "listing trust assessments, dedupe decisions, and evidence. Preserve "
+            "listing trust assessments, dedupe decisions, and evidence. "
+            "Resolve video_metadata_ref through video_metadata and explanation_ref "
+            "through shared_explanations; these contain exact supplied context. Preserve "
             "known product_id, listing_id, evidence_id, and source_id values; do "
             "not invent candidate IDs, product facts, specs, seller facts, prices, "
             "warranty facts, review claims, or source claims. Keep product quality "
@@ -329,7 +337,7 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
 
 
 def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
-    return json.dumps(
+    return model_input_json(
         {
             "run_id": str(input_data.run_id),
             "brief": input_data.brief.model_dump(mode="json"),
@@ -356,14 +364,11 @@ def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
                 decision.model_dump(mode="json")
                 for decision in input_data.deduplication_decisions
             ],
-            "evidence": [
-                evidence.model_dump(mode="json") for evidence in input_data.evidence
-            ],
+            **evidence_model_fields(input_data.evidence),
             "user_added_products": [
                 item.model_dump(mode="json") for item in input_data.user_added_products
             ],
         },
-        sort_keys=True,
     )
 
 
@@ -1319,7 +1324,7 @@ def _soft_budget_needs_no_strong_buy(
 
 
 def _mock_bundle_from_model_input(model_input: str) -> RecommendationBundle:
-    payload = json.loads(model_input)
+    payload = restore_explanations(json.loads(model_input))
     input_data = ComparisonDecisionAgentInput.model_validate(
         {
             "run_id": payload["run_id"],
@@ -1329,7 +1334,7 @@ def _mock_bundle_from_model_input(model_input: str) -> RecommendationBundle:
             "category_analyses": payload["category_analyses"],
             "trust_assessments": payload["trust_assessments"],
             "deduplication_decisions": payload["deduplication_decisions"],
-            "evidence": payload["evidence"],
+            "evidence": restore_evidence(payload),
             "user_added_products": payload["user_added_products"],
         }
     )

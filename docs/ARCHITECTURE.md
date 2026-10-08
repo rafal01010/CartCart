@@ -379,8 +379,10 @@ Agents should produce typed outputs at each stage. Search, fetch, extraction, pe
 
 Production SDK wrappers use the shared bounded model gateway described in
 [context management](CONTEXT_MANAGEMENT.md). Each model turn, transfer and nested
-source call projects exact typed state and defers fully quoted or duplicate
-bodies while preserving distinct unquoted text and SDK call pairs. Extraction
+source call projects exact typed state and can retire explicitly processed
+bodies into exact useful facts, bounded caution/gap state and canonical lookup
+references. New and unprocessed text stays visible. Omitted passages remain
+unreviewed, and SDK call pairs stay intact. Extraction
 reads one initial page and defers other assigned IDs. Verification reloads
 canonical same-run evidence and has a bounded original snapshot read tool;
 derived analysis cannot establish new factual support. Shared
@@ -500,6 +502,15 @@ Technology `CategoryAnalysis` path remains separate, and
 OpenAI's hosted web-search tool is attached to live `DiscoveryAgent`, scoped
 source specialists, listing trust, and all eight shopper owners.
 Provider `search_sources` and `fetch_source` remain separate tools.
+
+The catalog resolves categories for both owner-handoff arguments and the
+buyer's brief. Phone aliases include `phone`, `smartphone`, `mobile phone`,
+`phones`, `smartphones`, and `mobile phones`. These finite aliases share the
+existing Smartphone route and fallback chain. Category and depth checks still
+apply at both SDK transfer boundaries. A rejected category records
+`rejected_handoff` in internal `general_owner` activity, with approved agent
+names, catalog route paths, category length, and an exact known category label
+or `null`. This diagnostic does not establish a completed SDK transfer.
 
 The owner design keeps the guided UI: `ShoppingGuideAgent` asks progressive
 questions, `IntakeAgent` normalizes the brief, and the backend applies
@@ -992,3 +1003,21 @@ Recommendations should support:
 - Material warnings and red flags.
 - Rejected or "why not" output only when there is a meaningful negative reason.
 - Source-backed factual claims with confidence and evidence quality represented separately.
+
+### Processed research views
+
+`research_history.py` owns invocation-scoped original tool views and explicit
+processing checkpoints. Large unprocessed results remain in SDK history. Once
+exact useful facts are validated against the original view, preparation can
+replace bulk with those facts, caution/gap state, identities and a bounded
+reread reference. Source originals remain in existing repositories or validated
+run-local owner-bundle state. Compatible handoffs share completed research;
+nested source transcripts remain local and returned bundles stay bounded.
+`model_input_projection.py` scopes downstream inputs and deduplicates identical
+source metadata without changing canonical evidence or public schemas.
+General, Technology and eligible specialist ownership remains unchanged.
+
+Owner completion rejects explicit unsupported safety, seller-legitimacy and
+local-warranty assurances over relevant unreviewed or conflicting support.
+The technical `unreviewed_research` outcome does not trigger recovery. Tool
+exhaustion belongs to the issuing owner; a fresh handoff retains its own quota.

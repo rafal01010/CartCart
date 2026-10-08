@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from agents import FunctionTool, function_tool
+from app.agents.research_history import tracked_tools
 
 from app.agents.contracts import RedditCommunityIntelligenceAgentInput
 from app.agents.source_spans import source_span
@@ -155,7 +156,10 @@ class RedditCommunityTools:
             """
             return json.dumps(await self.read(source_id, start_char=start_char, focus=focus))
 
-        return search_community_discussions, read_community_discussion
+        return tracked_tools(
+            (search_community_discussions, read_community_discussion),
+            include_controls=True,
+        )
 
     async def search(self, query: str) -> dict[str, Any]:
         query = query.strip()

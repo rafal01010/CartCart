@@ -5,12 +5,19 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any, Callable
 
 from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.context_management import context_budget_failure, source_bundle_context
+from app.agents.source_spans import source_span
+from app.agents.research_history import (
+    bounded_cautions,
+    material_cautions,
+    tracked_tools,
+)
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.schemas.analysis import ListingTrustAssessment, ListingTrustLevel
 from app.agents.live_source_intelligence_manager import (
@@ -26,7 +33,7 @@ from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.session import shared_tool_session
-from app.schemas.ids import ListingId, RunId, SourceId
+from app.schemas.ids import ListingId, RunId, SourceId, new_id
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing
 from app.schemas.regions import RegionCode
@@ -73,6 +80,16 @@ def assess_run_listings(
 
 
 @dataclass
+class OwnerResearchState:
+    completed_consultations: dict[str, dict[str, Any]] = field(default_factory=dict)
+    bundles: dict[str, tuple[RunId, str, dict[str, Any]]] = field(default_factory=dict)
+    bundle_versions: dict[tuple[str, str], tuple[RunId, dict[str, Any]]] = field(
+        default_factory=dict
+    )
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+@dataclass
 class OwnerResearchContext:
     agent_name: str
     run_id: RunId
@@ -87,6 +104,7 @@ class OwnerResearchContext:
     allowed_quote_ids: Callable[[], frozenset[SourceId]] | None = None
     allowed_source_ids: Callable[[], frozenset[SourceId]] | None = None
     activity: list[dict[str, Any]] = field(default_factory=list)
+    research_state: OwnerResearchState = field(default_factory=OwnerResearchState)
     _read_count: int = 0
     _compare_count: int = 0
     _candidate_compare_count: int = 0
@@ -130,13 +148,29 @@ class OwnerResearchContext:
 
     def sdk_tools(self) -> tuple[FunctionTool, ...]:
         @function_tool
-        async def read_run_evidence(source_id: str) -> str:
+        async def read_run_evidence(
+            source_id: str,
+            start_char: int = 0,
+            focus: str | None = None,
+            evidence_offset: int = 0,
+        ) -> str:
             """Read a persisted source and its bounded evidence from this shopping run.
 
             Args:
                 source_id: Persisted search-result ID from this run.
+                start_char: Character offset of the bounded page view.
+                focus: Optional exact term to locate anywhere in the page.
+                evidence_offset: Offset into this source's persisted evidence records.
             """
-            return json.dumps(await self.read_source(source_id))
+            return json.dumps(
+                await self.read_source(
+                    source_id,
+                    start_char=start_char,
+                    focus=focus,
+                    evidence_offset=evidence_offset,
+                ),
+                ensure_ascii=False,
+            )
 
         @function_tool
         async def compare_evidence(source_ids: list[str]) -> str:
@@ -145,7 +179,7 @@ class OwnerResearchContext:
             Args:
                 source_ids: Search-result IDs from this shopping run.
             """
-            return json.dumps(await self.compare(source_ids))
+            return json.dumps(await self.compare(source_ids), ensure_ascii=False)
 
         @function_tool
         async def compare_candidates(product_ids: list[str]) -> str:
@@ -154,7 +188,9 @@ class OwnerResearchContext:
             Args:
                 product_ids: Persisted product IDs from this shopping run.
             """
-            return json.dumps(await self.compare_candidates(product_ids))
+            return json.dumps(
+                await self.compare_candidates(product_ids), ensure_ascii=False
+            )
 
         @function_tool
         async def check_listing_trust(listing_id: str) -> str:
@@ -163,7 +199,7 @@ class OwnerResearchContext:
             Args:
                 listing_id: Persisted listing ID from this shopping run.
             """
-            return json.dumps(await self.check_trust(listing_id))
+            return json.dumps(await self.check_trust(listing_id), ensure_ascii=False)
 
         @function_tool(failure_error_function=None)
         async def consult_source_intelligence(
@@ -186,18 +222,60 @@ class OwnerResearchContext:
                     product_id=product_id,
                     product_name=product_name,
                     evidence_id=evidence_id,
-                )
+                ),
+                ensure_ascii=False,
             )
 
-        return (
-            read_run_evidence,
-            compare_evidence,
-            compare_candidates,
-            check_listing_trust,
-            consult_source_intelligence,
+        @function_tool
+        async def read_source_bundle(
+            bundle_id: str,
+            start_char: int = 0,
+            focus: str | None = None,
+            content_sha256: str | None = None,
+        ) -> str:
+            """Read a bounded original source bundle consulted during this shopping run.
+
+            Args:
+                bundle_id: Bundle ID or consultation_id returned by consult_source_intelligence.
+                start_char: Character offset into the serialized original.
+                focus: Optional exact term to locate original support or cautions.
+                content_sha256: Exact original version fingerprint when supplied.
+            """
+            return json.dumps(
+                self.read_bundle(
+                    bundle_id,
+                    start_char=start_char,
+                    focus=focus,
+                    content_sha256=content_sha256,
+                ),
+                ensure_ascii=False,
+            )
+
+        return tracked_tools(
+            (
+                read_run_evidence,
+                compare_evidence,
+                compare_candidates,
+                check_listing_trust,
+                consult_source_intelligence,
+                read_source_bundle,
+            ),
+            include_controls=False,
         )
 
-    async def read_source(self, source_id: str) -> dict[str, Any]:
+    async def read_source(
+        self,
+        source_id: str,
+        *,
+        start_char: int = 0,
+        focus: str | None = None,
+        evidence_offset: int = 0,
+    ) -> dict[str, Any]:
+        if evidence_offset < 0:
+            return {
+                "status": "invalid_request",
+                "gap": "Evidence offset must be nonnegative.",
+            }
         try:
             parsed = SourceId(source_id)
         except (TypeError, ValueError):
@@ -248,6 +326,20 @@ class OwnerResearchContext:
                 "status": "gap",
                 "gap": "Source is not assigned to this owner or a matching run product.",
             }
+        text = (
+            snapshot.extracted_content.text
+            if snapshot and snapshot.extracted_content
+            else ""
+        )
+        try:
+            span = source_span(text, start=start_char, focus=focus, limit=2000)
+        except ValueError as exc:
+            return {"status": "invalid_request", "gap": str(exc)}
+        source_evidence = [
+            item
+            for item in evidence
+            if snapshot and item.source_id == snapshot.source_id
+        ]
         result = {
             "status": "succeeded",
             "source_id": str(parsed),
@@ -257,16 +349,31 @@ class OwnerResearchContext:
             "source_quality": source.quality.level.value,
             "snapshot_id": str(snapshot.source_id) if snapshot else None,
             "extraction_status": snapshot.extraction_status.value if snapshot else None,
-            "text": (
-                snapshot.extracted_content.text[:2000]
-                if snapshot and snapshot.extracted_content
-                else None
-            ),
+            "text": span.text or None,
+            "start_char": span.start,
+            "total_characters": span.total_characters,
+            "content_sha256": span.content_sha256,
+            "text_truncated": len(span.text) < span.total_characters,
+            "unreviewed_content": not text or len(span.text) < span.total_characters,
+            "gap": None
+            if text
+            else "Page original is unavailable or has no extracted text. Page claims and safety remain unreviewed.",
+            **bounded_cautions(text),
             "evidence": [
-                {"evidence_id": str(item.evidence_id), "quote": item.claim[:400]}
-                for item in evidence
-                if snapshot and item.source_id == snapshot.source_id
-            ][:8],
+                {
+                    "evidence_id": str(item.evidence_id),
+                    "quote": item.claim,
+                    "source_id": str(item.source_id),
+                }
+                for item in source_evidence[evidence_offset : evidence_offset + 4]
+            ],
+            "evidence_total": len(source_evidence),
+            "next_evidence_offset": evidence_offset + 4
+            if evidence_offset + 4 < len(source_evidence)
+            else None,
+            "deferred_evidence_ids": [
+                str(item.evidence_id) for item in source_evidence[evidence_offset + 4 :]
+            ],
         }
         self._record("read_run_evidence", "succeeded", source_ids=[source_id])
         return result
@@ -436,6 +543,22 @@ class OwnerResearchContext:
         product_name: str | None = None,
         evidence_id: str | None = None,
     ) -> dict[str, Any]:
+        async with self.research_state.lock:
+            return await self._consult_source(
+                capability,
+                product_id=product_id,
+                product_name=product_name,
+                evidence_id=evidence_id,
+            )
+
+    async def _consult_source(
+        self,
+        capability: SourceIntelligenceCapability,
+        *,
+        product_id: str | None = None,
+        product_name: str | None = None,
+        evidence_id: str | None = None,
+    ) -> dict[str, Any]:
         from app.schemas.ids import ProductId
 
         try:
@@ -455,12 +578,6 @@ class OwnerResearchContext:
                 "gap": "Supply one persisted product ID or one recorded candidate quote.",
             }
         async with self._lock:
-            if self._source_count >= 1:
-                self._record("consult_source_intelligence", "budget_exhausted")
-                return {
-                    "status": "budget_exhausted",
-                    "gap": "Source-agent limit reached.",
-                }
             if self.source_manager is None or self.region_code is None:
                 self._record("consult_source_intelligence", "unavailable")
                 return {
@@ -536,7 +653,6 @@ class OwnerResearchContext:
                     source_ids=(snapshot.source_id,),
                 )
             assert product is not None
-            self._source_count += 1
             snapshots = tuple(
                 item
                 for item in all_snapshots
@@ -546,6 +662,47 @@ class OwnerResearchContext:
                     str(item.url), item.source_type, self.source_policy
                 )
             )[:4]
+            cache_key = sha256(
+                json.dumps(
+                    {
+                        "run_id": str(self.run_id),
+                        "brief": self.brief.model_dump(mode="json"),
+                        "region": self.region_code,
+                        "capability": capability.value,
+                        "product": product.model_dump(mode="json")
+                        if parsed is not None
+                        else {
+                            "name": product.name,
+                            "category": product.category,
+                            "source_ids": [str(item) for item in product.source_ids],
+                        },
+                        "listings": [
+                            item.model_dump(mode="json")
+                            for item in listings
+                            if item.product_id == parsed
+                        ],
+                        "snapshots": [
+                            item.model_dump(mode="json") for item in snapshots
+                        ],
+                        "policy": self.source_policy.model_dump(mode="json"),
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            cached = self.research_state.completed_consultations.get(cache_key)
+            if cached is not None:
+                self._record(
+                    "consult_source_intelligence",
+                    "cached_completion",
+                    capability=capability.value,
+                )
+                return cached
+            if self._source_count >= 1:
+                return {
+                    "status": "budget_exhausted",
+                    "gap": "Source-agent limit reached.",
+                }
+            self._source_count += 1
             try:
                 result = await self.source_manager.run(
                     SourceManagerInput(
@@ -589,16 +746,277 @@ class OwnerResearchContext:
             model=result.model_name,
             total_tokens=result.total_tokens,
         )
-        payload = [source_bundle_context(item) for item in bundles]
-        if len(json.dumps(payload)) > 12000:
-            return {
-                "status": "gap",
-                "gap": "Source bundle exceeded the owner tool's bounded response size.",
-            }
-        return {
+        payload: list[dict[str, Any]] = []
+        deferred_bundle_ids: list[str] = []
+        bundle_references: list[dict[str, str]] = []
+        for item in bundles:
+            original = item.model_dump(mode="json")
+            bundle_id = str(original["bundle_id"])
+            original_text = json.dumps(
+                original, ensure_ascii=False, separators=(",", ":")
+            )
+            fingerprint = sha256(original_text.encode()).hexdigest()
+            self.research_state.bundles[bundle_id] = (
+                self.run_id,
+                fingerprint,
+                original,
+            )
+            self.research_state.bundle_versions[(bundle_id, fingerprint)] = (
+                self.run_id,
+                original,
+            )
+            bundle_references.append(
+                {"bundle_id": bundle_id, "content_sha256": fingerprint}
+            )
+            if len(payload) < 2:
+                payload.append(
+                    _bounded_owner_bundle(
+                        source_bundle_context(item),
+                        fingerprint,
+                        max_chars=5000,
+                        caution_details=_original_cautions(
+                            original, scope="original_bundle"
+                        ),
+                    )
+                )
+            else:
+                deferred_bundle_ids.append(bundle_id)
+        consultation_id = str(new_id())
+        original_consultation = {
+            "consultation_id": consultation_id,
+            "capability": capability.value,
+            "product_id": str(product.product_id),
+            "region_code": self.region_code,
+            "bundles": bundle_references,
+            "notes": list(result.notes),
+        }
+        original_text = json.dumps(
+            original_consultation, ensure_ascii=False, separators=(",", ":")
+        )
+        consultation_hash = sha256(original_text.encode()).hexdigest()
+        self.research_state.bundles[consultation_id] = (
+            self.run_id,
+            consultation_hash,
+            original_consultation,
+        )
+        self.research_state.bundle_versions[(consultation_id, consultation_hash)] = (
+            self.run_id,
+            original_consultation,
+        )
+        response = {
             "status": "succeeded" if bundles else "gap",
             "capability": capability.value,
+            "consultation_id": consultation_id,
+            "consultation_sha256": consultation_hash,
+            "reload_tool": "read_source_bundle",
             "bundles": payload,
             "notes": list(result.notes),
-            "gap": "Source bundles are context; candidate claims still need recorded page quotes.",
+            "deferred_bundle_ids": deferred_bundle_ids[:8],
+            "deferred_bundle_count": len(deferred_bundle_ids),
+            "unreviewed_content": bool(deferred_bundle_ids)
+            or any(item.get("unreviewed_content") for item in payload),
+            "gap": "Source bundles are context; candidate claims still need recorded page quotes. Consultation notes and every bundle/version remain retrievable by consultation_id.",
         }
+        response.update(
+            _original_cautions(
+                {"notes": list(result.notes)}, scope="consultation_notes"
+            )
+        )
+        response["unreviewed_content"] = response["unreviewed_content"] or response.get(
+            "unreviewed_cautions", False
+        )
+        _cap_consultation_response(response)
+        if bundles:
+            self.research_state.completed_consultations[cache_key] = response
+        return response
+
+    def read_bundle(
+        self,
+        bundle_id: str,
+        *,
+        start_char: int = 0,
+        focus: str | None = None,
+        content_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            parsed = str(SourceId(bundle_id))
+        except (TypeError, ValueError):
+            return {"status": "invalid_request", "gap": "Invalid bundle ID."}
+        original = self.research_state.bundles.get(parsed)
+        if content_sha256 is not None:
+            version = self.research_state.bundle_versions.get((parsed, content_sha256))
+            original = (version[0], content_sha256, version[1]) if version else None
+        if original is None or original[0] != self.run_id:
+            return {
+                "status": "unknown_source",
+                "gap": "Original bundle is not in this run.",
+            }
+        text = json.dumps(original[2], ensure_ascii=False, separators=(",", ":"))
+        try:
+            span = source_span(text, start=start_char, focus=focus, limit=4000)
+        except ValueError as exc:
+            return {"status": "invalid_request", "gap": str(exc)}
+        return {
+            "status": "succeeded",
+            "bundle_id": parsed,
+            "text": span.text,
+            "start_char": span.start,
+            "total_characters": span.total_characters,
+            "content_sha256": span.content_sha256,
+            "unreviewed_content": len(span.text) < len(text),
+            **_original_cautions(
+                original[2],
+                scope="consultation_notes"
+                if "consultation_id" in original[2]
+                else "original_bundle",
+            ),
+        }
+
+
+_CAUTION_FIELDS = (
+    "material_cautions",
+    "deferred_caution_count",
+    "cautions_truncated",
+    "caution_focus_terms",
+    "unreviewed_cautions",
+    "caution_scope",
+)
+
+
+def _original_cautions(payload: dict[str, Any], *, scope: str) -> dict[str, Any]:
+    texts: list[str] = []
+    forced: list[str] = []
+
+    def collect(value: Any, warning: bool = False) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                collect(
+                    item,
+                    warning
+                    or any(
+                        term in key
+                        for term in ("warning", "caution", "gap", "red_flag")
+                    ),
+                )
+        elif isinstance(value, list):
+            for item in value:
+                collect(item, warning)
+        elif isinstance(value, str):
+            texts.append(value)
+            if warning and not material_cautions(value):
+                forced.append(value)
+
+    collect(payload)
+    metadata = bounded_cautions("\n".join(texts), extra_passages=forced)
+    if metadata["material_cautions"]:
+        metadata["caution_scope"] = scope
+    return metadata
+
+
+def _bounded_owner_bundle(
+    payload: dict[str, Any],
+    fingerprint: str,
+    *,
+    max_chars: int = 5000,
+    caution_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if caution_details is None:
+        if "caution_scope" in payload:
+            caution_details = {
+                key: payload[key] for key in _CAUTION_FIELDS if key in payload
+            }
+        else:
+            caution_details = _original_cautions(payload, scope="original_bundle")
+    complete = {**payload, "content_sha256": fingerprint, **caution_details}
+    if len(json.dumps(complete, ensure_ascii=False)) <= max_chars:
+        return complete
+    for string_limit, row_limit in ((600, 3), (300, 2), (150, 1), (80, 1)):
+        deferred: list[str] = []
+
+        def project(value: Any, path: str) -> Any:
+            if isinstance(value, str) and len(value) > string_limit:
+                deferred.append(path)
+                return value[:string_limit]
+            if isinstance(value, dict):
+                return {
+                    key: project(item, f"{path}.{key}")
+                    for key, item in value.items()
+                    if item is not None
+                }
+            if isinstance(value, list):
+                if len(value) > row_limit:
+                    deferred.append(path)
+                return [
+                    project(item, f"{path}[{index}]")
+                    for index, item in enumerate(value[:row_limit])
+                ]
+            return value
+
+        result = project(payload, "bundle")
+        result.update(
+            {
+                "content_sha256": fingerprint,
+                "unreviewed_content": True,
+                "deferred_fields": sorted(set(deferred)),
+                "reload_tool": "read_source_bundle",
+                **caution_details,
+                "gap": "Omitted original details remain unreviewed. Read the bundle before making claims about them.",
+            }
+        )
+        if len(json.dumps(result, ensure_ascii=False)) <= max_chars:
+            return result
+    return {
+        "bundle_id": payload["bundle_id"],
+        "content_sha256": fingerprint,
+        "evidence": project(payload.get("evidence", [])[:1], "bundle.evidence"),
+        **caution_details,
+        "unreviewed_content": True,
+        "reload_tool": "read_source_bundle",
+        "gap": "The full bundle and remaining claims/cautions require bounded rereads before use.",
+    }
+
+
+def _cap_consultation_response(
+    response: dict[str, Any], *, max_chars: int = 11000
+) -> None:
+    def size() -> int:
+        return len(json.dumps(response, ensure_ascii=False))
+
+    if size() <= max_chars:
+        return
+    notes = response["notes"]
+    response["notes"] = [note[:400] for note in notes[:4]]
+    response.update(
+        {
+            "deferred_note_count": max(0, len(notes) - 4),
+            "notes_truncated": any(len(note) > 400 for note in notes[:4]),
+            "unreviewed_content": True,
+        }
+    )
+    while size() > max_chars and len(response["bundles"]) > 1:
+        omitted = response["bundles"].pop()
+        response["deferred_bundle_ids"] = [
+            omitted["bundle_id"],
+            *response["deferred_bundle_ids"],
+        ][:8]
+        response["deferred_bundle_count"] += 1
+    if size() > max_chars and response["bundles"]:
+        first = response["bundles"][0]
+        response["bundles"] = [
+            _bounded_owner_bundle(first, first["content_sha256"], max_chars=3000)
+        ]
+    if size() > max_chars:
+        response["notes"] = [note[:200] for note in notes[:2]]
+        response["deferred_note_count"] = max(0, len(notes) - 2)
+        response["notes_truncated"] = any(len(note) > 200 for note in notes[:2])
+    if size() > max_chars:
+        response["bundles"] = [
+            {
+                "bundle_id": item["bundle_id"],
+                "content_sha256": item["content_sha256"],
+                **{key: item[key] for key in _CAUTION_FIELDS if key in item},
+                "unreviewed_content": True,
+                "gap": "Read the canonical bundle for claims and full cautions.",
+            }
+            for item in response["bundles"]
+        ]

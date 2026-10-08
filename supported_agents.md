@@ -526,7 +526,13 @@ manager delegates to YouTube, Reddit, Amazon, and IKEA SDK agents-as-tools.
 Those agents use bounded source tools and return cited evidence bundles;
 fixture runs use provider services without model calls. The normal shopping
 workflow remains fixture-first and uses live agents only when explicitly
-configured. Local routing eval cases cover broad generic fallback,
+configured. Phone routing accepts `phone`, `smartphone`, `mobile phone`,
+`phones`, `smartphones`, and `mobile phones` through the existing catalog.
+Both SDK handoff callbacks validate the requested category and buyer's brief;
+plural aliases do not change the owner graph or fallback chain.
+Category rejections retain bounded `rejected_handoff` metadata in internal
+owner activity. Unrecognized category labels become `null`.
+Local routing eval cases cover broad generic fallback,
 technology-domain routing, every MVP technology specialist route, and
 specialist fallback availability to technology-domain and generic analysis
 without live model calls. The current runtime
@@ -712,3 +718,15 @@ Call/output pairs, ownership transfers and exact recorded quotes stay. No extra
 summarizer agent or runtime scratch-file store was added. See the
 [stage matrix and limits](docs/CONTEXT_MANAGEMENT.md) and the late-source fixtures
 in [evaluation](docs/EVALUATION.md#context-management-gate).
+
+### Shared processed-research controls
+
+Owners, Discovery, Extraction, reusable source agents, the source manager and
+the verifier's scoped original reader expose explicit research processing and
+bounded original-view retrieval when local research tools are attached. The
+runtime catalog declares `complete_research_result` and `read_research_result`.
+Provider research roles also expose `read_search_results`; owner source
+consultations expose `read_source_bundle`. These helpers preserve original
+support, source identity, warnings, gaps and unreviewed coverage. Processing
+a search lead does not verify it. Agent ownership, routing and fallback
+capabilities remain unchanged.

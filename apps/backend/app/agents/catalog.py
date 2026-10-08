@@ -30,6 +30,10 @@ class ApprovedSDKTool(StrEnum):
     SEARCH_SOURCES = "search_sources"
     FETCH_SOURCE = "fetch_source"
     RECORD_SOURCE_QUOTE = "record_source_quote"
+    COMPLETE_RESEARCH_RESULT = "complete_research_result"
+    READ_RESEARCH_RESULT = "read_research_result"
+    READ_SEARCH_RESULTS = "read_search_results"
+    READ_SOURCE_BUNDLE = "read_source_bundle"
     READ_RUN_EVIDENCE = "read_run_evidence"
     COMPARE_EVIDENCE = "compare_evidence"
     COMPARE_CANDIDATES = "compare_candidates"
@@ -342,6 +346,20 @@ def _entry(
     superseded_by: str | None = None,
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
 ) -> AgentCatalogEntry:
+    local_research = any(
+        tool not in {ApprovedSDKTool.HOSTED_WEB_SEARCH}
+        for tool in approved_sdk_tools
+    )
+    if local_research:
+        approved_sdk_tools = (
+            *approved_sdk_tools,
+            ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
+            ApprovedSDKTool.READ_RESEARCH_RESULT,
+        )
+    if ApprovedSDKTool.SEARCH_SOURCES in approved_sdk_tools:
+        approved_sdk_tools = (*approved_sdk_tools, ApprovedSDKTool.READ_SEARCH_RESULTS)
+    if ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE in approved_sdk_tools:
+        approved_sdk_tools = (*approved_sdk_tools, ApprovedSDKTool.READ_SOURCE_BUNDLE)
     return AgentCatalogEntry(
         agent_name=agent_name,
         status=status,
@@ -415,12 +433,20 @@ _DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS = (
 )
 
 
+_PHONE_CATEGORY_ALIASES = (
+    "smartphone",
+    "phone",
+    "mobile phone",
+    "smartphones",
+    "phones",
+    "mobile phones",
+)
+
+
 _DEFAULT_PRODUCT_CATEGORY_ROUTES = {
     "monitor": "MonitorSpecialistAgent",
     "display": "MonitorSpecialistAgent",
-    "smartphone": "SmartphoneSpecialistAgent",
-    "phone": "SmartphoneSpecialistAgent",
-    "mobile phone": "SmartphoneSpecialistAgent",
+    **dict.fromkeys(_PHONE_CATEGORY_ALIASES, "SmartphoneSpecialistAgent"),
     "laptop": "LaptopSpecialistAgent",
     "notebook": "LaptopSpecialistAgent",
     "earphones": "EarphonesHeadphonesSpecialistAgent",
@@ -672,7 +698,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.SPECIALIST_TOOL_SUBRUN,
         contract_name="SmartphoneSpecialistAgent",
         parent_agent_name="TechnologyDomainAnalystAgent",
-        routing_categories=("smartphone", "phone", "mobile phone"),
+        routing_categories=_PHONE_CATEGORY_ALIASES,
         fallback_agent_names=(
             "TechnologyDomainAnalystAgent",
             "GenericProductAnalystAgent",

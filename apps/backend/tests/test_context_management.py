@@ -713,7 +713,7 @@ async def test_research_closes_and_preserves_funds_for_decision_and_verification
         "VerifierCriticAgent": ScriptModel(["Exact support verified"], actual=15000),
     }
     config = RunConfig(model_provider=ScriptProvider(models), tracing_disabled=True)
-    budget = ContextBudget(limits=replace(ContextLimits(), total_tokens=44_000))
+    budget = ContextBudget(limits=replace(ContextLimits(), total_tokens=50_000))
     with context_scope(budget):
         result = await BoundedRunner.run(
             Agent(
@@ -1005,3 +1005,62 @@ async def test_source_specialists_propagate_sdk_wrapped_budget_failure(name):
     agent.model_runner = FailingRunner()
     with pytest.raises(ContextBudgetExceeded, match="Cannot fund exact support"):
         await agent.run(supplied)
+
+
+@pytest.mark.asyncio
+async def test_exhausted_parent_tool_does_not_disable_fresh_child_quota() -> None:
+    executions = []
+
+    @function_tool(name_override="search_sources")
+    async def parent_search(query: str) -> str:
+        executions.append("parent")
+        return json.dumps(
+            {"status": "budget_exhausted", "gap": "Parent search quota closed."}
+        )
+
+    @function_tool(name_override="search_sources")
+    async def child_search(query: str) -> str:
+        executions.append("child")
+        return json.dumps({"status": "succeeded", "source_id": "fresh-child-source"})
+
+    child = Agent(name="TechnologyShoppingAgent", model="child", tools=[child_search])
+    transfer = handoff(child)
+
+    def parent_finish(input, tools):
+        assert not tools
+        return call(transfer.tool_name, "handoff")
+
+    def child_continue(input, tools):
+        assert [tool.name for tool in tools] == ["search_sources"]
+        assert "Parent search quota closed." in json.dumps(input)
+        return call("search_sources", "child-search", query="Fresh child research")
+
+    parent_model = ScriptModel(
+        [
+            call("search_sources", "parent-search", query="Parent research"),
+            parent_finish,
+        ],
+        actual=1000,
+    )
+    child_model = ScriptModel(
+        [child_continue, "Child research completed."], actual=1000
+    )
+    with context_scope(ContextBudget()):
+        result = await BoundedRunner.run(
+            Agent(
+                name="GeneralShoppingAgent",
+                model="parent",
+                tools=[parent_search],
+                handoffs=[transfer],
+            ),
+            "Compare phones.",
+            run_config=RunConfig(
+                model_provider=ScriptProvider(
+                    {"parent": parent_model, "child": child_model}
+                ),
+                tracing_disabled=True,
+            ),
+            max_turns=5,
+        )
+    assert result.final_output == "Child research completed."
+    assert executions == ["parent", "child"]

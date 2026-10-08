@@ -247,7 +247,7 @@ async def test_verifier_reloads_late_canonical_support_and_blocks_fabrication():
                     support = self.prompt["canonical_support"][0]
                     assert support["status"] == "exact_page_support"
                     assert support["start_char"] == 11000
-                    assert len(agent.tools) == 1
+                    assert len(agent.tools) == 3
                     page = await tools.read(
                         str(snapshot.source_id), start_char=support["start_char"]
                     )

@@ -126,6 +126,7 @@ class _ScriptedOwnerModel(Model):
         recovery: bool = False,
         invalid: bool = False,
         fail: bool = False,
+        handoff_category: str | None = None,
     ):
         self.transfer = transfer
         self.target = target
@@ -135,6 +136,7 @@ class _ScriptedOwnerModel(Model):
         self.recovery = recovery
         self.invalid = invalid
         self.fail = fail
+        self.handoff_category = handoff_category
         self.calls = 0
         self.instructions: list[str] = []
         self.tools: list[str] = []
@@ -177,11 +179,14 @@ class _ScriptedOwnerModel(Model):
                 call_id="transfer-1",
                 name=handoffs[0].tool_name,
                 arguments=TechnologyHandoffContext(
-                    technology_category="smartphone"
-                    if self.transfer_to_specialist
-                    else "keyboard"
-                    if not self.invalid
-                    else "smartphone",
+                    technology_category=self.handoff_category
+                    or (
+                        "smartphone"
+                        if self.transfer_to_specialist
+                        else "keyboard"
+                        if not self.invalid
+                        else "smartphone"
+                    ),
                     reason="A deeper technology fit check would help this buyer.",
                 ).model_dump_json(),
             )
@@ -197,7 +202,8 @@ class _ScriptedOwnerModel(Model):
                 call_id="transfer-2",
                 name=phone_handoff.tool_name,
                 arguments=ProductSpecialistHandoffContext(
-                    product_category="keyboard" if self.invalid_specialist else "phone",
+                    product_category=self.handoff_category
+                    or ("keyboard" if self.invalid_specialist else "phone"),
                     reason="A phone-specific camera and software support check is needed.",
                 ).model_dump_json(),
             )
@@ -246,6 +252,8 @@ class _SDKOwnerRunner:
     invalid_specialist: bool = False
     specialist_fails: bool = False
     missing_activity: bool = False
+    technology_category: str | None = None
+    specialist_category: str | None = None
     general: _ScriptedOwnerModel | None = None
     technology: _ScriptedOwnerModel | None = None
     specialist: _ScriptedOwnerModel | None = None
@@ -267,6 +275,7 @@ class _SDKOwnerRunner:
             transfer=self.transfer,
             invalid=self.invalid,
             transfer_to_specialist=self.specialist_transfer,
+            handoff_category=self.technology_category,
         )
         self.technology = _ScriptedOwnerModel(
             transfer=False,
@@ -274,6 +283,7 @@ class _SDKOwnerRunner:
             fail=self.target_fails,
             transfer_to_specialist=self.specialist_transfer,
             invalid_specialist=self.invalid_specialist,
+            handoff_category=self.specialist_category,
         )
         agent.model = self.general
         target.model = self.technology
@@ -661,6 +671,156 @@ async def test_sdk_handoff_lets_technology_finish_unsupported_category() -> None
         assert handoffs[0]["input"]["reason"]
         assert handoffs[0]["output"]["last_agent"] == "TechnologyDomainAnalystAgent"
         assert handoffs[0]["output"]["target_model"] == "gpt-6-astra"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("brief_category", "technology_category", "specialist_category"),
+    (
+        ("phone", "phone", "phone"),
+        ("smartphone", "smartphone", "smartphone"),
+        ("mobile phone", "mobile phone", "mobile phone"),
+        ("phones", "phone", "phone"),
+        ("smartphones", "phone", "phone"),
+        ("mobile phones", "phone", "phone"),
+        ("phone", "phones", "phone"),
+        ("phone", "smartphones", "phone"),
+        ("phone", "mobile phones", "phone"),
+        ("phone", "phone", "phones"),
+        ("phone", "phone", "smartphones"),
+        ("phone", "phone", "mobile phones"),
+        ("SMARTPHONES for photography", "phone", "phone"),
+        ("phone", "SMARTPHONES for photography", "phone"),
+        ("phone", "phone", "SMARTPHONES for photography"),
+    ),
+)
+async def test_sdk_phone_aliases_transfer_at_each_boundary(
+    brief_category: str, technology_category: str, specialist_category: str
+) -> None:
+    runner = _SDKOwnerRunner(
+        transfer=True,
+        specialist_transfer=True,
+        technology_category=technology_category,
+        specialist_category=specialist_category,
+    )
+    owner, input_data, _, engine = await _isolated_agent(runner)
+    input_data = input_data.model_copy(
+        update={
+            "brief": ShoppingBrief(
+                original_query=f"Find {brief_category}. Budget is not a constraint.",
+                category=brief_category,
+                category_source=FieldSource.USER_PROVIDED,
+            )
+        }
+    )
+    try:
+        draft = await owner.run(input_data)
+        assert draft.owner_agent_name == "SmartphoneSpecialistAgent"
+        assert draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+        handoffs = [
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "sdk_handoff"
+        ]
+        assert [item["status"] for item in handoffs] == ["completed", "completed"]
+        assert [item["output"]["target_agent"] for item in handoffs] == [
+            "TechnologyDomainAnalystAgent",
+            "SmartphoneSpecialistAgent",
+        ]
+        activity = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert activity["output"]["rejected_handoff"] is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "brief_category",
+        "requested_category",
+        "safe_category",
+        "requested_route",
+        "buyer_route",
+    ),
+    (
+        (
+            "phone",
+            "walking cane",
+            None,
+            ["GenericProductAnalystAgent"],
+            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
+        ),
+        (
+            "walking cane",
+            " SMARTPHONES ",
+            "smartphones",
+            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
+            ["GenericProductAnalystAgent"],
+        ),
+        (
+            "phone",
+            "credential-secret=https://private.example/token",
+            None,
+            ["GenericProductAnalystAgent"],
+            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
+        ),
+        (
+            "phone",
+            "x" * 120,
+            None,
+            ["GenericProductAnalystAgent"],
+            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
+        ),
+        (
+            "phone",
+            "private\n\tcredential",
+            None,
+            ["GenericProductAnalystAgent"],
+            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
+        ),
+    ),
+)
+async def test_sdk_rejected_technology_category_has_bounded_diagnostic(
+    brief_category: str,
+    requested_category: str,
+    safe_category: str | None,
+    requested_route: list[str],
+    buyer_route: list[str],
+) -> None:
+    runner = _SDKOwnerRunner(transfer=True, technology_category=requested_category)
+    owner, input_data, _, engine = await _isolated_agent(runner)
+    input_data = input_data.model_copy(
+        update={"brief": ShoppingBrief(original_query=f"Find a {brief_category}")}
+    )
+    try:
+        draft = await owner.run(input_data)
+        assert draft.owner_agent_name == "GeneralShoppingAgent"
+        assert draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+        activity = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert activity["output"]["failure_code"] == "technology_category_mismatch"
+        assert activity["output"]["rejected_handoff"] == {
+            "source_agent": "GeneralShoppingAgent",
+            "target_agent": "TechnologyDomainAnalystAgent",
+            "requested_category": safe_category,
+            "requested_category_length": len(requested_category.strip()),
+            "requested_route": requested_route,
+            "buyer_route": buyer_route,
+        }
+        assert not any(
+            item["tool_name"] == "sdk_handoff" and item["status"] == "completed"
+            for item in owner.workbench_activity
+        )
+        assert runner.technology.calls == 0
     finally:
         await engine.dispose()
 
@@ -1194,9 +1354,21 @@ async def test_phone_hosted_citation_is_persisted_under_receiving_owner() -> Non
 
 
 @pytest.mark.asyncio
-async def test_invalid_specialist_transfer_stays_at_technology_with_gap() -> None:
+@pytest.mark.parametrize(
+    ("requested_category", "safe_category", "requested_route"),
+    (
+        ("keyboard", "keyboard", ["TechnologyDomainAnalystAgent"]),
+        ("credential-secret=private-token", None, ["GenericProductAnalystAgent"]),
+    ),
+)
+async def test_invalid_specialist_transfer_stays_at_technology_with_gap(
+    requested_category: str, safe_category: str | None, requested_route: list[str]
+) -> None:
     runner = _SDKOwnerRunner(
-        transfer=True, specialist_transfer=True, invalid_specialist=True
+        transfer=True,
+        specialist_transfer=True,
+        invalid_specialist=True,
+        specialist_category=requested_category,
     )
     owner, input_data, _, engine = await _isolated_agent(runner)
     input_data = input_data.model_copy(
@@ -1214,6 +1386,23 @@ async def test_invalid_specialist_transfer_stays_at_technology_with_gap() -> Non
         ]
         assert [item["status"] for item in handoffs] == ["completed", "failed"]
         assert handoffs[1]["input"]["target_agent"] == "SmartphoneSpecialistAgent"
+        activity = next(
+            item
+            for item in owner.workbench_activity
+            if item["tool_name"] == "general_owner"
+        )
+        assert activity["output"]["failure_code"] == "specialist_category_mismatch"
+        assert activity["output"]["rejected_handoff"] == {
+            "source_agent": "TechnologyDomainAnalystAgent",
+            "target_agent": "SmartphoneSpecialistAgent",
+            "requested_category": safe_category,
+            "requested_category_length": len(requested_category),
+            "requested_route": requested_route,
+            "buyer_route": [
+                "TechnologyDomainAnalystAgent",
+                "SmartphoneSpecialistAgent",
+            ],
+        }
         assert any(
             item["tool_name"] == "owner_recovery" and item["status"] == "completed"
             for item in owner.workbench_activity

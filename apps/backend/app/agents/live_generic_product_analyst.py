@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import ProductAnalysisAgentInput
+from app.agents.model_input_projection import evidence_model_fields, restore_evidence
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
@@ -206,9 +207,7 @@ def _model_input(input_data: ProductAnalysisAgentInput) -> str:
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            "evidence": [
-                evidence.model_dump(mode="json") for evidence in input_data.evidence
-            ],
+            **evidence_model_fields(input_data.evidence),
         },
         sort_keys=True,
     )
@@ -374,7 +373,7 @@ def _mock_analysis_from_model_input(model_input: str) -> CategoryAnalysis:
             "brief": payload["brief"],
             "product": payload["product"],
             "listings": payload["listings"],
-            "evidence": payload["evidence"],
+            "evidence": restore_evidence(payload),
         }
     )
     return _fallback_category_analysis(input_data)

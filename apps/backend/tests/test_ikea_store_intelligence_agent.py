@@ -107,6 +107,8 @@ class _SelectingRunner:
         self.calls += 1
         assert agent.name == "IKEAStoreIntelligenceAgent"
         assert {tool.name for tool in agent.tools} == {
+            "complete_research_result",
+            "read_research_result",
             "search_ikea_products",
             "read_ikea_product",
         }

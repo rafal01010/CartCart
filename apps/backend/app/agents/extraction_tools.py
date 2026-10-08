@@ -1,6 +1,7 @@
 """Read-only, run-scoped snapshot access for the semantic extraction agent."""
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.source_spans import source_span
+from app.agents.research_history import tracked_tools
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.source_intelligence import SourceIntelligenceRepository
 from app.db.repositories.video_sources import VideoReviewRepository
@@ -109,7 +111,7 @@ class SnapshotInterpretationTools:
                 await self.read(snapshot_id, start_char=start_char, focus=focus)
             ).model_dump_json()
 
-        return (read_source_snapshot,)
+        return tracked_tools((read_source_snapshot,))
 
     async def read(
         self, snapshot_id: str, *, start_char: int = 0, focus: str | None = None
@@ -181,6 +183,44 @@ class SnapshotInterpretationTools:
                         and str(discussion.url) == str(snapshot.url)
                         and discussion.extracted_public_summary
                     ]
+                elif not text:
+                    source_repository = SourceIntelligenceRepository(session)
+                    typed_evidence: tuple[
+                        AmazonProductEvidence | IKEAStoreEvidence, ...
+                    ] = (
+                        *await source_repository.list_amazon_evidence(self._run_id),
+                        *await source_repository.list_ikea_evidence(self._run_id),
+                    )
+                    amazon_contexts = (
+                        await source_repository.list_amazon_listing_contexts(
+                            self._run_id
+                        )
+                    )
+                    ikea_contexts = await source_repository.list_ikea_store_contexts(
+                        self._run_id
+                    )
+                    for record in typed_evidence:
+                        if record.source_id != parsed_id:
+                            continue
+                        support = _typed_original_support(
+                            record, snapshot, (), amazon_contexts, ikea_contexts, (), ()
+                        )
+                        if support is not None:
+                            parts.append(
+                                (
+                                    record.evidence_id,
+                                    json.dumps(
+                                        {
+                                            "status": "canonical_typed_support",
+                                            "evidence_id": str(record.evidence_id),
+                                            "supporting_text": support[0],
+                                            "original_records": support[1],
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                    None,
+                                )
+                            )
                 if parts:
                     text = "\n".join(part[1] for part in parts)
         try:

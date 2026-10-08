@@ -24,10 +24,12 @@ from agents.models.interface import Model, ModelProvider, ModelTracing
 from agents.retry import ModelRetryAdvice, ModelRetryAdviceRequest
 from agents.run_config import CallModelData, ModelInputData
 from agents.tool import FunctionTool, Tool
+from openai.types.responses import ResponseFunctionToolCall
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 from pydantic import BaseModel
 
 from app.agents.context_metrics import input_breakdown, measure
+from app.agents.research_history import history_scope, processed_view_id, retired_output
 
 
 class ContextBudgetExceeded(RuntimeError):
@@ -47,10 +49,10 @@ def context_budget_failure(error: BaseException) -> ContextBudgetExceeded | None
 
 @dataclass(frozen=True)
 class ContextLimits:
-    input_tokens: int = 16_000
+    input_tokens: int = 19_000
     total_tokens: int = 150_000
-    decision_reserve: int = 21_000
-    verification_reserve: int = 21_000
+    decision_reserve: int = 24_000
+    verification_reserve: int = 24_000
     hosted_reserve: int = 8_000
     output_tokens: int = 5_000
 
@@ -62,6 +64,7 @@ class ContextBudget:
     reserved: int = 0
     exhausted: bool = False
     events: list[dict[str, Any]] = field(default_factory=list)
+    call_owners: dict[tuple[str, str, str], str] = field(default_factory=dict)
 
     def reserve(self, estimated: int, *, agent: str) -> int:
         if (
@@ -111,7 +114,8 @@ def context_scope(budget: ContextBudget | None = None):
     size_token = _before_size.set(None)
     allowance_token = _allowances.set(())
     try:
-        yield _budget.get()
+        with history_scope(fresh=True):
+            yield _budget.get()
     finally:
         _budget.reset(token)
         _stage.reset(stage_token)
@@ -248,7 +252,9 @@ def prepare_history(items: list[TResponseInputItem]) -> list[TResponseInputItem]
 
     Defer only fully quoted bodies or byte-identical repeated reads. Partial
     quotes cannot authorize dropping the rest of a read. The most recent
-    duplicate remains exact, and every distinct unquoted passage survives.
+    duplicate remains exact, and every distinct unprocessed passage survives.
+    Explicit processing can replace canonical tool views with exact retained
+    facts, cautions and unresolved coverage plus bounded original lookup.
     """
     calls = {
         item.get("call_id"): item.get("name")
@@ -295,12 +301,23 @@ def prepare_history(items: list[TResponseInputItem]) -> list[TResponseInputItem]
                 duplicate_reads[latest_reads[key]] = str(item.get("call_id"))
             latest_reads[key] = position
     result = []
+    retained_views: set[str] = set()
     for index, original in enumerate(items):
         projected: Any = dict(original)
         if projected.get("type") == "function_call_output" and isinstance(
             projected.get("output"), str
         ):
-            payload = payloads.get(index)
+            retired = retired_output(projected["output"])
+            view_id = processed_view_id(retired)
+            if view_id in retained_views:
+                retired = json.dumps(
+                    {"status": "processed_unchanged", "view_id": view_id},
+                    separators=(",", ":"),
+                )
+            elif view_id is not None:
+                retained_views.add(view_id)
+            payload = payloads.get(index) if retired == projected["output"] else None
+            projected["output"] = retired
             if payload is not None:
                 bodies = [payload]
                 bodies.extend(payload.get("segments", []))
@@ -334,6 +351,10 @@ def prepare_history(items: list[TResponseInputItem]) -> list[TResponseInputItem]
             projected.get("content"), str
         ):
             projected["content"] = compact_json(projected["content"])
+        elif projected.get("type") == "function_call" and isinstance(
+            projected.get("arguments"), str
+        ):
+            projected["arguments"] = compact_json(projected["arguments"])
         result.append(projected)
     return result
 
@@ -422,6 +443,17 @@ class BudgetedModel(Model):
                 for i in prepared
                 if i.get("type") == "function_call"
             }
+            call_owners = {
+                i.get("call_id"): self.budget.call_owners.get(
+                    (
+                        str(i.get("call_id")),
+                        str(i.get("name")),
+                        compact_json(str(i.get("arguments", "{}"))),
+                    )
+                )
+                for i in prepared
+                if i.get("type") == "function_call"
+            }
             for item in prepared:
                 output = item.get("output")
                 if item.get("type") != "function_call_output" or not isinstance(
@@ -435,6 +467,7 @@ class BudgetedModel(Model):
                 if (
                     isinstance(result, dict)
                     and result.get("status") == "budget_exhausted"
+                    and call_owners.get(item.get("call_id")) == agent
                 ):
                     exhausted.add(call_names.get(item.get("call_id")))
             tools = [tool for tool in tools if tool.name not in exhausted]
@@ -574,6 +607,15 @@ class BudgetedModel(Model):
             raise ContextBudgetExceeded(
                 "The model requested research after its spending or tool budget closed."
             )
+        for response_item in response.output:
+            if isinstance(response_item, ResponseFunctionToolCall):
+                self.budget.call_owners[
+                    (
+                        response_item.call_id,
+                        response_item.name,
+                        compact_json(response_item.arguments),
+                    )
+                ] = agent
         return response
 
     def stream_response(

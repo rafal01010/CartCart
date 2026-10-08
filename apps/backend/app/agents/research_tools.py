@@ -7,7 +7,7 @@ arguments, raw metadata, artifact paths, or an arbitrary-URL fetch operation.
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from ipaddress import ip_address
 from typing import Any
@@ -31,7 +31,7 @@ from app.providers.contracts import (
 )
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.ids import RunId, SourceId
+from app.schemas.ids import RunId, SourceId, new_id
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
     ExtractionStatus,
@@ -56,6 +56,8 @@ class ResearchToolLimits(CartCartBaseModel):
     max_results_per_search: int = Field(default=10, ge=1, le=20)
     max_page_text_chars: int = Field(default=4000, ge=500, le=12000)
     max_quote_calls: int = Field(default=8, ge=1, le=20)
+    max_initial_results: int = Field(default=4, ge=1, le=20)
+    max_snippet_chars: int = Field(default=200, ge=50, le=500)
 
 
 class ResearchToolStatus(StrEnum):
@@ -96,11 +98,22 @@ class ToolSource(CartCartBaseModel):
     snippet: str | None = None
     provider_source_type: SourceType
     provider_name: str
+    snippet_truncated: bool = False
+    unreviewed_content: bool = False
+    material_cautions: tuple[str, ...] = ()
+    deferred_caution_count: int = 0
+    cautions_truncated: bool = False
+    caution_focus_terms: tuple[str, ...] = ()
+    unreviewed_cautions: bool = False
 
 
 class SearchSourcesResult(CartCartBaseModel):
     status: ResearchToolStatus
     sources: tuple[ToolSource, ...] = ()
+    search_result_id: SourceId | None = None
+    total_sources: int = 0
+    next_offset: int | None = None
+    deferred_source_ids: tuple[SourceId, ...] = ()
     gap: str | None = None
 
 
@@ -114,6 +127,12 @@ class FetchSourceResult(CartCartBaseModel):
     extraction_status: ExtractionStatus | None = None
     text: str | None = None
     text_truncated: bool = False
+    unreviewed_content: bool = False
+    material_cautions: tuple[str, ...] = ()
+    deferred_caution_count: int = 0
+    cautions_truncated: bool = False
+    caution_focus_terms: tuple[str, ...] = ()
+    unreviewed_cautions: bool = False
     start_char: int = 0
     total_characters: int = 0
     content_sha256: str | None = None
@@ -311,6 +330,20 @@ async def save_hosted_citations(
     return persisted, tuple(item[0] for item in selected), tuple(decisions)
 
 
+@dataclass
+class ResearchRunState:
+    search_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    query_cache: dict[tuple[str, str, str | None, int], SearchSourcesResult] = field(
+        default_factory=dict
+    )
+    search_pages: dict[SourceId, tuple[SourceId, ...]] = field(default_factory=dict)
+    recorded_quote_ids: set[SourceId] = field(default_factory=set)
+    recorded_source_ids: set[SourceId] = field(default_factory=set)
+    observed_spans: dict[SourceId, list[tuple[int, int, str]]] = field(
+        default_factory=dict
+    )
+
+
 class AgentResearchTools:
     """One instance per agent run; provider and database dependencies stay private."""
 
@@ -356,11 +389,9 @@ class AgentResearchTools:
         self._session_lock = asyncio.Lock()
         self._activity: list[dict[str, Any]] = []
         self._search_results: list[SearchResult] = []
-        self._recorded_quote_ids: set[SourceId] = set()
-        self._recorded_source_ids: set[SourceId] = set()
-        self._observed_spans: dict[SourceId, list[tuple[int, int, str]]] = {}
+        self._run_state = ResearchRunState()
+        self._bind_run_state(self._run_state)
         self._span_reads = 0
-        self._query_cache: dict[tuple[str, str, str | None, int], SearchSourcesResult] = {}
 
     @property
     def workbench_activity(self) -> tuple[dict[str, Any], ...]:
@@ -388,7 +419,7 @@ class AgentResearchTools:
 
     def for_agent(self, agent_name: str) -> "AgentResearchTools":
         """Give a receiving owner the same run, policy, and providers with its own budget."""
-        return AgentResearchTools(
+        receiving = AgentResearchTools(
             agent_name=agent_name,
             run_id=self._run_id,
             session_factory=self._session_factory,
@@ -399,6 +430,27 @@ class AgentResearchTools:
             limits=self._limits,
             required_region_code=self._required_region_code,
         )
+        receiving._bind_run_state(self._run_state)
+        return receiving
+
+    def _bind_run_state(self, state: ResearchRunState) -> None:
+        self._run_state = state
+        self._query_cache = state.query_cache
+        self._recorded_quote_ids = state.recorded_quote_ids
+        self._recorded_source_ids = state.recorded_source_ids
+        self._observed_spans = state.observed_spans
+
+    def share_run_state(self, other: "AgentResearchTools") -> bool:
+        if (
+            self._run_id != other._run_id
+            or self._required_region_code != other._required_region_code
+            or self._source_policy != other._source_policy
+            or self._search_provider is not other._search_provider
+            or self._extraction_provider is not other._extraction_provider
+        ):
+            return False
+        other._bind_run_state(self._run_state)
+        return True
 
     @asynccontextmanager
     async def _session(self) -> AsyncIterator[AsyncSession]:
@@ -415,7 +467,7 @@ class AgentResearchTools:
         # the shopping run shares its unit-of-work session with these tools.
         await session.commit()
 
-    def sdk_tools(self) -> tuple[FunctionTool, FunctionTool]:
+    def sdk_tools(self) -> tuple[FunctionTool, ...]:
         """Return SDK tools; SDK traces record calls without exposing dependencies."""
 
         @function_tool
@@ -448,8 +500,9 @@ class AgentResearchTools:
             return (await self.search(request)).model_dump_json()
 
         @function_tool
-        async def fetch_source(source_id: str, start_char: int = 0,
-                               focus: str | None = None) -> str:
+        async def fetch_source(
+            source_id: str, start_char: int = 0, focus: str | None = None
+        ) -> str:
             """Read an exact bounded span by run-scoped ID, including later page text.
 
             Args:
@@ -458,17 +511,64 @@ class AgentResearchTools:
                 focus: Optional exact search term to locate relevant support anywhere in the page.
             """
             try:
-                request = FetchSourceRequest.model_validate({"source_id": source_id, "start_char": start_char, "focus": focus})
+                request = FetchSourceRequest.model_validate(
+                    {"source_id": source_id, "start_char": start_char, "focus": focus}
+                )
             except ValidationError:
                 return FetchSourceResult(
                     status=ResearchToolStatus.INVALID_REQUEST,
                     gap="Source ID failed validation.",
                 ).model_dump_json()
-            return (await self.fetch(request)).model_dump_json()
+            result = await self.fetch(request)
+            return result.model_dump_json(
+                exclude={
+                    name
+                    for name in (
+                        "deferred_caution_count",
+                        "cautions_truncated",
+                        "caution_focus_terms",
+                        "unreviewed_cautions",
+                    )
+                    if not getattr(result, name)
+                }
+            )
 
-        return search_sources, fetch_source
+        @function_tool
+        async def read_search_results(
+            search_result_id: str | None = None,
+            offset: int = 0,
+            source_id: str | None = None,
+            start_char: int = 0,
+            focus: str | None = None,
+        ) -> str:
+            """Retrieve deferred leads or original snippet spans without provider calls.
 
-    def sdk_owner_tools(self) -> tuple[FunctionTool, FunctionTool, FunctionTool]:
+            Args:
+                search_result_id: Result batch ID returned by search_sources.
+                offset: Index of the next bounded lead batch.
+                source_id: One persisted lead ID, instead of a batch ID.
+                start_char: Offset into the original snippet.
+                focus: Optional exact term to locate in the original snippet.
+            """
+            return await self.read_search_results(
+                search_result_id=search_result_id,
+                offset=offset,
+                source_id=source_id,
+                start_char=start_char,
+                focus=focus,
+            )
+
+        from app.agents.research_history import tracked_tools
+
+        search_sources.is_enabled = lambda _context, _agent: (
+            self._search_calls < self._limits.max_search_calls
+        )
+        fetch_source.is_enabled = lambda _context, _agent: (
+            self._span_reads < self._limits.max_fetch_calls * 3
+        )
+        return tracked_tools((search_sources, fetch_source, read_search_results))
+
+    def sdk_owner_tools(self) -> tuple[FunctionTool, ...]:
         """General owner may cite exact text from an already fetched page."""
         if (
             ApprovedSDKTool.RECORD_SOURCE_QUOTE
@@ -493,8 +593,12 @@ class AgentResearchTools:
                 ).model_dump_json()
             return (await self.record_quote(parsed_id, quote)).model_dump_json()
 
-        search, fetch = self.sdk_tools()
-        return search, fetch, record_source_quote
+        from app.agents.research_history import tracked_tools
+
+        return (
+            *self.sdk_tools(),
+            *tracked_tools((record_source_quote,), include_controls=False),
+        )
 
     async def record_quote(
         self, source_id: SourceId, quote: str
@@ -532,8 +636,11 @@ class AgentResearchTools:
                     or bounded not in snapshot.extracted_content.text
                     or not any(
                         bounded in snapshot.extracted_content.text[start:end]
-                        and digest == source_span(snapshot.extracted_content.text).content_sha256
-                        for start, end, digest in self._observed_spans.get(source_id, ())
+                        and digest
+                        == source_span(snapshot.extracted_content.text).content_sha256
+                        for start, end, digest in self._observed_spans.get(
+                            source_id, ()
+                        )
                     )
                 ):
                     result = RecordSourceQuoteResult(
@@ -578,7 +685,9 @@ class AgentResearchTools:
                     quote=bounded,
                     start_char=quote_start,
                     end_char=quote_start + len(bounded),
-                    content_sha256=source_span(snapshot.extracted_content.text).content_sha256,
+                    content_sha256=source_span(
+                        snapshot.extracted_content.text
+                    ).content_sha256,
                 )
                 self._record(
                     "record_source_quote",
@@ -588,13 +697,20 @@ class AgentResearchTools:
                         str(snapshot.source_id),
                         str(evidence.evidence_id),
                     ],
-                    support_span={"snapshot_id": str(snapshot.source_id),
-                                  "start_char": result.start_char, "end_char": result.end_char,
-                                  "content_sha256": result.content_sha256},
+                    support_span={
+                        "snapshot_id": str(snapshot.source_id),
+                        "start_char": result.start_char,
+                        "end_char": result.end_char,
+                        "content_sha256": result.content_sha256,
+                    },
                 )
                 return result
 
     async def search(self, request: SearchSourcesRequest) -> SearchSourcesResult:
+        async with self._run_state.search_lock:
+            return await self._search(request)
+
+    async def _search(self, request: SearchSourcesRequest) -> SearchSourcesResult:
         if (
             self._required_region_code is not None
             or self._agent_name == "GeneralShoppingAgent"
@@ -610,7 +726,12 @@ class AgentResearchTools:
                 update={"region_code": self._required_region_code}
             )
         async with self._lock:
-            cache_key = (request.query.casefold(), request.intent.value, request.region_code, request.max_results)
+            cache_key = (
+                request.query.casefold(),
+                request.intent.value,
+                request.region_code,
+                request.max_results,
+            )
             if cache_key in self._query_cache:
                 self._record("search_sources", "cached_query", query=request.query)
                 return self._query_cache[cache_key]
@@ -665,17 +786,38 @@ class AgentResearchTools:
                 async with self._session() as session:
                     repository = SearchSourceRepository(session)
                     existing = {
-                        (str(item.url), item.source_type): item
+                        (
+                            str(item.url),
+                            item.source_type,
+                            item.title,
+                            item.snippet,
+                            item.query.region_code,
+                        ): item
                         for item in await repository.list_search_results(self._run_id)
                     }
                     unique = {}
                     for candidate in selected:
-                        key = (str(candidate.url), candidate.source_type)
+                        key = (
+                            str(candidate.url),
+                            candidate.source_type,
+                            candidate.title,
+                            candidate.snippet,
+                            candidate.query.region_code,
+                        )
                         if key not in unique:
                             if key in existing:
                                 unique[key] = existing[key]
                             else:
-                                unique[key] = await repository.add_search_result(self._run_id, candidate)
+                                if any(
+                                    item.source_id == candidate.source_id
+                                    for item in existing.values()
+                                ):
+                                    candidate = candidate.model_copy(
+                                        update={"source_id": new_id()}
+                                    )
+                                unique[key] = await repository.add_search_result(
+                                    self._run_id, candidate
+                                )
                     selected = list(unique.values())
                     await self._commit(session)
         except Exception:
@@ -686,14 +828,11 @@ class AgentResearchTools:
             self._record("search_sources", result.status)
             return result
 
-        result = SearchSourcesResult(
-            status=ResearchToolStatus.SUCCEEDED,
-            sources=tuple(
-                _tool_source(item, _provider_label(self._search_provider))
-                for item in selected
-            ),
-            gap=None if selected else "No approved search sources were returned.",
+        batch_id = new_id()
+        self._run_state.search_pages[batch_id] = tuple(
+            item.source_id for item in selected
         )
+        result = self._search_page(batch_id, selected, 0)
         self._search_results.extend(selected)
         self._query_cache[cache_key] = result
         self._record(
@@ -703,6 +842,117 @@ class AgentResearchTools:
             query=request.query,
         )
         return result
+
+    def _search_page(
+        self, batch_id: SourceId, sources: list[SearchResult], offset: int
+    ) -> SearchSourcesResult:
+        end = min(len(sources), offset + self._limits.max_initial_results)
+        return SearchSourcesResult(
+            status=ResearchToolStatus.SUCCEEDED,
+            search_result_id=batch_id,
+            total_sources=len(sources),
+            next_offset=end if end < len(sources) else None,
+            deferred_source_ids=tuple(item.source_id for item in sources[end:]),
+            sources=tuple(
+                _tool_source(
+                    item,
+                    _provider_label(self._search_provider),
+                    self._limits.max_snippet_chars,
+                )
+                for item in sources[offset:end]
+            ),
+            gap=None if sources else "No approved search sources were returned.",
+        )
+
+    async def read_search_results(
+        self,
+        *,
+        search_result_id: str | None = None,
+        offset: int = 0,
+        source_id: str | None = None,
+        start_char: int = 0,
+        focus: str | None = None,
+    ) -> str:
+        import json
+
+        if (search_result_id is None) == (source_id is None) or offset < 0:
+            return json.dumps(
+                {
+                    "status": "invalid_request",
+                    "gap": "Supply one search batch or source ID and a nonnegative offset.",
+                }
+            )
+        try:
+            parsed = SourceId(search_result_id or source_id)
+        except (TypeError, ValueError):
+            return json.dumps(
+                {"status": "invalid_request", "gap": "Invalid search/source ID."}
+            )
+        async with self._session_lock:
+            async with self._session() as session:
+                repo = SearchSourceRepository(session)
+                if search_result_id is not None:
+                    ids = self._run_state.search_pages.get(parsed)
+                    if ids is None:
+                        return json.dumps(
+                            {
+                                "status": "unknown_source",
+                                "gap": "Search batch is not in this run.",
+                            }
+                        )
+                    sources = [
+                        await repo.get_search_result_for_run(self._run_id, item)
+                        for item in ids
+                    ]
+                    if any(item is None for item in sources):
+                        return json.dumps(
+                            {
+                                "status": "unknown_source",
+                                "gap": "Original search lead is unavailable.",
+                            }
+                        )
+                    if offset > len(sources):
+                        return json.dumps(
+                            {
+                                "status": "invalid_request",
+                                "gap": "Search batch offset is out of range.",
+                            }
+                        )
+                    return self._search_page(
+                        parsed, [item for item in sources if item is not None], offset
+                    ).model_dump_json()
+                source = await repo.get_search_result_for_run(self._run_id, parsed)
+        if source is None:
+            return json.dumps(
+                {"status": "unknown_source", "gap": "Source is not in this run."}
+            )
+        if not _safe_public_result_url(str(source.url)) or not _source_policy_allows(
+            str(source.url), source.source_type, self._source_policy
+        ):
+            return json.dumps(
+                {"status": "gap", "gap": "Source is outside approved retrieval policy."}
+            )
+        try:
+            span = source_span(
+                source.snippet or "", start=start_char, focus=focus, limit=2000
+            )
+        except ValueError as exc:
+            return json.dumps({"status": "invalid_request", "gap": str(exc)})
+        return json.dumps(
+            {
+                "status": "succeeded",
+                "source_id": str(parsed),
+                "title": source.title,
+                "url": _neutral_url(str(source.url)),
+                "snippet": span.text,
+                "start_char": span.start,
+                "total_characters": span.total_characters,
+                "content_sha256": span.content_sha256,
+                "unreviewed_content": len(span.text) < span.total_characters,
+                **_caution_details(source.snippet or ""),
+                "gap": "Search snippets are discovery leads, not verified evidence.",
+            }
+        )
 
     async def persist_hosted_citations(
         self,
@@ -736,8 +986,10 @@ class AgentResearchTools:
     async def fetch(self, request: FetchSourceRequest) -> FetchSourceResult:
         async with self._lock:
             if self._span_reads >= self._limits.max_fetch_calls * 3:
-                return FetchSourceResult(status=ResearchToolStatus.BUDGET_EXHAUSTED,
-                                         gap="Source span read limit reached.")
+                return FetchSourceResult(
+                    status=ResearchToolStatus.BUDGET_EXHAUSTED,
+                    gap="Source span read limit reached.",
+                )
             self._span_reads += 1
             async with self._session_lock:
                 async with self._session() as session:
@@ -864,7 +1116,10 @@ class AgentResearchTools:
             return result
 
     def _fetch_result(
-        self, source: SearchResult, snapshot: SourceSnapshot, request: FetchSourceRequest
+        self,
+        source: SearchResult,
+        snapshot: SourceSnapshot,
+        request: FetchSourceRequest,
     ) -> FetchSourceResult:
         text = (
             snapshot.extracted_content.text
@@ -872,15 +1127,28 @@ class AgentResearchTools:
             else None
         )
         try:
-            span = source_span(text, start=request.start_char, focus=request.focus,
-                               limit=self._limits.max_page_text_chars) if text else None
+            span = (
+                source_span(
+                    text,
+                    start=request.start_char,
+                    focus=request.focus,
+                    limit=self._limits.max_page_text_chars,
+                )
+                if text
+                else None
+            )
         except ValueError as exc:
-            return FetchSourceResult(status=ResearchToolStatus.GAP, source_id=source.source_id,
-                                     snapshot_id=snapshot.source_id, gap=str(exc))
+            return FetchSourceResult(
+                status=ResearchToolStatus.GAP,
+                source_id=source.source_id,
+                snapshot_id=snapshot.source_id,
+                gap=str(exc),
+            )
         bounded_text = span.text if span else None
         if span is not None and bounded_text:
             self._observed_spans.setdefault(source.source_id, []).append(
-                (span.start, span.start + len(span.text), span.content_sha256))
+                (span.start, span.start + len(span.text), span.content_sha256)
+            )
         has_usable_text = (
             snapshot.extraction_status == ExtractionStatus.SUCCEEDED and bool(text)
         )
@@ -905,6 +1173,8 @@ class AgentResearchTools:
             total_characters=span.total_characters if span else 0,
             content_sha256=span.content_sha256 if span else None,
             text_truncated=text is not None and len(text) > len(bounded_text or ""),
+            unreviewed_content=text is not None and len(text) > len(bounded_text or ""),
+            **_caution_details(text or ""),
             provider_name=_provider_label(self._extraction_provider),
             gap=(
                 None
@@ -927,23 +1197,41 @@ class AgentResearchTools:
             {
                 "tool_name": tool_name,
                 "status": status,
-                "input": {"agent": self._agent_name, "run_id": str(self._run_id),
-                          **({"query": query} if query is not None else {})},
+                "input": {
+                    "agent": self._agent_name,
+                    "run_id": str(self._run_id),
+                    **({"query": query} if query is not None else {}),
+                },
                 "output": {
                     "source_ids": source_ids or [],
                     **({"url": url} if url is not None else {}),
-                    **({"support_span": support_span} if support_span is not None else {}),
+                    **(
+                        {"support_span": support_span}
+                        if support_span is not None
+                        else {}
+                    ),
                 },
             }
         )
 
 
-def _tool_source(result: SearchResult, provider_name: str) -> ToolSource:
+def _caution_details(text: str) -> dict[str, Any]:
+    from app.agents.research_history import bounded_cautions
+
+    return bounded_cautions(text)
+
+
+def _tool_source(
+    result: SearchResult, provider_name: str, snippet_limit: int = 200
+) -> ToolSource:
     return ToolSource(
         source_id=result.source_id,
         url=_neutral_url(str(result.url)),
         title=result.title,
-        snippet=result.snippet,
+        snippet=result.snippet[:snippet_limit] if result.snippet else None,
+        snippet_truncated=bool(result.snippet and len(result.snippet) > snippet_limit),
+        unreviewed_content=bool(result.snippet and len(result.snippet) > snippet_limit),
+        **_caution_details(result.snippet or ""),
         provider_source_type=result.source_type,
         provider_name=provider_name,
     )

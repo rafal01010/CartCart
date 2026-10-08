@@ -748,6 +748,16 @@ timeout correction alone does not establish successful recommendation behavior.
 Saved owner activity and the read-only inspector retain
 the exception class and an allowlisted handoff rejection code when available,
 without saving raw exception messages. Earlier failed runs remain failed.
+New category rejections also save `general_owner.output.rejected_handoff`.
+Its fixed fields are `source_agent`, `target_agent`, `requested_category`,
+`requested_category_length`, `requested_route`, and `buyer_route`.
+The category label must exactly match normalized catalog vocabulary or becomes
+`null`; its length and catalog routes remain available for diagnosis.
+The record omits the handoff reason, buyer query, raw arguments, and exception
+text. A rejected transfer does not change the last completed owner.
+The exact rejected category in historical Task 100A live failures is unknown.
+Offline SDK tests reproduce plural phone rejection and verify the finite alias
+repair; these tests alone do not establish live acceptance.
 The installed SDK accepts reasoning efforts through `xhigh`; selecting the
 reserved `max` value produces an explicit configuration error before a call.
 The source specialists use the `fast` profile (`gpt-6-luna` in `.env.example`),
@@ -1144,10 +1154,10 @@ ignored `data/artifacts/context`; the script removes its repository-local test
 and cache scratch on exit.
 
 [CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md) documents the measured costs,
-field matrix and uncertainty. Defaults bound estimated known input at 16,000
+field matrix and uncertainty. Defaults bound estimated known input at 19,000
 tokens and whole-pipeline cumulative usage at 150,000. The existing 90,000-token
 owner/source and 30,000-token source-manager allowances remain. Comparison and
-verification each reserve 21,000 tokens, enough for maximum bounded input and
+verification each reserve 24,000 tokens, enough for maximum bounded input and
 output. Completion backstops use the settled transport ledger rather than
 overlapping source aggregate and child activity totals. Hosted search reserves
 an additional estimated 8,000 tokens per enabled request. Returned actual usage
@@ -1162,3 +1172,24 @@ failure; it must not become a no-strong-buy result. Recovery cannot spend past
 its original allowance. Context preparation creates no runtime working files;
 full original support follows the existing durable evidence retention policy.
 Task 100A remains open and Task 101 is unstarted.
+
+The 2026-10-07 guided live retry preserved actual `.env` models, providers and
+limits, PH/PHP, unlimited budget and the supplied `iPhone`. After the finite
+phone-alias repair, both specialist handoffs and three searches succeeded. The
+next call was blocked before transport at 17,685 estimated input tokens against
+the 16,000 limit. Shared settled usage was 22,976 tokens; the owner/source
+allowance was not exhausted. Sixteen leads were saved but no source or buying
+result was created. The browser displayed failure and the session result API
+returned HTTP 404 `result_not_ready`. Task 211 subsequently adds bounded context preparation and measured per-call
+headroom with unchanged cumulative ceilings. Task 100A still needs authorized
+live acceptance; this failed run cannot establish a buying result.
+
+### Reproduce Task 211 offline
+
+Run `scripts/local/verify-context.sh` for the complete shared context gate.
+The gate includes the saved-shaped scripted SDK probe and receiving-stage
+projection controls, then quick-before-full evals. Keep paid calls separate.
+Canonical tool-view lookup lives only for the current invocation; persisted
+source, page and evidence records use existing SQLite repositories. Processing
+receipts never establish reviewed safety for omitted passages. Task 100A still
+requires a fresh authorized guided attempt and its matching saved result.

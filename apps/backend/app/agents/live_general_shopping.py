@@ -25,6 +25,7 @@ from agents.tool_context import ToolContext
 from pydantic import Field, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agents.research_history import ResearchCoverageError, active_history
 from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
@@ -53,7 +54,11 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
 )
 from app.agents.live_source_intelligence_manager import SourceIntelligenceManagerAgent
-from app.agents.owner_research import OwnerResearchContext, assess_run_listings
+from app.agents.owner_research import (
+    OwnerResearchContext,
+    OwnerResearchState,
+    assess_run_listings,
+)
 from app.agents.research_tools import AgentResearchTools, PersistedHostedCitation
 from app.core.settings import Settings
 from app.db.repositories.search_sources import SearchSourceRepository
@@ -123,6 +128,27 @@ class ProductSpecialistHandoffContext(CartCartBaseModel):
         if len(stripped) < (10 if info.field_name == "reason" else 2):
             raise ValueError("Specialist handoff context must not be blank.")
         return stripped
+
+
+def _rejected_handoff_diagnostic(
+    source_agent: str,
+    target_agent: str,
+    category: str,
+    requested_route: tuple[str, ...],
+    buyer_route: tuple[str, ...],
+) -> dict[str, Any]:
+    normalized = " ".join(category.lower().replace("/", " ").split())
+    known_categories = set(DEFAULT_AGENT_CATALOG.product_category_routes) | set(
+        DEFAULT_AGENT_CATALOG.technology_category_keywords
+    )
+    return {
+        "source_agent": source_agent,
+        "target_agent": target_agent,
+        "requested_category": normalized if normalized in known_categories else None,
+        "requested_category_length": len(category),
+        "requested_route": list(requested_route),
+        "buyer_route": list(buyer_route),
+    }
 
 
 _SPECIALIST_INSTRUCTIONS = {
@@ -356,6 +382,9 @@ class LiveGeneralShoppingAgent:
             raise OpenAIAgentConfigurationError(
                 "Live TechnologyDomainAnalystAgent handoff requires run-scoped research."
             )
+        if tools is not None and technology_tools is not None:
+            tools.share_run_state(technology_tools)
+        owner_research_state = OwnerResearchState()
         owner_research = (
             {
                 name: OwnerResearchContext(
@@ -366,6 +395,7 @@ class LiveGeneralShoppingAgent:
                     session_factory=self.session_factory,
                     shared_session=self.shared_session,
                     source_manager=self.source_intelligence_manager,
+                    research_state=owner_research_state,
                     source_policy=(
                         technology_tools.source_policy
                         if name != "GeneralShoppingAgent"
@@ -415,6 +445,7 @@ class LiveGeneralShoppingAgent:
         specialist_requests: list[tuple[str, ProductSpecialistHandoffContext]] = []
         observed_handoffs: list[tuple[str, str]] = []
         rejected_specialist: str | None = None
+        rejected_handoff: dict[str, Any] | None = None
         for specialist_name in approved_specialists:
             entry = DEFAULT_AGENT_CATALOG.require(specialist_name)
             if (
@@ -516,7 +547,7 @@ class LiveGeneralShoppingAgent:
         def on_specialist_handoff(
             specialist_name: str, request: ProductSpecialistHandoffContext
         ) -> None:
-            nonlocal rejected_specialist
+            nonlocal rejected_specialist, rejected_handoff
             if specialist_requests or not handoff_requests:
                 rejected_specialist = specialist_name
                 raise UserError("Specialist handoff exceeds the declared hierarchy.")
@@ -534,6 +565,13 @@ class LiveGeneralShoppingAgent:
                 or buyer_route != requested_route
             ):
                 rejected_specialist = specialist_name
+                rejected_handoff = _rejected_handoff_diagnostic(
+                    technology_agent.name,
+                    specialist_name,
+                    request.product_category,
+                    requested_route,
+                    buyer_route,
+                )
                 raise UserError(
                     "Specialist handoff does not match the buyer's category."
                 )
@@ -624,6 +662,7 @@ class LiveGeneralShoppingAgent:
         def on_technology_handoff(
             _context: Any, request: TechnologyHandoffContext
         ) -> None:
+            nonlocal rejected_handoff
             permitted = DEFAULT_AGENT_CATALOG.require(
                 "GeneralShoppingAgent"
             ).target_handoff_agent_names
@@ -634,16 +673,23 @@ class LiveGeneralShoppingAgent:
             brief_text = " ".join(
                 (input_data.brief.original_query, input_data.brief.category or "")
             )
+            requested_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
+                request.technology_category
+            ).agent_path
+            buyer_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
+                brief_text
+            ).agent_path
             if (
-                DEFAULT_AGENT_CATALOG.route_product_analysis(
-                    request.technology_category
-                ).agent_path[0]
-                != technology_agent.name
-                or DEFAULT_AGENT_CATALOG.route_product_analysis(brief_text).agent_path[
-                    0
-                ]
-                != technology_agent.name
+                requested_route[0] != technology_agent.name
+                or buyer_route[0] != technology_agent.name
             ):
+                rejected_handoff = _rejected_handoff_diagnostic(
+                    agent.name,
+                    technology_agent.name,
+                    request.technology_category,
+                    requested_route,
+                    buyer_route,
+                )
                 raise UserError(
                     "Technology handoff does not match the shopper's request."
                 )
@@ -976,9 +1022,15 @@ class LiveGeneralShoppingAgent:
                 if isinstance(exc, UserError)
                 else "context_budget_exceeded"
                 if isinstance(exc, ContextBudgetExceeded)
+                else "unreviewed_research"
+                if isinstance(exc, ResearchCoverageError)
                 else None
             )
-            gap = f"Shopping research could not be verified ({type(exc).__name__})."
+            gap = (
+                str(exc)
+                if isinstance(exc, ResearchCoverageError)
+                else f"Shopping research could not be verified ({type(exc).__name__})."
+            )
             error_data = getattr(exc, "run_data", None)
             failed_run_usage = getattr(
                 getattr(error_data, "context_wrapper", None), "usage", None
@@ -1102,6 +1154,7 @@ class LiveGeneralShoppingAgent:
                 and owner_tokens(getattr(failed_run_usage, "total_tokens", 0) or 0)
                 < 90000
                 and budget_failure is None
+                and not isinstance(exc, ResearchCoverageError)
             ):
                 recovery_agent = technology_agent.clone(
                     handoffs=[],
@@ -1241,6 +1294,7 @@ class LiveGeneralShoppingAgent:
                     "gap": gap,
                     "failure_type": failure_type,
                     "failure_code": failure_code,
+                    "rejected_handoff": rejected_handoff,
                     "model": configuration.model,
                     "last_agent": draft.owner_agent_name,
                     "last_agent_model": (
@@ -1450,6 +1504,28 @@ class LiveGeneralShoppingAgent:
                     continue
                 seen_modes.add(mode.mode)
                 validated_modes.append(mode)
+            history = active_history()
+            if history is not None:
+                choices = [(model.rationale, selected)] + [
+                    (mode.rationale, candidate)
+                    for mode in validated_modes
+                    for candidate in candidates
+                    if candidate.name == mode.candidate_name
+                ]
+                for rationale, candidate in choices:
+                    unsupported = history.unjustified_safety_claims(
+                        rationale,
+                        [item.quote for item in candidate.evidence],
+                        [
+                            str(identifier)
+                            for item in candidate.evidence
+                            for identifier in (item.source_id, item.snapshot_id)
+                        ],
+                    )
+                    if unsupported:
+                        raise ResearchCoverageError(
+                            "Safety or warranty claims require review of the original relevant support; unreviewed research cannot establish them."
+                        )
             return GeneralShoppingDecisionDraft(
                 category=model.category,
                 specialist_helpful=model.specialist_helpful,

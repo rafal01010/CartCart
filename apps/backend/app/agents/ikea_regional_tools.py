@@ -9,9 +9,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from agents import FunctionTool, function_tool
+from pydantic import AnyHttpUrl
 
 from app.agents.contracts import IKEAStoreIntelligenceAgentInput
 from app.agents.ikea_store_intelligence_service import _target_region_code
+from app.agents.research_history import tracked_tools
+from app.agents.source_spans import source_span
 from app.core.ikea_regions import IKEA_REGION_PATHS
 from app.providers import (
     IKEAStoreIntelligenceProvider,
@@ -111,11 +114,17 @@ class IKEARegionalStoreTools:
             return json.dumps(await self.search(product_id))
 
         @function_tool
-        async def read_ikea_product(source_id: str) -> str:
+        async def read_ikea_product(
+            source_id: str, start_char: int = 0, focus: str | None = None
+        ) -> str:
             """Read one previously returned official regional product result or snapshot."""
-            return json.dumps(await self.read(source_id))
+            return json.dumps(
+                await self.read(source_id, start_char=start_char, focus=focus)
+            )
 
-        return search_ikea_products, read_ikea_product
+        return tracked_tools(
+            (search_ikea_products, read_ikea_product), include_controls=True
+        )
 
     async def search(self, product_id: str) -> dict[str, Any]:
         product = next(
@@ -164,9 +173,11 @@ class IKEARegionalStoreTools:
                     self._records[str(hit.source_id)] = _OfficialRecord(
                         product_id=product_id,
                         reference=SourceReference(
-                            source_id=hit.source_id, url=neutral, title=hit.title
+                            source_id=hit.source_id,
+                            url=AnyHttpUrl(neutral),
+                            title=hit.title,
                         ),
-                        text=". ".join(filter(None, (hit.title, hit.snippet)))[:4000],
+                        text=". ".join(filter(None, (hit.title, hit.snippet))),
                         quality=hit.quality,
                     )
             else:
@@ -210,9 +221,11 @@ class IKEARegionalStoreTools:
                         self._records[str(ref.source_id)] = _OfficialRecord(
                             product_id=product_id,
                             reference=SourceReference(
-                                source_id=ref.source_id, url=neutral, title=ref.title
+                                source_id=ref.source_id,
+                                url=AnyHttpUrl(neutral),
+                                title=ref.title,
                             ),
-                            text=". ".join(filter(None, fragments))[:4000],
+                            text=". ".join(filter(None, fragments)),
                             quality=next(
                                 (
                                     e.source_quality
@@ -236,14 +249,14 @@ class IKEARegionalStoreTools:
                         product_id=product_id,
                         reference=SourceReference(
                             source_id=snapshot.source_id,
-                            url=neutral,
+                            url=AnyHttpUrl(neutral),
                             title=snapshot.title,
                         ),
                         text=(
                             snapshot.extracted_content.text
                             if snapshot.extracted_content
                             else snapshot.title or ""
-                        )[:4000],
+                        ),
                         quality=snapshot.quality,
                     ),
                 )
@@ -275,13 +288,19 @@ class IKEARegionalStoreTools:
         )
         return response
 
-    async def read(self, source_id: str) -> dict[str, Any]:
+    async def read(
+        self, source_id: str, *, start_char: int = 0, focus: str | None = None
+    ) -> dict[str, Any]:
         record = self._records.get(source_id)
         if record is None:
             return {
                 "status": "unknown_source",
                 "gap": "Source ID was not returned by approved regional search.",
             }
+        try:
+            span = source_span(record.text, start=start_char, focus=focus, limit=2000)
+        except ValueError as exc:
+            return {"status": "invalid_request", "gap": str(exc)}
         async with self._lock:
             if source_id not in self._read and len(self._read) >= self.max_reads:
                 return {"status": "budget_exhausted", "gap": "IKEA read limit reached."}
@@ -290,8 +309,17 @@ class IKEARegionalStoreTools:
             "status": "ok",
             "product_id": record.product_id,
             "region": self.region,
-            "source_reference": record.reference.model_dump(mode="json"),
-            "text": record.text,
+            "source_reference": record.reference.model_dump(
+                mode="json", exclude_none=True
+            ),
+            "text": span.text,
+            "start_char": span.start,
+            "total_characters": span.total_characters,
+            "content_sha256": span.content_sha256,
+            "text_truncated": span.start > 0
+            or span.start + len(span.text) < span.total_characters,
+            "unreviewed_content": span.start > 0
+            or span.start + len(span.text) < span.total_characters,
         }
         self._activity.append(
             {

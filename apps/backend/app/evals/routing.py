@@ -218,6 +218,24 @@ def _mvp_specialist_routing_cases() -> tuple[
                 "Help me choose a midrange phone with good camera and battery.",
             ),
             (
+                "phones",
+                "phones",
+                "SmartphoneSpecialistAgent",
+                "Help me compare phones with good camera and battery.",
+            ),
+            (
+                "smartphones",
+                "smartphones",
+                "SmartphoneSpecialistAgent",
+                "Help me compare smartphones available in the Philippines.",
+            ),
+            (
+                "mobile-phones",
+                "mobile phones",
+                "SmartphoneSpecialistAgent",
+                "Help me choose between mobile phones for photography.",
+            ),
+            (
                 "laptop",
                 "laptop",
                 "LaptopSpecialistAgent",

@@ -15,6 +15,8 @@ from app.agents.amazon_product_intelligence_service import (
     _merge_amazon_bundles,
     _target_region_code,
 )
+from app.agents.research_history import tracked_tools
+from app.agents.source_spans import source_span
 from app.providers import (
     AmazonProductIntelligenceProvider,
     AmazonProductIntelligenceProviderOptions,
@@ -111,13 +113,20 @@ class AmazonMarketplaceTools:
             return json.dumps(await self.search(product_id))
 
         @function_tool
-        async def read_amazon_product(source_id: str) -> str:
+        async def read_amazon_product(
+            source_id: str, start_char: int = 0, focus: str | None = None
+        ) -> str:
             """Read a neutral marketplace source returned by approved search."""
-            return json.dumps(await self.read(source_id))
+            return json.dumps(
+                await self.read(source_id, start_char=start_char, focus=focus)
+            )
 
-        return search_amazon_products, read_amazon_product
+        return tracked_tools(
+            (search_amazon_products, read_amazon_product), include_controls=True
+        )
 
     async def search(self, product_id: str) -> dict[str, Any]:
+        response: dict[str, Any]
         product = next(
             (
                 item
@@ -253,7 +262,10 @@ class AmazonMarketplaceTools:
             ),
         )
 
-    async def read(self, source_id: str) -> dict[str, Any]:
+    async def read(
+        self, source_id: str, *, start_char: int = 0, focus: str | None = None
+    ) -> dict[str, Any]:
+        response: dict[str, Any]
         if source_id in self._candidates:
             actual_source_id = self._candidate_sources.get(source_id)
             if actual_source_id is None:
@@ -357,17 +369,25 @@ class AmazonMarketplaceTools:
                     "status": "budget_exhausted",
                     "gap": "Amazon read limit reached.",
                 }
+            text = snapshot.extracted_content.text if snapshot.extracted_content else ""
+            try:
+                span = source_span(text, start=start_char, focus=focus, limit=2000)
+            except ValueError as exc:
+                return {"status": "invalid_request", "gap": str(exc)}
             self._read.add(source_id)
             response = {
                 "status": "persisted_source",
                 "source_id": source_id,
                 "url": str(snapshot.url),
                 "title": snapshot.title,
-                "extracted_excerpt": (
-                    snapshot.extracted_content.text[:2000]
-                    if snapshot.extracted_content
-                    else None
-                ),
+                "extracted_excerpt": span.text,
+                "start_char": span.start,
+                "total_characters": span.total_characters,
+                "content_sha256": span.content_sha256,
+                "text_truncated": span.start > 0
+                or span.start + len(span.text) < span.total_characters,
+                "unreviewed_content": span.start > 0
+                or span.start + len(span.text) < span.total_characters,
                 "note": "Candidate context only; product/listing facts require approved provider evidence.",
             }
             self._activity.append(
@@ -387,18 +407,18 @@ class AmazonMarketplaceTools:
             "status": "ok",
             "product_id": product_id,
             "source_reference": next(
-                item.model_dump(mode="json")
+                item.model_dump(mode="json", exclude_none=True)
                 for item in bundle.source_references
                 if item.source_id == context.source_id
             ),
-            "listing_context": context.model_dump(mode="json"),
+            "listing_context": context.model_dump(mode="json", exclude_none=True),
             "provider_evidence": [
-                item.model_dump(mode="json")
+                item.model_dump(mode="json", exclude_none=True)
                 for item in bundle.evidence
                 if item.source_id == context.source_id
             ],
             "provider_gaps": [
-                item.model_dump(mode="json")
+                item.model_dump(mode="json", exclude_none=True)
                 for item in bundle.evidence_gaps
                 if item.source_id in {None, context.source_id}
             ],

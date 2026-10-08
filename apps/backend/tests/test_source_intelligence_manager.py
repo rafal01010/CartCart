@@ -132,7 +132,7 @@ class _ParentRunner:
         assert agent.name == "SourceIntelligenceManagerAgent"
         assert max_turns == 15
         by_name = {tool.name: tool for tool in agent.tools}
-        assert len(by_name) == 4
+        assert len(by_name) == 6
         for name in (
             "consult_amazon_product_listing_review",
             "consult_ikea_regional_official_store",
@@ -392,7 +392,7 @@ async def test_parent_invokes_two_sdk_agent_tools_and_preserves_cited_bundles(
 def test_source_catalog_exposes_real_manager_delegation() -> None:
     manager = DEFAULT_AGENT_CATALOG.require("SourceIntelligenceManagerAgent")
     assert manager.invocation_mode == InvocationMode.TYPED_STEP
-    assert len(manager.approved_sdk_tools) == 4
+    assert len(manager.approved_sdk_tools) == 6
     for specialist in DEFAULT_AGENT_CATALOG.reusable_source_agents():
         assert specialist.invocation_mode == InvocationMode.REUSABLE_SOURCE_TOOL
         assert specialist.parent_agent_name == manager.agent_name

@@ -15,6 +15,7 @@ from app.agents.catalog import (
     build_default_agent_catalog,
 )
 from app.agents.contracts import ProductAnalysisAgentInput
+from app.agents.model_input_projection import evidence_model_fields, restore_evidence
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
@@ -98,7 +99,9 @@ class LiveMonitorSpecialistAgent:
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
         route = _route_for_input(input_data, self.catalog)
         if not _is_monitor_route(route, self.catalog):
-            analysis, status = _fallback_for_non_monitor(input_data, route, self.catalog)
+            analysis, status = _fallback_for_non_monitor(
+                input_data, route, self.catalog
+            )
             self._set_activity(status, input_data, route, analysis)
             return analysis
 
@@ -195,9 +198,7 @@ class LiveMonitorSpecialistAgent:
                     "declared_route": route.model_dump(mode="json"),
                     "listing_count": len(input_data.listings),
                     "evidence_count": len(input_data.evidence),
-                    "weak_or_sparse_evidence": _has_weak_or_sparse_evidence(
-                        input_data
-                    ),
+                    "weak_or_sparse_evidence": _has_weak_or_sparse_evidence(input_data),
                 },
                 "output": analysis.model_dump(mode="json"),
             },
@@ -252,15 +253,7 @@ def _model_input(
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            "evidence": [
-                evidence.model_dump(mode="json") for evidence in input_data.evidence
-            ],
-            "allowed_routes": {
-                "generic_fallback_agent_name": catalog.generic_fallback_agent_name,
-                "technology_domain_agent_name": catalog.technology_domain_agent_name,
-                "monitor_specialist_agent_name": MONITOR_SPECIALIST_AGENT_NAME,
-                "product_category_routes": catalog.product_category_routes,
-            },
+            **evidence_model_fields(input_data.evidence),
             "declared_route": route.model_dump(mode="json"),
             "required_monitor_coverage": (
                 "panel type",
@@ -479,7 +472,9 @@ def _generic_fallback_analysis(
     )
 
 
-def _monitor_specific_analysis(input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
+def _monitor_specific_analysis(
+    input_data: ProductAnalysisAgentInput,
+) -> CategoryAnalysis:
     weak_or_sparse = _has_weak_or_sparse_evidence(input_data)
     category = _analysis_category(input_data)
     product_name = input_data.product.name
@@ -546,7 +541,7 @@ def _mock_analysis_from_model_input(model_input: str) -> CategoryAnalysis:
             "brief": payload["brief"],
             "product": payload["product"],
             "listings": payload["listings"],
-            "evidence": payload["evidence"],
+            "evidence": restore_evidence(payload),
         }
     )
     return _monitor_specific_analysis(input_data)

@@ -15,6 +15,7 @@ from app.agents.catalog import (
     build_default_agent_catalog,
 )
 from app.agents.contracts import ProductAnalysisAgentInput
+from app.agents.model_input_projection import evidence_model_fields, restore_evidence
 from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
@@ -188,9 +189,7 @@ class LiveTechnologyDomainAnalystAgent:
                     "specialist_agent_name": _specialist_agent_name(route),
                     "listing_count": len(input_data.listings),
                     "evidence_count": len(input_data.evidence),
-                    "weak_or_sparse_evidence": _has_weak_or_sparse_evidence(
-                        input_data
-                    ),
+                    "weak_or_sparse_evidence": _has_weak_or_sparse_evidence(input_data),
                 },
                 "output": {
                     "declared_route": route.model_dump(mode="json"),
@@ -250,15 +249,7 @@ def _model_input(
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            "evidence": [
-                evidence.model_dump(mode="json") for evidence in input_data.evidence
-            ],
-            "allowed_routes": {
-                "generic_fallback_agent_name": catalog.generic_fallback_agent_name,
-                "technology_domain_agent_name": catalog.technology_domain_agent_name,
-                "product_category_routes": catalog.product_category_routes,
-                "technology_category_keywords": catalog.technology_category_keywords,
-            },
+            **evidence_model_fields(input_data.evidence),
             "declared_route": route.model_dump(mode="json"),
         },
         sort_keys=True,
@@ -481,7 +472,7 @@ def _mock_analysis_from_model_input(model_input: str) -> CategoryAnalysis:
             "brief": payload["brief"],
             "product": payload["product"],
             "listings": payload["listings"],
-            "evidence": payload["evidence"],
+            "evidence": restore_evidence(payload),
         }
     )
     catalog = build_default_agent_catalog()

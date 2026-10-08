@@ -642,3 +642,23 @@ Task 211 owner completion can report the internal technical code
 uses unreviewed or conflicting cited support. The public result retains its
 existing insufficient-evidence shape and a precise evidence gap. This failure
 does not authorize a new model attempt.
+
+### Automatic context continuation
+
+Task 213 preserves public run/result schemas. Every SDK stage uses the shared
+full-request guard and automatic structural projection when reducible context
+exceeds its limit. Bounded rewriting selects exact original spans and falls back
+on failure, timeout or invalid output. The internal catalog approves scoped
+`read_research_result` lookup for bounded model roles. This control grants no new
+external source or provider access.
+
+Brief-configured provider searches return `evidence_need_id`, `selection_reasons`
+and deferred source handles. `fetch_source` accepts optional `need_id`;
+`read_search_results(need_id=...)` widens an unresolved need. Canonical page
+quotes and actual transported text determine citation eligibility. A selected
+lead or rewritten context is not independent evidence.
+
+Insufficient support after automatic shortening retains an explicit research
+limitation, missing checks and reviewed evidence in the existing no-pick result.
+It still requires independent verification and a matching saved result version.
+Genuine budget exhaustion and irreducible contracts use the failed-run path.

@@ -23,7 +23,7 @@ def material_cautions(text: str) -> list[str]:
             if re.search(
                 r"warranty|warn|risk|conflict|unverified|uncertain|sponsor|bias|"
                 r"unsafe|counterfeit|import|no local|not available|regional|seller|"
-                r"caution|gap|unsupported|untested",
+                r"caution|gap|unsupported|untested|variant|incompatib|contradict",
                 sentence,
                 re.IGNORECASE,
             )
@@ -53,7 +53,7 @@ def bounded_cautions(
     pattern = re.compile(
         r"warranty|warn|risk|conflict|unverified|uncertain|sponsor|bias|"
         r"unsafe|counterfeit|import|no local|not available|regional|seller|"
-        r"caution|gap|unsupported|untested",
+        r"caution|gap|unsupported|untested|variant|incompatib|contradict",
         re.IGNORECASE,
     )
     previews = []
@@ -254,6 +254,61 @@ class ResearchView:
 class ResearchHistory:
     scope_id: str = field(default_factory=lambda: uuid4().hex)
     views: dict[str, ResearchView] = field(default_factory=dict)
+    projections: dict[str, str] = field(default_factory=dict)
+    compacted_sources: set[str] = field(default_factory=set)
+    transported_text: dict[str, list[str]] = field(default_factory=dict)
+
+    def source_text(self, items: Any) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+
+        def visit(value: Any, source_ids: tuple[str, ...] = ()) -> None:
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except ValueError:
+                    return
+            if isinstance(value, dict):
+                if (
+                    value.get("type") == "function_call"
+                    or value.get("role") == "assistant"
+                ):
+                    return
+                source_ids = (
+                    tuple(
+                        str(value[key])
+                        for key in ("source_id", "snapshot_id")
+                        if value.get(key) is not None
+                    )
+                    or source_ids
+                )
+                if source_ids and isinstance(value.get("text"), str):
+                    for source_id in source_ids:
+                        result.setdefault(source_id, []).append(value["text"])
+                for key, child in value.items():
+                    if key not in {
+                        "_context_projection",
+                        "material_cautions",
+                        "cautions",
+                        "_research_view",
+                    }:
+                        visit(child, source_ids)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child, source_ids)
+
+        visit(items)
+        return result
+
+    def record_transport(self, items: Any) -> None:
+        for source_id, texts in self.source_text(items).items():
+            observed = self.transported_text.setdefault(source_id, [])
+            observed.extend(text for text in texts if text not in observed)
+
+    def quote_visible(self, source_id: object, quote: str) -> bool:
+        identity = str(source_id)
+        return identity not in self.compacted_sources or any(
+            quote in text for text in self.transported_text.get(identity, ())
+        )
 
     def unjustified_safety_claims(
         self, text: str, quotes: Sequence[str], source_ids: Sequence[str]
@@ -335,14 +390,18 @@ class ResearchHistory:
                     unsupported.append(sentence)
         return tuple(unsupported)
 
-    def register(self, tool: str, output: str) -> str:
+    def register(self, tool: str, output: str, *, force: bool = False) -> str:
         try:
             payload = json.loads(output)
         except (ValueError, TypeError):
             return output
-        if not isinstance(payload, dict) or len(output) < 900:
+        if not isinstance(payload, dict) or (len(output) < 900 and not force):
             return output
-        if payload.get("status") in {"failed", "budget_exhausted", "invalid_request"}:
+        if not force and payload.get("status") in {
+            "failed",
+            "budget_exhausted",
+            "invalid_request",
+        }:
             return output
         original = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         digest = sha256((tool + original).encode()).hexdigest()
@@ -416,9 +475,19 @@ class ResearchHistory:
                 "gap": "Original is unavailable in this shopping invocation.",
             }
         try:
-            span = source_span(view.original, start=start_char, focus=focus, limit=2000)
+            encoded_focus = (
+                json.dumps(focus, ensure_ascii=False)[1:-1]
+                if focus is not None
+                else None
+            )
+            span = source_span(
+                view.original, start=start_char, focus=encoded_focus, limit=2000
+            )
         except ValueError as exc:
             return {"status": "invalid_request", "gap": str(exc)}
+        source_spans = self._read_source_spans(
+            view, span.start, span.start + len(span.text)
+        )
         return {
             "status": "succeeded",
             "view_id": view_id,
@@ -427,10 +496,79 @@ class ResearchHistory:
             "start_char": span.start,
             "total_characters": span.total_characters,
             "content_sha256": span.content_sha256,
+            **({"source_spans": source_spans} if source_spans else {}),
             "text_truncated": span.start > 0
             or span.start + len(span.text) < span.total_characters,
             "coverage": "This reread is new and unprocessed. Omitted passages remain unreviewed.",
         }
+
+    def _read_source_spans(
+        self, view: ResearchView, start: int, end: int
+    ) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        cursor = 0
+
+        def walk(
+            value: Any, source_ids: dict[str, str], key: str = "", support: bool = True
+        ) -> None:
+            nonlocal cursor
+            if isinstance(value, dict):
+                source_ids = {
+                    name: str(value[name])
+                    for name in ("source_id", "snapshot_id")
+                    if value.get(name) is not None
+                } or source_ids
+                cursor += 1
+                for index, (name, child) in enumerate(value.items()):
+                    cursor += (
+                        bool(index) + len(json.dumps(name, ensure_ascii=False)) + 1
+                    )
+                    walk(
+                        child,
+                        source_ids,
+                        name,
+                        support
+                        and name
+                        not in {
+                            "_context_projection",
+                            "material_cautions",
+                            "cautions",
+                            "_research_view",
+                        },
+                    )
+                cursor += 1
+            elif isinstance(value, list):
+                cursor += 1
+                for index, child in enumerate(value):
+                    cursor += bool(index)
+                    walk(child, source_ids, key, support)
+                cursor += 1
+            else:
+                encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+                if support and key == "text" and isinstance(value, str) and source_ids:
+                    position = cursor + 1
+                    first = last = None
+                    for offset, character in enumerate(value):
+                        width = len(json.dumps(character, ensure_ascii=False)) - 2
+                        if start <= position and position + width <= end:
+                            if first is None:
+                                first = offset
+                            last = offset + 1
+                        position += width
+                        if position > end:
+                            break
+                    if first is not None and last is not None:
+                        result.append(
+                            {
+                                **source_ids,
+                                "text": value[first:last],
+                                "start_char": first,
+                            }
+                        )
+                cursor += len(encoded)
+
+        walk(view.payload, {})
+        return result
 
 
 _history: ContextVar[ResearchHistory | None] = ContextVar(
@@ -458,21 +596,22 @@ def retired_output(output: str) -> str:
     history = _history.get()
     if history is None:
         return output
+    automatic = history.projections.get(output, output)
     try:
         payload = json.loads(output)
     except ValueError:
-        return output
+        return automatic
     if not isinstance(payload, dict):
-        return output
+        return automatic
     if isinstance(payload.get("view_id"), str):
         view_id = payload["view_id"]
         view = history.views.get(view_id)
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         if view is not None and encoded in view.receipts:
-            return history.retired(view_id) or output
+            return history.retired(view_id) or automatic
     reference = payload.get("_research_view", {})
     if not isinstance(reference, dict):
-        return output
+        return automatic
     view_id = reference.get("view_id", "")
     view = history.views.get(view_id)
     if (
@@ -480,9 +619,11 @@ def retired_output(output: str) -> str:
         or {key: value for key, value in payload.items() if key != "_research_view"}
         != view.payload
     ):
-        return output
+        return automatic
     retired = history.retired(view_id)
-    return retired if retired is not None and len(retired) < len(output) else output
+    if retired is not None:
+        return retired if len(retired) < len(output) else output
+    return automatic
 
 
 def processed_view_id(output: str) -> str | None:

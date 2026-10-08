@@ -1222,3 +1222,45 @@ the next P0 repair, followed by the real Task 100A checkpoint. No local model,
 credential, provider flag or token allowance was changed for this invocation.
 Evidence is under `data/artifacts/task100a-20261008/` and in the implementation
 plan. The public API and runtime agent/tool catalog are unchanged.
+
+## Verify automatic context continuation
+
+Task 213 routine verification is offline. Run `scripts/local/verify-context.sh`
+for affected SDK, provider, storage, decision and result API checks, scoped
+tooling, then the shared quick-before-full eval gate. The new acceptance replay
+runs from `apps/backend` with
+`uv run --locked --offline python ../../data/artifacts/task213/acceptance.py`.
+Its scripted SDK models deny network connections, save isolated SQLite results
+and report estimates separately from simulated usage.
+
+The 19,000 input cap, 90,000 owner ceiling, 150,000 workflow ceiling and both
+24,000 final reserves remain unchanged. Shortening allows at most three bounded
+selector calls per workflow; failure cost stays charged. `context_shortening`
+and `context_call` diagnostics report component sizes, estimated/actual usage,
+projection status and finalization cause without copying source or shopper text.
+An irreducible contract or genuine exhaustion remains an error.
+
+`data/artifacts/task213/` contains the decision trail, designs, replay reports,
+matching result API captures and browser evidence. These offline results do not
+complete Task 100A or authorize a live retry.
+
+
+## Task 213 acceptance
+
+Task 213 passed on 2026-10-09 local time. The final offline gate passed 619
+affected tests and 393 shared tests, with 27 quick eval cases before 117 full
+cases. Eight network-denied SDK probes preserve the expected saved decisions
+and safety outcomes. The blocked baseline estimates 23,653 tokens; every repaired
+main request is at most 18,990 under the unchanged 19,000 cap. Scripted usage is
+simulated and separate from conservative estimates. Identical noisy inputs
+reduce admitted lead data from 2,464 to 862 bytes, repeated history from 75,365
+to 12,317 UTF-8 bytes, and fetches from ten to three while retaining literal
+expected support and the seller warning.
+
+Installed Chrome rendered three matching saved SQLite-backed API results,
+including the visible research limitation. The fixture guide opens already
+accepted offline runs; this does not establish live guided acceptance. Reports
+and rerunnable scripts are under `data/artifacts/task213/`; `verification.json`
+links the final gate, SDK, browser and independent review evidence. The eval
+manifest is `data/artifacts/evals/suite-full-20261008T184011524550Z.json`.
+Task 100A remains the next main P0 and requires separate live authorization.

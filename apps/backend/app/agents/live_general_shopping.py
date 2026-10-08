@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.research_history import ResearchCoverageError, active_history
 from app.agents.context_management import (
     BoundedRunner,
+    CONTEXT_RESEARCH_LIMITATION,
     ContextBudgetExceeded,
     context_budget_failure,
     context_events,
@@ -347,6 +348,8 @@ class LiveGeneralShoppingAgent:
             tools = self.research_tools_factory(input_data.run_id)
         else:
             tools = None
+        if tools is not None:
+            tools.set_brief(input_data.brief)
         if tools is not None and tools.required_region_code != region_code:
             raise OpenAIAgentConfigurationError(
                 "GeneralShoppingAgent research region must match the buyer's region."
@@ -384,6 +387,8 @@ class LiveGeneralShoppingAgent:
             )
         if tools is not None and technology_tools is not None:
             tools.share_run_state(technology_tools)
+        if technology_tools is not None:
+            technology_tools.set_brief(input_data.brief)
         owner_research_state = OwnerResearchState()
         owner_research = (
             {
@@ -774,11 +779,33 @@ class LiveGeneralShoppingAgent:
         def validate_completion(output: GeneralModelOutput) -> None:
             if not output.candidates and any(
                 item["output"].get("finalizing")
+                and (
+                    item["output"].get("spending_finalizing")
+                    or not item["output"].get("context_pressure_finalizing")
+                )
                 for item in context_events(context_start)
+                if item.get("tool_name") == "context_call"
             ):
                 raise ContextBudgetExceeded(
                     "Research spending closed without a safely supported candidate."
                 )
+            if not output.candidates and any(
+                item["output"].get("context_pressure_finalizing")
+                or (
+                    item["output"].get("compaction")
+                    and item["output"]["compaction"].get("status")
+                    not in {"irreducible", "unavailable"}
+                )
+                for item in context_events(context_start)
+                if item.get("tool_name") == "context_call"
+            ):
+                output.evidence_gap = (
+                    CONTEXT_RESEARCH_LIMITATION + " "
+                    + (
+                        output.evidence_gap
+                        or "More verified support is needed before choosing a product."
+                    )
+                )[:500]
 
         def validated_handoffs(result: Any) -> tuple[str, tuple[dict[str, Any], ...]]:
             completed = tuple(

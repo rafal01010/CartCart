@@ -1028,3 +1028,26 @@ Owner completion rejects explicit unsupported safety, seller-legitimacy and
 local-warranty assurances over relevant unreviewed or conflicting support.
 The technical `unreviewed_research` outcome does not trigger recovery. Tool
 exhaustion belongs to the issuing owner; a fresh handoff retains its own quota.
+
+## Automatic request fitting and research selection
+
+Task 213 keeps request fitting in `BudgetedModel`, which owns complete input
+estimates and transport reservations. `CompactionPlan` projects reducible fields
+with exact excerpts and scoped original handles. Required buyer state, SDK pairs,
+identity edges, quotes and final recommendation bundles stay exact. A bounded
+selector can choose original spans; structural projection guarantees fallback
+for reducible content. Scoped lookup is an internal capability of bounded model
+roles, not a new source agent. Model names still come from environment settings.
+
+`ResearchSelection` belongs to shared `ResearchRunState`. It holds the immutable
+buyer brief, open evidence needs, original leads, selection decisions and exact
+quoted coverage. Provider adapters enforce URL policy and persist originals; the
+selector ranks useful/novel leads and protects material contrary support. Handoffs
+share the plan through existing same-run ownership. No-brief consumers retain
+bounded provider-order paging. The owner hierarchy and broad generic fallback
+remain unchanged.
+
+Automatic projection does not mark omitted support reviewed. Citation admission
+checks canonical page spans and text actually exposed to the owner after
+shortening. Limited owner decisions retain their technical research limitation
+and reviewed support through independent verification and persistence.

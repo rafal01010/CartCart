@@ -737,3 +737,19 @@ consultations expose `read_source_bundle`. These helpers preserve original
 support, source identity, warnings, gaps and unreviewed coverage. Processing
 a search lead does not verify it. Agent ownership, routing and fallback
 capabilities remain unchanged.
+
+### Automatic context and useful research
+
+Task 213 adds automatic request fitting to the existing bounded SDK adapter.
+Bounded model roles approve same-invocation `read_research_result` lookup, with no
+new external source permission. Exact-span rewriting uses each configured model
+and existing usage ledgers. Derived context has explicit unreviewed omissions;
+original facts and citation relationships remain canonical. Actual transported
+page text also constrains quote admission after shortening.
+
+General, Technology and specialist owners share buyer-scoped evidence needs and
+lead selection through the existing run state. Search replies add useful
+shortlists, selection reasons and deferred handles. Optional `need_id` on page
+fetches and deferred lookup connects new research to missing support. Validated
+page quotes close coverage; material concerns keep it open. Product-only advice,
+broad category support, handoffs and source-agent fallback remain unchanged.

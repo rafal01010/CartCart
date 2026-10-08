@@ -356,6 +356,11 @@ def _entry(
             ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
             ApprovedSDKTool.READ_RESEARCH_RESULT,
         )
+    elif agent_name in _BOUNDED_SDK_AGENTS:
+        approved_sdk_tools = (
+            *approved_sdk_tools,
+            ApprovedSDKTool.READ_RESEARCH_RESULT,
+        )
     if ApprovedSDKTool.SEARCH_SOURCES in approved_sdk_tools:
         approved_sdk_tools = (*approved_sdk_tools, ApprovedSDKTool.READ_SEARCH_RESULTS)
     if ApprovedSDKTool.CONSULT_SOURCE_INTELLIGENCE in approved_sdk_tools:

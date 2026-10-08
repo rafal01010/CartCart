@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.hosted_web_search import HostedWebCitation
+from app.agents.research_selection import ResearchSelection
+from app.agents.research_history import active_history
 from app.agents.source_spans import source_span
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.session import shared_tool_session
@@ -32,6 +34,7 @@ from app.providers.contracts import (
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import RunId, SourceId, new_id
+from app.schemas.intake import ShoppingBrief
 from app.schemas.regions import RegionCode
 from app.schemas.search_sources import (
     ExtractionStatus,
@@ -89,6 +92,7 @@ class FetchSourceRequest(CartCartBaseModel):
     source_id: SourceId
     start_char: int = Field(default=0, ge=0)
     focus: str | None = Field(default=None, min_length=1, max_length=200)
+    need_id: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class ToolSource(CartCartBaseModel):
@@ -115,6 +119,17 @@ class SearchSourcesResult(CartCartBaseModel):
     next_offset: int | None = None
     deferred_source_ids: tuple[SourceId, ...] = ()
     gap: str | None = None
+    evidence_need_id: str | None = None
+    selection_reasons: dict[str, str] = Field(default_factory=dict)
+
+    def tool_json(self) -> str:
+        import json
+
+        payload = self.model_dump(mode="json", exclude_defaults=True)
+        payload["sources"] = [
+            item.model_dump(mode="json", exclude_defaults=True) for item in self.sources
+        ]
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 class FetchSourceResult(CartCartBaseModel):
@@ -138,6 +153,7 @@ class FetchSourceResult(CartCartBaseModel):
     content_sha256: str | None = None
     provider_name: str | None = None
     gap: str | None = None
+    evidence_need_id: str | None = None
 
 
 class RecordSourceQuoteResult(CartCartBaseModel):
@@ -342,6 +358,7 @@ class ResearchRunState:
     observed_spans: dict[SourceId, list[tuple[int, int, str]]] = field(
         default_factory=dict
     )
+    selection: ResearchSelection | None = None
 
 
 class AgentResearchTools:
@@ -452,6 +469,13 @@ class AgentResearchTools:
         other._bind_run_state(self._run_state)
         return True
 
+    def set_brief(self, brief: ShoppingBrief) -> None:
+        selection = self._run_state.selection
+        if selection is None:
+            self._run_state.selection = ResearchSelection(brief)
+        elif selection.brief != brief:
+            raise ValueError("Shared research must retain the same buyer brief.")
+
     @asynccontextmanager
     async def _session(self) -> AsyncIterator[AsyncSession]:
         if self._shared_session is not None:
@@ -497,11 +521,14 @@ class AgentResearchTools:
                     status=ResearchToolStatus.INVALID_REQUEST,
                     gap="Search request failed validation.",
                 ).model_dump_json()
-            return (await self.search(request)).model_dump_json()
+            return (await self.search(request)).tool_json()
 
         @function_tool
         async def fetch_source(
-            source_id: str, start_char: int = 0, focus: str | None = None
+            source_id: str,
+            start_char: int = 0,
+            focus: str | None = None,
+            need_id: str | None = None,
         ) -> str:
             """Read an exact bounded span by run-scoped ID, including later page text.
 
@@ -509,10 +536,16 @@ class AgentResearchTools:
                 source_id: Source ID returned by search_sources in this run.
                 start_char: Character offset for the next span, default zero.
                 focus: Optional exact search term to locate relevant support anywhere in the page.
+                need_id: Optional open evidence need returned by search_sources.
             """
             try:
                 request = FetchSourceRequest.model_validate(
-                    {"source_id": source_id, "start_char": start_char, "focus": focus}
+                    {
+                        "source_id": source_id,
+                        "start_char": start_char,
+                        "focus": focus,
+                        "need_id": need_id,
+                    }
                 )
             except ValidationError:
                 return FetchSourceResult(
@@ -540,6 +573,7 @@ class AgentResearchTools:
             source_id: str | None = None,
             start_char: int = 0,
             focus: str | None = None,
+            need_id: str | None = None,
         ) -> str:
             """Retrieve deferred leads or original snippet spans without provider calls.
 
@@ -549,6 +583,7 @@ class AgentResearchTools:
                 source_id: One persisted lead ID, instead of a batch ID.
                 start_char: Offset into the original snippet.
                 focus: Optional exact term to locate in the original snippet.
+                need_id: Widen the shortlist for this unresolved evidence need.
             """
             return await self.read_search_results(
                 search_result_id=search_result_id,
@@ -556,6 +591,7 @@ class AgentResearchTools:
                 source_id=source_id,
                 start_char=start_char,
                 focus=focus,
+                need_id=need_id,
             )
 
         from app.agents.research_history import tracked_tools
@@ -624,6 +660,7 @@ class AgentResearchTools:
                 snapshot = await repository.get_snapshot_for_search_result(
                     self._run_id, source_id
                 )
+                history = active_history()
                 if (
                     source is None
                     or not _safe_public_result_url(str(source.url))
@@ -634,6 +671,10 @@ class AgentResearchTools:
                     or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
                     or snapshot.extracted_content is None
                     or bounded not in snapshot.extracted_content.text
+                    or (
+                        history is not None
+                        and not history.quote_visible(source_id, bounded)
+                    )
                     or not any(
                         bounded in snapshot.extracted_content.text[start:end]
                         and digest
@@ -672,6 +713,10 @@ class AgentResearchTools:
                 await self._commit(session)
                 self._recorded_quote_ids.add(evidence.evidence_id)
                 self._recorded_source_ids.add(source_id)
+                if self._run_state.selection is not None:
+                    self._run_state.selection.record_support(
+                        source, bounded, evidence.evidence_id
+                    )
                 quote_start = next(
                     start + snapshot.extracted_content.text[start:end].index(bounded)
                     for start, end, _ in self._observed_spans[source_id]
@@ -711,6 +756,7 @@ class AgentResearchTools:
             return await self._search(request)
 
     async def _search(self, request: SearchSourcesRequest) -> SearchSourcesResult:
+        selection = self._run_state.selection
         if (
             self._required_region_code is not None
             or self._agent_name == "GeneralShoppingAgent"
@@ -725,6 +771,13 @@ class AgentResearchTools:
             request = request.model_copy(
                 update={"region_code": self._required_region_code}
             )
+        if selection is not None and selection.covered:
+            result = SearchSourcesResult(
+                status=ResearchToolStatus.GAP,
+                gap="Required research already has exact support. Continue to candidate validation and verification.",
+            )
+            self._record("search_sources", "coverage_satisfied")
+            return result
         async with self._lock:
             cache_key = (
                 request.query.casefold(),
@@ -766,8 +819,9 @@ class AgentResearchTools:
 
         selected: list[SearchResult] = []
         for candidate in candidates[: options.max_results]:
-            if _safe_public_result_url(str(candidate.url)) and _domain_policy_allows(
-                str(candidate.url), self._source_policy
+            if selection is not None or (
+                _safe_public_result_url(str(candidate.url))
+                and _domain_policy_allows(str(candidate.url), self._source_policy)
             ):
                 selected.append(
                     candidate.model_copy(
@@ -780,6 +834,12 @@ class AgentResearchTools:
                         }
                     )
                 )
+
+        need = (
+            selection.need(request.query, request.intent)
+            if selection is not None
+            else None
+        )
 
         try:
             async with self._session_lock:
@@ -795,6 +855,59 @@ class AgentResearchTools:
                         ): item
                         for item in await repository.list_search_results(self._run_id)
                     }
+                    prepared = []
+                    for candidate in selected:
+                        key = (
+                            str(candidate.url),
+                            candidate.source_type,
+                            candidate.title,
+                            candidate.snippet,
+                            candidate.query.region_code,
+                        )
+                        if key in existing:
+                            candidate = candidate.model_copy(
+                                update={"source_id": existing[key].source_id}
+                            )
+                        elif any(
+                            item.source_id == candidate.source_id
+                            for item in existing.values()
+                        ):
+                            candidate = candidate.model_copy(
+                                update={"source_id": new_id()}
+                            )
+                        prepared.append(candidate)
+                    selected = prepared
+                    if selection is not None and need is not None:
+                        approved = []
+                        for item in selected:
+                            if not _safe_public_result_url(str(item.url)):
+                                selection.reject(item, need, "unsafe_url")
+                            elif not _domain_policy_allows(
+                                str(item.url), self._source_policy
+                            ):
+                                selection.reject(item, need, "outside_source_policy")
+                            else:
+                                approved.append(item)
+                        selection.select(
+                            approved, need, limit=self._limits.max_initial_results
+                        )
+                        selected = [
+                            item.model_copy(
+                                update={
+                                    "provider": item.provider.model_copy(
+                                        update={
+                                            "raw": {
+                                                **item.provider.raw,
+                                                "research_selection": selection.decisions[
+                                                    item.source_id
+                                                ].metadata(),
+                                            }
+                                        }
+                                    )
+                                }
+                            )
+                            for item in selected
+                        ]
                     unique = {}
                     for candidate in selected:
                         key = (
@@ -833,13 +946,58 @@ class AgentResearchTools:
             item.source_id for item in selected
         )
         result = self._search_page(batch_id, selected, 0)
-        self._search_results.extend(selected)
+        if selection is not None and need is not None:
+            admitted = [
+                item
+                for item in selected
+                if selection.decisions.get(item.source_id) is not None
+                and selection.decisions[item.source_id].status == "selected"
+            ]
+            result = result.model_copy(
+                update={
+                    "sources": tuple(
+                        _tool_source(
+                            item,
+                            _provider_label(self._search_provider),
+                            self._limits.max_snippet_chars,
+                        )
+                        for item in admitted
+                    ),
+                    "deferred_source_ids": tuple(
+                        item.source_id for item in selected if item not in admitted
+                    ),
+                    "evidence_need_id": need.need_id,
+                    "selection_reasons": {
+                        str(item.source_id): selection.decisions[item.source_id].reason
+                        for item in selected
+                        if item.source_id in selection.decisions
+                    },
+                }
+            )
+        self._search_results.extend(
+            item
+            for item in selected
+            if _safe_public_result_url(str(item.url))
+            and _domain_policy_allows(str(item.url), self._source_policy)
+        )
         self._query_cache[cache_key] = result
         self._record(
             "search_sources",
             result.status,
             source_ids=[str(item.source_id) for item in selected],
             query=request.query,
+            selection_reasons=result.selection_reasons,
+            lead_bytes={
+                "admitted": sum(
+                    len(item.model_dump_json(exclude_defaults=True).encode())
+                    for item in result.sources
+                ),
+                "original": sum(
+                    len(item.model_dump_json().encode()) for item in selected
+                ),
+            }
+            if selection is not None
+            else None,
         )
         return result
 
@@ -860,6 +1018,8 @@ class AgentResearchTools:
                     self._limits.max_snippet_chars,
                 )
                 for item in sources[offset:end]
+                if _safe_public_result_url(str(item.url))
+                and _domain_policy_allows(str(item.url), self._source_policy)
             ),
             gap=None if sources else "No approved search sources were returned.",
         )
@@ -872,8 +1032,47 @@ class AgentResearchTools:
         source_id: str | None = None,
         start_char: int = 0,
         focus: str | None = None,
+        need_id: str | None = None,
     ) -> str:
         import json
+
+        selection = self._run_state.selection
+        if need_id is not None:
+            if selection is None or need_id not in selection.needs:
+                return json.dumps(
+                    {
+                        "status": "invalid_request",
+                        "gap": "Evidence need is not in this shopping run.",
+                    }
+                )
+            leads = selection.widen(need_id, limit=self._limits.max_initial_results)
+            self._record(
+                "read_search_results",
+                "widened" if leads else "no_open_deferred_support",
+                source_ids=[str(item.source_id) for item in leads],
+                evidence_need_id=need_id,
+            )
+            return SearchSourcesResult(
+                status=ResearchToolStatus.SUCCEEDED
+                if leads
+                else ResearchToolStatus.GAP,
+                sources=tuple(
+                    _tool_source(
+                        item,
+                        _provider_label(self._search_provider),
+                        self._limits.max_snippet_chars,
+                    )
+                    for item in leads
+                ),
+                evidence_need_id=need_id,
+                selection_reasons={
+                    str(item.source_id): selection.decisions[item.source_id].reason
+                    for item in leads
+                },
+                gap=None
+                if leads
+                else "No additional useful deferred leads for this open need.",
+            ).tool_json()
 
         if (search_result_id is None) == (source_id is None) or offset < 0:
             return json.dumps(
@@ -920,7 +1119,7 @@ class AgentResearchTools:
                         )
                     return self._search_page(
                         parsed, [item for item in sources if item is not None], offset
-                    ).model_dump_json()
+                    ).tool_json()
                 source = await repo.get_search_result_for_run(self._run_id, parsed)
         if source is None:
             return json.dumps(
@@ -984,6 +1183,14 @@ class AgentResearchTools:
         return persisted
 
     async def fetch(self, request: FetchSourceRequest) -> FetchSourceResult:
+        selection = self._run_state.selection
+        if request.need_id is not None and (
+            selection is None or request.need_id not in selection.needs
+        ):
+            return FetchSourceResult(
+                status=ResearchToolStatus.INVALID_REQUEST,
+                gap="Evidence need is not in this shopping run.",
+            )
         async with self._lock:
             if self._span_reads >= self._limits.max_fetch_calls * 3:
                 return FetchSourceResult(
@@ -1030,6 +1237,28 @@ class AgentResearchTools:
                             source_ids=[str(request.source_id)],
                         )
                         return result
+                    selection = self._run_state.selection
+                    if selection is not None:
+                        need = selection.admit_fetch(source, request.need_id)
+                        if selection.covered or need is None:
+                            self._record(
+                                "fetch_source",
+                                "coverage_satisfied",
+                                source_ids=[str(request.source_id)],
+                            )
+                            return FetchSourceResult(
+                                status=ResearchToolStatus.GAP,
+                                source_id=request.source_id,
+                                gap="This evidence need already has exact support. Continue to validation, or reread its existing source.",
+                            )
+                        request = request.model_copy(update={"need_id": need.need_id})
+                        self._record(
+                            "research_evidence_need",
+                            "open",
+                            source_ids=[str(request.source_id)],
+                            evidence_need_id=need.need_id,
+                            query=need.query,
+                        )
             if self._fetch_calls >= self._limits.max_fetch_calls:
                 result = FetchSourceResult(
                     status=ResearchToolStatus.BUDGET_EXHAUSTED,
@@ -1149,6 +1378,8 @@ class AgentResearchTools:
             self._observed_spans.setdefault(source.source_id, []).append(
                 (span.start, span.start + len(span.text), span.content_sha256)
             )
+        if text and self._run_state.selection is not None:
+            self._run_state.selection.observe(source.source_id, text)
         has_usable_text = (
             snapshot.extraction_status == ExtractionStatus.SUCCEEDED and bool(text)
         )
@@ -1181,6 +1412,7 @@ class AgentResearchTools:
                 if has_usable_text
                 else "Page content is incomplete or unavailable."
             ),
+            evidence_need_id=request.need_id,
         )
 
     def _record(
@@ -1192,6 +1424,9 @@ class AgentResearchTools:
         url: str | None = None,
         query: str | None = None,
         support_span: dict[str, Any] | None = None,
+        selection_reasons: dict[str, str] | None = None,
+        evidence_need_id: str | None = None,
+        lead_bytes: dict[str, int] | None = None,
     ) -> None:
         self._activity.append(
             {
@@ -1210,6 +1445,17 @@ class AgentResearchTools:
                         if support_span is not None
                         else {}
                     ),
+                    **(
+                        {"selection_reasons": selection_reasons}
+                        if selection_reasons
+                        else {}
+                    ),
+                    **(
+                        {"evidence_need_id": evidence_need_id}
+                        if evidence_need_id
+                        else {}
+                    ),
+                    **({"lead_bytes": lead_bytes} if lead_bytes else {}),
                 },
             }
         )
@@ -1253,7 +1499,16 @@ def _safe_search_metadata(
 ) -> ProviderMetadata:
     rank = original.raw.get("rank")
     score = original.raw.get("score")
-    safe_raw: dict[str, int | float] = {}
+    safe_raw: dict[str, Any] = {}
+    published_date = original.raw.get("published_date")
+    if isinstance(published_date, str) and len(published_date) == 10:
+        from datetime import date
+
+        try:
+            date.fromisoformat(published_date)
+            safe_raw["published_date"] = published_date
+        except ValueError:
+            pass
     if isinstance(rank, int) and not isinstance(rank, bool) and 0 <= rank <= 1000:
         safe_raw["rank"] = rank
     if (

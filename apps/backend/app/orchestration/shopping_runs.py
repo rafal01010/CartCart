@@ -9,8 +9,9 @@ from uuid import UUID
 from pydantic import AnyHttpUrl
 
 from app.agents.context_management import (
-    active_budget, context_events, managed_context, set_context_stage,
+    CONTEXT_RESEARCH_LIMITATION, active_budget, context_events, managed_context, set_context_stage,
 )
+from app.agents.research_history import material_cautions
 
 from app.agents import (
     AmazonProductIntelligenceAgentInput,
@@ -2993,7 +2994,7 @@ class ShoppingRunOrchestrator:
             None,
         )
         if draft.outcome != GeneralShoppingOutcome.DRAFT or selected is None:
-            return _owner_no_strong_buy(draft, provenance)
+            return _owner_no_strong_buy(draft, provenance, evidence=evidence)
 
         async def validated_candidate(
             candidate: GeneralShoppingCandidate,
@@ -3345,6 +3346,18 @@ class ShoppingRunOrchestrator:
             ):
                 runner_up_ids.append(mode_product.product_id)
             seen_modes.add(mode.mode)
+        caution_support = tuple(
+            record
+            for record in evidence
+            if material_cautions(record.claim)
+            and re.search(
+                r"\b(?:no|not|unverified|uncertain|unknown|conflict|suspicious|unsafe|"
+                r"counterfeit|unsupported|untested|incompatible|unavailable|limited|risk)\b",
+                record.claim,
+                re.IGNORECASE,
+            )
+        )
+        warnings = tuple(dict.fromkeys(record.claim for record in caution_support))
         return RecommendationBundle(
             **provenance,
             final_product_id=product.product_id,
@@ -3355,8 +3368,13 @@ class ShoppingRunOrchestrator:
                 criteria=(ComparisonCriterion(name="Evidence support"),),
                 rows=tuple(rows),
             ),
-            evidence_ids=evidence_ids,
-            source_ids=snapshot_ids,
+            evidence_ids=tuple(
+                dict.fromkeys((*evidence_ids, *(item.evidence_id for item in caution_support)))
+            ),
+            source_ids=tuple(
+                dict.fromkeys((*snapshot_ids, *(item.source_id for item in caution_support)))
+            ),
+            warnings=warnings,
         )
 
     async def _run_verification(
@@ -3700,19 +3718,32 @@ def _with_manual_comparison_rows(
 
 
 def _owner_no_strong_buy(
-    _draft: GeneralShoppingDecisionDraft,
+    draft: GeneralShoppingDecisionDraft,
     provenance: dict[str, Any],
     rejection_reason: str | None = None,
+    *,
+    evidence: tuple[SourceEvidence, ...] = (),
 ) -> RecommendationBundle:
+    limited = not rejection_reason and any(
+        gap.startswith(CONTEXT_RESEARCH_LIMITATION)
+        for gap in draft.evidence_gaps
+    )
+    gaps = tuple(dict.fromkeys(draft.evidence_gaps)) if limited else ()
+    reviewed = evidence if limited else ()
     return RecommendationBundle(
         **provenance,
         verification_action="blocked" if rejection_reason else None,
         verification_changes=(rejection_reason,) if rejection_reason else (),
         no_strong_buy=True,
         no_strong_buy_reason=(
-            "There is not enough checked evidence to choose a product yet. "
+            " ".join(gaps)
+            if gaps
+            else "There is not enough checked evidence to choose a product yet. "
             "Try a more specific request or check again later."
         ),
+        warnings=gaps,
+        evidence_ids=tuple(item.evidence_id for item in reviewed),
+        source_ids=tuple(dict.fromkeys(item.source_id for item in reviewed)),
         comparison_matrix=ComparisonMatrix(),
     )
 

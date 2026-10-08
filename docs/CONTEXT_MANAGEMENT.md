@@ -21,7 +21,7 @@ and synthetic page-body savings do not prove real search-history capacity.
 Matching safe diagnostics are in
 `data/artifacts/task100a-20261007/attempt3-safe-diagnostics.json`.
 
-## Remaining automatic-shortening gap
+## Automatic request fitting
 
 Task 211 passed its offline controls, but the authorized 2026-10-08 guided retry
 exposed a gap with fresh distinct replies. The next call's base estimate was
@@ -34,34 +34,58 @@ characters. No explicit research-result completion was recorded before the block
 The matching diagnostics are in
 `data/artifacts/task100a-20261008/attempt2-safe-diagnostics.json`.
 
-The current boundary preserves distinct unprocessed bodies and raises
-`ContextBudgetExceeded` if the prepared request is too large. Its finalization
-mode responds to cumulative spending, not per-call input pressure. A larger cap
-does not replace automatic shortening or recovery. The observed run saved no
-buying result.
+Task 213 adds automatic fitting at the shared `BudgetedModel` transport boundary.
+It first projects reducible text and removes exact duplicate state. An optional
+bounded model call selects exact spans from original chunks. It cannot author
+facts. Invalid selections, provider errors and timeouts use structural projection.
+The complete request is measured again with instructions, tool/output/handoff
+schemas and the unchanged conservative buffer before transport.
 
-Pending P0 Task 213 now requires automatic shortening at every model-call
-boundary. It includes bounded LLM rewriting and structure-preserving truncation
-fallback, with originals retained for lookup and exact support validation.
-Shortening must preserve buyer meaning, structured contracts, material cautions,
-source identity and unreviewed gaps. The task also requires bounded continuation
-through independent verification and a saved matching result. Adequate evidence
-must yield a useful supported suggestion. Insufficient evidence must yield an
-honest limited result, with the technical limitation distinguished from a buying
-judgment. These are acceptance requirements, not implemented behavior. Task 213
-and live checkpoint 100A remain incomplete.
+Originals remain in scoped `ResearchHistory` and canonical SQLite source records.
+Derived views preserve structured JSON, SDK call/output pairs, buyer constraints,
+IDs, neutral URLs, amounts, evidence claims and quotes. Each omission has an
+original lookup handle and explicit unreviewed coverage. Material cautions have
+bounded exact previews and deferred counts. An omitted passage cannot establish
+safety. After automatic shortening, quote persistence additionally checks text
+actually sent to the model. A bounded source reread must expose omitted support
+before it can be quoted.
+Scoped original-view reads associate exposed source text with its exact source
+ID. Metadata and caution previews do not authorize quotes from another source.
+Focused fetches and rereads retain an exact passage around the requested focus
+even when optional selection fails or chooses unrelated text.
 
-The current provider research tool retrieves up to ten leads per query by default
-and exposes four per result page. Ordinary snippets are limited to 200 characters,
-with bounded caution metadata and original lookup. It filters unsafe/disallowed
-URLs and exact duplicate records, then keeps provider order. Page fetching is
-separate and model-selected, with a default 4,000-character returned span.
-The retry saved fifteen leads across three searches and fetched four pages.
-Saved lead counts are not the count of full results shown in a single reply.
-Pending Task 213 additionally requires usefulness/novelty thinning across batches,
-targeted fetches, a compact active shortlist and widening only for unresolved
-support. Count limits alone do not prove that useful results were selected or
-that replay remains within budget.
+Each shortening request uses the configured underlying model, at most 8,000
+original text characters, 12 exact selected spans of at most 400 characters,
+768 output tokens and five seconds. A workflow permits at most three shortening
+requests. They reserve and settle the same workflow and owner/source ledgers,
+including unknown failure cost. They cannot spend final-step reserves. Fitting
+requests continue research. Residual reducible pressure can close new research
+while retaining exact lookup and quote recording. Irreducible contracts and true
+cumulative exhaustion remain explicit technical failures.
+
+Provider research configured with a buyer brief now selects a bounded shortlist
+by relevance, novelty, source role/quality, known dates and regional hints.
+Relevant contrary and seller-risk leads receive priority. Tracking variants and
+substantially repeated leads can be deferred; semantic variant parameters and
+different source roles remain distinct. All original returned leads and initial
+selection reasons persist. The active reply exposes `evidence_need_id`, selection
+reasons and deferred retrieval handles. `read_search_results(need_id=...)` widens
+an unresolved need. A page fetch records its evidence need. Exact fetched quotes,
+not snippets or processing receipts, establish coverage. Open material cautions
+prevent premature stopping. Covered research stops new provider calls while
+original rereads remain available. Product-only suggestions remain valid.
+Need identity preserves the complete query and required fact types. Warranty,
+price, availability, variant, seller, release and support queries require an
+exact factual assertion with the requested subject qualifiers. A matching lead
+title or unrelated color quote cannot close those questions.
+
+An owner with insufficient support after actual shortening retains an explicit
+research limitation, missing checks and canonical reviewed evidence. Verification
+permits narrowly defined process and missing-check statements in a no-pick
+result. A process limitation cannot authorize factual warranty, seller, price or
+specification claims. The normal independent verifier and same-run result
+persistence still run. Public schemas and the live Task 100A checkpoint remain
+unchanged. Task 213 acceptance evidence is recorded below after verification.
 
 ## What caused the investigation
 
@@ -224,7 +248,8 @@ It does not enlarge the 90,000-token owner allowance. Known-input estimates add
 are additional. These defaults are conservative offline assumptions, not a
 calibrated guarantee about hosted-tool internals or a model's context window.
 Each final-step reserve funds the maximum known input plus output bound.
-Large exact inputs fail explicitly rather than silently truncating constraints.
+Reducible oversized inputs receive automatic derived views. Irreducible exact
+contracts fail explicitly rather than truncating buyer constraints.
 
 Reservations happen synchronously before awaiting transport, so concurrent
 nested calls share remaining capacity. Actual response usage settles the
@@ -243,8 +268,9 @@ research tools and handoffs and requests a bounded final output from existing
 support. If that final output cannot be funded or violates the input bound, or
 if the model keeps requesting a closed tool, the run stops with
 `ContextBudgetExceeded`. Owner recovery does not retry this failure. An empty
-owner result under forced finalization is also a technical failure. It cannot
-become a completed no-strong-buy judgment. The same guard applies to recovery. Owner rationale now carries bounded exact
+owner result under cumulative-spending finalization is a technical failure.
+Context-only shortening can produce a verified limited result with its actual
+research limitation and missing support. The same guard applies to recovery. Owner rationale now carries bounded exact
 quotes instead of describing review provenance as a product fact; purchase
 price, regional availability and seller trust remain explicitly unchecked. Budget exceptions wrapped by SDK tool
 errors propagate as technical failures. The completion guards retain their
@@ -397,3 +423,24 @@ live failure shape is resolved. No buying result was saved and Task 100A remains
 unchecked. Matching diagnostics and source-tool activity are in
 `data/artifacts/task100a-20261008/attempt2-safe-diagnostics.json` and
 `attempt2-tool-summary.json`.
+
+
+## Task 213 acceptance
+
+Task 213 passed on 2026-10-09 local time. The final offline gate passed 619
+affected tests and 393 shared tests, with 27 quick eval cases before 117 full
+cases. Eight network-denied SDK probes preserve the expected saved decisions
+and safety outcomes. The blocked baseline estimates 23,653 tokens; every repaired
+main request is at most 18,990 under the unchanged 19,000 cap. Scripted usage is
+simulated and separate from conservative estimates. Identical noisy inputs
+reduce admitted lead data from 2,464 to 862 bytes, repeated history from 75,365
+to 12,317 UTF-8 bytes, and fetches from ten to three while retaining literal
+expected support and the seller warning.
+
+Installed Chrome rendered three matching saved SQLite-backed API results,
+including the visible research limitation. The fixture guide opens already
+accepted offline runs; this does not establish live guided acceptance. Reports
+and rerunnable scripts are under `data/artifacts/task213/`; `verification.json`
+links the final gate, SDK, browser and independent review evidence. The eval
+manifest is `data/artifacts/evals/suite-full-20261008T184011524550Z.json`.
+Task 100A remains the next main P0 and requires separate live authorization.

@@ -1618,3 +1618,56 @@ new active research-context blocker for the next invocation. Keep the main
 acceptance unchecked until a matching guided result meets every criterion.
 Logs, safe diagnostics, exact result responses and browser evidence are in
 `data/artifacts/task100a-20261008/`.
+
+## Task 213 automatic continuation controls
+
+`test_request_compaction.py` drives actual SDK calls across owner, guide, intake,
+analyst, source, extraction, trust, comparison and verifier roles. Controls cover
+exact-span selection, invalid output, provider failure and timeout, structured
+inputs, assistant history, immutable buyer/evidence state, late cautions, scoped
+lookup and ledger charging. `test_research_selection.py` covers noisy high-ranked
+leads, useful independent sources, repeated URLs/snippets, semantic variants,
+known-date and region hints, persisted reasons, deferred lookup, widening and
+stopping only after exact coverage.
+
+`test_context_automatic_continuation.py` reproduces the distinct three-search and
+parallel four-fetch shape through actual scripted SDK ownership. No voluntary
+completion call triggers compaction. Phone and generic controls assert literal
+product-only choices, exact quotes, an excluded imported offer and a late warranty
+caution. They run candidate validation, SDK comparison and verification, persist
+results and read the matching session/run API. A limited control retains reviewed
+support and explicit missing checks. `test_context_limited_results.py` proves a
+process limitation cannot authorize unsupported warranty, seller, price or
+specification claims. Existing true exhaustion and irreducible controls remain.
+
+Saved SDK controls also cover selector failure, timeout and invalid output, plus
+an attempted unsafe listing during automatic compaction. They preserve the
+expected product-only decision or verified no-pick outcome, with actual owner
+warning propagation. Unknown rewrite cost remains reserved and charged. Repeated
+pressure permits three rewrite calls and uses fallback for later requests.
+
+The rerunnable report is `data/artifacts/task213/acceptance.py`. Estimates include
+the unchanged conservative buffer and all required schemas. SDK usage is
+simulated and labeled separately. Final gate and browser evidence appear in the
+Task 213 completion record; offline success does not establish Task 100A.
+
+
+## Task 213 acceptance
+
+Task 213 passed on 2026-10-09 local time. The final offline gate passed 619
+affected tests and 393 shared tests, with 27 quick eval cases before 117 full
+cases. Eight network-denied SDK probes preserve the expected saved decisions
+and safety outcomes. The blocked baseline estimates 23,653 tokens; every repaired
+main request is at most 18,990 under the unchanged 19,000 cap. Scripted usage is
+simulated and separate from conservative estimates. Identical noisy inputs
+reduce admitted lead data from 2,464 to 862 bytes, repeated history from 75,365
+to 12,317 UTF-8 bytes, and fetches from ten to three while retaining literal
+expected support and the seller warning.
+
+Installed Chrome rendered three matching saved SQLite-backed API results,
+including the visible research limitation. The fixture guide opens already
+accepted offline runs; this does not establish live guided acceptance. Reports
+and rerunnable scripts are under `data/artifacts/task213/`; `verification.json`
+links the final gate, SDK, browser and independent review evidence. The eval
+manifest is `data/artifacts/evals/suite-full-20261008T184011524550Z.json`.
+Task 100A remains the next main P0 and requires separate live authorization.

@@ -337,3 +337,87 @@ def test_one_warning_field_with_multiple_passages_keeps_deferred_count():
         assert retained["deferred_caution_count"] == 1
         assert retained["unreviewed_cautions"] is True
         assert "Risk 6." in history.read(view_id, focus="Risk 6.")["text"]
+
+
+def test_explicit_completion_supersedes_automatic_projection_and_keeps_fresh_read():
+    with history_scope() as history:
+        body = "Price PHP 2400. " + "Background prose. " * 1000 + "No local warranty."
+        output = history.register(
+            "fetch_source", json.dumps({"source_id": "page", "text": body})
+        )
+        view_id = json.loads(output)["_research_view"]["view_id"]
+        projected = json.dumps(
+            {
+                "source_id": "page",
+                "text": body[:800],
+                "_research_view": {"view_id": view_id, "tool": "fetch_source"},
+                "_context_projection": {
+                    "derived_context": True,
+                    "omitted_material_unreviewed": True,
+                },
+            }
+        )
+        history.projections[output] = projected
+        assert retired_output(output) == projected
+        assert history.complete(view_id, ["Price PHP 2400."])["status"] == "processed"
+        fresh = history.register(
+            "read_source_snapshot",
+            json.dumps(
+                {
+                    "source_id": "page",
+                    "text": "Late evidence prose. " * 100 + "No local warranty.",
+                    "start_char": 4000,
+                }
+            ),
+        )
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "old",
+                "name": "fetch_source",
+                "arguments": "{}",
+            },
+            {"type": "function_call_output", "call_id": "old", "output": output},
+            {
+                "type": "function_call",
+                "call_id": "fresh",
+                "name": "read_source_snapshot",
+                "arguments": "{}",
+            },
+            {"type": "function_call_output", "call_id": "fresh", "output": fresh},
+        ]
+        prepared = prepare_history(items)
+        retained = json.loads(prepared[1]["output"])
+        assert retained["status"] == "processed"
+        assert retained["retained"]["facts"] == ["Price PHP 2400."]
+        assert retained["retained"]["cautions"] == ["No local warranty."]
+        assert "Background prose." not in prepared[1]["output"]
+        assert (
+            json.loads(prepared[3]["output"])["text"]
+            == "Late evidence prose. " * 100 + "No local warranty."
+        )
+        assert [item["call_id"] for item in prepared] == [
+            "old",
+            "old",
+            "fresh",
+            "fresh",
+        ]
+
+
+def test_large_completed_receipt_keeps_original_instead_of_stale_projection():
+    body = " ".join(f"Word{index}" for index in range(150))
+    with history_scope() as history:
+        output = history.register(
+            "fetch_source", json.dumps({"source_id": "a", "text": body})
+        )
+        view_id = json.loads(output)["_research_view"]["view_id"]
+        automatic = json.dumps(
+            {"source_id": "a", "text": body[:80], "derived_context": True}
+        )
+        history.projections[output] = automatic
+        facts = [body[start : start + 350] for start in range(0, 600, 50)]
+        assert history.complete(view_id, facts)["status"] == "processed"
+        assert len(history.retired(view_id)) > len(output)
+        assert retired_output(output) == output
+        assert facts[-1] in json.loads(retired_output(output))["text"]
+        assert retired_output(output) != automatic

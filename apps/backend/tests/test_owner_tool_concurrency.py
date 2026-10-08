@@ -306,12 +306,23 @@ async def test_normal_owner_sdk_tools_share_session_safely(
         async with factory() as fresh:
             repo = SearchSourceRepository(fresh)
             for result in (results["initial"], results["search"]):
+                returned_id = (
+                    result["sources"][0]["source_id"]
+                    if result["sources"]
+                    else result["deferred_source_ids"][0]
+                )
                 saved = await repo.get_search_result_for_run(
-                    run_id, SourceId(result["sources"][0]["source_id"])
+                    run_id, SourceId(returned_id)
                 )
                 assert saved is not None
                 assert saved.title == "Oak walking cane"
                 assert saved.query.region_code == "PH"
+            assert (
+                results["search"]["selection_reasons"][
+                    results["search"]["deferred_source_ids"][0]
+                ]
+                == "same_site_role_repetition"
+            )
             evidence = await repo.list_source_evidence(run_id)
             assert [item.claim for item in evidence] == [
                 "Oak walking cane has a comfortable handle."

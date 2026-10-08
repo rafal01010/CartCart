@@ -54,7 +54,9 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
         ApprovedSDKTool.READ_SEARCH_RESULTS,
     )
     assert DEFAULT_AGENT_CATALOG.require("DiscoveryAgent").planned_sdk_tools == ()
-    assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == ()
+    assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == (
+        ApprovedSDKTool.READ_RESEARCH_RESULT,
+    )
     assert DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
         ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
@@ -455,3 +457,15 @@ def test_reusable_source_catalog_preserves_live_unavailable_provider_boundary() 
     for name in DEFAULT_AGENT_CATALOG.reusable_source_agent_names:
         entry = DEFAULT_AGENT_CATALOG.require(name)
         assert "LiveProviderEvidenceGaps" in entry.planned_tool_boundaries
+
+
+def test_stage_catalog_allows_shared_original_context_lookup() -> None:
+    from app.agents.research_history import history_tools
+
+    lookup = history_tools()[1]
+    for entry in DEFAULT_AGENT_CATALOG.entries.values():
+        if "BoundedEvidenceContext" not in entry.planned_tool_boundaries:
+            continue
+        approved = [tool.value for tool in entry.approved_sdk_tools]
+        assert lookup.name in approved
+        assert len(approved) == len(set(approved))

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.agents.context_management import (
     BoundedRunner,
+    CONTEXT_RESEARCH_LIMITATION,
     ContextBudgetExceeded,
     context_budget_failure,
 )
@@ -159,6 +160,25 @@ _SAFE_UNCITED_GAP_REASONS = frozenset(
         "We could not confirm enough details to recommend a product safely. Try a more specific request or check again later.",
     }
 )
+
+
+def _limited_research_gap(text: str) -> bool:
+    process_statements = {
+        CONTEXT_RESEARCH_LIMITATION,
+        "Research was shortened before enough independent support could be checked.",
+        "More verified support is needed before choosing a product.",
+    }
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    missing_check = re.compile(
+        r"(?:Local warranty|Seller details|Local warranty and seller details|Price|"
+        r"Delivery|Return policy|Purchase availability) (?:still )?(?:need|needs) "
+        r"(?:checking|verification)\.",
+        re.IGNORECASE,
+    )
+    return bool(sentences) and sentences[0] == CONTEXT_RESEARCH_LIMITATION and all(
+        sentence in process_statements or missing_check.fullmatch(sentence)
+        for sentence in sentences
+    )
 
 
 class VerifierCriticModelRunner(Protocol):
@@ -672,9 +692,15 @@ def _citation_issues(
             continue
         if (
             bundle.no_strong_buy
-            and label == "no-strong-buy reason"
-            and not evidence_ids
-            and text in _SAFE_UNCITED_GAP_REASONS
+            and bundle.final_product_id is None
+            and bundle.final_listing_id is None
+            and (
+                (label == "no-strong-buy reason" and text in _SAFE_UNCITED_GAP_REASONS)
+                or (
+                    (label == "no-strong-buy reason" or label.startswith("warning "))
+                    and _limited_research_gap(text)
+                )
+            )
         ):
             # A cautious evidence-gap statement need not fabricate a citation.
             continue

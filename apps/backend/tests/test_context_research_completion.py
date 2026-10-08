@@ -250,6 +250,7 @@ class AcceptanceModel(Model):
         **kwargs,
     ):
         self.inputs.append(json.loads(json.dumps(input)))
+        items = [] if isinstance(input, str) else input
         schemas = context_management._schema_payload(tools, output_schema, handoffs)
         components = {
             "instructions": measure(instructions or ""),
@@ -264,7 +265,7 @@ class AcceptanceModel(Model):
                 "components": components,
                 "tool_output_characters": sum(
                     len(item.get("output", ""))
-                    for item in input
+                    for item in items
                     if isinstance(item, dict)
                     and item.get("type") == "function_call_output"
                 ),
@@ -272,21 +273,24 @@ class AcceptanceModel(Model):
                 "simulated_output_tokens": 100,
                 "search_calls_in_history": sum(
                     item.get("name") == "search_sources"
-                    for item in input
+                    for item in items
                     if isinstance(item, dict)
                 ),
                 "fetch_calls_in_history": sum(
                     item.get("name") == "fetch_source"
-                    for item in input
+                    for item in items
                     if isinstance(item, dict)
                 ),
             }
         )
-        assert self.steps, (
-            "Unexpected model call beyond independently scripted outcome."
-        )
-        step = self.steps.pop(0)
-        output = step(input, handoffs) if callable(step) else step
+        if (instructions or "").startswith("Select useful exact passages"):
+            output = _message({"spans": []})
+        else:
+            assert self.steps, (
+                "Unexpected model call beyond independently scripted outcome."
+            )
+            step = self.steps.pop(0)
+            output = step(input, handoffs) if callable(step) else step
         return ModelResponse(
             output=output,
             response_id=None,
@@ -378,6 +382,8 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
         for source in _find_sources(input):
             known_sources[source["url"].rsplit("-", 1)[-1]] = source
         for result in _tool_results(input):
+            if result.get("source_id") and result.get("url") and result.get("snippet"):
+                known_sources[result["url"].rsplit("-", 1)[-1]] = result
             if result.get("_research_view"):
                 views[result["_research_view"]["view_id"]] = result
 
@@ -453,16 +459,28 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                     for value in reversed(list(views.values()))
                     if value["_research_view"]["tool"] == "search_sources"
                 )
-            return _call(
-                "search_sources",
-                {
-                    "query": f"{case.category} PH distinct search 2",
-                    "intent": "discovery",
-                    "region_code": "PH",
-                    "max_results": 6,
-                },
-            ) + _call(
-                "read_search_results", {"search_result_id": batch_id, "offset": 4}
+            return (
+                _call(
+                    "search_sources",
+                    {
+                        "query": f"{case.category} PH distinct search 2",
+                        "intent": "discovery",
+                        "region_code": "PH",
+                        "max_results": 6,
+                    },
+                )
+                + _call(
+                    "read_search_results", {"search_result_id": batch_id, "offset": 4}
+                )
+                + [
+                    call
+                    for index in (15, 0, 1)
+                    if str(index) not in known_sources
+                    for call in _call(
+                        "read_search_results",
+                        {"source_id": str(search.leads[index].source_id)},
+                    )
+                ]
             )
 
         steps.append(later_page)
@@ -538,7 +556,10 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
         results = _tool_results(input)
         if mode == "repair":
             active_raw_reads = [
-                item for item in results if isinstance(item.get("text"), str)
+                item
+                for item in results
+                if isinstance(item.get("text"), str)
+                and item.get("_research_view", {}).get("tool") == "fetch_source"
             ]
             assert len(active_raw_reads) == 1
             assert active_raw_reads[0]["start_char"] == 4000
@@ -650,6 +671,9 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
         )
         return items
 
+    async def preserve_legacy_context(self, prepared, *args, **kwargs):
+        return prepared, {"status": "irreducible"}
+
     try:
         if mode == "repair":
             with context_scope(budget):
@@ -662,7 +686,14 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                     context_management, "prepare_history", side_effect=preserve_history
                 ),
                 patch.object(
-                    ResearchHistory, "register", side_effect=lambda tool, output: output
+                    ResearchHistory,
+                    "register",
+                    side_effect=lambda tool, output, **kwargs: output,
+                ),
+                patch.object(
+                    context_management.BudgetedModel,
+                    "_shorten",
+                    preserve_legacy_context,
                 ),
                 context_scope(budget),
             ):

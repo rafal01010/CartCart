@@ -24,6 +24,9 @@ uv run --locked --offline pytest -q \
   tests/test_context_management.py tests/test_context_exact_support.py \
   tests/test_research_history.py tests/test_context_research_completion.py \
   tests/test_downstream_context_projection.py \
+  tests/test_request_compaction.py tests/test_research_selection.py \
+  tests/test_context_automatic_continuation.py \
+  tests/test_context_limited_results.py \
   tests/test_context_decision_fidelity.py tests/test_agent_research_tools.py \
   "${LIVE_CONTEXT_TESTS[@]}" \
   tests/test_reddit_community_intelligence_agent.py \
@@ -32,10 +35,12 @@ uv run --locked --offline pytest -q \
   tests/test_search_source_repository.py tests/test_source_intelligence_repository.py \
   tests/test_source_extraction.py tests/test_refinement_planning.py tests/test_refinement_api.py \
   tests/test_search_provider_runtime.py tests/test_extraction_provider_runtime.py \
+  tests/test_owner_tool_concurrency.py tests/test_run_api.py tests/test_result_api.py \
   tests/test_openai_agent_config.py tests/test_shopping_intent.py tests/test_agent_catalog.py \
   --deselect tests/test_agent_catalog.py::test_agent_catalog_exposes_required_reusable_source_tools \
   -m "not live_provider and not live_model" --basetemp "${CONTEXT_TEMP}/pytest"
 CONTEXT_FILES=(app/agents/context_management.py app/agents/context_metrics.py \
+  app/agents/request_compaction.py app/agents/research_selection.py \
   app/agents/research_history.py app/agents/model_input_projection.py \
   app/agents/source_spans.py app/agents/owner_research.py app/agents/research_tools.py app/agents/extraction_tools.py \
   app/agents/youtube_review_tools.py app/agents/reddit_community_tools.py \
@@ -53,12 +58,19 @@ done
 uv run --locked --offline ruff check "${UNIQUE_CONTEXT_FILES[@]}" tests/test_context_management.py \
   tests/test_research_history.py tests/test_context_research_completion.py \
   tests/test_downstream_context_projection.py \
+  tests/test_request_compaction.py tests/test_research_selection.py \
+  tests/test_context_automatic_continuation.py \
+  tests/test_context_limited_results.py \
   tests/test_context_exact_support.py tests/test_context_decision_fidelity.py \
   tests/test_agent_research_tools.py tests/test_live_general_shopping_agent.py \
   tests/test_amazon_product_intelligence_agent.py tests/test_ikea_store_intelligence_agent.py \
   tests/test_youtube_review_intelligence_agent.py tests/test_reddit_community_intelligence_agent.py \
   app/services/runs.py app/agents/workbench.py app/evals/discovery_extraction.py app/evals/source_intelligence.py
 uv run --locked --offline ruff format --check app/agents/context_management.py \
+  app/agents/request_compaction.py app/agents/research_selection.py \
+  tests/test_request_compaction.py tests/test_research_selection.py \
+  tests/test_context_automatic_continuation.py \
+  tests/test_context_limited_results.py \
   app/agents/research_history.py app/agents/model_input_projection.py \
   tests/test_research_history.py tests/test_context_research_completion.py \
   tests/test_downstream_context_projection.py \

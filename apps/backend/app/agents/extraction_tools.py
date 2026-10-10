@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.source_spans import source_span
-from app.agents.research_history import tracked_tools
+from app.agents.research_history import bounded_cautions, tracked_tools
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.source_intelligence import SourceIntelligenceRepository
 from app.db.repositories.video_sources import VideoReviewRepository
@@ -364,14 +364,32 @@ class SnapshotInterpretationTools:
                         span = source_span(
                             text,
                             start=text.index(item.claim),
-                            limit=self._max_text_chars,
+                            limit=min(self._max_text_chars, 800),
                         )
                         descriptor.update(
                             status="exact_page_support",
+                            supporting_evidence_id=str(item.evidence_id),
+                            source_title=snapshot.title,
+                            source_url=str(snapshot.url),
                             start_char=span.start,
                             content_sha256=span.content_sha256,
                             total_characters=span.total_characters,
+                            source_spans=[
+                                {
+                                    "snapshot_id": str(snapshot.source_id),
+                                    "text": span.text,
+                                    "start_char": span.start,
+                                    "end_char": span.start + len(span.text),
+                                    "content_sha256": span.content_sha256,
+                                    "total_characters": span.total_characters,
+                                    "text_truncated": len(span.text)
+                                    < span.total_characters,
+                                }
+                            ],
+                            **bounded_cautions(text, max_count=3, max_characters=200),
                         )
+                        if len(item.claim) <= 400:
+                            descriptor["supporting_text"] = item.claim
                     else:
                         typed = next(
                             (

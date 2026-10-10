@@ -7,6 +7,7 @@ from app.providers.source_quality import (
     SourceEvidenceContext,
     SourceQualityMetadata,
     normalize_source_url,
+    official_brand_match,
     score_source_quality,
 )
 from app.schemas.search_sources import SourceQualityLevel
@@ -25,6 +26,12 @@ def test_normalizes_domains_and_removes_tracking_parameters() -> None:
     ("url", "region", "expected_class"),
     [
         ("https://www.apple.com/ph/iphone/", "PH", SourceClass.OFFICIAL_MANUFACTURER),
+        (
+            "https://www.oppo.com/ph/smartphones/",
+            "PH",
+            SourceClass.OFFICIAL_MANUFACTURER,
+        ),
+        ("https://www.mi.com/global/phone/", "PH", SourceClass.OFFICIAL_MANUFACTURER),
         (
             "https://abenson.com/product",
             "PH",
@@ -138,9 +145,7 @@ def test_price_comparison_source_requires_actual_shop_assessment() -> None:
 
 
 def test_only_facebook_marketplace_is_excluded() -> None:
-    marketplace = score_source_quality(
-        "https://facebook.com/marketplace/item/example"
-    )
+    marketplace = score_source_quality("https://facebook.com/marketplace/item/example")
     ordinary_page = score_source_quality("https://facebook.com/example-brand")
 
     assert marketplace.excluded is True
@@ -246,3 +251,37 @@ def test_seed_covers_all_owner_approved_mvp_regions() -> None:
         "HK",
         "TW",
     }
+
+
+@pytest.mark.parametrize(
+    ("url", "name", "expected"),
+    [
+        ("https://apple.com/newsroom/", "iPhone 18 Pro", True),
+        ("https://news.samsung.com/ph/", "Galaxy S26 Ultra", True),
+        ("https://oppo.com/ph/", "Oppo Find X9", True),
+        ("https://mi.com/global/", "Xiaomi 17", True),
+        ("https://mi.com/global/", "Redmi Note 15", True),
+        ("https://samsung.com/ph/", "iPhone 18 Pro", False),
+        ("https://apple.com/newsroom/", "Samsung Galaxy S26 Ultra", False),
+        ("https://apple.com.attacker.example/", "iPhone 18 Pro", False),
+        ("https://sony.com/", "Sony WH-1000XM6", True),
+        ("https://nike.com/", "Nike Pegasus", True),
+        ("https://nike.com/", "Adidas Ultraboost", False),
+        ("https://bosch-home.com/", "Bosch Series 4", True),
+        ("https://hermanmiller.com/", "Herman Miller Aeron", True),
+        ("https://ikea.com/ph/", "MALM", None),
+    ],
+)
+def test_official_brand_match_preserves_unknown_and_rejects_named_competitors(
+    url: str,
+    name: str,
+    expected: bool | None,
+) -> None:
+    assert official_brand_match(url, name) is expected
+
+
+def test_xiaomi_user_community_is_not_first_party_product_support() -> None:
+    assessment = score_source_quality("https://c.mi.com/global/post/123")
+
+    assert assessment.source_class == SourceClass.COMMUNITY
+    assert assessment.quality.level == SourceQualityLevel.WEAK

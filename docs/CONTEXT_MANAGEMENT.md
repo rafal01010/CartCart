@@ -444,3 +444,123 @@ and rerunnable scripts are under `data/artifacts/task213/`; `verification.json`
 links the final gate, SDK, browser and independent review evidence. The eval
 manifest is `data/artifacts/evals/suite-full-20261008T184011524550Z.json`.
 Task 100A remains the next main P0 and requires separate live authorization.
+
+## Guided acceptance failures after Task 213, 2026-10-10
+
+The required offline gate passed again before two authorized guided attempts.
+Both retained the selected live models, PH unlimited-budget intent, separate
+`iPhone` candidate and actual General -> Technology -> Smartphone handoffs.
+Both failed before candidate validation with no canonical exact evidence or
+saved result. New P0 Task 214 precedes the next Task 100A checkpoint.
+
+| Final request | First attempt | Bounded retry |
+| --- | ---: | ---: |
+| Input characters before preparation | 58,642 | 58,552 |
+| Input characters after preparation | 33,216 | 36,559 |
+| Base input estimate | 14,286 | 15,395 |
+| Added input headroom | 3,828 | 4,105 |
+| Final input estimate | 18,114 | 19,500 |
+| Active Smartphone output allowance | 1,500 | 1,500 |
+| Settled owner tokens | 70,849 | 66,798 |
+| Remaining owner allowance | 19,151 | 23,202 |
+| Settled shared tokens | 71,924 | 67,868 |
+| Failing gate | Owner reservation short by 463 | Input cap exceeded by 500 |
+
+These are recorded conservative estimates and settled ledger values, not actual
+input usage for blocked calls. Neither blocked request reached transport. The
+first run's two shortening fallbacks consumed unknown-usage reservations of
+3,797 and 4,684 tokens. Their exception causes remain unknown because the
+fallback records omit them. Do not remove those charges to make completion fit.
+
+The current selector targets the input ceiling before finalization changes
+instructions and schemas; it does not target the currently affordable owner
+continuation. Protected request structure can still exceed its target after
+all selectable narrative is shortened. Simultaneous spending/context pressure
+then removes all quote/read tools, leaving fetched-but-unquoted support without
+a funded path to canonical evidence. Task 214 must secure that path earlier,
+plan against the final request shape and every active allowance, and preserve
+processed-history reduction, original lookup, exact cautions and SDK pairing.
+It must distinguish the active role's output cap from General's summary cap and
+record safe rewrite-failure and blocking classifications.
+
+The per-call cap remains 19,000, owner/source allowance 90,000 and shared ceiling
+150,000. Both downstream reserves remain 24,000. No context behavior changed
+in this acceptance invocation. Evidence is under
+`data/artifacts/task100a-20261010/`, including both safe diagnostics, tool
+summaries and the independent root-cause review. Phone age/support, launch
+uncertainty and final seller/citation acceptance remain pending Task 100A.
+
+## Task 214 transport repair
+
+The owner replaced the broad offline gate for this invocation with actual guided
+live runs and authorized reruns. Narrow Ruff and compilation checks establish
+launch readiness only. They do not establish shopping acceptance.
+
+The failed premise was that shortening narrative fields could bound history
+while every old call, argument and protocol item remained. The saved second
+100A failure held 24,479 tool-result characters and 10,864 prior-turn/handoff
+characters. The shopper brief was roughly 1,148 characters. These sizes exclude
+instruction and schema overhead. The 150,000 allowance counts repeated input
+and output across calls; it is not one request's available context window.
+
+Task 214 removes paid span-selection calls. It projects complete old response
+batches into scope-bound exact archives and a bounded derived checkpoint.
+Native reasoning, hosted outputs and paired external calls move together.
+Recent batches and unmatched calls remain available. Canonical evidence stays
+in SQLite and full research originals remain retrievable. Checkpoint omissions
+are unreviewed and do not establish listing or warranty safety.
+
+Fitting starts at 75 percent of the affordable request and targets 60 percent
+where reducible content permits it. It measures final instructions, tool and
+output schemas, the active role's output allowance, remaining ledgers and both
+downstream reserves. Emergency fitting retires more complete history. A funded
+capture phase keeps existing-source reads and parallel exact-quote recording
+before output-only completion. Diagnostics identify the phase, active output
+cap, reservation, remaining balances and exact blocking condition.
+
+The first new live attempt exposed invalid projection metadata on an SDK item.
+The second exposed a hosted-search item separated from its required reasoning.
+Both failed without a saved buying result. Repairs restrict metadata to payload
+bodies and keep complete native response sequences together. Bounded archive
+rereads compute text and attributed source spans from one decoded representation,
+while original archive bytes retain their own hash and size. Verification
+artifacts are in `data/artifacts/task214/`. Acceptance remains pending until a
+matching fresh saved result is inspected and visible in the browser.
+
+The sixth repair run recorded four official quotes but produced no product suggestion.
+A failed HTTP403 review read had been reported as success, and fixed capture turns
+closed while16,977owner tokens remained. Capture now chooses a bounded unquoted
+source or replacement from actual evidence state and reserves its quote follow-up
+and completion before fetching. Empty/failed reads expose a source-switch gap.
+Planning projections no longer mutate transport caches; only actual sent packets
+commit visibility. Typed stage JSON is projected inside SDK text envelopes.
+
+The owner then revised product selection: trusted official exact support can
+establish a product-only option without a second review domain. Manufacturer
+claims stay attributed and unknown stock, price, warranty and support stay
+qualified. Independent reviews improve confidence and remain required for
+unsupported comparative assertions. Basic research starts with two focused
+queries and three hits each; deferred discovery leads remain uncertain/unreviewed.
+The normal result shows up to three distinct verified options, with separate
+tradeoffs and citations. This policy revision is owner-authorized, not evidence
+that the sixth no-option result passed acceptance.
+
+Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
+receives exact stored quote support, title, URL, offsets, hashes and bounded
+original context upfront. Canonical verification input survives compaction.
+At most two source rereads are allowed before a final report. Existing independent
+factual, seller and budget guardrails remain. The owner explicitly increased
+the local VerifierCriticAgent timeout from inherited60seconds to180seconds; all
+other configured models, reasoning, providers and context/spending limits remain.
+A processing timeout fails the check with a retryable error, rather than publishing
+a no-option buying judgment. Failed-read activity remains saved for diagnosis.
+
+POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
+atomically and resumes its decision/verification from persisted research. It
+preserves canonical IDs, old events and immutable result versions, requires an
+unchanged same-session request/region/brief, and rejects duplicate active retries.
+The synchronous response reports the final run status; the UI reads its matching
+result directly without replaying historical terminal SSE events. Future owner
+drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
+reconstruct a decision from revalidated exact saved support, with research tools
+disabled. They do not rerun intake or provider searches.

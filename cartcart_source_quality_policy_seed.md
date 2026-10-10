@@ -178,7 +178,7 @@ Rule: official domains are authoritative **only for their own products**. Region
 
 | Category | Seed official domains | Region note |
 |---|---|---|
-| Electronics / phones | `apple.com`, `samsung.com`, `sony.com`, `lg.com`, `panasonic.com`, `lenovo.com`, `hp.com`, `dell.com`, `asus.com`, `acer.com` | Use country selector/path: e.g. Apple PH vs US vs JP; Samsung KR vs SG etc. |
+| Electronics / phones | `apple.com`, `samsung.com`, `oppo.com`, `mi.com`, `sony.com`, `lg.com`, `panasonic.com`, `lenovo.com`, `hp.com`, `dell.com`, `asus.com`, `acer.com` | Use country selector/path: e.g. Apple PH vs US vs JP; Samsung KR vs SG etc. Manufacturer facts do not establish checked local purchase terms. |
 | Appliances | `whirlpool.com`, `electrolux.com`, `bosch-home.com`, `haier.com`, `midea.com`, `lg.com`, `samsung.com`, `panasonic.com` | Check local voltage, warranty, service-center pages. |
 | Furniture/home | `ikea.com`, `muji.com`, `nitori-net.jp`, `hermanmiller.com`, `steelcase.com`, `koala.com`, `ecosa.com` | IKEA must be country-path specific. |
 | Kitchen | `ninjakitchen.com`, `kitchenaid.com`, `zwilling.com`, `tefal.com`, `philips.com`, `zojirushi.com`, `tiger-corporation.com` | Appliances may differ by voltage and plug. |

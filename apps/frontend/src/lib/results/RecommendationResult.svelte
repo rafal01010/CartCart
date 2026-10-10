@@ -19,7 +19,6 @@
 		result,
 		selectedMode,
 		question,
-		onSelectMode,
 		onStartOver,
 		listingCheckOutcome = null,
 		listingCheckError = null,
@@ -49,7 +48,9 @@
 	let showSourceDetails = $state(false);
 
 	const decisionCopy = $derived(
-		result.noStrongBuyReason ?? result.whyItWins ?? selectedMode?.rationale ?? '',
+		result.noStrongBuyReason ?? (result.recommendedOptions.length > 1
+			? 'These options fit what you asked for. Compare the reasons and tradeoffs below.'
+			: result.whyItWins ?? selectedMode?.rationale ?? ''),
 	);
 </script>
 
@@ -59,92 +60,52 @@
 			{result.noStrongBuyReason ? 'Buying decision' : 'CartCart recommendation'}
 		</p>
 		<h1 class="mt-4 text-balance text-[clamp(2.8rem,6vw,5.6rem)] leading-[0.98] font-light tracking-[-0.045em] text-foreground">
-			{result.noStrongBuyReason ? 'None are strong buys yet.' : result.finalMode ? 'Here is the clear pick.' : 'The saved pick is unavailable.'}
+			{result.noStrongBuyReason ? 'No suitable option is confirmed yet.' : result.recommendedOptions.length > 1 ? 'Good options to consider.' : result.recommendedOptions.length ? 'An option worth considering.' : 'The saved pick is unavailable.'}
 		</h1>
 		<p class="mt-6 max-w-[760px] text-pretty text-base leading-7 text-muted-foreground sm:text-[17px]">
 			{decisionCopy}
 		</p>
 	</div>
 
-	{#if !result.noStrongBuyReason && result.decisionModes.length > 1}
-		<div class="mt-9 flex max-w-full gap-1 overflow-x-auto border-b border-border pb-px" role="tablist" aria-label="Recommendation mode">
-			{#each result.decisionModes as mode}
-				<button
-					type="button"
-					role="tab"
-					aria-selected={selectedMode?.key === mode.key}
-					class={`relative shrink-0 px-4 py-3 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none ${selectedMode?.key === mode.key ? 'text-foreground after:absolute after:right-0 after:bottom-[-1px] after:left-0 after:h-px after:bg-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-					onclick={() => onSelectMode(mode.key)}
-				>
-					{mode.label}
-				</button>
-			{/each}
-		</div>
-	{/if}
-
-	<section class="mt-8 border-y border-border bg-card/45" aria-label="Recommendation summary">
-		{#if selectedMode && !result.noStrongBuyReason}
-			<div class="grid lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)]">
-				<div class="p-5 sm:p-8 lg:border-r lg:border-border lg:p-10">
-					<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-						<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">{selectedMode.label}</p>
-						<span class="h-3 w-px bg-iron" aria-hidden="true"></span>
-						<p class="text-xs text-muted-foreground">{selectedMode.confidence} confidence</p>
-					</div>
-					<h2 class="mt-4 text-balance text-3xl leading-tight font-[510] tracking-[-0.03em] text-foreground sm:text-4xl">
-						{selectedMode.productName}
-					</h2>
-					<p class="mt-4 max-w-[680px] text-base leading-7 text-muted-foreground">{selectedMode.rationale || 'No explanation was saved for this pick.'}</p>
-
-					<div class="mt-7 flex flex-wrap items-center gap-3">
-						{#if selectedMode.purchaseUrl && !selectedMode.listingTrust?.isBlocking}
-							<Button href={selectedMode.purchaseUrl} target="_blank" rel="noreferrer noopener">
-								View listing <ExternalLink />
-							</Button>
-						{/if}
-						<EvidenceDetails evidence={selectedMode.evidence} sources={selectedMode.sources} label="Why this fits" />
-					</div>
-				</div>
-
-				<aside class="p-5 sm:p-8 lg:p-10" aria-label="Listing details">
-					<div class="grid gap-6">
-						<div>
-							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Price found</p>
-							<p class="mt-2 text-xl font-[510] text-foreground">{selectedMode.priceLabel ?? 'Price unavailable'}</p>
+	<section class="mt-8" aria-label="Recommended options">
+		{#if result.recommendedOptions.length && !result.noStrongBuyReason}
+			<div class={`grid gap-5 ${result.recommendedOptions.length > 1 ? 'md:grid-cols-2' : ''} ${result.recommendedOptions.length === 3 ? 'xl:grid-cols-3' : ''}`}>
+				{#each result.recommendedOptions as option, index (option.productId)}
+					<article class="flex flex-col border border-border bg-card/45 p-5 sm:p-7">
+						<div class="flex flex-wrap items-center justify-between gap-2">
+							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Option {index + 1}</p>
+							<p class="text-xs text-muted-foreground">{option.confidence} confidence</p>
 						</div>
-						<div>
-							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Seller</p>
-							<p class="mt-2 break-words text-sm text-foreground">{selectedMode.sellerName ?? 'Seller details unavailable'}</p>
+						<h2 class="mt-4 text-balance text-2xl leading-tight font-[510] tracking-[-0.03em] text-foreground sm:text-3xl">{option.productName}</h2>
+						<p class="mt-4 text-sm leading-7 text-muted-foreground">{option.rationale}</p>
+						<div class="mt-6 flex flex-wrap items-center gap-3">
+							{#if option.purchaseUrl && !option.listingTrust?.isBlocking}
+								<Button href={option.purchaseUrl} target="_blank" rel="noreferrer noopener" variant="outline">View listing <ExternalLink /></Button>
+							{:else if option.productUrl}
+								<Button href={option.productUrl} target="_blank" rel="noreferrer noopener" variant="outline">View product <ExternalLink /></Button>
+							{/if}
+							<EvidenceDetails evidence={option.evidence} sources={option.sources} label="Why this fits" />
 						</div>
-						<div class="border-t border-border pt-5">
-							<div class="flex items-center gap-2">
-								{#if selectedMode.listingTrust?.isRisky}
-									<AlertTriangle class="size-4 text-destructive" />
-								{:else}
-									<ShieldCheck class="size-4 text-muted-foreground" />
-								{/if}
-								<p class="text-sm font-[510] text-foreground">
-									{selectedMode.listingTrust?.levelLabel ?? 'Listing not fully checked'}
-								</p>
-							</div>
-							<p class="mt-2 text-sm leading-6 text-muted-foreground">
-								{selectedMode.listingTrust?.summary ?? 'Open the evidence before deciding where to buy.'}
-							</p>
-							{#if selectedMode.listingTrust}
-								<div class="mt-3">
-									<EvidenceDetails evidence={selectedMode.listingTrust.evidence} sources={selectedMode.listingTrust.sources} label="Listing check" />
+						<div class="mt-6 border-t border-border pt-5">
+							{#if option.listingId}
+								<p class="text-sm text-foreground">{option.priceLabel ?? 'Price unavailable'}{option.sellerName ? ` · ${option.sellerName}` : ''}</p>
+								<div class="mt-3 flex items-center gap-2">
+									{#if option.listingTrust?.isRisky}<AlertTriangle class="size-4 text-destructive" />{:else}<ShieldCheck class="size-4 text-muted-foreground" />{/if}
+									<p class="text-sm font-[510] text-foreground">{option.listingTrust?.levelLabel ?? 'Listing not fully checked'}</p>
 								</div>
+								<p class="mt-2 text-sm leading-6 text-muted-foreground">{option.listingTrust?.summary ?? 'Check the seller, warranty and current availability before buying.'}</p>
+								{#if option.listingTrust}<div class="mt-3"><EvidenceDetails evidence={option.listingTrust.evidence} sources={option.listingTrust.sources} label="Listing check" /></div>{/if}
+							{:else}
+								<p class="text-sm leading-6 text-muted-foreground">Seller, price and availability still need checking before you buy.</p>
 							{/if}
 						</div>
-					</div>
-				</aside>
+					</article>
+				{/each}
 			</div>
 		{:else}
-			<div class="p-5 sm:p-8 lg:p-10">
+			<div class="border-y border-border bg-card/45 p-5 sm:p-8 lg:p-10">
 				{#if !result.noStrongBuyReason}<p class="text-sm leading-6 text-muted-foreground">The saved final pick is unavailable.</p>{/if}
-				<div class="mt-5 max-w-[680px]">
-					<EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label={result.noStrongBuyReason ? 'What blocked a recommendation' : 'Saved decision evidence'} />
-				</div>
+				<div class="mt-5 max-w-[680px]"><EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label={result.noStrongBuyReason ? 'What blocked a recommendation' : 'Saved decision evidence'} /></div>
 			</div>
 		{/if}
 	</section>
@@ -211,36 +172,12 @@
 	</div>
 
 	{#if showSupportingDetails}
-		{#if !result.runnerUps.length && !result.trustViews.length && !result.rejectedItems.length}
+		{#if !result.trustViews.length && !result.rejectedItems.length}
 			<p class="mt-8 border-y border-border py-6 text-sm leading-6 text-muted-foreground">
-				No additional alternatives or listing checks were preserved for this result.
+				No additional listing checks were preserved for this result.
 			</p>
 		{/if}
 		<div class="mt-8 grid gap-10 lg:grid-cols-2">
-			{#if result.runnerUps.length}
-				<section aria-labelledby="runner-ups-title">
-					<h2 id="runner-ups-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Runner-ups</h2>
-					<div class="mt-4 divide-y divide-border border-y border-border">
-						{#each result.runnerUps as runner}
-							<article class="py-5">
-								<div class="flex items-start justify-between gap-4">
-									<div class="min-w-0">
-										<p class="break-words text-base font-[510] text-foreground">{runner.productName}</p>
-										<p class="mt-1 text-xs text-muted-foreground">{runner.label}{runner.priceLabel ? ` · ${runner.priceLabel}` : ''}</p>
-									</div>
-									{#if runner.purchaseUrl && !runner.listingTrust?.isBlocking}
-										<a href={runner.purchaseUrl} target="_blank" rel="noreferrer noopener" class="shrink-0 rounded-md text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none" aria-label={`Open listing for ${runner.productName}`}><ExternalLink class="size-4" /></a>
-									{/if}
-								</div>
-								<p class="mt-3 text-sm leading-6 text-muted-foreground">{runner.rationale || 'No explanation was saved for this alternative.'}</p>
-								{#if runner.listingTrust?.isRisky}<p class="mt-2 text-sm leading-6 text-destructive">{runner.listingTrust.summary}</p>{/if}
-								<div class="mt-3"><EvidenceDetails evidence={runner.evidence} sources={runner.sources} label="Why it placed" /></div>
-							</article>
-						{/each}
-					</div>
-				</section>
-			{/if}
-
 			{#if result.trustViews.length}
 				<section aria-labelledby="seller-checks-title">
 					<h2 id="seller-checks-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Seller and listing checks</h2>

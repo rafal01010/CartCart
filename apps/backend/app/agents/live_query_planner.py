@@ -202,11 +202,11 @@ def _build_query_planner_agent(model: str) -> Agent[Any]:
         instructions=(
             RESEARCH_QUERY_GUIDANCE
             + "Create a SearchPlan from the shopper's ShoppingBrief. Return only "
-            "the structured SearchPlan. Include a small source strategy with "
-            "shopping/listing, price or availability, official-source, and "
-            "review queries when useful. Include video-review search when a "
-            "normal shopper would benefit from demos, comparisons, durability, "
-            "or setup evidence. If the input contains user_added_products with "
+            "the structured SearchPlan. Start with at most two focused queries for useful official product facts "
+            "and optional review/comparison evidence. Reviews are never required to return product options. "
+            "For a hard price cap, use a regional priced shopping query instead of the official query. "
+            "Do not add overlapping price, store, warranty, shipping, or video queries before a specific gap exists. "
+            "If the input contains user_added_products with "
             "product names or short descriptions, include scoped shopping or "
             "official-source lookup queries for those products so CartCart can "
             "find matching listings without asking for links. Every ordinary "
@@ -266,7 +266,7 @@ def _normalize_query_plan(plan: SearchPlan, brief: ShoppingBrief) -> SearchPlan:
         _normalize_query(query, region_code=region_code) for query in plan.queries
     )
     return SearchPlan(
-        queries=_dedupe_queries(queries),
+        queries=_initial_queries(queries, brief),
         rationale=plan.rationale,
     )
 
@@ -300,6 +300,27 @@ def _dedupe_queries(queries: tuple[SearchQuery, ...]) -> tuple[SearchQuery, ...]
     return tuple(deduped)
 
 
+def _initial_queries(
+    queries: tuple[SearchQuery, ...], brief: ShoppingBrief
+) -> tuple[SearchQuery, ...]:
+    queries = _dedupe_queries(queries)
+    preferred = (
+        SearchIntent.PRICE_CHECK
+        if brief.budget and brief.budget.mode == BudgetMode.HARD_CAP
+        else SearchIntent.OFFICIAL_SOURCE
+    )
+    shopping = next((query for query in queries if query.intent == preferred), None)
+    shopping = shopping or next(
+        (query for query in queries if _is_shopping_query(query)), None
+    )
+    review = next(
+        (query for query in queries if _is_review_query(query) and query != shopping),
+        None,
+    )
+    review = review or next((query for query in queries if query != shopping), None)
+    return tuple(query for query in (shopping, review) if query is not None)
+
+
 def _validate_query_plan_policy(plan: SearchPlan) -> None:
     texts = [query.query for query in plan.queries]
     if plan.rationale:
@@ -310,14 +331,10 @@ def _validate_query_plan_policy(plan: SearchPlan) -> None:
                 "query planner output included artificial category blocking."
             )
 
-    if len(plan.queries) < 2:
-        raise ValueError(
-            "query planner output must include shopping and review queries."
-        )
+    if not plan.queries:
+        raise ValueError("query planner output must include a product research query.")
     if not any(_is_shopping_query(query) for query in plan.queries):
         raise ValueError("query planner output must include a shopping query.")
-    if not any(_is_review_query(query) for query in plan.queries):
-        raise ValueError("query planner output must include a review query.")
     if any(not query.required_source_types for query in plan.queries):
         raise ValueError("query planner output must include source strategy.")
 
@@ -402,16 +419,21 @@ def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
     region_code = _region_code_from_brief(brief)
     region_phrase = _region_phrase(region_code)
     budget_phrase = _budget_phrase(brief)
-    context_phrase = _context_phrase(brief)
+    shopping_intent = (
+        SearchIntent.PRICE_CHECK
+        if brief.budget and brief.budget.mode == BudgetMode.HARD_CAP
+        else SearchIntent.OFFICIAL_SOURCE
+    )
+    shopping_purpose = "priced retailer listings" if shopping_intent == SearchIntent.PRICE_CHECK else "official product announcement"
 
     queries = (
         SearchQuery(
             query=_clean_query(
-                f"{descriptor} {budget_phrase} {region_phrase} retailers buying options"
+                f"{descriptor} {budget_phrase} {region_phrase} {shopping_purpose}"
             ),
-            intent=SearchIntent.DISCOVERY,
+            intent=shopping_intent,
             region_code=region_code,
-            required_source_types=_default_source_types(SearchIntent.DISCOVERY),
+            required_source_types=_default_source_types(shopping_intent),
         ),
         SearchQuery(
             query=_clean_query(
@@ -421,36 +443,11 @@ def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
             region_code=region_code,
             required_source_types=_default_source_types(SearchIntent.REVIEW),
         ),
-        SearchQuery(
-            query=_clean_query(
-                f"{descriptor} {region_phrase} official store warranty availability"
-            ),
-            intent=SearchIntent.OFFICIAL_SOURCE,
-            region_code=region_code,
-            required_source_types=_default_source_types(SearchIntent.OFFICIAL_SOURCE),
-        ),
-        SearchQuery(
-            query=_clean_query(
-                f"{descriptor} {region_phrase} price seller return policy"
-            ),
-            intent=SearchIntent.PRICE_CHECK,
-            region_code=region_code,
-            required_source_types=_default_source_types(SearchIntent.PRICE_CHECK),
-        ),
-        SearchQuery(
-            query=_clean_query(
-                f"{descriptor} {context_phrase} {region_phrase} video review long term comparison"
-            ),
-            intent=SearchIntent.VIDEO_REVIEW,
-            region_code=region_code,
-            required_source_types=_default_source_types(SearchIntent.VIDEO_REVIEW),
-        ),
     )
     return SearchPlan(
         queries=_dedupe_queries(queries),
         rationale=(
-            "Generic region-aware shopping plan covering retailers, reviews, "
-            "official sources, prices, and video evidence where useful."
+            "Two focused region-aware queries for official product facts and substantive reviews."
         ),
     )
 
@@ -470,7 +467,9 @@ def _mock_plan_from_model_input(model_input: str) -> SearchPlan:
     if not user_added_queries:
         return plan
     return plan.model_copy(
-        update={"queries": _dedupe_queries((*plan.queries, *user_added_queries))}
+        update={
+            "queries": _initial_queries((*user_added_queries, *plan.queries), brief)
+        }
     )
 
 
@@ -497,7 +496,11 @@ def _with_user_added_lookup_queries(
     if not user_added_queries:
         return plan
     return plan.model_copy(
-        update={"queries": _dedupe_queries((*plan.queries, *user_added_queries))}
+        update={
+            "queries": _initial_queries(
+                (*user_added_queries, *plan.queries), input_data.brief
+            )
+        }
     )
 
 
@@ -516,7 +519,7 @@ def _user_added_lookup_query(
         query=_clean_query(
             f"{lookup_text} {_region_phrase(region_code)} official retailer listing"
         ),
-        intent=SearchIntent.DISCOVERY,
+        intent=SearchIntent.OFFICIAL_SOURCE,
         region_code=region_code,
         required_source_types=(
             SourceType.RETAILER_LISTING,

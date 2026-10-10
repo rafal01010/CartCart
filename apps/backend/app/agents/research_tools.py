@@ -31,6 +31,11 @@ from app.providers.contracts import (
     SearchProviderOptions,
     SourceAllowAvoidPolicy,
 )
+from app.providers.source_quality import (
+    SourceEvidenceContext,
+    SourceQualityMetadata,
+    score_source_quality,
+)
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import RunId, SourceId, new_id
@@ -77,7 +82,7 @@ class SearchSourcesRequest(CartCartBaseModel):
     query: str = Field(min_length=1, max_length=500)
     intent: SearchIntent = SearchIntent.DISCOVERY
     region_code: RegionCode | None = None
-    max_results: int = Field(default=10, ge=1, le=20)
+    max_results: int = Field(default=3, ge=1, le=20)
 
     @field_validator("query")
     @classmethod
@@ -154,6 +159,34 @@ class FetchSourceResult(CartCartBaseModel):
     provider_name: str | None = None
     gap: str | None = None
     evidence_need_id: str | None = None
+
+
+def _unusable_page_gap(snapshot: SourceSnapshot | None) -> str:
+    if snapshot is None or snapshot.extraction_status == ExtractionStatus.NOT_ATTEMPTED:
+        return "Page text has not been retrieved. Fetch this source before reading or quoting it."
+    failure = snapshot.provider.raw.get("extraction_failure_code")
+    if failure == "blocked" or snapshot.http_status_code in {401, 403}:
+        return (
+            "This page blocked retrieval and has no usable product text. "
+            "Do not reread its empty snapshot. Fetch another approved source for the same missing evidence."
+        )
+    if (
+        failure == "source_policy_excluded"
+        or snapshot.extraction_status == ExtractionStatus.EXCLUDED
+    ):
+        return (
+            "This source is outside approved retrieval policy. "
+            "Fetch another approved source for the same missing evidence."
+        )
+    if snapshot.provider.raw.get("extraction_failure_retryable") is False:
+        return (
+            "Page extraction failed and cannot be retried through this snapshot. "
+            "Do not reread it. Fetch another approved source for the same missing evidence."
+        )
+    return (
+        "This page has no successfully extracted product text. "
+        "Rereading the same snapshot cannot provide support. Fetch another approved source for the missing evidence."
+    )
 
 
 class RecordSourceQuoteResult(CartCartBaseModel):
@@ -434,6 +467,80 @@ class AgentResearchTools:
     def required_region_code(self) -> RegionCode | None:
         return self._required_region_code
 
+    async def restore_recorded_quotes(
+        self, activity: tuple[dict[str, Any], ...]
+    ) -> tuple[dict[str, Any], ...]:
+        """Reauthorize saved quotes only against their original canonical spans."""
+        restored = []
+        async with self._session_lock:
+            async with self._session() as session:
+                repository = SearchSourceRepository(session)
+                evidence = {
+                    str(item.evidence_id): item
+                    for item in await repository.list_source_evidence(self._run_id)
+                }
+                for item in activity:
+                    if (
+                        item.get("tool_name") != "record_source_quote"
+                        or item.get("status") != "succeeded"
+                    ):
+                        continue
+                    output = item.get("output", {})
+                    ids = output.get("source_ids", ())
+                    span = output.get("support_span", {})
+                    if len(ids) != 3 or str(ids[2]) not in evidence:
+                        continue
+                    source_id = SourceId(ids[0])
+                    source = await repository.get_search_result_for_run(
+                        self._run_id, source_id
+                    )
+                    snapshot = await repository.get_snapshot_for_search_result(
+                        self._run_id, source_id
+                    )
+                    quote = evidence[str(ids[2])]
+                    start, end = span.get("start_char"), span.get("end_char")
+                    if (
+                        source is None
+                        or snapshot is None
+                        or str(snapshot.source_id) != str(ids[1])
+                        or quote.source_id != snapshot.source_id
+                        or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
+                        or snapshot.extracted_content is None
+                        or not 1 <= len(quote.claim) <= 400
+                        or type(start) is not int
+                        or type(end) is not int
+                        or not 0 <= start < end <= len(snapshot.extracted_content.text)
+                        or snapshot.extracted_content.text[start:end] != quote.claim
+                        or span.get("content_sha256")
+                        != source_span(snapshot.extracted_content.text).content_sha256
+                        or str(span.get("snapshot_id")) != str(snapshot.source_id)
+                        or not _safe_public_result_url(str(source.url))
+                        or not _safe_public_result_url(str(snapshot.url))
+                        or not _source_policy_allows(
+                            str(source.url), source.source_type, self._source_policy
+                        )
+                        or snapshot.quality.level == SourceQualityLevel.WEAK
+                        or quote.source_quality.level
+                        in {SourceQualityLevel.WEAK, SourceQualityLevel.UNKNOWN}
+                    ):
+                        continue
+                    if quote.evidence_id in self._recorded_quote_ids:
+                        continue
+                    self._recorded_quote_ids.add(quote.evidence_id)
+                    self._recorded_source_ids.add(source_id)
+                    restored.append(
+                        {
+                            "source_id": str(source_id),
+                            "snapshot_id": str(snapshot.source_id),
+                            "evidence_id": str(quote.evidence_id),
+                            "title": snapshot.title,
+                            "url": str(source.url),
+                            "quote": quote.claim,
+                            "source_quality": quote.source_quality.model_dump(mode="json"),
+                        }
+                    )
+        return tuple(restored)
+
     def for_agent(self, agent_name: str) -> "AgentResearchTools":
         """Give a receiving owner the same run, policy, and providers with its own budget."""
         receiving = AgentResearchTools(
@@ -499,7 +606,7 @@ class AgentResearchTools:
             query: str,
             intent: SearchIntent = SearchIntent.DISCOVERY,
             region_code: str | None = None,
-            max_results: int = 10,
+            max_results: int = 3,
         ) -> str:
             """Search approved shopping sources and return persisted source IDs.
 
@@ -690,6 +797,15 @@ class AgentResearchTools:
                     )
                     self._record("record_source_quote", result.status)
                     return result
+                quality = snapshot.quality
+                if quality.level == SourceQualityLevel.UNKNOWN:
+                    quality = score_source_quality(
+                        str(source.url),
+                        SourceQualityMetadata(
+                            target_region_code=self._required_region_code,
+                            evidence_context=SourceEvidenceContext.GENERAL,
+                        ),
+                    ).quality
                 evidence = SourceEvidence(
                     source_id=snapshot.source_id,
                     target=EvidenceTarget(
@@ -707,7 +823,7 @@ class AgentResearchTools:
                         level=ConfidenceLevel.MEDIUM,
                         rationale="Exact text on a fetched page; the claim is not independently verified.",
                     ),
-                    source_quality=snapshot.quality,
+                    source_quality=quality,
                 )
                 await repository.add_source_evidence(self._run_id, evidence)
                 await self._commit(session)
@@ -1410,7 +1526,7 @@ class AgentResearchTools:
             gap=(
                 None
                 if has_usable_text
-                else "Page content is incomplete or unavailable."
+                else _unusable_page_gap(snapshot)
             ),
             evidence_need_id=request.need_id,
         )

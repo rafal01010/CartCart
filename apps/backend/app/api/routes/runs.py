@@ -48,6 +48,20 @@ async def create_run(
     return run
 
 
+@router.post("/{run_id}/retry", response_model=ShoppingRunRecord)
+async def retry_run(
+    session_id: SessionId,
+    run_id: RunId,
+    db_session: DbSession,
+    request: Request,
+) -> ShoppingRunRecord:
+    run = await _run_service(db_session, request).retry_run(session_id, run_id)
+    if run is None:
+        raise _run_not_found(session_id, run_id)
+    await db_session.commit()
+    return run
+
+
 @router.get("/{run_id}/events")
 async def stream_run_events(
     session_id: SessionId,

@@ -145,6 +145,11 @@ async def test_unconstrained_phone_queries_are_current_and_regional() -> None:
         settings=_settings(), model_runner=MockQueryPlannerModelRunner()
     )
     plan = await agent.run(QueryPlannerAgentInput(run_id=new_id(), brief=brief))
+    assert len(plan.queries) == 2
+    assert {query.intent for query in plan.queries} == {
+        SearchIntent.OFFICIAL_SOURCE,
+        SearchIntent.REVIEW,
+    }
     for query in plan.queries:
         assert "budget" not in query.query.casefold()
         assert "Philippines" in query.query
@@ -185,6 +190,7 @@ async def test_live_query_planner_accepts_valid_mocked_structured_output() -> No
     result = await agent.run(_coffee_grinder_input())
 
     assert runner.calls == 1
+    assert len(result.queries) == 2
     assert {query.intent for query in result.queries} >= {
         SearchIntent.DISCOVERY,
         SearchIntent.REVIEW,
@@ -223,6 +229,11 @@ async def test_live_query_planner_falls_back_on_invalid_or_blocking_output() -> 
 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
+    assert len(result.queries) == 2
+    assert {query.intent for query in result.queries} == {
+        SearchIntent.PRICE_CHECK,
+        SearchIntent.REVIEW,
+    }
     assert _has_shopping_query(result)
     assert _has_review_query(result)
     assert all(query.region_code == "US" for query in result.queries)

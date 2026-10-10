@@ -314,6 +314,9 @@ describe('result view helpers', () => {
 			},
 		});
 		expect(view.runnerUps.map((item) => item.productName)).toEqual(['ASUS ProArt PA278CV', 'LG 27UP850']);
+		expect(view.recommendedOptions.map((item) => item.productName)).toEqual([
+			'Dell UltraSharp U2724DE', 'ASUS ProArt PA278CV', 'LG 27UP850',
+		]);
 		expect(view.runnerUps[0]).toMatchObject({
 			listingId: 'listing-asus', priceLabel: '$349', rationale: 'Lower price with a checked fit.',
 		});
@@ -323,6 +326,32 @@ describe('result view helpers', () => {
 			listingId: null, purchaseUrl: null, rationale: 'Extra resolution for a higher price.', confidence: 'medium 70%',
 		});
 		expect(view.runnerUps[1]?.evidence.map((item) => item.id)).toEqual(['evidence-lg']);
+	});
+
+	it('shows distinct approved options whose exact source quotes retain source-metadata targets', () => {
+		const view = buildResultView({
+			...baseResult,
+			source_evidence: baseResult.source_evidence.map((item) => ({
+				...item, target: { target_type: 'source_metadata', source_id: item.source_id },
+			})),
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				runner_up_product_ids: ['product-asus', 'product-lg'],
+				mode_results: [
+					{ ...baseResult.recommendation_bundle.mode_results[1], mode: 'runner_up' },
+					{ ...baseResult.recommendation_bundle.mode_results[3], mode: 'runner_up' },
+				],
+			},
+		});
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual([
+			'product-dell', 'product-asus', 'product-lg',
+		]);
+		expect(view.recommendedOptions.map((item) => item.rationale)).toEqual([
+			'Best balance of fit and seller trust.',
+			'Lower price with credible evidence.',
+			'Costs more, so it only works if the budget tradeoff is acceptable.',
+		]);
+		expect(view.recommendedOptions[0]?.productUrl).toBe('https://example.test/dell');
 	});
 
 	it('does not invent runner-up details or borrow unrelated evidence', () => {
@@ -340,6 +369,7 @@ describe('result view helpers', () => {
 			priceLabel: null, purchaseUrl: null, listingTrust: null, confidence: 'unknown',
 			rationale: '',
 		});
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual(['product-dell']);
 		expect(view.runnerUps[0]?.rationale).not.toContain('Lower price');
 		expect(view.runnerUps[0]?.evidence).toEqual([]);
 		expect(view.runnerUps[0]?.sources.map((item) => item.id)).not.toContain('source-dell');
@@ -393,6 +423,7 @@ describe('result view helpers', () => {
 			},
 		});
 		expect(view.finalMode).toBeNull();
+		expect(view.recommendedOptions).toEqual([]);
 		expect(selectModeView(view, null)).toBeNull();
 		expect(selectModeView(view, view.decisionModes[0]?.key ?? null)).toBeNull();
 	});
@@ -563,6 +594,10 @@ describe('result view helpers', () => {
 
 		expect(view.finalMode?.label).toBe('Best overall');
 		expect(view.whyItWins).toBe('Best balance of fit and seller trust.');
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual([
+			'product-dell', 'product-asus', 'product-lg',
+		]);
+		expect(view.recommendedOptions[0]?.productUrl).toBe('https://example.test/dell');
 		expect(view.runnerUps).toHaveLength(1);
 		expect(view.runnerUps[0]?.label).toBe('Best value');
 		expect(view.finalMode?.sources[0]?.url).toBe('https://example.test/dell');

@@ -12,6 +12,7 @@ from app.agents.context_management import (
     CONTEXT_RESEARCH_LIMITATION, active_budget, context_events, managed_context, set_context_stage,
 )
 from app.agents.research_history import material_cautions
+from app.agents.source_spans import source_span
 
 from app.agents import (
     AmazonProductIntelligenceAgentInput,
@@ -118,7 +119,7 @@ from app.providers import (
     VideoSearchProviderOptions,
     score_source_quality,
 )
-from app.providers.source_quality import SourceClass, SourceEvidenceContext
+from app.providers.source_quality import SourceClass, SourceEvidenceContext, official_brand_match
 from app.schemas.analysis import (
     CategoryAnalysis,
     ComparisonMatrix,
@@ -350,6 +351,7 @@ class ShoppingRunContext:
     owner_products: tuple[CanonicalProduct, ...] = ()
     owner_listings: tuple[ProductListing, ...] = ()
     owner_evidence: tuple[SourceEvidence, ...] = ()
+    owner_activity: tuple[dict[str, Any], ...] = ()
     active_stage: RunStage | None = None
     refinement_plan: RecomputePlan | None = None
     prior_recommendation: RecommendationBundle | None = None
@@ -369,6 +371,9 @@ class ReusedRefinementArtifacts:
 class ShoppingRunPersistenceHooks(Protocol):
     async def load_run(self, run_id: RunId) -> ShoppingRunRecord | None:
         """Load the persisted run before orchestration starts."""
+
+    async def load_agent_records(self, run_id: RunId) -> tuple[AgentRunRecord, ...]:
+        """Load durable same-run decision checkpoints."""
 
     async def checkpoint(self) -> None:
         """Commit durable run progress at a workflow boundary."""
@@ -508,6 +513,9 @@ class RepositoryShoppingRunPersistenceHooks:
 
     async def load_run(self, run_id: RunId) -> ShoppingRunRecord | None:
         return await self._run_repository.get(run_id)
+
+    async def load_agent_records(self, run_id: RunId) -> tuple[AgentRunRecord, ...]:
+        return await self._result_repository.list_agent_records(run_id)
 
     async def load_owner_result_sources(
         self, run_id: RunId
@@ -1192,6 +1200,19 @@ class ShoppingRunOrchestrator:
             else:
                 definitions = self._STAGES
             for definition in definitions:
+                if (
+                    self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                    and context.general_owner_draft is not None
+                    and definition.stage in {
+                        RunStage.QUERY_PLANNING,
+                        RunStage.DISCOVERY,
+                        RunStage.EXTRACTION,
+                        RunStage.DEDUPLICATION,
+                        RunStage.SOURCE_INTELLIGENCE,
+                        RunStage.CATEGORY_ANALYSIS,
+                    }
+                ):
+                    continue
                 context.active_stage = definition.stage
                 await self._run_stage(context, definition)
 
@@ -1227,6 +1248,133 @@ class ShoppingRunOrchestrator:
             await self._persistence_hooks.checkpoint()
             raise
 
+        return context
+
+    @managed_context
+    async def resume(
+        self,
+        run_id: RunId,
+        brief: ShoppingBrief,
+        *,
+        original_input: CreateSessionRequest | None = None,
+    ) -> ShoppingRunContext:
+        run = await self._persistence_hooks.load_run(run_id)
+        if run is None:
+            raise ValueError(f"Run not found: {run_id}")
+        context = ShoppingRunContext(
+            run_id=run_id,
+            session_id=run.session_id,
+            trace_id=self._run_trace_id(run_id),
+            active_brief=brief,
+            original_input=original_input,
+            active_stage=RunStage.GENERAL_OWNER,
+        )
+        try:
+            if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
+                raise ValueError("Only live shopping decisions can be resumed.")
+            records = await self._persistence_hooks.load_agent_records(run_id)
+            owner_record = next(
+                (
+                    item for item in reversed(records)
+                    if item.stage == RunStage.GENERAL_OWNER
+                    and item.status == RunStatus.SUCCEEDED
+                ),
+                None,
+            )
+            if owner_record is None:
+                raise ValueError("No saved owner decision is available to resume.")
+            context.owner_activity = tuple(owner_record.tool_activity)
+            checkpoint = next(
+                (
+                    item for item in reversed(context.owner_activity)
+                    if item.get("tool_name") == "general_owner_draft"
+                ),
+                None,
+            )
+            saved_input = checkpoint.get("input", {}) if checkpoint else {}
+            if saved_input.get("original_input") is not None:
+                saved_request = CreateSessionRequest.model_validate(saved_input["original_input"])
+                if original_input is not None and saved_request != original_input:
+                    raise ValueError("The shopping request changed after its saved decision.")
+                context.original_input = saved_request
+            if saved_input.get("brief") is not None:
+                context.active_brief = ShoppingBrief.model_validate(saved_input["brief"])
+            else:
+                for record in reversed(records):
+                    if record.stage != RunStage.INTAKE:
+                        continue
+                    for item in record.tool_activity:
+                        if item.get("status") == "model_intake_completed":
+                            context.active_brief = ShoppingBrief.model_validate(item["output"])
+                            break
+                    break
+            if context.active_brief.original_query != brief.original_query:
+                raise ValueError("The shopping brief changed after its saved decision.")
+            context.user_added_products = await self._persistence_hooks.load_user_added_products(run.session_id)
+            context.owner_products, context.owner_listings = await self._persistence_hooks.load_owner_result_products(run_id)
+            _, snapshots, context.owner_evidence = await self._persistence_hooks.load_owner_result_sources(run_id)
+            saved_draft = checkpoint.get("output", {}).get("draft") if checkpoint else None
+            if saved_draft is not None and saved_draft.get("outcome") != "insufficient_evidence":
+                context.general_owner_draft = GeneralShoppingDecisionDraft.model_validate(saved_draft)
+                snapshot_by_id = {item.source_id: item for item in snapshots}
+                quote_by_id = {item.evidence_id: item for item in context.owner_evidence}
+                spans = {
+                    str(item["output"]["source_ids"][2]): item["output"].get("support_span", {})
+                    for item in context.owner_activity
+                    if item.get("tool_name") == "record_source_quote"
+                    and item.get("status") == "succeeded"
+                    and len(item.get("output", {}).get("source_ids", ())) == 3
+                }
+                for candidate in context.general_owner_draft.candidates:
+                    for reference in candidate.evidence:
+                        snapshot = snapshot_by_id.get(reference.snapshot_id)
+                        quote = quote_by_id.get(reference.evidence_id)
+                        span = spans.get(str(reference.evidence_id), {})
+                        start, end = span.get("start_char"), span.get("end_char")
+                        if (
+                            snapshot is None or snapshot.extracted_content is None
+                            or quote is None or quote.claim != reference.quote
+                            or quote.source_id != snapshot.source_id
+                            or type(start) is not int or type(end) is not int
+                            or not 0 <= start < end <= len(snapshot.extracted_content.text)
+                            or snapshot.extracted_content.text[start:end] != quote.claim
+                            or span.get("content_sha256") != source_span(snapshot.extracted_content.text).content_sha256
+                            or str(span.get("snapshot_id")) != str(snapshot.source_id)
+                        ):
+                            raise ValueError("Saved exact source support changed or is unavailable.")
+            else:
+                if self._general_shopping_agent is None:
+                    raise ValueError("Saved decisions require the live owner agent.")
+                set_context_stage(RunStage.GENERAL_OWNER.value)
+                context.general_owner_draft = await self._general_shopping_agent.resume_saved(
+                    GeneralShoppingAgentInput(
+                        run_id=run_id, brief=context.active_brief,
+                        user_added_products=context.user_added_products,
+                    ),
+                    owner_agent_name=owner_record.agent_name,
+                    activity=context.owner_activity,
+                )
+                context.owner_activity = _agent_tool_activity(self._general_shopping_agent)
+                await self._run_stage(context, next(item for item in self._STAGES if item.stage == RunStage.GENERAL_OWNER))
+            for definition in self._STAGES:
+                if definition.stage in {RunStage.LISTING_TRUST, RunStage.COMPARISON_DECISION, RunStage.VERIFICATION}:
+                    context.active_stage = definition.stage
+                    await self._run_stage(context, definition)
+            await self._persistence_hooks.persist_live_output(context)
+            context.events.append(await self._persistence_hooks.emit_event(
+                run_id, stage=RunStage.COMPLETE, status=RunStatus.SUCCEEDED,
+                message="Saved shopping decision completed.",
+            ))
+            await self._persistence_hooks.checkpoint()
+        except Exception as exc:
+            failed_stage = self._current_or_initial_stage(context)
+            context.events.append(await self._persistence_hooks.emit_event(
+                run_id, stage=failed_stage, status=RunStatus.FAILED,
+                message="Saved shopping decision could not be completed.",
+                error=_orchestrator_error(context.trace_id, failed_stage, exc),
+            ))
+            await self._persistence_hooks.checkpoint()
+            raise
         return context
 
     async def _run_stage(
@@ -1394,18 +1542,23 @@ class ShoppingRunOrchestrator:
         if self._general_shopping_agent is None:
             raise ValueError("Live shopping runs require GeneralShoppingAgent.")
 
-        context.user_added_products = (
-            await self._persistence_hooks.load_user_added_products(context.session_id)
-        )
-        draft = await self._general_shopping_agent.run(
-            GeneralShoppingAgentInput(
-                run_id=context.run_id,
-                brief=context.active_brief,
-                user_added_products=context.user_added_products,
+        draft = context.general_owner_draft
+        if draft is None:
+            context.user_added_products = (
+                await self._persistence_hooks.load_user_added_products(context.session_id)
             )
-        )
+            draft = await self._general_shopping_agent.run(
+                GeneralShoppingAgentInput(
+                    run_id=context.run_id,
+                    brief=context.active_brief,
+                    user_added_products=context.user_added_products,
+                )
+            )
         context.general_owner_draft = draft
-        owner_activity = _agent_tool_activity(self._general_shopping_agent)
+        context.owner_products, context.owner_listings = await self._persistence_hooks.load_owner_result_products(context.run_id)
+        _, _, context.owner_evidence = await self._persistence_hooks.load_owner_result_sources(context.run_id)
+        owner_activity = context.owner_activity or _agent_tool_activity(self._general_shopping_agent)
+        context.owner_activity = owner_activity
         if any(
             item.get("tool_name") == "general_owner"
             and item.get("status") == "research_failed"
@@ -1421,7 +1574,11 @@ class ShoppingRunOrchestrator:
             {
                 "tool_name": "general_owner_draft",
                 "status": draft.outcome.value,
-                "input": {"run_id": str(context.run_id)},
+                "input": {
+                    "run_id": str(context.run_id),
+                    "brief": context.active_brief.model_dump(mode="json"),
+                    "original_input": context.original_input.model_dump(mode="json") if context.original_input else None,
+                },
                 "output": {
                     "category": draft.category,
                     "specialist_helpful": draft.specialist_helpful,
@@ -1440,6 +1597,7 @@ class ShoppingRunOrchestrator:
                     "evidence_gaps": list(draft.evidence_gaps),
                     "owner_agent_name": draft.owner_agent_name,
                     "result_author": draft.owner_agent_name,
+                    "draft": draft.model_dump(mode="json"),
                 },
             },
         )
@@ -1542,6 +1700,7 @@ class ShoppingRunOrchestrator:
         options = SearchProviderOptions(
             region_code=region_code,
             category=brief.category,
+            max_results=3,
         )
         discovered: list[SearchResult] = []
         discovery_gaps: list[dict[str, Any]] = []
@@ -2957,7 +3116,7 @@ class ShoppingRunOrchestrator:
             context.owner_products,
             context.owner_listings,
         ) = await self._persistence_hooks.load_owner_result_products(context.run_id)
-        activity = _agent_tool_activity(self._general_shopping_agent)
+        activity = context.owner_activity or _agent_tool_activity(self._general_shopping_agent)
         chain = tuple(
             f"{item['input']['source_agent']} -> {item['output']['target_agent']}"
             for item in activity
@@ -3000,6 +3159,7 @@ class ShoppingRunOrchestrator:
             candidate: GeneralShoppingCandidate,
         ) -> tuple[GeneralShoppingEvidence, ...] | None:
             valid = []
+            verified_official = False
             for reference in candidate.evidence:
                 search = search_by_id.get(reference.source_id)
                 snapshot = snapshot_by_id.get(reference.snapshot_id)
@@ -3013,11 +3173,25 @@ class ShoppingRunOrchestrator:
                 )
                 allowed_source_types: set[SourceType] = set()
                 excluded_source = False
+                reference_url = urlsplit(str(reference.url))
+                snapshot_url = urlsplit(str(snapshot.url)) if snapshot is not None else None
+                redirect_count = snapshot.provider.raw.get("redirect_count") if snapshot else None
+                observed_slash_redirect = (
+                    snapshot is not None
+                    and snapshot_url is not None
+                    and snapshot.provider.raw.get("search_result_source_id") == str(reference.source_id)
+                    and type(redirect_count) is int
+                    and redirect_count > 0
+                    and snapshot_url._replace(path=snapshot_url.path.rstrip("/") or "/")
+                    == reference_url._replace(path=reference_url.path.rstrip("/") or "/")
+                )
                 if search is not None:
+                    brand_match = official_brand_match(str(search.url), candidate.name)
                     assessment = score_source_quality(
                         str(search.url),
                         SourceQualityMetadata(
                             evidence_context=SourceEvidenceContext.GENERAL,
+                            official_brand_match=brand_match,
                             target_region_code=(
                                 context.active_brief.region.region.country_code
                                 if context.active_brief.region is not None
@@ -3055,7 +3229,7 @@ class ShoppingRunOrchestrator:
                     or excluded_source
                     or not _safe_public_result_url(str(search.url))
                     or str(search.url) != str(reference.url)
-                    or str(snapshot.url) != str(reference.url)
+                    or (str(snapshot.url) != str(reference.url) and not observed_slash_redirect)
                     or quote.claim != reference.quote
                     or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
                     or snapshot.extracted_content is None
@@ -3068,12 +3242,22 @@ class ShoppingRunOrchestrator:
                 ):
                     continue
                 valid.append(reference)
+                verified_official = verified_official or (
+                    reference.source_type == SourceType.OFFICIAL_BRAND_PAGE
+                    and brand_match is not False
+                    and source_class in {
+                        SourceClass.OFFICIAL_MANUFACTURER,
+                        SourceClass.OFFICIAL_STORE_REGIONAL,
+                    }
+                )
             domains = {urlsplit(str(item.url)).hostname for item in valid}
             kinds = {item.source_type for item in valid}
             if (
                 len(valid) != len(candidate.evidence)
-                or len(domains) < 2
-                or SourceType.PROFESSIONAL_REVIEW not in kinds
+                or (
+                    not verified_official
+                    and (len(domains) < 2 or SourceType.PROFESSIONAL_REVIEW not in kinds)
+                )
                 or not kinds.intersection(
                     {
                         SourceType.PRODUCT_PAGE,
@@ -3175,7 +3359,9 @@ class ShoppingRunOrchestrator:
         seen_modes = {RecommendationMode.BEST_OVERALL}
         seen_rows: set[tuple[ProductId, ListingId | None]] = {(product.product_id, None)}
         for mode in draft.mode_selections:
-            if mode.mode in seen_modes:
+            if mode.mode in seen_modes and mode.mode != RecommendationMode.RUNNER_UP:
+                continue
+            if mode.mode == RecommendationMode.RUNNER_UP and len(runner_up_ids) >= 2:
                 continue
             if (
                 mode.mode == RecommendationMode.RUNNER_UP
@@ -3309,6 +3495,8 @@ class ShoppingRunOrchestrator:
             mode_source_ids = tuple(
                 dict.fromkeys(item.snapshot_id for item in supporting)
             )
+            if mode.mode == RecommendationMode.RUNNER_UP and mode_product.product_id in runner_up_ids:
+                continue
             mode_results.append(
                 RecommendationModeResult(
                     mode=mode.mode,
@@ -3343,6 +3531,7 @@ class ShoppingRunOrchestrator:
             if (
                 mode.mode == RecommendationMode.RUNNER_UP
                 and mode_product.product_id != product.product_id
+                and mode_product.product_id not in runner_up_ids
             ):
                 runner_up_ids.append(mode_product.product_id)
             seen_modes.add(mode.mode)

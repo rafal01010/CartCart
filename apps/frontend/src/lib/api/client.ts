@@ -129,6 +129,13 @@ export class CartCartApiClient {
 		});
 	}
 
+	retryRun(sessionId: SessionId, runId: RunId): Promise<ShoppingRunRecord> {
+		return this.request(
+			`/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/retry`,
+			{ method: 'POST' },
+		);
+	}
+
 	getRun(sessionId: SessionId, runId: RunId): Promise<ShoppingRunRecord> {
 		return this.request(
 			`/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}`,

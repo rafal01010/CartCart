@@ -1,19 +1,14 @@
-import asyncio
 import json
 from contextlib import nullcontext
-from math import ceil
 from unittest.mock import patch
 
 import pytest
-from agents.items import ModelResponse
-from agents.usage import Usage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import app.db.models  # noqa: F401
 from app.agents import context_management
 from app.agents.context_management import ContextBudget, context_scope
-from app.agents.context_metrics import measure
 from app.agents.contracts import (
     ComparisonDecisionAgentInput,
     GeneralShoppingAgentInput,
@@ -79,10 +74,9 @@ from test_context_research_completion import (
 
 
 class AutomaticModel(AcceptanceModel):
-    def __init__(self, steps, rewrite_behavior="success"):
+    def __init__(self, steps):
         super().__init__(steps)
         self.seen_page_views = []
-        self.rewrite_behavior = rewrite_behavior
         self.failed_assertions = []
 
     async def get_response(
@@ -96,93 +90,32 @@ class AutomaticModel(AcceptanceModel):
         tracing,
         **kwargs,
     ):
-        if not (instructions or "").startswith("Select useful exact passages"):
-            self.seen_page_views.extend(
-                result["text"]
-                for result in _tool_results(input)
-                if isinstance(result.get("text"), str)
-            )
-            self.seen_page_views.extend(
-                span["text"]
-                for result in _tool_results(input)
-                for span in result.get("source_spans", [])
-                if isinstance(span.get("text"), str)
-            )
-            try:
-                return await super().get_response(
-                    instructions,
-                    input,
-                    model_settings,
-                    tools,
-                    output_schema,
-                    handoffs,
-                    tracing,
-                    **kwargs,
-                )
-            except AssertionError as exc:
-                self.failed_assertions.append(str(exc))
-                raise
-        if self.rewrite_behavior == "failure":
-            raise RuntimeError("Offline rewrite failure.")
-        if self.rewrite_behavior == "timeout":
-            await asyncio.sleep(0.05)
-            raise AssertionError("The bounded rewrite should already have timed out.")
-        chunks = json.loads(input)["chunks"]
-        spans = []
-        useful_quotes = [
-            quote
-            for case in (PHONE, LAMP)
-            for quote in (case.good_quote, case.review_quote, case.unsafe_quote)
-        ]
-        for chunk in chunks:
-            found = [quote for quote in useful_quotes if quote in chunk["text"]]
-            for quote in found:
-                start = chunk["text"].index(quote)
-                spans.append(
-                    {
-                        "field_id": chunk["field_id"],
-                        "start": start,
-                        "end": start + len(quote),
-                    }
-                )
-            if not found:
-                spans.append(
-                    {
-                        "field_id": chunk["field_id"],
-                        "start": 0,
-                        "end": min(len(chunk["text"]), 300),
-                    }
-                )
-        components = {
-            "instructions": measure(instructions),
-            "schemas": measure(
-                context_management._schema_payload(tools, output_schema, handoffs)
-            ),
-            "active_history": measure(input),
-        }
-        tokens = ceil(sum(item["characters"] for item in components.values()) / 4)
-        self.transport.append(
-            {
-                "components": components,
-                "simulated_input_tokens": tokens,
-                "simulated_output_tokens": 100,
-                "shortening": True,
-            }
+        assert not (instructions or "").startswith("Select useful exact passages")
+        self.seen_page_views.extend(
+            result["text"]
+            for result in _tool_results(input)
+            if isinstance(result.get("text"), str)
         )
-        return ModelResponse(
-            output=_message(
-                {"spans": spans}
-                if self.rewrite_behavior == "success"
-                else {"invented_claim": "All sellers are verified."}
-            ),
-            response_id=None,
-            usage=Usage(
-                requests=1,
-                input_tokens=tokens,
-                output_tokens=100,
-                total_tokens=tokens + 100,
-            ),
+        self.seen_page_views.extend(
+            span["text"]
+            for result in _tool_results(input)
+            for span in result.get("source_spans", [])
+            if isinstance(span.get("text"), str)
         )
+        try:
+            return await super().get_response(
+                instructions,
+                input,
+                model_settings,
+                tools,
+                output_schema,
+                handoffs,
+                tracing,
+                **kwargs,
+            )
+        except AssertionError as exc:
+            self.failed_assertions.append(str(exc))
+            raise
 
 
 class DistinctPages:
@@ -227,7 +160,6 @@ async def run_automatic_continuation(
     baseline=False,
     database_path=None,
     insufficient=False,
-    rewrite_behavior="success",
     unsafe_listing=False,
 ):
     database_url = (
@@ -448,7 +380,7 @@ async def run_automatic_continuation(
         )
 
     steps.append(owner_decision)
-    model = AutomaticModel(steps, rewrite_behavior)
+    model = AutomaticModel(steps)
     models = {"gpt-6-luna" if case == PHONE else "gpt-6-sol": model}
     if case == PHONE:
         models.update(
@@ -497,7 +429,6 @@ async def run_automatic_continuation(
         "baseline": baseline,
         "insufficient": insufficient,
         "unsafe_listing": unsafe_listing,
-        "rewrite_behavior": rewrite_behavior,
         "session_id": str(shopping_session.session_id),
         "run_id": str(run.run_id),
     }
@@ -514,7 +445,6 @@ async def run_automatic_continuation(
     try:
         with (
             disabled,
-            patch.object(context_management, "SHORTENING_TIMEOUT_SECONDS", 0.01),
             context_scope(budget),
         ):
             draft = await owner.run(
@@ -733,14 +663,7 @@ async def run_automatic_continuation(
     report["transport"] = {name: item.transport for name, item in models.items()}
     report["budget_events"] = budget.events
     report["simulated_settled_tokens"] = budget.spent
-    unknown_usage = sum(
-        event["output"]["estimated_input_tokens"] + 768
-        for event in budget.events
-        if event["tool_name"] == "context_shortening"
-        and event["output"]["actual_input_tokens"] is None
-    )
-    report["unknown_usage_reserved_tokens"] = unknown_usage
-    report["owner_source_settled_tokens"] = unknown_usage + sum(
+    report["owner_source_settled_tokens"] = sum(
         row["simulated_input_tokens"] + row["simulated_output_tokens"]
         for name, sdk_model in models.items()
         if name not in {"comparison", "verifier"}
@@ -748,7 +671,7 @@ async def run_automatic_continuation(
     )
     report["reserved_tokens"] = budget.reserved
     assert budget.reserved == 0
-    assert budget.spent == unknown_usage + sum(
+    assert budget.spent == sum(
         row["simulated_input_tokens"] + row["simulated_output_tokens"]
         for item in models.values()
         for row in item.transport
@@ -791,26 +714,6 @@ async def test_same_distinct_replies_block_without_automatic_shortening():
 async def test_automatic_context_shortening_saves_independently_reviewed_limited_result():
     report = await run_automatic_continuation(LAMP, insufficient=True)
     assert report["result_api"]["recommendation_bundle"]["no_strong_buy"] is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("rewrite_behavior", ["failure", "timeout", "invalid"])
-async def test_automatic_rewrite_fallback_reaches_same_verified_saved_decision(
-    rewrite_behavior,
-):
-    report = await run_automatic_continuation(LAMP, rewrite_behavior=rewrite_behavior)
-    assert report["result_api"]["products"][0]["name"] == "Amber Desk Lamp PH"
-    assert (
-        report["result_api"]["recommendation_bundle"]["verification_action"]
-        == "approved"
-    )
-    rewriting = [
-        event
-        for event in report["budget_events"]
-        if event["tool_name"] == "context_shortening"
-    ]
-    assert 1 <= len(rewriting) <= 3
-    assert all(event["status"] == "fallback" for event in rewriting)
 
 
 @pytest.mark.asyncio

@@ -550,6 +550,15 @@ class GeneralShoppingAgent(Protocol):
     ) -> GeneralShoppingDecisionDraft:
         """Own a broad live shopping request with checked evidence."""
 
+    async def resume_saved(
+        self,
+        input_data: GeneralShoppingAgentInput,
+        *,
+        owner_agent_name: str,
+        activity: tuple[dict[str, Any], ...],
+    ) -> GeneralShoppingDecisionDraft:
+        """Finish a saved legacy decision without new source research."""
+
 
 class CategoryRouterAgent(Protocol):
     async def run(self, input_data: CategoryRouterAgentInput) -> ProductAnalysisRoute:

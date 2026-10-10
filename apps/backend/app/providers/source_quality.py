@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import AnyHttpUrl, Field
@@ -170,6 +171,7 @@ _OFFICIAL_MANUFACTURER_DOMAINS = {
     "mattel.com",
     "maxi-cosi.com",
     "midea.com",
+    "mi.com",
     "milwaukeetool.com",
     "muji.com",
     "newbalance.com",
@@ -179,6 +181,7 @@ _OFFICIAL_MANUFACTURER_DOMAINS = {
     "ninjakitchen.com",
     "nivea.com",
     "om-digitalsolutions.com",
+    "oppo.com",
     "panasonic.com",
     "patagonia.com",
     "philips.com",
@@ -366,6 +369,7 @@ _REVIEW_REFERENCE_DOMAINS = {"incidecoder.com", "makeupalley.com"}
 
 
 _COMMUNITY_DOMAINS = {
+    "c.mi.com",
     "cheapies.nz",
     "clien.net",
     "dcard.tw",
@@ -437,6 +441,51 @@ def normalize_source_url(url: str) -> tuple[str, str]:
     return normalized, domain
 
 
+_MANUFACTURER_NAME_ALIASES = {
+    "apple.com": ("apple", "iphone", "ipad", "mac", "macbook", "airpods"),
+    "samsung.com": ("samsung", "galaxy"),
+    "mi.com": ("xiaomi", "mi", "redmi", "poco"),
+    "bosch-home.com": ("bosch",),
+    "boschtools.com": ("bosch",),
+    "chiccousa.com": ("chicco",),
+    "cybex-online.com": ("cybex",),
+    "fujifilm-x.com": ("fujifilm",),
+    "gracobaby.com": ("graco",),
+    "hermanmiller.com": ("herman miller",),
+    "hillspet.com": ("hill s", "hills"),
+    "hp.com": ("hp", "hewlett packard"),
+    "kongcompany.com": ("kong",),
+    "lorealparisusa.com": ("l oreal", "loreal"),
+    "makitatools.com": ("makita",),
+    "milwaukeetool.com": ("milwaukee",),
+    "om-digitalsolutions.com": ("om system", "olympus"),
+    "royalcanin.com": ("royal canin",),
+    "ryobitools.com": ("ryobi",),
+    "stanleytools.com": ("stanley",),
+    "theordinary.com": ("the ordinary",),
+    "thenorthface.com": ("the north face",),
+    "tiger-corporation.com": ("tiger",),
+}
+
+
+def official_brand_match(url: str, candidate_name: str) -> bool | None:
+    """Reject recognized competing brands; unnamed brands remain unverified."""
+    _, domain = normalize_source_url(url)
+    name = re.sub(r"[^a-z0-9]+", " ", candidate_name.casefold()).strip()
+    owners = {
+        manufacturer
+        for manufacturer in _OFFICIAL_MANUFACTURER_DOMAINS
+        for alias in _MANUFACTURER_NAME_ALIASES.get(
+            manufacturer,
+            (re.sub(r"[^a-z0-9]+", " ", manufacturer.split(".")[0]),),
+        )
+        if name == alias or name.startswith(alias + " ")
+    }
+    if not owners:
+        return None
+    return any(_domain_matches(domain, owner) for owner in owners)
+
+
 def score_source_quality(
     url: str,
     metadata: SourceQualityMetadata | None = None,
@@ -471,7 +520,9 @@ def score_source_quality(
     if rule.source_class == SourceClass.COMMUNITY:
         if details.recurring_community_signal:
             score += 0.05
-            reasons.append("The same community signal recurs across the available evidence.")
+            reasons.append(
+                "The same community signal recurs across the available evidence."
+            )
         if details.community_engagement_available:
             score += 0.03
             reasons.append("Community engagement context is available.")
@@ -638,18 +689,24 @@ def _score_region_relevance(
 ) -> tuple[float, RegionRelevanceLevel, list[str]]:
     target = metadata.target_region_code
     if target is None:
-        return 0.5, RegionRelevanceLevel.UNKNOWN, [
-            "No target region was supplied, so regional relevance is unknown."
-        ]
+        return (
+            0.5,
+            RegionRelevanceLevel.UNKNOWN,
+            ["No target region was supplied, so regional relevance is unknown."],
+        )
 
     reasons: list[str] = []
     if _matches_any(domain, {"ikea.com", "ikea.com.hk", "ikea.com.tw"}):
         expected_domain, expected_path = IKEA_REGION_PATHS.get(target, ("", ""))
-        if expected_domain and _domain_matches(domain, expected_domain) and path.startswith(
-            expected_path
+        if (
+            expected_domain
+            and _domain_matches(domain, expected_domain)
+            and path.startswith(expected_path)
         ):
             region_score = 1.0
-            reasons.append("The IKEA country or region path matches the shopper region.")
+            reasons.append(
+                "The IKEA country or region path matches the shopper region."
+            )
         else:
             region_score = 0.35
             reasons.append(
@@ -661,7 +718,9 @@ def _score_region_relevance(
             reasons.append("The declared source region matches the shopper region.")
         else:
             region_score = 0.35
-            reasons.append("The declared source region differs from the shopper region.")
+            reasons.append(
+                "The declared source region differs from the shopper region."
+            )
     elif rule.regions:
         if target in rule.regions:
             region_score = 1.0

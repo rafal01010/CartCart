@@ -401,7 +401,7 @@ Recommended stages:
    requests before discovery.
 5. Intake produces a typed `ShoppingBrief`.
 6. Query planning creates region-aware search and source plans.
-7. `DiscoveryAgent` uses approved, bounded search tools to classify all returned
+7. `DiscoveryAgent` uses approved, bounded search tools to classify inspected
    results, including generic provider results, and decide what to inspect.
 8. Approved retrieval tools persist snapshots; `ExtractionAgent` interprets each
    page and keeps review evidence, product mentions, and listings distinct.
@@ -570,8 +570,8 @@ tools for live `DiscoveryAgent`, all eight shopper owners, and the four
 site/source specialists, and as a scoped optional tool for live
 `SellerListingTrustAgent`. Owners also have typed provider search/fetch and
 exact-page quote recording. Hosted citations remain weak leads; the decision draft
-requires fetched excerpts from two independent domains including a review
-and a product/listing page. Price, regional availability, and seller-trust
+accepts exact fetched official product evidence for product-only options.
+Other product/listing support retains the corroborated review path. Price, regional availability, and seller-trust
 claims still require their existing independent checks. Hosted search is not planned for the source manager as unrestricted search
 or for intake-only, extraction-only, comparison-only, and verification-only
 roles. The model may choose either research path; a search hit is not a
@@ -1034,9 +1034,12 @@ exhaustion belongs to the issuing owner; a fresh handoff retains its own quota.
 Task 213 keeps request fitting in `BudgetedModel`, which owns complete input
 estimates and transport reservations. `CompactionPlan` projects reducible fields
 with exact excerpts and scoped original handles. Required buyer state, SDK pairs,
-identity edges, quotes and final recommendation bundles stay exact. A bounded
-selector can choose original spans; structural projection guarantees fallback
-for reducible content. Scoped lookup is an internal capability of bounded model
+identity edges, quotes and final recommendation bundles stay exact. Task 214 replaces paid span selection with deterministic whole-exchange
+rotation and bounded original views. Complete old call/output batches and their
+reasoning/messages move to same-invocation exact archives. Recent batches and
+unmatched calls remain. A derived checkpoint preserves support identities,
+cautions and unresolved coverage. Emergency fitting can retire the remaining
+complete batches while keeping canonical records and scoped rereads. Scoped lookup is an internal capability of bounded model
 roles, not a new source agent. Model names still come from environment settings.
 
 `ResearchSelection` belongs to shared `ResearchRunState`. It holds the immutable
@@ -1051,3 +1054,64 @@ Automatic projection does not mark omitted support reviewed. Citation admission
 checks canonical page spans and text actually exposed to the owner after
 shortening. Limited owner decisions retain their technical research limitation
 and reviewed support through independent verification and persistence.
+
+Task 214 keeps the actual native `response.output` groups in invocation-only
+transport state. This permits hosted-only responses to retire with their
+reasoning. Pending function calls pin their native group. Final completion
+planning measures a fitted tool-free packet; capture reserves that measured
+cost against both ledgers. The actual SDK callback enforces the one existing
+source fetch. A bounded quote phase prevents read-only capture loops.
+
+Discovery prioritizes dated official announcements and useful official product
+pages. Independent reviews are optional. Substantive official product facts
+can support a qualified product suggestion. Store pages serve checked regional
+purchase details. Navigation, setup and shipping copy is a dead end requiring a
+source switch. Publication dates remain distinct from release or event dates.
+
+Task214 owner-flow repair (2026-10-10): after the live General/Technology/product
+owner returns its draft, the orchestrator proceeds to persisted listing trust,
+canonical decision validation, independent verification and saving. It does not
+run a duplicate query/discovery/extraction/source/category pipeline whose answer
+would be ignored by the authoritative owner. Persisted owner products, listings
+and evidence are loaded for seller checks. Approved source specialists remain
+optional tools of the owner; generic-category ownership and fixture/refinement
+paths remain available. Basic phone research first seeks official current iPhone
+and Samsung facts, with relevant Oppo, Xiaomi or other manufacturer alternatives.
+Reviews, including substantive MKBHD content when accessible,
+are optional confidence improvements. Source titles alone are not review verdicts.
+
+The bounded discovery adapter classifies only inspected leads. Omitted persisted
+leads retain UNCERTAIN/confidence0/IGNORE-for-now decisions marked unreviewed;
+unknown, duplicate, excluded and unsupported selected IDs still fail validation.
+Its existing catalog UNCERTAIN_SOURCE fallback and tool permissions are unchanged.
+Exact citation validation accepts only an observed same-origin/query/path redirect
+that changes a trailing slash, with matching extraction source ID and redirect
+provenance; arbitrary redirected citations remain rejected.
+
+Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
+receives exact stored quote support, title, URL, offsets, hashes and bounded
+original context upfront. Canonical verification input survives compaction.
+At most two source rereads are allowed before a final report. Existing independent
+factual, seller and budget guardrails remain. The owner explicitly increased
+the local VerifierCriticAgent timeout from inherited60seconds to180seconds; all
+other configured models, reasoning, providers and context/spending limits remain.
+A processing timeout fails the check with a retryable error, rather than publishing
+a no-option buying judgment. Failed-read activity remains saved for diagnosis.
+
+POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
+atomically and resumes its decision/verification from persisted research. It
+preserves canonical IDs, old events and immutable result versions, requires an
+unchanged same-session request/region/brief, and rejects duplicate active retries.
+The synchronous response reports the final run status; the UI reads its matching
+result directly without replaying historical terminal SSE events. Future owner
+drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
+reconstruct a decision from revalidated exact saved support, with research tools
+disabled. They do not rerun intake or provider searches.
+
+The verifier uses a compact internal verdict. An unchanged decision returns a
+null recommendation bundle, which the backend reconstructs from its existing
+typed result before applying the public VerificationReport and strict
+postchecks. Revisions carry the changed bundle and audit reasons. Model, schema
+and source-loading failures retain safe classification and fail technically;
+they do not publish a no-option buying judgment. The runtime catalog retains
+the same public VerificationReport contract, tools, routes and source agents.

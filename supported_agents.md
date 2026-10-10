@@ -195,8 +195,11 @@ two-year-old phones for value, and researches credible imminent launches before
 advising whether to buy now. Explicit unlimited budget favors current flagships;
 unspecified budget remains unspecified. Official regional availability and
 warranty are checked separately from global reviews. An official product or
-launch page plus an independent review can support product advice without a
-priced listing. Price modes still require checked offers. General and Technology
+launch page with exact verified support can establish a product-only option
+without a priced listing or independent review. Reviews improve comparative
+confidence. Broad phone questions resolve current iPhone and Samsung flagships
+and up to one other supported alternative; MKBHD is a preferred YouTube reviewer
+when substantive video access is available, never an invented transcript. Price modes still require checked offers. General and Technology
 are instructed to delegate known phone categories early, with real SDK handoff
 records proving whether the phone owner actually ran.
 
@@ -453,7 +456,7 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `OfficialBrandStoreAgent` | `proposed-later` | Locate official brand/store pages by country and assess official price, availability, warranty, and authorized sellers. | Reusable source agent/tool | Brand/product and region | Official-source evidence | Generic search/source extraction fallback. |
 | `ProfessionalReviewSourceAgent` | `proposed-later` | Gather structured evidence from reputable written review sites and lab-test sources where available. | Reusable source agent/tool | Product/category and region | Review evidence | Generic source extraction fallback. |
 | `CommunityDiscussionSignalAgent` | `proposed-later` | Summarize recurring owner complaints/praise from community discussions when allowed and source quality is adequate. | Reusable source agent/tool | Product/category and source set | Community signal evidence | Treat as lower-confidence qualitative signal, not definitive truth. |
-| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates, including source-free manual fallback entries | `RecommendationBundle` | Permit explicit "no strong buy" with next steps; keep manual-only entries in comparison with zero verified evidence and never choose them as a buying pick; emit avoid/rejected items only with explicit material reason codes, not for ordinary non-winners. |
+| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates, including source-free manual fallback entries | `RecommendationBundle` | Return no options only when no suitable supported option remains; keep manual-only entries in comparison with zero verified evidence and never choose them as a buying pick; emit avoid/rejected items only with explicit material reason codes, not for ordinary non-winners. |
 | `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle, products, listings, evidence, trust, analyses, and dedupe context | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
 
 The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent`,
@@ -742,8 +745,8 @@ capabilities remain unchanged.
 
 Task 213 adds automatic request fitting to the existing bounded SDK adapter.
 Bounded model roles approve same-invocation `read_research_result` lookup, with no
-new external source permission. Exact-span rewriting uses each configured model
-and existing usage ledgers. Derived context has explicit unreviewed omissions;
+new external source permission. Task 214 removes paid exact-span rewriting. Deterministic archives and bounded
+views use existing same-invocation lookup and usage ledgers. Derived context has explicit unreviewed omissions;
 original facts and citation relationships remain canonical. Actual transported
 page text also constrains quote admission after shortening.
 
@@ -753,3 +756,30 @@ shortlists, selection reasons and deferred handles. Optional `need_id` on page
 fetches and deferred lookup connects new research to missing support. Validated
 page quotes close coverage; material concerns keep it open. Product-only advice,
 broad category support, handoffs and source-agent fallback remain unchanged.
+
+Task 214 keeps owner routing and source permissions unchanged. Funded closure
+permits one run-scoped already discovered source fetch, followed by quote/read
+capture and completion. Invocation-only native response groups allow hosted
+search and reasoning history to retire together. This is transport state, not
+a new source agent or evidence store.
+
+Task214 owner-flow repair (2026-10-10): after the live General/Technology/product
+owner returns its draft, the orchestrator proceeds to persisted listing trust,
+canonical decision validation, independent verification and saving. It does not
+run a duplicate query/discovery/extraction/source/category pipeline whose answer
+would be ignored by the authoritative owner. Persisted owner products, listings
+and evidence are loaded for seller checks. Approved source specialists remain
+optional tools of the owner; generic-category ownership and fixture/refinement
+paths remain available. Basic phone research first seeks official current iPhone
+and Samsung facts, with relevant Oppo, Xiaomi or other manufacturer alternatives.
+Company announcements and substantive official product websites are sufficient
+for qualified product-only suggestions. Reviews, including substantive MKBHD content when accessible,
+are optional confidence improvements. Source titles alone are not review verdicts.
+
+The bounded discovery adapter classifies only inspected leads. Omitted persisted
+leads retain UNCERTAIN/confidence0/IGNORE-for-now decisions marked unreviewed;
+unknown, duplicate, excluded and unsupported selected IDs still fail validation.
+Its existing catalog UNCERTAIN_SOURCE fallback and tool permissions are unchanged.
+Exact citation validation accepts only an observed same-origin/query/path redirect
+that changes a trailing slash, with matching extraction source ID and redirect
+provenance; arbitrary redirected citations remain rejected.

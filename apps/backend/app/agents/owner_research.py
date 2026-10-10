@@ -28,6 +28,7 @@ from app.agents.research_tools import (
     _neutral_url,
     _safe_public_result_url,
     _source_policy_allows,
+    _unusable_page_gap,
 )
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
@@ -37,7 +38,7 @@ from app.schemas.ids import ListingId, RunId, SourceId, new_id
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing
 from app.schemas.regions import RegionCode
-from app.schemas.search_sources import SourceIntelligenceCapability
+from app.schemas.search_sources import ExtractionStatus, SourceIntelligenceCapability
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.services.listing_trust import assess_listing_trust, price_plausibility_contexts
 
@@ -331,6 +332,24 @@ class OwnerResearchContext:
             if snapshot and snapshot.extracted_content
             else ""
         )
+        if (
+            snapshot is None
+            or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
+            or not text
+        ):
+            self._record("read_run_evidence", "gap", source_ids=[source_id])
+            return {
+                "status": "gap",
+                "source_id": str(parsed),
+                "title": source.title,
+                "url": _neutral_url(str(source.url)),
+                "snapshot_id": str(snapshot.source_id) if snapshot else None,
+                "extraction_status": snapshot.extraction_status.value
+                if snapshot
+                else None,
+                "unreviewed_content": True,
+                "gap": _unusable_page_gap(snapshot),
+            }
         try:
             span = source_span(text, start=start_char, focus=focus, limit=2000)
         except ValueError as exc:

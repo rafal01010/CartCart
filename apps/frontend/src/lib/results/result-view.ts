@@ -48,6 +48,7 @@ export interface ModeView {
 	sellerName: string | null;
 	priceLabel: string | null;
 	purchaseUrl: string | null;
+	productUrl: string | null;
 	productId: EntityId;
 	listingId: EntityId | null;
 	rationale: string;
@@ -122,6 +123,7 @@ export interface ResultView {
 	versionLabel: string;
 	finalMode: ModeView | null;
 	decisionModes: ModeView[];
+	recommendedOptions: ModeView[];
 	resultEvidence: EvidenceView[];
 	resultSources: SourceView[];
 	noStrongBuyReason: string | null;
@@ -207,22 +209,42 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		sourceViewById,
 	);
 
+	const decisionModes = findDecisionModes(modeViews, finalMode);
+	const runnerUps = dedupeModes(buildRunnerUpRecommendations(result).map(projectMode));
+	const seenProducts = new Set<EntityId>();
+	const recommendedOptions = result.recommendation_bundle.no_strong_buy || !finalMode ? [] : [
+		...(finalMode ? [finalMode] : []), ...runnerUps, ...decisionModes,
+	].filter((mode) => {
+		const supported = mode.evidence.some((item) => {
+			const target = evidenceById.get(item.id)?.target;
+			return target?.product_id === mode.productId ||
+				(mode.listingId !== null && target?.listing_id === mode.listingId) ||
+				(target?.target_type === 'source_metadata' && sourceById.has(item.sourceId) &&
+					productById.get(mode.productId)?.source_ids.includes(item.sourceId));
+		});
+		if (!productById.has(mode.productId) || !supported || mode.listingTrust?.isBlocking ||
+			!mode.rationale.trim() || seenProducts.has(mode.productId)) return false;
+		seenProducts.add(mode.productId);
+		return true;
+	}).slice(0, 3);
+
 	return {
 		versionLabel: `v${result.result_version.version}`,
 		finalMode,
-		decisionModes: findDecisionModes(modeViews, finalMode),
+		decisionModes,
+		recommendedOptions,
 		resultEvidence,
 		resultSources,
 		noStrongBuyReason: result.recommendation_bundle.no_strong_buy
 			? shopperSafeText(
-					result.recommendation_bundle.no_strong_buy_reason ?? 'No strong buy is available.',
+				result.recommendation_bundle.no_strong_buy_reason ?? 'No suitable option is confirmed yet.',
 				)
 			: null,
 		whyItWins: shopperSafeOptionalText(
 			result.recommendation_bundle.final_rationale ?? finalMode?.rationale ?? null,
 		),
 		modeViews,
-		runnerUps: dedupeModes(buildRunnerUpRecommendations(result).map(projectMode)),
+		runnerUps,
 		trustViews,
 		warnings: buildWarningViews(result, trustViews, evidenceById, sourceById, sourceViewById),
 		rejectedItems: result.recommendation_bundle.rejected_items
@@ -438,6 +460,13 @@ function toModeView(
 		[...mode.source_ids, ...evidence.map((item) => item.sourceId)],
 		sourceViewById,
 	);
+	const productSource = mode.evidence_ids.flatMap((id) => {
+		const item = evidenceById.get(id);
+		if (!item || !(item.target.product_id === mode.product_id ||
+			(item.target.target_type === 'source_metadata' && product?.source_ids.includes(item.source_id)))) return [];
+		const source = sourceById.get(item.source_id);
+		return source?.source_type.startsWith('official') ? [source] : [];
+	})[0];
 	const listingTrust = mode.listing_id ? trustViewByListingId.get(mode.listing_id) ?? null : null;
 	return {
 		key: `${mode.mode}:${resultKey(mode.product_id, mode.listing_id ?? null)}`,
@@ -448,6 +477,7 @@ function toModeView(
 		sellerName: listing ? shopperSafeText(listing.seller.seller_name) : null,
 		priceLabel: listing?.price ? moneyLabel(listing.price.amount, listing.price.currency) : null,
 		purchaseUrl: neutralOutboundUrl(listing?.canonical_url ?? listing?.url),
+		productUrl: neutralOutboundUrl(productSource?.url),
 		productId: mode.product_id,
 		listingId: mode.listing_id ?? null,
 		rationale: shopperSafeText(mode.rationale),

@@ -130,7 +130,8 @@ page. Mock mode uses disposable persisted snapshots and no live model calls;
 live mode is explicit and may incur OpenAI usage.
 The isolated `GeneralShoppingAgent` workbench accepts a run ID and shopping
 brief and returns a `GeneralShoppingDecisionDraft` with a selected candidate
-only when fetched product/listing and independent review excerpts support it;
+when exact fetched quotes from a verified official source support a product-only option,
+or corroborated product/listing and independent review excerpts support it;
 otherwise it returns `insufficient_evidence` and gaps. Candidate evidence
 contains persisted source, snapshot, and evidence IDs. Its fixture case makes
 no model or provider call; mock cases cover a wooden cane, an ambiguous request,
@@ -647,8 +648,9 @@ does not authorize a new model attempt.
 
 Task 213 preserves public run/result schemas. Every SDK stage uses the shared
 full-request guard and automatic structural projection when reducible context
-exceeds its limit. Bounded rewriting selects exact original spans and falls back
-on failure, timeout or invalid output. The internal catalog approves scoped
+exceeds its limit. Task 214 uses deterministic exchange archives and bounded views instead of
+paid rewriting. It checks the final instructions, schemas and active output
+allowance against both per-call and remaining cumulative bounds. The internal catalog approves scoped
 `read_research_result` lookup for bounded model roles. This control grants no new
 external source or provider access.
 
@@ -662,3 +664,36 @@ Insufficient support after automatic shortening retains an explicit research
 limitation, missing checks and reviewed evidence in the existing no-pick result.
 It still requires independent verification and a matching saved result version.
 Genuine budget exhaustion and irreducible contracts use the failed-run path.
+
+Task 214 adds safe internal diagnostics for `failure_stage`, active owner output
+allowance, final transport reservation and blocking condition. Hosted search
+without URL annotations remains unverified discovery; uncited selected URLs
+are rejected and cannot create canonical support. Candidate validation still
+requires exact recorded quotes and same-run source validation. A trusted official
+source can support a product-only option; reviews add comparative confidence.
+Unknown purchase details remain qualified. The result view shows up to three
+distinct supported options. Public result schemas are unchanged.
+
+Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
+receives exact stored quote support, title, URL, offsets, hashes and bounded
+original context upfront. Canonical verification input survives compaction.
+At most two source rereads are allowed before a final report. Existing independent
+factual, seller and budget guardrails remain. The owner explicitly increased
+the local VerifierCriticAgent timeout from inherited60seconds to180seconds; all
+other configured models, reasoning, providers and context/spending limits remain.
+A processing timeout fails the check with a retryable error, rather than publishing
+a no-option buying judgment. Failed-read activity remains saved for diagnosis.
+
+POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
+atomically and resumes its decision/verification from persisted research. It
+preserves canonical IDs, old events and immutable result versions, requires an
+unchanged same-session request/region/brief, and rejects duplicate active retries.
+The synchronous response reports the final run status; the UI reads its matching
+result directly without replaying historical terminal SSE events. Future owner
+drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
+reconstruct a decision from revalidated exact saved support, with research tools
+disabled. They do not rerun intake or provider searches.
+
+Same-run retry accepts an interrupted decision/verification or the latest saved
+blocked verification result. Approved results are not retryable through this
+endpoint. The original request and brief must remain unchanged.

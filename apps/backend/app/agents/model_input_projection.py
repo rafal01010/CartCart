@@ -129,7 +129,8 @@ def canonical_support_model_fields(
         row = {key: value for key, value in item.items() if value is not None}
         evidence_id = str(row["evidence_id"])
         if row.get("supporting_text") == claims.get(evidence_id):
-            row.pop("supporting_text")
+            if row.get("status") != "exact_page_support":
+                row.pop("supporting_text")
             row["supporting_evidence_id"] = row["evidence_id"]
         records = []
         for original in row.get("original_records", ()):

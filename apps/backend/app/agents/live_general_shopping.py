@@ -5,6 +5,7 @@ import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -25,7 +26,11 @@ from agents.tool_context import ToolContext
 from pydantic import Field, ValidationInfo, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agents.research_history import ResearchCoverageError, active_history
+from app.agents.research_history import (
+    ResearchCoverageError,
+    active_history,
+    bounded_cautions,
+)
 from app.agents.context_management import (
     BoundedRunner,
     CONTEXT_RESEARCH_LIMITATION,
@@ -71,6 +76,7 @@ from app.providers.source_quality import (
     SourceEvidenceContext,
     SourceQualityMetadata,
     score_source_quality,
+    official_brand_match,
 )
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.schemas.base import CartCartBaseModel
@@ -319,6 +325,202 @@ class LiveGeneralShoppingAgent:
         return self._activity
 
     @managed_owner_context
+    async def resume_saved(
+        self,
+        input_data: GeneralShoppingAgentInput,
+        *,
+        owner_agent_name: str,
+        activity: tuple[dict[str, Any], ...],
+    ) -> GeneralShoppingDecisionDraft:
+        """Finish a legacy decision from proven saved quotes without research."""
+        region_code = (
+            input_data.brief.region.region.country_code
+            if input_data.brief.region is not None
+            else None
+        )
+        tools = (
+            self.regional_research_tools_factory(input_data.run_id, region_code)
+            if self.regional_research_tools_factory is not None
+            else self.research_tools_factory(input_data.run_id)
+            if self.research_tools_factory is not None
+            else None
+        )
+        if tools is None or tools.required_region_code != region_code:
+            raise ValueError(
+                "Saved research requires matching run-scoped source access."
+            )
+        tools.set_brief(input_data.brief)
+        quotes = await tools.restore_recorded_quotes(activity)
+        if not quotes:
+            raise ValueError("No unchanged canonical quotes are available to resume.")
+        output, result = await self._decide_recorded(
+            input_data, owner_agent_name, quotes
+        )
+        draft = await self._validated_draft(input_data, output, tools, ())
+        usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+        self._activity = (
+            *(item for item in activity if item.get("tool_name") != "context_call"),
+            {
+                "tool_name": "general_owner",
+                "status": draft.outcome.value,
+                "input": {"agent": owner_agent_name, "research_enabled": False},
+                "output": {
+                    "restored_quote_count": len(quotes),
+                    "research_reused": True,
+                    "selected_candidate_name": draft.selected_candidate_name,
+                    "last_agent": owner_agent_name,
+                    "last_agent_model": getattr(
+                        getattr(result, "last_agent", None), "model", None
+                    ),
+                    "failure_type": None,
+                    "usage": {
+                        key: getattr(usage, key, None)
+                        for key in ("input_tokens", "output_tokens", "total_tokens")
+                    },
+                },
+            },
+        )
+        return draft.model_copy(update={"owner_agent_name": owner_agent_name})
+
+    async def _decide_recorded(
+        self,
+        input_data: GeneralShoppingAgentInput,
+        owner_agent_name: str,
+        quotes: tuple[dict[str, Any], ...],
+        *,
+        prior_gaps: tuple[str, ...] = (),
+    ) -> tuple[GeneralModelOutput, Any]:
+        configuration = build_openai_agent_run_configuration(
+            self.settings,
+            agent_name=owner_agent_name,
+            run_id=str(input_data.run_id),
+        )
+        async with self._validation_session() as session:
+            snapshots = {
+                str(item.source_id): item
+                for item in await SearchSourceRepository(session).list_source_snapshots(
+                    input_data.run_id
+                )
+            }
+            product_repo = ProductRepository(session)
+            products = await product_repo.list_canonical_products_for_run(
+                input_data.run_id
+            )
+            listings = await product_repo.list_product_listings_for_run(
+                input_data.run_id
+            )
+            trust = assess_run_listings(
+                products,
+                listings,
+                await ResultRepository(session).list_listing_trust_assessments(
+                    input_data.run_id
+                ),
+            )
+        saved_quotes = []
+        for quote in quotes:
+            snapshot = snapshots.get(quote["snapshot_id"])
+            content = snapshot.extracted_content if snapshot else None
+            saved_quotes.append(
+                {
+                    **quote,
+                    "title": snapshot.title if snapshot else quote.get("title"),
+                    "published_date": content.published_date if content else None,
+                    "source_cautions": {
+                        **bounded_cautions(content.text if content else ""),
+                        "unreviewed_content": True,
+                    },
+                }
+            )
+        quote_source_ids = {
+            str(item[key]) for item in quotes for key in ("source_id", "snapshot_id")
+        }
+        candidate_names = {
+            str(item.get("candidate_name", "")).casefold() for item in quotes
+        }
+        relevant_product_ids = {
+            item.product_id
+            for item in products
+            if item.name.casefold() in candidate_names
+            or quote_source_ids.intersection(
+                str(identifier) for identifier in item.source_ids
+            )
+        }
+        listing_cautions = [
+            {
+                "listing_id": str(item.listing_id),
+                "product_id": str(item.product_id),
+                "source_ids": [str(identifier) for identifier in item.source_ids],
+                "trust_level": trust[item.listing_id].level.value,
+                "summary": trust[item.listing_id].summary,
+                "red_flags": list(trust[item.listing_id].red_flags),
+            }
+            for item in listings
+            if item.product_id in relevant_product_ids
+            or quote_source_ids.intersection(
+                str(identifier) for identifier in item.source_ids
+            )
+        ]
+        agent = Agent(
+            name=owner_agent_name,
+            model=configuration.model,
+            instructions=(
+                "Resume the saved shopping decision using only the supplied canonical exact quotes, "
+                "source titles and buyer brief. Research is closed; no search, fetch or source tool is available. "
+                "Return one to three named supported options when possible, using RUNNER_UP selections "
+                "for distinct alternatives. Honor the shopper's family preference without making it exclusive. "
+                "Verified official facts support product-only suggestions. Attribute manufacturer claims; "
+                "keep unchecked prices, availability, seller trust, warranty and performance comparisons unknown. "
+                "Reassess any prior gaps against the actual buyer constraints. Missing comparison tests, battery measurements, "
+                "support duration, network checks or stock details are qualifications, not automatic requirements "
+                "for a product-only shortlist. Fewer than two options is acceptable when only one is supported. "
+                "Keep the selection empty when material safety, compatibility, seller concerns or a hard buyer constraint "
+                "actually block all supplied candidates, and explain that specific concern. "
+                "Source caution previews and listing trust remain constraints, not new verified product claims. "
+                "Unreviewed or deferred cautions cannot establish safety; retain them as qualifications. "
+                "Only cite supplied evidence IDs; do not invent facts or a decisive winner for a close choice. "
+                "Use plain buying advice. The primary rationale uses only the selected candidate's cited facts. "
+                "Put another product's features in its own alternative selection with its own evidence IDs. "
+                "Use the current date to qualify release age, unknown support duration and any unconfirmed upcoming launch. "
+                "Return the structured decision with concise supported reasons."
+            ),
+            output_type=GeneralModelOutput,
+            model_settings=ModelSettings(max_tokens=1500, include_usage=True),
+        )
+        apply_openai_agent_run_profile(agent, configuration)
+        result = await asyncio.wait_for(
+            self.model_runner.run(
+                agent,
+                json.dumps(
+                    {
+                        "brief": input_data.brief.model_dump(mode="json"),
+                        "user_added_products": [
+                            item.model_dump(mode="json")
+                            for item in input_data.user_added_products
+                        ],
+                        "current_utc_date": datetime.now(timezone.utc)
+                        .date()
+                        .isoformat(),
+                        "saved_quotes": saved_quotes,
+                        "listing_cautions": listing_cautions,
+                        "prior_evidence_gaps": prior_gaps,
+                    }
+                ),
+                run_config=RunConfig(
+                    tracing_disabled=not configuration.tracing_enabled,
+                    trace_include_sensitive_data=configuration.trace_include_sensitive_data,
+                    workflow_name=configuration.trace_workflow_name,
+                    trace_metadata=configuration.trace_metadata,
+                ),
+                max_turns=configuration.max_turns,
+            ),
+            timeout=configuration.timeout_seconds,
+        )
+        output = GeneralModelOutput.model_validate(
+            getattr(result, "final_output", result)
+        )
+        return output, result
+
+    @managed_owner_context
     async def run(
         self, input_data: GeneralShoppingAgentInput
     ) -> GeneralShoppingDecisionDraft:
@@ -510,9 +712,13 @@ class LiveGeneralShoppingAgent:
                     "Hosted citations are leads until a page is fetched and quoted. "
                     "Use only fetched and recorded page quote evidence IDs for candidates. "
                     "Optional comparison modes need a named cited candidate; price modes also need a checked listing and quote. "
-                    "If those sources do not support a product/listing "
-                    "and an independent review, leave the selection empty and explain "
-                    "the evidence gap. Never invent a price, availability, seller trust, "
+                    "Return two or three supported options when available. Put up to two distinct alternatives in runner_up "
+                    "mode selections, each with concise supported tradeoffs; do not invent a decisive winner for a close choice. "
+                    "Recommend a named product when exact official product evidence supports its identity and useful facts. "
+                    "An independent review improves confidence but is not required to name a product-only option. "
+                    "Attribute official performance claims; disclose untested comparisons and unknown purchase details. "
+                    "Only leave the selection empty when no supported suitable product exists or a material concern blocks it. "
+                    "Never invent a price, availability, seller trust, "
                     "specification, source ID, or further handoff."
                 ),
                 output_type=GeneralModelOutput,
@@ -631,8 +837,8 @@ class LiveGeneralShoppingAgent:
                 "source specialist when useful. Hosted citations are leads until fetched. "
                 "Optional comparison modes need a named cited candidate; price modes also need a checked listing and quote. "
                 "Search and fetch within "
-                "the buyer's region when useful. If product/listing and independent review "
-                "evidence are insufficient, leave the selection empty and explain the gap. "
+                "the buyer's region when useful. Verified official facts can support a product-only suggestion; "
+                "missing independent reviews or unknown purchase details alone do not require an empty selection. "
                 "Never infer prices, availability, seller trust, or specifications from snippets."
             ),
             output_type=GeneralModelOutput,
@@ -712,7 +918,7 @@ class LiveGeneralShoppingAgent:
                 "Write the required primary rationale in shopper-safe language, supported only "
                 "by the selected candidate evidence. "
                 "Organize candidates using only evidence IDs returned by record_source_quote. "
-                "Seek independent product/listing and review evidence before choosing a candidate. "
+                "Use verified official product facts for product-only options; seek independent reviews for comparative confidence. "
                 "Optionally name distinct best-value, within-budget, stretch, or runner-up modes only when cited evidence supports them; price modes also need a checked listing and quote. "
                 "If that evidence is missing, leave selected_candidate_name empty and state a gap. "
                 "Never infer current price, regional availability, seller trust, or product facts "
@@ -755,6 +961,7 @@ class LiveGeneralShoppingAgent:
         failure_type: str | None = None
         failure_code: str | None = None
         raw_result: Any = None
+        completion_stage = "owner_sdk"
         failed_run_usage: Any = None
         recovered_run_usage: Any = None
         owner_name = agent.name
@@ -800,7 +1007,8 @@ class LiveGeneralShoppingAgent:
                 if item.get("tool_name") == "context_call"
             ):
                 output.evidence_gap = (
-                    CONTEXT_RESEARCH_LIMITATION + " "
+                    CONTEXT_RESEARCH_LIMITATION
+                    + " "
                     + (
                         output.evidence_gap
                         or "More verified support is needed before choosing a product."
@@ -890,6 +1098,7 @@ class LiveGeneralShoppingAgent:
                 ),
                 timeout=owner_timeout,
             )
+            completion_stage = "handoff_validation"
             owner_name, handoff_activity = validated_handoffs(raw_result)
             handoff_confirmed = bool(handoff_activity)
             sdk_usage = getattr(
@@ -897,11 +1106,13 @@ class LiveGeneralShoppingAgent:
             )
             if owner_tokens(getattr(sdk_usage, "total_tokens", 0) or 0) > 90000:
                 raise ContextBudgetExceeded("Owner run exceeded its token budget.")
+            completion_stage = "output_validation"
             model_output = GeneralModelOutput.model_validate(
                 getattr(raw_result, "final_output", raw_result)
             )
             validate_completion(model_output)
             if hosted_tool is not None:
+                completion_stage = "hosted_discovery_validation"
                 if not hasattr(raw_result, "raw_responses"):
                     raise ValueError(
                         "SDK result omitted hosted-search activity metadata."
@@ -953,10 +1164,6 @@ class LiveGeneralShoppingAgent:
                     or any(call.status != "completed" for _, call in all_calls)
                 ):
                     raise ValueError("Hosted-search call limit or completion failed.")
-                if all_calls and not any(
-                    item.citations for item in hosted_activity.values()
-                ):
-                    raise ValueError("Hosted search returned no URL citations.")
                 selected_urls = set(model_output.hosted_lead_urls)
                 cited_urls = {
                     citation.url
@@ -1015,6 +1222,7 @@ class LiveGeneralShoppingAgent:
             if tools is not None and (
                 self.session_factory is not None or self.shared_session is not None
             ):
+                completion_stage = "canonical_candidate_validation"
                 draft = await self._validated_draft(
                     input_data,
                     model_output,
@@ -1024,6 +1232,93 @@ class LiveGeneralShoppingAgent:
                     specialist_tools,
                 )
                 draft = draft.model_copy(update={"owner_agent_name": owner_name})
+                if (
+                    configuration.mode == OpenAIAgentRuntimeMode.LIVE
+                    and draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
+                    and any(
+                        reference.source_type == SourceType.OFFICIAL_BRAND_PAGE
+                        and official_brand_match(str(reference.url), candidate.name)
+                        is not False
+                        and score_source_quality(str(reference.url)).source_class
+                        in {
+                            SourceClass.OFFICIAL_MANUFACTURER,
+                            SourceClass.OFFICIAL_STORE_REGIONAL,
+                        }
+                        for candidate in draft.candidates
+                        for reference in candidate.evidence
+                    )
+                ):
+                    completion_stage = "supported_candidate_decision"
+                    quotes = tuple(
+                        {
+                            "candidate_name": candidate.name,
+                            "source_id": str(reference.source_id),
+                            "snapshot_id": str(reference.snapshot_id),
+                            "evidence_id": str(reference.evidence_id),
+                            "url": str(reference.url),
+                            "source_class": score_source_quality(
+                                str(reference.url)
+                            ).source_class.value,
+                            "quote": reference.quote,
+                        }
+                        for candidate in draft.candidates
+                        for reference in candidate.evidence
+                    )
+                    if quotes:
+                        decision, decision_result = await self._decide_recorded(
+                            input_data,
+                            owner_name,
+                            quotes,
+                            prior_gaps=tuple(
+                                dict.fromkeys(
+                                    (
+                                        *draft.evidence_gaps,
+                                        *(
+                                            (model_output.evidence_gap,)
+                                            if model_output.evidence_gap
+                                            else ()
+                                        ),
+                                    )
+                                )
+                            ),
+                        )
+                        recovered_run_usage = getattr(
+                            getattr(decision_result, "context_wrapper", None),
+                            "usage",
+                            None,
+                        )
+                        draft = (
+                            await self._validated_draft(
+                                input_data,
+                                decision,
+                                tools,
+                                citations,
+                                technology_tools if handoff_confirmed else None,
+                                specialist_tools,
+                            )
+                        ).model_copy(update={"owner_agent_name": owner_name})
+                        self._activity += (
+                            {
+                                "tool_name": "supported_candidate_decision",
+                                "status": draft.outcome.value,
+                                "input": {
+                                    "agent": owner_name,
+                                    "research_enabled": False,
+                                },
+                                "output": {
+                                    "available_quote_count": len(quotes),
+                                    "selected_candidate_name": draft.selected_candidate_name,
+                                    "prior_evidence_gaps": list(
+                                        model_output.evidence_gap
+                                        and (model_output.evidence_gap,)
+                                        or ()
+                                    ),
+                                    "total_tokens": getattr(
+                                        recovered_run_usage, "total_tokens", None
+                                    ),
+                                },
+                            },
+                        )
             else:
                 draft = self._insufficient(
                     input_data,
@@ -1056,9 +1351,14 @@ class LiveGeneralShoppingAgent:
                 else f"Shopping research could not be verified ({type(exc).__name__})."
             )
             error_data = getattr(exc, "run_data", None)
-            failed_run_usage = getattr(
+            error_usage = getattr(
                 getattr(error_data, "context_wrapper", None), "usage", None
             )
+            if completion_stage == "supported_candidate_decision":
+                if error_usage is not None:
+                    recovered_run_usage = error_usage
+            else:
+                failed_run_usage = error_usage
             error_handoffs = tuple(
                 item
                 for item in getattr(error_data, "new_items", ())
@@ -1317,6 +1617,7 @@ class LiveGeneralShoppingAgent:
                     ],
                     "gap": gap,
                     "failure_type": failure_type,
+                    "failure_stage": completion_stage if gap is not None else None,
                     "failure_code": failure_code,
                     "rejected_handoff": rejected_handoff,
                     "model": configuration.model,
@@ -1330,9 +1631,24 @@ class LiveGeneralShoppingAgent:
                     ),
                     "max_turns": configuration.max_turns,
                     "max_output_tokens_per_turn": 2500,
+                    "active_owner_max_output_tokens": (
+                        specialist_agents[
+                            draft.owner_agent_name
+                        ].model_settings.max_tokens
+                        if draft.owner_agent_name in specialist_agents
+                        else technology_agent.model_settings.max_tokens
+                        if draft.owner_agent_name == technology_agent.name
+                        else agent.model_settings.max_tokens
+                    ),
                     "usage": {
                         **combined_usage,
                     },
+                    "usage_complete": not (
+                        raw_result is not None
+                        and completion_stage == "supported_candidate_decision"
+                        and failure_type is not None
+                        and recovered_run_usage is None
+                    ),
                     "nested_source_tokens": nested_source_tokens,
                     "accounted_owner_tokens": owner_tokens(
                         combined_usage["total_tokens"] or 0
@@ -1385,6 +1701,7 @@ class LiveGeneralShoppingAgent:
                 for e in await repository.list_source_evidence(input_data.run_id)
             }
         candidates: list[GeneralShoppingCandidate] = []
+        verified_official_support: set[tuple[str, SourceId]] = set()
         for choice in model.candidates[:8]:
             references: list[GeneralShoppingEvidence] = []
             for evidence_id in choice.evidence_ids:
@@ -1415,6 +1732,7 @@ class LiveGeneralShoppingAgent:
                 if source is None or snapshot.quality.level == SourceQualityLevel.WEAK:
                     continue
                 source_type = source.source_type
+                brand_match = official_brand_match(str(source.url), choice.name)
                 assessment = score_source_quality(
                     str(source.url),
                     SourceQualityMetadata(
@@ -1424,10 +1742,16 @@ class LiveGeneralShoppingAgent:
                             else None
                         ),
                         evidence_context=SourceEvidenceContext.GENERAL,
+                        official_brand_match=brand_match,
                     ),
                 )
                 if assessment.excluded:
                     continue
+                if brand_match is not False and assessment.source_class in {
+                    SourceClass.OFFICIAL_MANUFACTURER,
+                    SourceClass.OFFICIAL_STORE_REGIONAL,
+                }:
+                    verified_official_support.add((choice.name, source.source_id))
                 if (
                     source_type == SourceType.SEARCH_RESULT
                     or snapshot.quality.level == SourceQualityLevel.UNKNOWN
@@ -1499,7 +1823,11 @@ class LiveGeneralShoppingAgent:
                 )
             domains = {urlsplit(str(e.url)).hostname for e in selected.evidence}
             types = {e.source_type for e in selected.evidence}
-            enough = (
+            enough = any(
+                item.source_type == SourceType.OFFICIAL_BRAND_PAGE
+                and (selected.name, item.source_id) in verified_official_support
+                for item in selected.evidence
+            ) or (
                 len(domains) >= 2
                 and SourceType.PROFESSIONAL_REVIEW in types
                 and bool(
@@ -1519,7 +1847,10 @@ class LiveGeneralShoppingAgent:
                 candidate = candidates_by_name.get(mode.candidate_name)
                 if (
                     candidate is None
-                    or mode.mode in seen_modes
+                    or (
+                        mode.mode in seen_modes
+                        and mode.mode != RecommendationMode.RUNNER_UP
+                    )
                     or mode.mode == RecommendationMode.BEST_OVERALL
                     or not set(mode.evidence_ids).issubset(
                         {item.evidence_id for item in candidate.evidence}
@@ -1567,7 +1898,7 @@ class LiveGeneralShoppingAgent:
             candidates=tuple(candidates),
             evidence_gaps=(
                 model.evidence_gap
-                or "A fetched product/listing page and independent review were not both verified.",
+                or "No suitable product had verified official support or corroborated product and review evidence.",
             ),
             hosted_lead_source_ids=tuple(c.source_id for c in citations),
             rationale="There is not enough checked evidence to choose a product yet.",

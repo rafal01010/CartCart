@@ -97,27 +97,10 @@ def test_exact_input_is_irreducible():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("behavior", ["success", "invalid", "failure", "timeout"])
 @pytest.mark.parametrize(
-    "agent_name",
-    [
-        "IntakeAgent",
-        "GuideAgent",
-        "GeneralShoppingAgent",
-        "TechnologyDomainAnalystAgent",
-        "GenericProductAnalystAgent",
-        "SourceIntelligenceManagerAgent",
-        "DiscoveryAgent",
-        "ExtractionAgent",
-        "SellerListingTrustAgent",
-        "CartCartComparisonDecisionAgent",
-        "CartCartVerifierCriticAgent",
-    ],
+    "agent_name", ["GeneralShoppingAgent", "CartCartVerifierCriticAgent"]
 )
-async def test_automatic_sdk_shortening_is_bounded_and_charged(
-    behavior, agent_name, monkeypatch
-):
-    import asyncio
+async def test_deterministic_sdk_compaction_uses_one_configured_model_call(agent_name):
     from agents import Agent, ModelSettings, RunConfig
     from openai.types.shared import Reasoning
     from agents.items import ModelResponse
@@ -128,10 +111,6 @@ async def test_automatic_sdk_shortening_is_bounded_and_charged(
         BoundedRunner,
         ContextBudget,
         context_scope,
-    )
-
-    monkeypatch.setattr(
-        "app.agents.context_management.SHORTENING_TIMEOUT_SECONDS", 0.01
     )
 
     class Transport(Model):
@@ -153,22 +132,7 @@ async def test_automatic_sdk_shortening_is_bounded_and_charged(
             assert settings.reasoning == Reasoning(effort="low")
             assert settings.verbosity == "low"
             assert settings.extra_body == {"profile_marker": "retained"}
-            selecting = (instructions or "").startswith("Select useful exact passages")
-            if selecting:
-                assert settings.max_tokens == 768
-                assert settings.tool_choice is None
-                assert settings.parallel_tool_calls is False
-            if selecting and behavior == "failure":
-                raise RuntimeError("private provider payload")
-            if selecting and behavior == "timeout":
-                await asyncio.sleep(1)
-            text = (
-                '{"spans":[{"field_id":0,"start":0,"end":26}]}'
-                if selecting and behavior == "success"
-                else "invalid summary"
-                if selecting
-                else "Supported bounded result."
-            )
+            text = "Supported bounded result."
             return ModelResponse(
                 output=[
                     ResponseOutputMessage(
@@ -223,23 +187,19 @@ async def test_automatic_sdk_shortening_is_bounded_and_charged(
             max_turns=1,
         )
     assert result.final_output == "Supported bounded result."
-    assert len(transport.inputs) == 2
+    assert len(transport.inputs) == 1
     main = [event for event in budget.events if event["tool_name"] == "context_call"]
-    rewrite = [
-        event for event in budget.events if event["tool_name"] == "context_shortening"
-    ]
-    assert len(rewrite) == 1
+    assert len(main) == 1
     assert main[0]["output"]["estimated_input_tokens"] <= 19_000
-    assert budget.shortening_calls == 1 and budget.reserved == 0
-    assert (
-        budget.spent == 1400
-        if behavior in {"success", "invalid"}
-        else budget.spent > 1400
+    assert main[0]["output"]["compaction"]["paid_selector_enabled"] is False
+    assert not any(
+        event["tool_name"] == "context_shortening" for event in budget.events
     )
+    assert budget.reserved == 0
+    assert budget.spent == 700
     context = json.loads(transport.inputs[-1][1][0]["content"])["_context_projection"]
     assert context["material_cautions"] == ["Warning: seller is unverified."]
     assert context["omitted_material_unreviewed"] is True
-    assert "private provider payload" not in json.dumps(budget.events)
 
 
 def test_long_assistant_blocks_keep_protocol_and_original_lookup():
@@ -374,42 +334,7 @@ async def test_sdk_original_view_reread_unlocks_only_the_visible_source_quote():
             "read_research_result", "reread-a", view_id=view_id, focus="Aster lamp"
         )
 
-    class Transport(ScriptModel):
-        async def get_response(
-            self,
-            instructions,
-            input,
-            settings,
-            tools,
-            schema,
-            handoffs,
-            tracing,
-            **kwargs,
-        ):
-            if (instructions or "").startswith("Select useful exact passages"):
-                selector = ScriptModel(['{"spans":[]}'])
-                return await selector.get_response(
-                    instructions,
-                    input,
-                    settings,
-                    tools,
-                    schema,
-                    handoffs,
-                    tracing,
-                    **kwargs,
-                )
-            return await super().get_response(
-                instructions,
-                input,
-                settings,
-                tools,
-                schema,
-                handoffs,
-                tracing,
-                **kwargs,
-            )
-
-    model = Transport(
+    model = ScriptModel(
         [
             call("fetch_source", "fetch-a", source_id="source-a"),
             reread,
@@ -492,7 +417,7 @@ def test_focused_exact_passage_survives_small_fallback_and_optional_selection(
 
 
 @pytest.mark.asyncio
-async def test_repeated_context_pressure_caps_rewriting_and_continues_with_fallback():
+async def test_repeated_context_pressure_compacts_without_extra_model_calls():
     from agents import Agent, RunConfig
     from app.agents.context_management import (
         BoundedRunner,
@@ -501,43 +426,7 @@ async def test_repeated_context_pressure_caps_rewriting_and_continues_with_fallb
     )
     from test_context_management import ScriptModel, ScriptProvider
 
-    class Transport(ScriptModel):
-        def __init__(self):
-            super().__init__(
-                ['{"spans":[]}', "Supported decision."] * 3
-                + ["Supported decision."] * 2,
-                actual=500,
-            )
-            self.rewrites = 0
-            self.main = 0
-
-        async def get_response(
-            self,
-            instructions,
-            input,
-            settings,
-            tools,
-            schema,
-            handoffs,
-            tracing,
-            **kwargs,
-        ):
-            if (instructions or "").startswith("Select useful exact passages"):
-                self.rewrites += 1
-            else:
-                self.main += 1
-            return await super().get_response(
-                instructions,
-                input,
-                settings,
-                tools,
-                schema,
-                handoffs,
-                tracing,
-                **kwargs,
-            )
-
-    model = Transport()
+    model = ScriptModel(["Supported decision."] * 5, actual=500)
     budget = ContextBudget()
     with context_scope(budget):
         for index in range(5):
@@ -557,10 +446,12 @@ async def test_repeated_context_pressure_caps_rewriting_and_continues_with_fallb
             )
             assert result.final_output == "Supported decision."
             assert budget.reserved == 0
-    assert model.rewrites == 3
-    assert model.main == 5
-    assert budget.shortening_calls == 3
-    assert budget.spent == 4800
+    assert len(model.inputs) == 5
+    assert model.steps == []
+    assert budget.spent == 3000
+    assert not any(
+        event["tool_name"] == "context_shortening" for event in budget.events
+    )
     assert (
         budget.spent
         + budget.limits.decision_reserve
@@ -570,7 +461,7 @@ async def test_repeated_context_pressure_caps_rewriting_and_continues_with_fallb
     events = [event for event in budget.events if event["tool_name"] == "context_call"]
     assert len(events) == 5
     assert all(event["output"]["estimated_input_tokens"] <= 19_000 for event in events)
-    assert [event["output"]["compaction"]["status"] for event in events[-2:]] == [
-        "deterministic_fallback",
-        "deterministic_fallback",
-    ]
+    assert all(
+        event["output"]["compaction"]["paid_selector_enabled"] is False
+        for event in events
+    )

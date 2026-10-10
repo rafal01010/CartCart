@@ -27,6 +27,36 @@ DeepEval, OpenAI Evals, and Ragas may be useful later, especially if the system 
 
 ## Manual phone research regression, 2026-10-03
 
+### Current live acceptance status, 2026-10-10
+
+Task 100A remains open after two newly authorized guided PH phone attempts.
+The required offline gate passed 619 affected regressions and 393 Section Q
+regressions with live tests excluded, quick 27/27 before full 117/117, and scoped
+tooling. Additional intake/schema/lifecycle checks passed 53 tests; all 80
+frontend unit tests and Svelte checking passed. Configuration parity and
+readiness used the real local `.env` without changing models or limits.
+
+Both live attempts preserved unlimited intent and the separate `iPhone`
+candidate and completed General -> Technology -> Smartphone SDK ownership.
+Neither reached candidate validation or saved a result. Run
+`f5279d30-0cb6-4d69-99e2-c6956fdf0ae6` fit the input cap but its final
+reservation exceeded the remaining owner allowance by 463 tokens. Retry
+`b009679b-443e-400d-9626-629daa639e6c` fit remaining allowances but still
+estimated 19,500 input tokens against 19,000 after shortening. Both had fetched
+pages but no canonical exact evidence when finalization closed quote/read tools.
+The browser showed failure and the exact session result API returned HTTP 404.
+Phone recommendation, age/support, launch and seller acceptance remain untested.
+
+New P0 Task 214 requires allocation-aware finalization and funded exact evidence
+capture under unchanged limits, with actual offline SDK completion and matching
+verified saved results. Task 213's earlier offline success remains valid evidence
+for its scripted controls; it did not establish this live outcome. Full evidence
+is in `data/artifacts/task100a-20261010/`. The passing offline manifest is
+`data/artifacts/evals/suite-full-20261009T181804762058Z.json`; its UTC timestamp
+is on the preceding date. Return to the real guided checkpoint after 214 passes.
+
+### Original regression
+
 A manual request, "I need to buy a phone, budget is not a problem", with a
 Philippine buying region and an `iPhone` candidate exposed a configuration and
 query-intent failure. The saved run used fixture agents throughout, no model,
@@ -1671,3 +1701,23 @@ and rerunnable scripts are under `data/artifacts/task213/`; `verification.json`
 links the final gate, SDK, browser and independent review evidence. The eval
 manifest is `data/artifacts/evals/suite-full-20261008T184011524550Z.json`.
 Task 100A remains the next main P0 and requires separate live authorization.
+
+## Owner-directed Task 214 live verification
+
+The latest owner instruction replaces broad offline suite/eval reruns for this
+invocation with real guided live calls and authorized repair/rerun loops. Narrow
+Ruff and syntax compilation are launch checks only. No pytest or scored eval
+passes are claimed. Obsolete paid-selector permutations and timeout branches
+were removed from the two affected context modules. Independent saved-result,
+provenance, seller and funding expectations remain. Live failures are retained
+as failures under `data/artifacts/task214/`; acceptance stays pending until a
+fresh useful cited result passes its matching saved/API/browser inspection.
+
+Task 215 acceptance is held at the owner's request after fresh live attempt 14.
+Its official Apple draft was blocked by deterministic warranty/copy rules before
+any model verifier call. The repaired rules distinguish explicit purchase-detail
+qualifications from asserted facts and product wording from model internals.
+Oppo/Xiaomi and recognized brand-mismatch cases were added to source-policy test
+definitions but were not executed in this unit. Only narrow launch checks ran.
+See `docs/TASK_215_RESTART.md` for exact run and artifact IDs. A fresh empty or
+blocked result does not pass acceptance.

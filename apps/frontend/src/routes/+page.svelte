@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import { createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
 	import { userFacingErrorMessage } from '$lib/api/user-facing-error.js';
-	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
+	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionResultsResponse, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import RefinementPrompt from '$lib/refinements/RefinementPrompt.svelte';
 	import DecisionHistory from '$lib/refinements/DecisionHistory.svelte';
@@ -78,6 +79,8 @@
 	let historyError = $state<string | null>(null);
 	let flowGeneration = 0;
 	let activeAnalysisRun: RequestedRun | null = null;
+	let retryableAnalysisRun = $state<RequestedRun | null>(null);
+	let recommendationRetryRunId = $state<RunId | null>(null);
 	let historyLoadSequence = 0;
 	let selectedModeKey = $state<string | null>(null);
 	let activeListingCandidateId = $state<string | null>(null);
@@ -124,12 +127,62 @@
 		starterTimer = setInterval(() => {
 			starterIndex = (starterIndex + 1) % STARTER_QUESTIONS.length;
 		}, 3200);
+		void resumeSavedDecision();
 	});
 
 	onDestroy(() => {
+		flowGeneration += 1;
 		if (starterTimer) clearInterval(starterTimer);
 		closeRunEventSubscription();
 	});
+
+	function updateSavedDecisionLocation(request: Pick<RequestedRun, 'sessionId' | 'runId'> | null) {
+		if (!clientReady) return;
+		const url = new URL(window.location.href);
+		if (request) {
+			url.searchParams.set('session', request.sessionId);
+			url.searchParams.set('run', request.runId);
+		} else {
+			url.searchParams.delete('session');
+			url.searchParams.delete('run');
+		}
+		replaceState(url, {});
+	}
+
+	async function resumeSavedDecision() {
+		const params = new URLSearchParams(window.location.search);
+		const savedSessionId = params.get('session');
+		const savedRunId = params.get('run');
+		if (!savedSessionId && !savedRunId) return;
+		if (!savedSessionId || !savedRunId) {
+			guideError = 'This saved decision link is incomplete.';
+			return;
+		}
+		const request: RequestedRun = {
+			kind: 'analysis', sessionId: savedSessionId, runId: savedRunId, generation: flowGeneration,
+		};
+		sessionId = savedSessionId;
+		activeAnalysisRun = request;
+		isGuidedRequestPending = true;
+		homeState = 'processing';
+		try {
+			const [loadedSession, run] = await Promise.all([
+				api.getSession(request.sessionId), api.getRun(request.sessionId, request.runId),
+			]);
+			if (!isCurrentRun(request)) return;
+			if (loadedSession.session_id !== request.sessionId || run.session_id !== request.sessionId || run.run_id !== request.runId) {
+				throw new Error('This saved decision does not match the requested comparison.');
+			}
+			currentSession = loadedSession;
+			question = loadedSession.current_brief.original_query;
+			pendingQuestion = question;
+			subscribeToAnalysisProgress(request, run);
+		} catch (error) {
+			if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+		} finally {
+			if (request.generation === flowGeneration && request.sessionId === sessionId) isGuidedRequestPending = false;
+		}
+	}
 
 	function chooseStarter(starter: string) {
 		question = starter;
@@ -203,7 +256,10 @@
 
 	function resetFlow({ preserveQuestion = false }: { preserveQuestion?: boolean } = {}) {
 		flowGeneration += 1;
+		updateSavedDecisionLocation(null);
 		activeAnalysisRun = null;
+		retryableAnalysisRun = null;
+		recommendationRetryRunId = null;
 		currentSession = null;
 		decisionHistory = null;
 		displayedVersionId = null;
@@ -346,6 +402,8 @@
 		if (!sessionId || guidedState?.status !== 'ready_for_analysis' || isGuidedRequestPending) return;
 		const activeSessionId = sessionId;
 		const generation = flowGeneration;
+		retryableAnalysisRun = null;
+		recommendationRetryRunId = null;
 		isGuidedRequestPending = true;
 		guideError = null;
 		resultView = null;
@@ -365,6 +423,42 @@
 		} finally {
 			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
 		}
+	}
+
+	async function retryAnalysis() {
+		if (!sessionId || decisionBusy || viewingPrevious) return;
+		const request = retryableAnalysisRun ?? (recommendationRetryRunId ? {
+			kind: 'analysis', sessionId, runId: recommendationRetryRunId, generation: flowGeneration,
+		} satisfies RequestedRun : null);
+		if (!request) {
+			await startAnalysis();
+			return;
+		}
+		if (request.sessionId !== sessionId || request.generation !== flowGeneration) return;
+		isGuidedRequestPending = true;
+		guideError = null;
+		shopperProgress = createInitialShopperProgress();
+		closeRunEventSubscription();
+		activeAnalysisRun = request;
+		homeState = 'processing';
+		try {
+			const run = await api.retryRun(request.sessionId, request.runId);
+			if (!isCurrentRun(request)) return;
+			if (run.session_id !== request.sessionId || run.run_id !== request.runId) {
+				throw new Error('The retry belongs to another comparison.');
+			}
+			subscribeToAnalysisProgress(request, run);
+		} catch (error) {
+			if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+		} finally {
+			if (request.generation === flowGeneration && request.sessionId === sessionId) isGuidedRequestPending = false;
+		}
+	}
+
+	function recommendationRetryId(results: SessionResultsResponse): RunId | null {
+		const bundle = results.recommendation_bundle;
+		return (bundle.verification_action === 'blocked' || bundle.no_strong_buy) && results.source_evidence.length > 0
+			? results.result_version.run_id : null;
 	}
 
 	async function checkListing(url: string) {
@@ -444,6 +538,7 @@
 		kind: 'initial' | 'listing' | 'manual' = activeListingCandidateId ? 'listing' : activeManualCandidateId ? 'manual' : 'initial',
 		safeMessage?: string,
 	) {
+		if (activeAnalysisRun) retryableAnalysisRun = activeAnalysisRun;
 		if (kind === 'listing' && resultView) {
 			homeState = 'result';
 			listingCheckError = safeMessage
@@ -468,6 +563,10 @@
 		activeAnalysisRun = request;
 		if (run.session_id !== request.sessionId || run.status === 'failed' || run.status === 'cancelled') {
 			showAnalysisFailure();
+			return;
+		}
+		if (run.status === 'succeeded') {
+			void revealResults(request);
 			return;
 		}
 		let completionStarted = false;
@@ -539,9 +638,12 @@
 				listingCheckError = listingCheckOutcome ? null : 'CartCart could not confirm that listing. Try another link.';
 			}
 			resultView = nextResultView;
+			recommendationRetryRunId = recommendationRetryId(results);
+			retryableAnalysisRun = null;
 			selectedModeKey = nextResultView.finalMode?.key ?? nextResultView.decisionModes[0]?.key ?? null;
 			guideError = null;
 			homeState = 'result';
+			updateSavedDecisionLocation(request);
 			void loadDecisionHistory();
 			if (listingCandidateId || manualCandidateId) {
 				await tick();
@@ -633,6 +735,8 @@
 			const results = await api.getResultVersion(sessionId, id);
 			if (generation !== flowGeneration) return;
 			resultView = buildResultView(results);
+			recommendationRetryRunId = recommendationRetryId(results);
+			retryableAnalysisRun = null;
 			selectedModeKey = resultView.finalMode?.key ?? null;
 			displayedVersionId = id;
 			manualCandidates = manualCandidateViews(results.considered_products.map((item) => item.candidate), results);
@@ -675,12 +779,18 @@
 				<div class="mt-8 flex justify-center"><button type="button" class="rounded-md border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-iron focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none" onclick={() => resetFlow({ preserveQuestion: true })}>Back</button></div>
 			</div>
 		{:else if homeState === 'processing'}
-			<ProcessingState question={submittedQuestion} headline={progressHeadline} progress={shopperProgress} error={guideError} pending={isGuidedRequestPending} onRetry={startAnalysis} />
+			<ProcessingState question={submittedQuestion} headline={progressHeadline} progress={shopperProgress} error={guideError} pending={isGuidedRequestPending} onRetry={retryAnalysis} />
 		{:else if homeState === 'refining'}
 			<RefinementPrompt bind:draft={refinementDraft} error={refinementError} onChoose={(kind: RefinementPromptKind) => { refinementDraft = refinementDraftFromSession(kind, currentSession); refinementError = null; }} onSubmit={submitRefinement} onBack={() => { if (refinementDraft) { refinementDraft = null; refinementError = null; } else homeState = 'result'; }} />
 		{:else if homeState === 'result' && resultView}
 			<div class="w-full">
 				<div class="mx-auto mb-6 max-w-[1180px]">
+					{#if recommendationRetryRunId && !viewingPrevious}
+						<div class="mb-5 flex flex-wrap items-center gap-3 border border-border bg-card px-5 py-4">
+							<p class="text-sm leading-6 text-muted-foreground">The recommendation could not be confirmed. You can run the check again using the information already gathered.</p>
+							<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry recommendation check</Button>
+						</div>
+					{/if}
 					{#if refinementPending}<p role="status" class="mb-4 text-sm text-muted-foreground">Updating your decision. You can review the previous result below.</p>{/if}
 					{#if refinementError}<p role="alert" class="mb-4 text-sm text-destructive">{refinementError}</p>{/if}
 					{#if viewingPrevious}<p class="mb-3 text-sm text-muted-foreground">Viewing an earlier decision.</p><Button variant="outline" disabled={decisionBusy} onclick={() => latestVersionId && showDecisionVersion(latestVersionId)}>Return to latest decision</Button>

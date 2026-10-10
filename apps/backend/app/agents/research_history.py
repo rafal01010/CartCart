@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from agents import FunctionTool, function_tool
+from pydantic import BaseModel
 
 from app.agents.source_spans import source_span
 
@@ -250,6 +251,19 @@ class ResearchView:
     receipts: set[str] = field(default_factory=set)
 
 
+def native_item_key(item: dict[str, Any]) -> str:
+    if item.get("type") == "function_call" and item.get("call_id"):
+        return "call:" + str(item["call_id"])
+    if item.get("id"):
+        return "item:" + str(item["id"])
+    return (
+        "content:"
+        + sha256(
+            json.dumps(item, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+    )
+
+
 @dataclass
 class ResearchHistory:
     scope_id: str = field(default_factory=lambda: uuid4().hex)
@@ -257,6 +271,105 @@ class ResearchHistory:
     projections: dict[str, str] = field(default_factory=dict)
     compacted_sources: set[str] = field(default_factory=set)
     transported_text: dict[str, list[str]] = field(default_factory=dict)
+    native_response_groups: list[tuple[str, ...]] = field(default_factory=list)
+    checkpoint_messages: set[str] = field(default_factory=set)
+
+    def record_response(self, items: Sequence[Any]) -> None:
+        group = tuple(
+            native_item_key(
+                item.model_dump(exclude_unset=True)
+                if isinstance(item, BaseModel)
+                else item
+            )
+            for item in items
+        )
+        if group and group not in self.native_response_groups:
+            self.native_response_groups.append(group)
+
+    def archive(self, tool: str, payload: Any) -> str:
+        original = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        digest = sha256((tool + original).encode()).hexdigest()
+        view_id = self.scope_id[:12] + ":" + digest[:20]
+        self.views.setdefault(
+            view_id, ResearchView(tool, original, json.loads(original))
+        )
+        return view_id
+
+    def checkpoint(self, view_id: str, *, characters: int = 6000) -> dict[str, Any]:
+        view = self.views[view_id]
+        payload = view.payload
+
+        def decode(value: Any, key: str = "") -> Any:
+            if isinstance(value, str) and key in {"output", "arguments", "content"}:
+                try:
+                    return decode(json.loads(value))
+                except ValueError:
+                    return value
+            if isinstance(value, dict):
+                return {name: decode(child, name) for name, child in value.items()}
+            if isinstance(value, list):
+                return [decode(child) for child in value]
+            return value
+
+        decoded = decode(payload)
+        support = _support_state(decoded)
+        result: dict[str, Any] = {
+            "derived_context": True,
+            "original_view_id": view_id,
+            "original_characters": len(view.original),
+            "omitted_material_unreviewed": True,
+            "unreviewed_cautions": True,
+            "coverage": "Exact originals remain available through read_research_result. Reread omitted support before claims. SQLite source evidence remains canonical.",
+        }
+        quotes: list[dict[str, Any]] = []
+
+        def collect(value: Any) -> None:
+            if isinstance(value, dict):
+                if value.get("status") == "succeeded" and isinstance(
+                    value.get("quote"), str
+                ):
+                    quotes.append(
+                        {
+                            key: child
+                            for key, child in value.items()
+                            if key.endswith("_id")
+                            or key in {"status", "quote", "claim"}
+                        }
+                    )
+                for child in value.values():
+                    collect(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child)
+
+        collect(decoded)
+        identities = [
+            {"kind": key, "id": identity}
+            for key, values in support["identities"].items()
+            for identity in values
+        ]
+        identities.extend(
+            {"kind": key, "id": identity}
+            for row in support["references"]
+            for key, identity in row.items()
+            if key.endswith("_id")
+        )
+        for key, rows in (
+            ("recorded_quotes", reversed(quotes)),
+            ("cautions", support.get("cautions", [])),
+            ("identities", identities),
+            ("references", reversed(support.get("references", []))),
+            ("gaps", support.get("gaps", [])),
+        ):
+            retained: list[Any] = []
+            result[key] = retained
+            for row in rows:
+                if len(retained) >= 12:
+                    break
+                retained.append(row)
+                if len(json.dumps(result, ensure_ascii=False)) > characters:
+                    retained.pop()
+        return result
 
     def source_text(self, items: Any) -> dict[str, list[str]]:
         result: dict[str, list[str]] = {}
@@ -299,7 +412,31 @@ class ResearchHistory:
         visit(items)
         return result
 
-    def record_transport(self, items: Any) -> None:
+    def record_transport(self, items: Any, *, originals: Any = None) -> None:
+        if originals is not None:
+            original_text = self.source_text(originals)
+            transported_text = self.source_text(items)
+            self.compacted_sources.update(
+                source_id
+                for source_id, texts in original_text.items()
+                if texts != transported_text.get(source_id, [])
+            )
+            if isinstance(originals, list) and isinstance(items, list):
+                outputs = {
+                    str(item.get("call_id")): item.get("output")
+                    for item in items
+                    if item.get("type") == "function_call_output"
+                }
+                for item in originals:
+                    original = item.get("output")
+                    projected = outputs.get(str(item.get("call_id")))
+                    if (
+                        item.get("type") == "function_call_output"
+                        and isinstance(original, str)
+                        and isinstance(projected, str)
+                        and len(projected) < len(original)
+                    ):
+                        self.projections[original] = projected
         for source_id, texts in self.source_text(items).items():
             observed = self.transported_text.setdefault(source_id, [])
             observed.extend(text for text in texts if text not in observed)
@@ -390,7 +527,9 @@ class ResearchHistory:
                     unsupported.append(sentence)
         return tuple(unsupported)
 
-    def register(self, tool: str, output: str, *, force: bool = False) -> str:
+    def register(
+        self, tool: str, output: str, *, force: bool = False, fresh: bool = False
+    ) -> str:
         try:
             payload = json.loads(output)
         except (ValueError, TypeError):
@@ -407,7 +546,7 @@ class ResearchHistory:
         digest = sha256((tool + original).encode()).hexdigest()
         view_id = self.scope_id[:12] + ":" + digest[:20]
         view = self.views.setdefault(view_id, ResearchView(tool, original, payload))
-        if view.state is not None:
+        if view.state is not None and not fresh:
             retired = self.retired(view_id)
             if retired is not None and len(retired) < len(original):
                 return retired
@@ -474,6 +613,28 @@ class ResearchHistory:
                 "status": "unknown_view",
                 "gap": "Original is unavailable in this shopping invocation.",
             }
+        payload = view.payload
+        if view.tool == "sdk_exchanges":
+
+            def decode_outputs(value: Any) -> Any:
+                if isinstance(value, dict):
+                    result = {
+                        key: decode_outputs(child) for key, child in value.items()
+                    }
+                    if value.get("type") == "function_call_output" and isinstance(
+                        value.get("output"), str
+                    ):
+                        try:
+                            result["output"] = json.loads(value["output"])
+                        except ValueError:
+                            pass
+                    return result
+                if isinstance(value, list):
+                    return [decode_outputs(child) for child in value]
+                return value
+
+            payload = decode_outputs(payload)
+        readable = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         try:
             encoded_focus = (
                 json.dumps(focus, ensure_ascii=False)[1:-1]
@@ -481,12 +642,12 @@ class ResearchHistory:
                 else None
             )
             span = source_span(
-                view.original, start=start_char, focus=encoded_focus, limit=2000
+                readable, start=start_char, focus=encoded_focus, limit=2000
             )
         except ValueError as exc:
             return {"status": "invalid_request", "gap": str(exc)}
         source_spans = self._read_source_spans(
-            view, span.start, span.start + len(span.text)
+            view, span.start, span.start + len(span.text), payload=payload
         )
         return {
             "status": "succeeded",
@@ -496,6 +657,17 @@ class ResearchHistory:
             "start_char": span.start,
             "total_characters": span.total_characters,
             "content_sha256": span.content_sha256,
+            **(
+                {
+                    "serialized_sdk_outputs_decoded": True,
+                    "original_content_sha256": sha256(
+                        view.original.encode()
+                    ).hexdigest(),
+                    "original_characters": len(view.original),
+                }
+                if view.tool == "sdk_exchanges"
+                else {}
+            ),
             **({"source_spans": source_spans} if source_spans else {}),
             "text_truncated": span.start > 0
             or span.start + len(span.text) < span.total_characters,
@@ -503,7 +675,7 @@ class ResearchHistory:
         }
 
     def _read_source_spans(
-        self, view: ResearchView, start: int, end: int
+        self, view: ResearchView, start: int, end: int, *, payload: Any = None
     ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         cursor = 0
@@ -567,7 +739,7 @@ class ResearchHistory:
                         )
                 cursor += len(encoded)
 
-        walk(view.payload, {})
+        walk(view.payload if payload is None else payload, {})
         return result
 
 
@@ -670,7 +842,11 @@ def history_tools() -> tuple[FunctionTool, FunctionTool]:
             else {"status": "unknown_view"},
             ensure_ascii=False,
         )
-        return history.register("read_research_result", output) if history else output
+        return (
+            history.register("read_research_result", output, fresh=True)
+            if history
+            else output
+        )
 
     return complete_research_result, read_research_result
 
@@ -687,7 +863,19 @@ def tracked_tools(
             output = await callback(context, arguments)
             history = _history.get()
             return (
-                history.register(name, output)
+                history.register(
+                    name,
+                    output,
+                    fresh=name
+                    in {
+                        "fetch_source",
+                        "read_source_snapshot",
+                        "read_run_evidence",
+                        "read_research_result",
+                        "read_video_transcript",
+                        "read_community_discussion",
+                    },
+                )
                 if history and isinstance(output, str)
                 else output
             )

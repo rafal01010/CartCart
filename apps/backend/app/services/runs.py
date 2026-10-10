@@ -1,3 +1,5 @@
+from sqlalchemy import update
+
 from app.core.errors import ApplicationError
 from app.agents.research_tools import AgentResearchTools, HostedCitationStore
 from app.agents.extraction_tools import SnapshotInterpretationTools
@@ -31,6 +33,7 @@ from app.agents import (
     build_openai_agent_run_configuration,
     require_live_openai_agent_configuration,
 )
+from app.db.models.runs import ShoppingRunRecordModel
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.refinements import RefinementRepository
 from app.db.repositories.results import ResultRepository
@@ -61,6 +64,7 @@ from app.schemas.runs import (
     RecomputeStage,
     RunEvent,
     RunStatus,
+    RunStage,
     ShoppingRunRecord,
 )
 from app.services.shopping_guardrails import blocked_guardrail_or_none
@@ -150,6 +154,118 @@ class RunService:
                 return failed_run
             raise
         return await self._run_repository.get(run.run_id)
+
+    async def retry_run(
+        self, session_id: SessionId, run_id: RunId
+    ) -> ShoppingRunRecord | None:
+        run = await self.get_run_status(session_id, run_id)
+        if run is None:
+            return None
+        if self._result_repository is None or self._search_source_repository is None:
+            raise ValueError("Retry requires persisted workflow artifacts.")
+        records = await self._result_repository.list_agent_records(run_id)
+        saved_result = await self._result_repository.load_latest_result_bundle(run_id)
+        blocked_check = (
+            run.status == RunStatus.SUCCEEDED
+            and saved_result is not None
+            and (
+                saved_result.recommendation_bundle.verification_action == "blocked"
+                or (
+                    saved_result.recommendation_bundle.no_strong_buy
+                    and any(
+                        activity.get("tool_name") == "record_source_quote"
+                        and activity.get("status") == "succeeded"
+                        for record in records
+                        for activity in record.tool_activity
+                    )
+                )
+            )
+        )
+        if not blocked_check and not (
+            run.status == RunStatus.FAILED
+            and run.current_stage
+            in {RunStage.COMPARISON_DECISION, RunStage.VERIFICATION}
+        ):
+            raise ApplicationError(
+                "run_not_retryable",
+                "Only an interrupted or unconfirmed decision can resume saved research.",
+                status_code=409,
+            )
+        session = await self._session_repository.get(session_id)
+        assert session is not None
+        plan = await RefinementRepository(
+            self._search_source_repository.session
+        ).get_plan_for_run(run_id)
+        unchanged = (
+            session.current_brief == plan.target_brief
+            if plan is not None
+            else session.updated_at <= run.created_at
+        )
+        for record in records:
+            for activity in record.tool_activity:
+                if activity.get("tool_name") != "general_owner_draft":
+                    continue
+                saved_input = activity.get("input", {})
+                if (
+                    isinstance(saved_input, dict)
+                    and saved_input.get("original_input") is not None
+                ):
+                    unchanged = unchanged and saved_input[
+                        "original_input"
+                    ] == session.original_input.model_dump(mode="json")
+        if not unchanged:
+            raise ApplicationError(
+                "retry_brief_changed",
+                "Shopping details changed. Start a new search for the updated request.",
+                status_code=409,
+            )
+        if (
+            self._agent_workflow_mode == AgentWorkflowMode.LIVE
+            and self._settings is not None
+        ):
+            try:
+                require_live_openai_agent_configuration(
+                    self._settings, agent_name="ShoppingRunOrchestrator"
+                )
+            except OpenAIAgentConfigurationError as exc:
+                raise ApplicationError(
+                    "live_agents_not_configured", str(exc), status_code=409
+                ) from exc
+        orchestrator = self._orchestrator()
+        claimed = await self._search_source_repository.session.execute(
+            update(ShoppingRunRecordModel)
+            .where(
+                ShoppingRunRecordModel.run_id == str(run_id),
+                ShoppingRunRecordModel.session_id == str(session_id),
+                ShoppingRunRecordModel.status == run.status.value,
+            )
+            .values(status=RunStatus.RUNNING.value, error=None, completed_at=None)
+        )
+        if claimed.rowcount != 1:
+            raise ApplicationError(
+                "run_already_resuming",
+                "This saved decision is already being checked again.",
+                status_code=409,
+            )
+        await self._run_repository.append_event(
+            run_id,
+            stage=RunStage.VERIFICATION if blocked_check else run.current_stage,
+            status=RunStatus.RUNNING,
+            message="Resuming the saved decision and final check without repeating research.",
+        )
+        await self._run_repository.checkpoint()
+        try:
+            await orchestrator.resume(
+                run_id,
+                session.current_brief,
+                original_input=session.original_input,
+            )
+        except Exception:
+            failed_run = await self._run_repository.get(run_id)
+            if failed_run is not None and failed_run.status == RunStatus.FAILED:
+                return failed_run
+            raise
+        return await self._run_repository.get(run_id)
 
     async def execute_refinement(
         self, session_id: SessionId, plan: RecomputePlan, instruction: str

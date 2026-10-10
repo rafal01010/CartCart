@@ -382,6 +382,7 @@ def _build_discovery_agent(
         ),
         instructions=(
             "You own shopping-source research. Inspect the supplied seed results and "
+            "classify only the bounded sources you actually inspect. Other persisted leads remain unreviewed. "
             "choose hosted web_search or search_sources for bounded follow-up "
             "research when reviews, broad "
             "collections, weak matches, or too few listings leave the research "
@@ -436,8 +437,9 @@ def _model_input(input_data: DiscoveryAgentInput) -> str:
             "brief": input_data.brief.model_dump(mode="json"),
             "search_plan": input_data.search_plan.model_dump(mode="json"),
             "search_results": [
-                _search_result_summary(result) for result in input_data.seed_results
+                _search_result_summary(result) for result in input_data.seed_results[:8]
             ],
+            "unreviewed_source_count": max(0, len(input_data.seed_results) - 8),
             "user_added_products": [
                 {
                     "candidate_id": str(item.candidate_id),
@@ -464,7 +466,8 @@ def _search_result_summary(result: SearchResult) -> dict[str, Any]:
         "query": result.query.model_dump(mode="json"),
         "url": _neutral_url(str(result.url)),
         "title": result.title,
-        "snippet": result.snippet,
+        "snippet": result.snippet[:400] if result.snippet else None,
+        "snippet_truncated": bool(result.snippet and len(result.snippet) > 400),
         "source_type": result.source_type.value,
         "quality": result.quality.model_dump(mode="json"),
         "provider": {
@@ -544,9 +547,30 @@ def _coerce_discovery_result(
         if item.next_action
         in {DiscoveryNextAction.FETCH, DiscoveryNextAction.RETAIN_AS_EVIDENCE}
     )
+    results = (*input_data.seed_results, *tool_results)
+    decisions = (*raw_output.source_decisions, *mapped_decisions)
+    decided_ids = {item.source_id for item in decisions}
+    if len(decided_ids) != len(decisions):
+        raise ValueError("Discovery decisions contain duplicate source IDs.")
+    if not decided_ids.issubset({item.source_id for item in results}):
+        raise ValueError("Discovery decisions contain unknown source IDs.")
+    decisions += tuple(
+        DiscoverySourceDecision(
+            source_id=item.source_id,
+            classification=DiscoverySourceKind.UNCERTAIN,
+            confidence=0.0,
+            reasons=(
+                "Deferred lead was not inspected; its relevance and claims remain unreviewed.",
+            ),
+            intended_treatment="Retain for a specific evidence gap; do not treat as verified or irrelevant",
+            next_action=DiscoveryNextAction.IGNORE,
+        )
+        for item in results
+        if item.source_id not in decided_ids
+    )
     output = DiscoveryAgentOutput(
-        search_results=(*input_data.seed_results, *tool_results),
-        source_decisions=(*raw_output.source_decisions, *mapped_decisions),
+        search_results=results,
+        source_decisions=decisions,
         selected_source_ids=(*raw_output.selected_source_ids, *hosted_selected),
         outcome=raw_output.outcome,
         notes=raw_output.notes,

@@ -2288,7 +2288,25 @@ async def test_fixture_mode_has_no_model_or_provider_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generic_provider_hits_can_be_classified_after_fetch() -> None:
+@pytest.mark.parametrize(
+    ("urls", "source_types"),
+    [
+        (
+            (
+                "https://www.homedepot.com/p/oak-walking-cane",
+                "https://www.goodhousekeeping.com/reviews/oak-walking-cane",
+            ),
+            {SourceType.RETAILER_LISTING, SourceType.PROFESSIONAL_REVIEW},
+        ),
+        (
+            ("https://www.decathlon.com/products/oak-walking-cane",),
+            {SourceType.OFFICIAL_BRAND_PAGE},
+        ),
+    ],
+)
+async def test_generic_provider_hits_can_be_classified_after_fetch(
+    urls: tuple[str, ...], source_types: set[SourceType]
+) -> None:
     query = SearchQuery(query="wooden cane", intent=SearchIntent.DISCOVERY)
     provider = FakeSearchProvider(
         results=tuple(
@@ -2300,10 +2318,7 @@ async def test_generic_provider_hits_can_be_classified_after_fetch() -> None:
                 provider=ProviderMetadata(provider_name="fixture-search"),
                 quality=SourceQuality(level=SourceQualityLevel.UNKNOWN),
             )
-            for url in (
-                "https://www.homedepot.com/p/oak-walking-cane",
-                "https://www.goodhousekeeping.com/reviews/oak-walking-cane",
-            )
+            for url in urls
         )
     )
     agent, input_data, _, engine = await _isolated_agent(
@@ -2313,10 +2328,10 @@ async def test_generic_provider_hits_can_be_classified_after_fetch() -> None:
     try:
         result = await agent.run(input_data)
         assert result.outcome == GeneralShoppingOutcome.DRAFT
-        assert {item.source_type for item in result.candidates[0].evidence} == {
-            SourceType.RETAILER_LISTING,
-            SourceType.PROFESSIONAL_REVIEW,
-        }
+        assert len(result.candidates[0].evidence) == len(urls)
+        assert {
+            item.source_type for item in result.candidates[0].evidence
+        } == source_types
     finally:
         await engine.dispose()
 

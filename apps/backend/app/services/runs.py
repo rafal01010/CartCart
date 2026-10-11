@@ -25,7 +25,6 @@ from app.agents import (
     LiveSmartwatchSpecialistAgent,
     LiveTVSpecialistAgent,
     LiveTechnologyDomainAnalystAgent,
-    LiveVerifierCriticAgent,
     YouTubeReviewIntelligenceService,
     LiveQueryPlannerAgent,
     OpenAIAgentConfigurationError,
@@ -36,7 +35,7 @@ from app.agents import (
 from app.db.models.runs import ShoppingRunRecordModel
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.refinements import RefinementRepository
-from app.db.repositories.results import ResultRepository
+from app.db.repositories.results import ResultRepository, SavedResultBundle
 from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
@@ -67,7 +66,6 @@ from app.schemas.runs import (
     RunStage,
     ShoppingRunRecord,
 )
-from app.services.shopping_guardrails import blocked_guardrail_or_none
 
 
 class RunService:
@@ -119,18 +117,6 @@ class RunService:
         if session is None:
             return None
 
-        blocked_guardrail = blocked_guardrail_or_none(
-            session.current_brief.original_query,
-        )
-        if blocked_guardrail is not None:
-            raise ApplicationError(
-                "shopping_guardrail_blocked",
-                blocked_guardrail.message
-                or "This request is outside ordinary shopping help.",
-                status_code=409,
-                details={"reason": blocked_guardrail.reason},
-            )
-
         await self._check_live_agent_start(session.original_input.query)
 
         run = await self._run_repository.create(session_id)
@@ -170,21 +156,17 @@ class RunService:
             and saved_result is not None
             and (
                 saved_result.recommendation_bundle.verification_action == "blocked"
-                or (
-                    saved_result.recommendation_bundle.no_strong_buy
-                    and any(
-                        activity.get("tool_name") == "record_source_quote"
-                        and activity.get("status") == "succeeded"
-                        for record in records
-                        for activity in record.tool_activity
-                    )
-                )
+                or saved_result.recommendation_bundle.no_strong_buy
             )
         )
         if not blocked_check and not (
             run.status == RunStatus.FAILED
             and run.current_stage
-            in {RunStage.COMPARISON_DECISION, RunStage.VERIFICATION}
+            in {
+                RunStage.GENERAL_OWNER,
+                RunStage.COMPARISON_DECISION,
+                RunStage.VERIFICATION,
+            }
         ):
             raise ApplicationError(
                 "run_not_retryable",
@@ -196,14 +178,67 @@ class RunService:
         plan = await RefinementRepository(
             self._search_source_repository.session
         ).get_plan_for_run(run_id)
-        unchanged = (
-            session.current_brief == plan.target_brief
-            if plan is not None
-            else session.updated_at <= run.created_at
-        )
+        original_input = session.original_input
+        retry_brief = session.current_brief
+        reused = None
+        if plan is not None:
+            expected_brief = (
+                plan.target_brief
+                if run.status == RunStatus.SUCCEEDED
+                else plan.base_brief
+            )
+            unchanged = session.current_brief == expected_brief
+            retry_brief = plan.target_brief
+            if RecomputeStage.RE_INTAKE in plan.stages:
+                refinement = await RefinementRepository(
+                    self._search_source_repository.session
+                ).get_for_run(run_id)
+                if refinement is None:
+                    raise ValueError("The saved refinement request is unavailable.")
+                original_input = original_input.model_copy(
+                    update={
+                        "query": f"{original_input.query}\nRefinement: {refinement.instruction}"[
+                            :4000
+                        ]
+                    }
+                )
+            if RecomputeStage.SEARCH not in plan.stages:
+                prior = await self._result_repository.load_result_bundle_by_version(
+                    plan.prior_result_version_id
+                )
+                if prior is None:
+                    raise ValueError("The saved refinement base is unavailable.")
+                latest = (
+                    await self._result_repository.load_latest_result_bundle_for_session(
+                        session_id
+                    )
+                )
+                expected_version = (
+                    saved_result.result_version.result_version_id
+                    if saved_result
+                    else plan.prior_result_version_id
+                )
+                unchanged = (
+                    unchanged
+                    and latest is not None
+                    and latest.result_version.result_version_id == expected_version
+                )
+                reused = await self._refinement_artifacts(session_id, plan, prior)
+                saved_analyses = await self._result_repository.list_category_analyses(
+                    run_id
+                )
+                if saved_analyses:
+                    from dataclasses import replace
+
+                    reused = replace(reused, category_analyses=saved_analyses)
+        else:
+            unchanged = session.updated_at <= run.created_at
         for record in records:
             for activity in record.tool_activity:
-                if activity.get("tool_name") != "general_owner_draft":
+                if activity.get("tool_name") not in {
+                    "general_owner_draft",
+                    "general_owner_checkpoint",
+                }:
                     continue
                 saved_input = activity.get("input", {})
                 if (
@@ -212,7 +247,7 @@ class RunService:
                 ):
                     unchanged = unchanged and saved_input[
                         "original_input"
-                    ] == session.original_input.model_dump(mode="json")
+                    ] == original_input.model_dump(mode="json")
         if not unchanged:
             raise ApplicationError(
                 "retry_brief_changed",
@@ -249,17 +284,23 @@ class RunService:
             )
         await self._run_repository.append_event(
             run_id,
-            stage=RunStage.VERIFICATION if blocked_check else run.current_stage,
+            stage=RunStage.COMPARISON_DECISION if blocked_check else run.current_stage,
             status=RunStatus.RUNNING,
-            message="Resuming the saved decision and final check without repeating research.",
+            message="Resuming the saved decision without repeating research.",
         )
         await self._run_repository.checkpoint()
         try:
             await orchestrator.resume(
                 run_id,
-                session.current_brief,
-                original_input=session.original_input,
+                retry_brief,
+                original_input=original_input,
+                refinement_plan=plan,
+                reused_artifacts=reused,
             )
+            if plan is not None:
+                await self._session_repository.update_current_brief(
+                    session_id, plan.target_brief
+                )
         except Exception:
             failed_run = await self._run_repository.get(run_id)
             if failed_run is not None and failed_run.status == RunStatus.FAILED:
@@ -314,69 +355,10 @@ class RunService:
             f"{session.original_input.query}\n{instruction}\n"
             f"{plan.target_brief.category or ''}"
         )
-        blocked_guardrail = blocked_guardrail_or_none(refined_request)
-        if blocked_guardrail is not None:
-            raise ApplicationError(
-                "shopping_guardrail_blocked",
-                blocked_guardrail.message
-                or "This request is outside ordinary shopping help.",
-                status_code=409,
-                details={"reason": blocked_guardrail.reason},
-            )
         await self._check_live_agent_start(refined_request)
         reused = None
         if RecomputeStage.SEARCH not in plan.stages:
-            research_run_id = await RefinementRepository(
-                self._search_source_repository.session
-            ).research_run_for(plan.prior_run_id)
-            products = await self._product_repository.list_canonical_products_for_run(
-                research_run_id
-            )
-            listings = await self._product_repository.list_product_listings_for_run(
-                research_run_id
-            )
-            evidence = await self._search_source_repository.list_source_evidence(
-                research_run_id
-            )
-            snapshots = await self._search_source_repository.list_source_snapshots(
-                research_run_id
-            )
-            product_ids = {item.product_id for item in products}
-            listing_ids = {item.listing_id for item in listings}
-            candidate_ids = {
-                item.candidate_id
-                for item in await self._product_repository.list_shortlist_memberships(
-                    research_run_id
-                )
-            }
-            source_ids = {item.source_id for item in snapshots}
-            if (
-                not products
-                or not evidence
-                or any(item.source_id not in source_ids for item in evidence)
-                or not any(
-                    item.target.product_id in product_ids
-                    or item.target.listing_id in listing_ids
-                    or item.target.candidate_id in candidate_ids
-                    for item in evidence
-                )
-            ):
-                raise ApplicationError(
-                    "refinement_evidence_changed",
-                    "Saved research is no longer usable. Start a new refinement to research again.",
-                    status_code=409,
-                )
-            reused = ReusedRefinementArtifacts(
-                products=products,
-                listings=listings,
-                evidence=evidence,
-                trust_assessments=prior.trust_assessments,
-                category_analyses=prior.category_analyses,
-                recommendation=prior.recommendation_bundle,
-                user_added_products=await self._product_repository.list_user_added_products_for_run(
-                    session_id, research_run_id
-                ),
-            )
+            reused = await self._refinement_artifacts(session_id, plan, prior)
         original_input = session.original_input
         if RecomputeStage.RE_INTAKE in plan.stages:
             original_input = original_input.model_copy(
@@ -404,6 +386,49 @@ class RunService:
                 session_id, plan.target_brief
             )
         return completed
+
+    async def _refinement_artifacts(
+        self, session_id: SessionId, plan: RecomputePlan, prior: SavedResultBundle
+    ) -> ReusedRefinementArtifacts:
+        assert self._search_source_repository is not None
+        assert self._product_repository is not None
+        research_run_id = await RefinementRepository(
+            self._search_source_repository.session
+        ).research_run_for(plan.prior_run_id)
+        products = await self._product_repository.list_canonical_products_for_run(
+            research_run_id
+        )
+        listings = await self._product_repository.list_product_listings_for_run(
+            research_run_id
+        )
+        evidence = await self._search_source_repository.list_source_evidence(
+            research_run_id
+        )
+        snapshots = await self._search_source_repository.list_source_snapshots(
+            research_run_id
+        )
+        source_results = await self._search_source_repository.list_search_results(
+            research_run_id
+        )
+        if not products:
+            raise ApplicationError(
+                "refinement_products_changed",
+                "Saved products are unavailable. Please start a new search.",
+                status_code=409,
+            )
+        return ReusedRefinementArtifacts(
+            source_results=source_results,
+            source_snapshots=snapshots,
+            products=products,
+            listings=listings,
+            evidence=evidence,
+            trust_assessments=prior.trust_assessments,
+            category_analyses=prior.category_analyses,
+            recommendation=prior.recommendation_bundle,
+            user_added_products=await self._product_repository.list_user_added_products_for_run(
+                session_id, research_run_id
+            ),
+        )
 
     def _orchestrator(self) -> ShoppingRunOrchestrator:
         return ShoppingRunOrchestrator(
@@ -523,12 +548,6 @@ class RunService:
             or self._agent_workflow_mode != AgentWorkflowMode.LIVE
         ):
             return {}
-        snapshot_session = (
-            self._search_source_repository.session
-            if self._search_source_repository is not None
-            else None
-        )
-
         source_manager = SourceIntelligenceManagerAgent(
             settings=self._settings,
             video_provider=self._video_search_provider,
@@ -648,21 +667,6 @@ class RunService:
             ),
             "comparison_decision_agent": LiveComparisonDecisionAgent(
                 settings=self._settings
-            ),
-            "verifier_critic_agent": LiveVerifierCriticAgent(
-                settings=self._settings,
-                snapshot_tools_factory=(
-                    lambda request: SnapshotInterpretationTools(
-                        run_id=request.run_id,
-                        allowed_snapshot_ids=tuple(
-                            {item.source_id for item in request.evidence}
-                        ),
-                        shared_session=snapshot_session,
-                        agent_name="VerifierCriticAgent",
-                    )
-                )
-                if self._search_source_repository is not None
-                else None,
             ),
             "source_intelligence_manager": source_manager,
             "youtube_review_intelligence_service": YouTubeReviewIntelligenceService(

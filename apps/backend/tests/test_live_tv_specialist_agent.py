@@ -300,7 +300,9 @@ async def test_live_tv_specialist_routes_non_tv_tech_to_domain_fallback() -> Non
 
     assert runner.calls == 0
     assert result.category == "laptop"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     activity = agent.workbench_activity[0]
     assert activity["status"] == "technology_domain_fallback_non_tv"
     assert activity["input"]["declared_route"]["agent_path"] == [
@@ -318,7 +320,9 @@ async def test_live_tv_specialist_routes_non_tech_to_generic_fallback() -> None:
 
     assert runner.calls == 0
     assert result.category == "office chair"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     activity = agent.workbench_activity[0]
     assert activity["status"] == "generic_fallback_non_tv"
     assert activity["input"]["declared_route"]["agent_path"] == [
@@ -368,7 +372,9 @@ async def test_live_tv_specialist_falls_back_on_timeout() -> None:
 
     assert runner.calls == 1
     assert result.category == "tv"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     assert agent.workbench_activity[0]["status"] == (
         "timeout_technology_domain_fallback"
     )
@@ -383,7 +389,9 @@ async def test_live_tv_specialist_falls_back_on_model_error() -> None:
 
     assert runner.calls == 1
     assert result.category == "tv"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     assert agent.workbench_activity[0]["status"] == "error_technology_domain_fallback"
 
 

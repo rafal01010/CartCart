@@ -35,10 +35,6 @@
 									<span>{item.typeLabel}</span>
 									<span aria-hidden="true">·</span>
 									<span>{item.targetLabel}</span>
-									<span aria-hidden="true">·</span>
-									<span>confidence: {item.confidence}</span>
-									<span aria-hidden="true">·</span>
-									<span>source quality: {item.sourceQuality}</span>
 								</div>
 								<p class="mt-1 text-sm leading-6 text-foreground">{item.claim}</p>
 								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -48,9 +44,9 @@
 										<span>{item.timestampLabels.join(', ')}</span>
 									{/if}
 								</div>
-								{#if item.metadata.length}
+								{#if item.disclosures.length}
 									<p class="mt-1 text-xs leading-5 text-muted-foreground">
-										{item.metadata.join(' · ')}
+										{item.disclosures.join(' · ')}
 									</p>
 								{/if}
 								{#if item.sourceUrl}
@@ -80,8 +76,7 @@
 									<div>
 										<p class="text-sm font-medium text-foreground">{source.title}</p>
 										<p class="mt-1 text-xs leading-5 text-muted-foreground">
-											{source.typeLabel} · {source.extractionStatus} · quality:
-											{source.qualityLabel} · captured {source.capturedLabel}
+											{source.typeLabel}
 										</p>
 										<p class="mt-1 text-xs text-muted-foreground">{source.displayUrl}</p>
 									</div>

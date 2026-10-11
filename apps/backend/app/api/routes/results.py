@@ -18,12 +18,14 @@ from app.schemas.analysis import (
     RecommendationBundle,
     RecommendationMode,
 )
+from pydantic import Field
+
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import CandidateId, ListingId, ProductId, RunId, SessionId
 from app.schemas.runs import AgentRunRecord, RunStatus
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
-from app.schemas.search_sources import SourceEvidence, SourceSnapshot
+from app.schemas.search_sources import SearchResult, SourceEvidence, SourceSnapshot
 
 
 router = APIRouter(prefix="/api/sessions/{session_id}/results", tags=["results"])
@@ -68,6 +70,8 @@ class SessionResultsResponse(CartCartBaseModel):
     considered_products: tuple[ConsideredProductOutcomeResponse, ...]
     source_snapshots: tuple[SourceSnapshot, ...]
     source_evidence: tuple[SourceEvidence, ...]
+    source_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
+    shopping_brief: ShoppingBrief | None = None
 
 
 class DecisionHistoryEntry(CartCartBaseModel):
@@ -173,6 +177,7 @@ async def _load_response(
     source_snapshots = await source_repository.list_source_snapshots(
         artifact_run_id,
     )
+    source_results = await source_repository.list_search_results(artifact_run_id)
     source_evidence = await source_repository.list_source_evidence(
         artifact_run_id,
     )
@@ -191,6 +196,24 @@ async def _load_response(
         artifact_run_id,
     )
 
+    shopping_brief = plan.target_brief if plan else None
+    if shopping_brief is None:
+        for record in reversed(saved_result.agent_records):
+            for activity in reversed(record.tool_activity):
+                if activity.get("tool_name") in {
+                    "general_owner_draft",
+                    "general_owner_checkpoint",
+                }:
+                    saved_brief = activity.get("input", {}).get("brief")
+                    if saved_brief is not None:
+                        shopping_brief = ShoppingBrief.model_validate(saved_brief)
+                        break
+                if activity.get("status") == "model_intake_completed":
+                    shopping_brief = ShoppingBrief.model_validate(activity["output"])
+                    break
+            if shopping_brief is not None:
+                break
+
     return _to_response(
         saved_result,
         products,
@@ -199,6 +222,8 @@ async def _load_response(
         considered_products,
         source_snapshots,
         source_evidence,
+        source_results=source_results,
+        shopping_brief=shopping_brief,
         refinement_id=plan.refinement_id if plan else None,
         prior_result_version_id=plan.prior_result_version_id if plan else None,
         requested_result_mode=plan.requested_result_mode if plan else None,
@@ -214,6 +239,8 @@ def _to_response(
     source_snapshots: tuple[SourceSnapshot, ...],
     source_evidence: tuple[SourceEvidence, ...],
     *,
+    source_results: tuple[SearchResult, ...] = (),
+    shopping_brief: ShoppingBrief | None = None,
     refinement_id: CandidateId | None = None,
     prior_result_version_id: CandidateId | None = None,
     requested_result_mode: RecommendationMode | None = None,
@@ -254,6 +281,8 @@ def _to_response(
         ),
         source_snapshots=source_snapshots,
         source_evidence=source_evidence,
+        source_results=source_results,
+        shopping_brief=shopping_brief,
     )
 
 

@@ -13,7 +13,6 @@ from app.db.base import Base
 from app.db.repositories.refinements import RefinementRepository
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
-from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.session import (
     create_database_engine,
     create_session_factory,
@@ -28,7 +27,6 @@ from app.schemas.analysis import (
 )
 from app.schemas.ids import new_id
 from app.schemas.products import CanonicalProduct, UserAddedProduct
-from app.schemas.search_sources import SourceSnapshot, SourceEvidence
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -84,14 +82,12 @@ def create_run(client: TestClient, session_id: str) -> str:
 
 def make_fixture_recommendation(reason: str) -> RecommendationBundle:
     product_id = new_id()
-    evidence_id = new_id()
     comparison_matrix = ComparisonMatrix(
         criteria=(ComparisonCriterion(name="fit", weight=1.0),),
         rows=(
             ComparisonRow(
                 product_id=product_id,
                 scores={"fit": 0.3},
-                evidence_ids=(evidence_id,),
                 summary=reason,
             ),
         ),
@@ -100,7 +96,6 @@ def make_fixture_recommendation(reason: str) -> RecommendationBundle:
         no_strong_buy=True,
         no_strong_buy_reason=reason,
         comparison_matrix=comparison_matrix,
-        evidence_ids=(evidence_id,),
     )
 
 
@@ -125,39 +120,12 @@ async def save_fixture_result(
         await engine.dispose()
 
 
-async def add_product_evidence(settings: Settings, run_id: str) -> None:
+async def add_saved_candidate(settings: Settings, run_id: str) -> None:
     engine = create_database_engine(settings)
     try:
         async with create_session_factory(engine)() as session:
-            product = CanonicalProduct(name="Quiet Headphones")
             await ProductRepository(session).add_canonical_product(
-                UUID(run_id), product
-            )
-            snapshot = SourceSnapshot.model_validate(
-                {
-                    "url": "https://example.test/headphones",
-                    "source_type": "professional_review",
-                    "provider": {"provider_name": "fixture"},
-                }
-            )
-            await SearchSourceRepository(session).add_source_snapshot(
-                UUID(run_id), snapshot
-            )
-            evidence = SourceEvidence.model_validate(
-                {
-                    "source_id": snapshot.source_id,
-                    "target": {
-                        "target_type": "product",
-                        "product_id": product.product_id,
-                    },
-                    "evidence_type": "review_claim",
-                    "claim": "Noise cancellation was measured in this review.",
-                    "confidence": {"score": 0.8, "level": "high"},
-                    "source_quality": {"level": "adequate"},
-                }
-            )
-            await SearchSourceRepository(session).add_source_evidence(
-                UUID(run_id), evidence
+                UUID(run_id), CanonicalProduct(name="Quiet Headphones")
             )
             await session.commit()
     finally:
@@ -304,13 +272,24 @@ def test_create_refinement_rejects_missing_session(
     assert body["error"]["code"] == "session_not_found"
 
 
-def test_budget_and_mode_plans_reuse_saved_candidate_evidence(
+def test_budget_and_mode_plans_reuse_saved_candidates_without_evidence(
     refinement_api_client: TestClient,
 ) -> None:
     session_id = create_session(refinement_api_client)
     original_run_id = create_run(refinement_api_client, session_id)
     settings = refinement_api_client.app.state.settings
-    asyncio.run(add_product_evidence(settings, original_run_id))
+    asyncio.run(add_saved_candidate(settings, original_run_id))
+    prior_result = refinement_api_client.get(
+        f"/api/sessions/{session_id}/results"
+    ).json()
+    candidate = next(
+        item for item in prior_result["products"] if item["name"] == "Quiet Headphones"
+    )
+    assert candidate["source_ids"] == []
+    assert not any(
+        item["target"].get("product_id") == candidate["product_id"]
+        for item in prior_result["source_evidence"]
+    )
 
     budget_response = refinement_api_client.post(
         f"/api/sessions/{session_id}/refinements",
@@ -355,9 +334,13 @@ def test_budget_execution_reuses_research_and_keeps_prior_version(
     session_id = create_session(refinement_api_client)
     original_run_id = create_run(refinement_api_client, session_id)
     asyncio.run(
-        add_product_evidence(refinement_api_client.app.state.settings, original_run_id)
+        add_saved_candidate(refinement_api_client.app.state.settings, original_run_id)
     )
     original = refinement_api_client.get(f"/api/sessions/{session_id}/results").json()
+    assert any(
+        item["name"] == "Quiet Headphones" and not item["source_ids"]
+        for item in original["products"]
+    )
     response = refinement_api_client.post(
         f"/api/sessions/{session_id}/refinements",
         json={
@@ -381,7 +364,7 @@ def test_budget_execution_reuses_research_and_keeps_prior_version(
         f"/api/sessions/{session_id}/runs/{run_id}/events"
     ).text
     assert '"stage":"category_analysis"' in events
-    assert '"stage":"verification"' in events
+    assert '"stage":"verification"' not in events
     assert '"stage":"discovery"' not in events
     current = refinement_api_client.get(f"/api/sessions/{session_id}/results").json()
     assert current["result_version"]["run_id"] == run_id
@@ -522,7 +505,7 @@ def test_consecutive_refinements_follow_saved_research(
     session_id = create_session(refinement_api_client)
     original_run_id = create_run(refinement_api_client, session_id)
     asyncio.run(
-        add_product_evidence(refinement_api_client.app.state.settings, original_run_id)
+        add_saved_candidate(refinement_api_client.app.state.settings, original_run_id)
     )
     first = refinement_api_client.post(
         f"/api/sessions/{session_id}/refinements",
@@ -612,7 +595,10 @@ def test_decision_history_preserves_context_and_excludes_pending_changes(
 ) -> None:
     client = refinement_api_client
     session_id = create_session(client)
-    assert client.get(f"/api/sessions/{session_id}/results/history").json()["versions"] == []
+    assert (
+        client.get(f"/api/sessions/{session_id}/results/history").json()["versions"]
+        == []
+    )
     create_run(client, session_id)
     initial = client.get(f"/api/sessions/{session_id}").json()["current_brief"]
     planned = client.post(
@@ -655,13 +641,18 @@ def test_preference_execution_saves_history_without_changing_original_context(
         f"/api/sessions/{session_id}/refinements",
         json={
             "instruction": "Prioritize easy returns.",
-            "preferences": [{"text": "easy returns", "mode": "soft", "source": "user_provided"}],
+            "preferences": [
+                {"text": "easy returns", "mode": "soft", "source": "user_provided"}
+            ],
         },
     ).json()
     assert "search" in planned["plan"]["stages"]
-    assert client.post(
-        f"/api/sessions/{session_id}/refinements/{planned['refinement']['refinement_id']}/execute"
-    ).json()["status"] == "succeeded"
+    assert (
+        client.post(
+            f"/api/sessions/{session_id}/refinements/{planned['refinement']['refinement_id']}/execute"
+        ).json()["status"]
+        == "succeeded"
+    )
     history = client.get(f"/api/sessions/{session_id}/results/history").json()
     assert history["versions"][0] == original["versions"][0]
     assert history["versions"][1]["brief"]["preferences"][-1]["text"] == "easy returns"

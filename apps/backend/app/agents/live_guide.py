@@ -44,6 +44,7 @@ from app.schemas.guided_intake import (
     RegionSetupStatus,
     RegionSetupSubmission,
     ShoppingGuardrailDecision,
+    ShoppingGuardrailResult,
     SkippableQuestionState,
     YesNoGuidedAnswer,
 )
@@ -60,7 +61,8 @@ from app.schemas.intake import (
 )
 from app.schemas.money import Money
 from app.schemas.regions import Region
-from app.services.shopping_guardrails import evaluate_shopping_guardrail
+from app.agents.live_guardrails import LiveShoppingScopeGuardrail
+from app.agents.contracts import ShoppingScopeGuardrailInput
 
 
 FIRST_QUESTION_ID = "first-question"
@@ -91,26 +93,6 @@ _KNOWN_QUESTION_IDS = frozenset(
         CATEGORY_CLARIFICATION_QUESTION_ID,
         COMBINED_OPTIONAL_QUESTION_ID,
     }
-)
-_PRODUCT_LINK_TERMS = (
-    "product url",
-    "product link",
-    "paste a url",
-    "paste the url",
-    "paste a link",
-    "paste the link",
-    "web address",
-    "listing url",
-    "listing link",
-)
-_RECOMMENDATION_TERMS = (
-    "i recommend",
-    "my recommendation",
-    "best pick",
-    "top pick",
-    "you should buy",
-    "buy the ",
-    "choose the ",
 )
 
 
@@ -180,13 +162,15 @@ class LiveShoppingGuideAgent:
     )
 
     async def run(self, input_data: ShoppingGuideAgentInput) -> GuidedIntakeState:
-        deterministic_guardrail = evaluate_shopping_guardrail(
-            input_data.user_input,
-            prior_answers=input_data.prior_answers,
+        guardrail = await LiveShoppingScopeGuardrail(settings=self.settings).run(
+            ShoppingScopeGuardrailInput(
+                user_input=input_data.user_input,
+                prior_answers=input_data.prior_answers,
+            )
         )
-        if deterministic_guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
-            state = _blocked_guided_state(input_data)
-            self._set_activity("not_started_deterministic_block", input_data, state)
+        if guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
+            state = _blocked_guided_state(input_data, guardrail)
+            self._set_activity("input_guardrail_blocked", input_data, state)
             return state
 
         configuration = build_openai_agent_run_configuration(
@@ -359,16 +343,12 @@ def _validate_guide_policy(
     state: GuidedIntakeState,
     input_data: ShoppingGuideAgentInput,
 ) -> GuidedIntakeState:
-    _reject_policy_text(state)
     if state.current_question is not None:
         question_id = state.current_question.question_id
         if question_id not in _KNOWN_QUESTION_IDS:
             raise ValueError("guide returned an unknown question id.")
 
-    if (
-        state.status == GuidedIntakeStatus.COLLECTING
-        and state.ready_brief is not None
-    ):
+    if state.status == GuidedIntakeStatus.COLLECTING and state.ready_brief is not None:
         raise ValueError("collecting guide state cannot include a ready brief.")
 
     if state.status == GuidedIntakeStatus.READY_FOR_ANALYSIS:
@@ -382,53 +362,12 @@ def _validate_guide_policy(
     return state
 
 
-def _reject_policy_text(state: GuidedIntakeState) -> None:
-    for text in _user_facing_texts(state):
-        normalized = text.casefold()
-        for term in (*_PRODUCT_LINK_TERMS, *_RECOMMENDATION_TERMS):
-            if term in normalized:
-                raise ValueError(f"guide output included disallowed text: {term}")
-
-
-def _user_facing_texts(state: GuidedIntakeState) -> tuple[str, ...]:
-    texts: list[str] = []
-    if state.current_question is not None:
-        question = state.current_question
-        texts.append(question.text)
-        if question.combined_optional_prompt is not None:
-            texts.append(question.combined_optional_prompt.text)
-        if question.inline_choice is not None:
-            control = question.inline_choice
-            if control.custom_answer_label:
-                texts.append(control.custom_answer_label)
-            for option in control.options:
-                texts.append(option.label)
-                if option.description:
-                    texts.append(option.description)
-    if state.analysis_start.message:
-        texts.append(state.analysis_start.message)
-    if state.region_setup.prompt_text:
-        texts.append(state.region_setup.prompt_text)
-    if state.progress is not None:
-        texts.append(state.progress.message)
-    if state.guardrail is not None and state.guardrail.message:
-        texts.append(state.guardrail.message)
-    return tuple(texts)
-
-
 def _mock_guide_from_model_input(model_input: str) -> GuidedIntakeState:
     input_data = ShoppingGuideAgentInput.model_validate(json.loads(model_input))
     return _fallback_guided_state(input_data)
 
 
 def _fallback_guided_state(input_data: ShoppingGuideAgentInput) -> GuidedIntakeState:
-    guardrail = evaluate_shopping_guardrail(
-        input_data.user_input,
-        prior_answers=input_data.prior_answers,
-    )
-    if guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
-        return _blocked_guided_state(input_data)
-
     answer_map = _answer_map(input_data)
     if input_data.reanswer_question_id is not None:
         question = _guided_question_by_id(
@@ -451,11 +390,10 @@ def _fallback_guided_state(input_data: ShoppingGuideAgentInput) -> GuidedIntakeS
     return _collecting_state(input_data, answer_map, question)
 
 
-def _blocked_guided_state(input_data: ShoppingGuideAgentInput) -> GuidedIntakeState:
-    guardrail = evaluate_shopping_guardrail(
-        input_data.user_input,
-        prior_answers=input_data.prior_answers,
-    )
+def _blocked_guided_state(
+    input_data: ShoppingGuideAgentInput,
+    guardrail: ShoppingGuardrailResult,
+) -> GuidedIntakeState:
     return GuidedIntakeState(
         status=GuidedIntakeStatus.BLOCKED,
         guardrail=guardrail,
@@ -737,8 +675,7 @@ def _region_setup_state(
         return LocalRegionSetupState(
             status=RegionSetupStatus.NEEDS_ANSWER,
             prompt_text=(
-                "Where are you buying from? "
-                "It helps show options you can actually buy."
+                "Where are you buying from? It helps show options you can actually buy."
             ),
             resumes_pending_question=True,
         )
@@ -785,14 +722,16 @@ def _intake_request(input_data: ShoppingGuideAgentInput) -> CreateSessionRequest
 
 def _fallback_brief(input_data: ShoppingGuideAgentInput) -> ShoppingBrief:
     request = _intake_request(input_data)
-    return ShoppingBrief.model_validate({
-        "original_query": request.query,
-        "region": request.region,
-        "budget": request.budget,
-        "constraints": request.constraints,
-        "preferences": request.preferences,
-        **_category_fields(input_data.user_input),
-    })
+    return ShoppingBrief.model_validate(
+        {
+            "original_query": request.query,
+            "region": request.region,
+            "budget": request.budget,
+            "constraints": request.constraints,
+            "preferences": request.preferences,
+            **_category_fields(input_data.user_input),
+        }
+    )
 
 
 def _answer_map(input_data: ShoppingGuideAgentInput) -> dict[str, GuidedAnswer]:

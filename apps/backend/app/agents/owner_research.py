@@ -19,7 +19,7 @@ from app.agents.research_history import (
     tracked_tools,
 )
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
-from app.schemas.analysis import ListingTrustAssessment, ListingTrustLevel
+from app.schemas.analysis import ListingTrustAssessment
 from app.agents.live_source_intelligence_manager import (
     SourceIntelligenceManagerAgent,
     SourceManagerInput,
@@ -33,12 +33,22 @@ from app.agents.research_tools import (
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
 from app.db.repositories.search_sources import SearchSourceRepository
+from app.db.repositories.video_sources import VideoReviewRepository
 from app.db.session import shared_tool_session
 from app.schemas.ids import ListingId, RunId, SourceId, new_id
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing
 from app.schemas.regions import RegionCode
-from app.schemas.search_sources import ExtractionStatus, SourceIntelligenceCapability
+from app.schemas.search_sources import (
+    EvidenceType,
+    ExtractionStatus,
+    ProviderMetadata,
+    SourceEvidence,
+    SourceIntelligenceCapability,
+    SourceSnapshot,
+    SourceType,
+    VideoReviewEvidenceBundle,
+)
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.services.listing_trust import assess_listing_trust, price_plausibility_contexts
 
@@ -59,23 +69,8 @@ def assess_run_listings(
         )
         for listing in listings
     }
-    blocked_ids = {
-        item.listing_id
-        for item in persisted
-        if item.level == ListingTrustLevel.SUSPICIOUS
-    }
     for assessment in persisted:
-        if (
-            assessment.listing_id in results
-            and assessment.listing_id not in blocked_ids
-            and results[assessment.listing_id].level != ListingTrustLevel.SUSPICIOUS
-        ):
-            results[assessment.listing_id] = assessment
-    for assessment in persisted:
-        if (
-            assessment.listing_id in results
-            and assessment.level == ListingTrustLevel.SUSPICIOUS
-        ):
+        if assessment.listing_id in results:
             results[assessment.listing_id] = assessment
     return results
 
@@ -184,7 +179,7 @@ class OwnerResearchContext:
 
         @function_tool
         async def compare_candidates(product_ids: list[str]) -> str:
-            """Compare up to three persisted run products and checked listing risk.
+            """Compare up to three persisted run products and known value context.
 
             Args:
                 product_ids: Persisted product IDs from this shopping run.
@@ -195,7 +190,10 @@ class OwnerResearchContext:
 
         @function_tool
         async def check_listing_trust(listing_id: str) -> str:
-            """Check deterministic seller/listing risk for a persisted run listing.
+            """Inspect a concrete adverse concern about a persisted run listing.
+
+            Use only when an encountered concern could change the advice, never as
+            a routine seller, checkout or buying checklist.
 
             Args:
                 listing_id: Persisted listing ID from this shopping run.
@@ -214,8 +212,8 @@ class OwnerResearchContext:
             Args:
                 capability: One of video_review, community_discussion, amazon_product_listing_review, ikea_regional_official_store.
                 product_id: Persisted product ID from this shopping run, if available.
-                product_name: Candidate name appearing in an exact recorded page quote.
-                evidence_id: Evidence ID returned by record_source_quote for that candidate.
+                product_name: Candidate name to use with the optional saved source note.
+                evidence_id: Optional saved source-note ID for the candidate.
             """
             return json.dumps(
                 await self.consult_source(
@@ -332,22 +330,15 @@ class OwnerResearchContext:
             if snapshot and snapshot.extracted_content
             else ""
         )
-        if (
-            snapshot is None
-            or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
-            or not text
-        ):
-            self._record("read_run_evidence", "gap", source_ids=[source_id])
+        page_available = bool(text)
+        if not text:
+            text = source.snippet or ""
+        if not text:
             return {
                 "status": "gap",
                 "source_id": str(parsed),
                 "title": source.title,
                 "url": _neutral_url(str(source.url)),
-                "snapshot_id": str(snapshot.source_id) if snapshot else None,
-                "extraction_status": snapshot.extraction_status.value
-                if snapshot
-                else None,
-                "unreviewed_content": True,
                 "gap": _unusable_page_gap(snapshot),
             }
         try:
@@ -369,6 +360,7 @@ class OwnerResearchContext:
             "snapshot_id": str(snapshot.source_id) if snapshot else None,
             "extraction_status": snapshot.extraction_status.value if snapshot else None,
             "text": span.text or None,
+            "content_kind": "page_text" if page_available else "search_snippet",
             "start_char": span.start,
             "total_characters": span.total_characters,
             "content_sha256": span.content_sha256,
@@ -381,7 +373,7 @@ class OwnerResearchContext:
             "evidence": [
                 {
                     "evidence_id": str(item.evidence_id),
-                    "quote": item.claim,
+                    "source_note": item.claim,
                     "source_id": str(item.source_id),
                 }
                 for item in source_evidence[evidence_offset : evidence_offset + 4]
@@ -533,8 +525,17 @@ class OwnerResearchContext:
                         "price": listing.price.model_dump(mode="json")
                         if listing.price
                         else None,
+                        "over_budget_amount": (
+                            str(listing.price.amount - self.brief.budget.amount.amount)
+                            if listing.price
+                            and self.brief.budget
+                            and listing.price.currency
+                            == self.brief.budget.amount.currency
+                            and listing.price.amount > self.brief.budget.amount.amount
+                            else None
+                        ),
                         "trust_level": trust.level.value,
-                        "blocked": trust.level == ListingTrustLevel.SUSPICIOUS,
+                        "trust_is_advisory": True,
                         "source_ids": [str(item) for item in listing.source_ids[:4]],
                     }
                 )
@@ -590,11 +591,15 @@ class OwnerResearchContext:
                 "status": "invalid_request",
                 "gap": "Invalid product or capability.",
             }
-        if (parsed is None) == (parsed_evidence is None):
+        if (
+            parsed is not None
+            and parsed_evidence is not None
+            or not (parsed or parsed_evidence or (product_name or "").strip())
+        ):
             self._record("consult_source_intelligence", "invalid_request")
             return {
                 "status": "invalid_request",
-                "gap": "Supply one persisted product ID or one recorded candidate quote.",
+                "gap": "Supply one product ID, optional source-note ID, or a candidate name.",
             }
         async with self._lock:
             if self.source_manager is None or self.region_code is None:
@@ -638,12 +643,11 @@ class OwnerResearchContext:
                     or self.allowed_quote_ids is None
                     or parsed_evidence not in self.allowed_quote_ids()
                     or not 2 <= len(candidate_name) <= 200
-                    or candidate_name.casefold() not in quote.claim.casefold()
                 ):
                     self._record("consult_source_intelligence", "unverified_candidate")
                     return {
                         "status": "gap",
-                        "gap": "Candidate must match a page quote recorded in this owner run.",
+                        "gap": "Candidate source association must belong to this owner run.",
                     }
                 snapshot = next(
                     (
@@ -671,7 +675,11 @@ class OwnerResearchContext:
                     category=self.brief.category,
                     source_ids=(snapshot.source_id,),
                 )
-            assert product is not None
+            if product is None:
+                product = CanonicalProduct(
+                    name=(product_name or "").strip()[:200],
+                    category=self.brief.category,
+                )
             snapshots = tuple(
                 item
                 for item in all_snapshots
@@ -756,6 +764,8 @@ class OwnerResearchContext:
             SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: result.amazon_bundles,
             SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: result.ikea_bundles,
         }[capability]
+        if capability == SourceIntelligenceCapability.VIDEO_REVIEW:
+            await self._persist_video_bundles(result.video_bundles)
         self.activity.extend(result.activity)
         self._record(
             "consult_source_intelligence",
@@ -834,7 +844,7 @@ class OwnerResearchContext:
             "deferred_bundle_count": len(deferred_bundle_ids),
             "unreviewed_content": bool(deferred_bundle_ids)
             or any(item.get("unreviewed_content") for item in payload),
-            "gap": "Source bundles are context; candidate claims still need recorded page quotes. Consultation notes and every bundle/version remain retrievable by consultation_id.",
+            "gap": "Source bundles and consultation notes are available context. Sources and quotes are optional. Every bundle/version remains retrievable by consultation_id.",
         }
         response.update(
             _original_cautions(
@@ -848,6 +858,71 @@ class OwnerResearchContext:
         if bundles:
             self.research_state.completed_consultations[cache_key] = response
         return response
+
+    async def _persist_video_bundles(
+        self, bundles: tuple[VideoReviewEvidenceBundle, ...]
+    ) -> None:
+        async with self._session() as session:
+            async with session.begin_nested():
+                sources = SearchSourceRepository(session)
+                videos = VideoReviewRepository(session)
+                for bundle in bundles:
+                    if await videos.get_video_review_bundle(bundle.bundle_id) is not None:
+                        if await videos.get_video_review_bundle_for_run(
+                            self.run_id, bundle.bundle_id
+                        ) is None:
+                            raise ValueError("Video bundle belongs to another run.")
+                        continue
+                    video_by_url = {str(video.url): video for video in bundle.videos}
+                    for reference in bundle.source_references:
+                        existing = await sources.get_source_snapshot(reference.source_id)
+                        if existing is not None:
+                            if await sources.get_source_snapshot_for_run(
+                                self.run_id, reference.source_id
+                            ) is None:
+                                raise ValueError("Video source belongs to another run.")
+                            continue
+                        video = video_by_url.get(str(reference.url))
+                        await sources.add_source_snapshot(
+                            self.run_id,
+                            SourceSnapshot(
+                                source_id=reference.source_id,
+                                url=reference.url,
+                                source_type=SourceType.VIDEO if video else SourceType.SEARCH_RESULT,
+                                title=reference.title,
+                                extraction_status=ExtractionStatus.NOT_ATTEMPTED,
+                                provider=ProviderMetadata(
+                                    provider_name="youtube-review-intelligence",
+                                    raw={"bundle_id": str(bundle.bundle_id)},
+                                ),
+                                video=video,
+                            ),
+                        )
+                    await videos.add_video_review_bundle(self.run_id, bundle)
+                    video_by_id = {video.video_id: video for video in bundle.videos}
+                    for evidence in bundle.evidence:
+                        await sources.save_source_evidence(
+                            self.run_id,
+                            SourceEvidence(
+                                evidence_id=evidence.evidence_id,
+                                source_id=evidence.source_id,
+                                target=evidence.target,
+                                evidence_type=(
+                                    EvidenceType.OTHER
+                                    if evidence.metadata_only
+                                    else EvidenceType.VIDEO_CLAIM
+                                ),
+                                claim=evidence.claim,
+                                confidence=evidence.confidence,
+                                source_quality=evidence.source_quality,
+                                timestamp_references=evidence.timestamp_references,
+                                video=video_by_id[evidence.video_id],
+                            ),
+                        )
+            if self.shared_session is None:
+                await session.commit()
+            else:
+                await session.flush()
 
     def read_bundle(
         self,
@@ -864,7 +939,7 @@ class OwnerResearchContext:
         original = self.research_state.bundles.get(parsed)
         if content_sha256 is not None:
             version = self.research_state.bundle_versions.get((parsed, content_sha256))
-            original = (version[0], content_sha256, version[1]) if version else None
+            original = (version[0], content_sha256, version[1]) if version else original
         if original is None or original[0] != self.run_id:
             return {
                 "status": "unknown_source",

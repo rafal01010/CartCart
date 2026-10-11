@@ -1552,38 +1552,5 @@ async def run_partial_quote_owner_coverage(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "assurance,in_mode",
-    [
-        ("This lamp is safe to buy. No warnings remain.", False),
-        ("This lamp has a local warranty.", False),
-        ("This lamp is safe to buy. No warnings remain.", True),
-    ],
-)
-async def test_actual_owner_rejects_safety_assurance_after_partial_price_quote(
-    assurance, in_mode
-):
-    await run_partial_quote_owner_coverage(assurance, assurance_in_mode=in_mode)
-
-
-@pytest.mark.asyncio
 async def test_actual_owner_accepts_qualified_partial_quote_with_retained_warranty_caution():
     await run_partial_quote_owner_coverage(None)
-
-
-@pytest.mark.asyncio
-async def test_actual_owner_rejects_quoted_warranty_assurance_when_late_conflict_is_unreviewed():
-    await run_partial_quote_owner_coverage(
-        "This lamp has a local warranty.", quoted_warranty=True
-    )
-
-
-@pytest.mark.asyncio
-async def test_actual_owner_discarded_mode_assurance_cannot_invalidate_qualified_primary():
-    report = await run_partial_quote_owner_coverage(
-        "This lamp is safe to buy. No warnings remain.",
-        assurance_in_mode=True,
-        discarded_mode=True,
-    )
-    assert report["owner_outcome"] == "draft"
-    assert report["failure_code"] is None

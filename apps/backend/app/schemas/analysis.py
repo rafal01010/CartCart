@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, model_validator
 
@@ -6,6 +7,9 @@ from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence, ConfidenceScore
 from app.schemas.ids import CandidateId, ListingId, ProductId, SourceId, new_id
 from app.schemas.timestamps import Timestamp, utc_now
+
+
+RecommendationChoiceGroup = Literal["primary", "runner_up"]
 
 
 class DeduplicationOutcome(StrEnum):
@@ -100,7 +104,7 @@ class ListingTrustAssessment(VersionedSchema):
     trust_signals: tuple[ListingTrustSignal, ...] = Field(default_factory=tuple)
     red_flags: tuple[str, ...] = Field(default_factory=tuple)
     positive_signals: tuple[str, ...] = Field(default_factory=tuple)
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     assessed_at: Timestamp = Field(default_factory=utc_now)
 
@@ -114,7 +118,7 @@ class CategoryAnalysis(VersionedSchema):
     weaknesses: tuple[str, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
     confidence: Confidence
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
 
@@ -150,12 +154,14 @@ class ComparisonMatrix(VersionedSchema):
 
 class RecommendationModeResult(CartCartBaseModel):
     mode: RecommendationMode
+    tradeoffs: tuple[str, ...] = Field(default_factory=tuple)
+    unknowns: tuple[str, ...] = Field(default_factory=tuple)
     product_id: ProductId
     listing_id: ListingId | None = None
     title: str = Field(min_length=1, max_length=200)
     rationale: str = Field(min_length=1, max_length=1500)
     confidence: Confidence
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
 
@@ -165,7 +171,7 @@ class RejectedItem(CartCartBaseModel):
     reason_code: RejectionReason
     reason: str = Field(min_length=1, max_length=1000)
     severity: RejectionSeverity = RejectionSeverity.MEDIUM
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="before")
@@ -201,9 +207,10 @@ class RecommendationBundle(VersionedSchema):
         default=None, min_length=1, max_length=1500
     )
     final_rationale: str | None = Field(default=None, min_length=1, max_length=1500)
+    primary_product_ids: tuple[ProductId, ...] | None = Field(default=None, max_length=3)
     runner_up_product_ids: tuple[ProductId, ...] = Field(default_factory=tuple)
     mode_results: tuple[RecommendationModeResult, ...] = Field(default_factory=tuple)
-    comparison_matrix: ComparisonMatrix
+    comparison_matrix: ComparisonMatrix = Field(default_factory=ComparisonMatrix)
     rejected_items: tuple[RejectedItem, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
     evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
@@ -211,6 +218,22 @@ class RecommendationBundle(VersionedSchema):
 
     @model_validator(mode="after")
     def _requires_best_pick_or_no_strong_buy(self) -> "RecommendationBundle":
+        if self.primary_product_ids is not None:
+            primary = self.primary_product_ids
+            runners = self.runner_up_product_ids
+            if len(primary) > 3 or len(runners) > 2:
+                raise ValueError("recommendations allow at most three primary choices and two runners-up.")
+            if len(set(primary)) != len(primary) or len(set(runners)) != len(runners):
+                raise ValueError("recommendation choice IDs must be unique.")
+            if set(primary).intersection(runners):
+                raise ValueError("primary choices and runners-up must be disjoint.")
+            if self.no_strong_buy:
+                if primary or runners:
+                    raise ValueError("no_strong_buy bundles cannot include choice groups.")
+            elif not primary:
+                raise ValueError("recommendations require at least one primary choice.")
+            if self.final_product_id is not None and self.final_product_id not in primary:
+                raise ValueError("the final pick must belong to the primary choices.")
         has_best_pick = self.final_product_id is not None
         if self.no_strong_buy and has_best_pick:
             raise ValueError(
@@ -224,13 +247,9 @@ class RecommendationBundle(VersionedSchema):
             if self.no_strong_buy_reason is None:
                 raise ValueError("no_strong_buy bundles require a reason.")
             return self
-        if not self.comparison_matrix.rows or not self.comparison_matrix.criteria:
-            raise ValueError("a best pick requires compared candidates.")
-        if not self.evidence_ids:
-            raise ValueError("a best pick requires cited evidence.")
-        if not has_best_pick:
+        if not (has_best_pick or self.primary_product_ids or self.mode_results or self.runner_up_product_ids):
             raise ValueError(
-                "recommendation bundles require one final best pick or no_strong_buy=true."
+                "recommendation bundles require an option or no_strong_buy=true."
             )
         if self.no_strong_buy_reason is not None:
             raise ValueError(

@@ -1,10 +1,8 @@
 <script lang="ts">
-	import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
-	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import EvidenceDetails from './EvidenceDetails.svelte';
 	import ConsideredComparison from './ConsideredComparison.svelte';
@@ -48,8 +46,8 @@
 	let showSourceDetails = $state(false);
 
 	const decisionCopy = $derived(
-		result.noStrongBuyReason ?? (result.recommendedOptions.length > 1
-			? 'These options fit what you asked for. Compare the reasons and tradeoffs below.'
+		result.noStrongBuyReason ?? result.whyItWins ?? (result.recommendedOptions.length > 1
+			? 'Compare these options and their tradeoffs.'
 			: result.whyItWins ?? selectedMode?.rationale ?? ''),
 	);
 </script>
@@ -60,7 +58,7 @@
 			{result.noStrongBuyReason ? 'Buying decision' : 'CartCart recommendation'}
 		</p>
 		<h1 class="mt-4 text-balance text-[clamp(2.8rem,6vw,5.6rem)] leading-[0.98] font-light tracking-[-0.045em] text-foreground">
-			{result.noStrongBuyReason ? 'No suitable option is confirmed yet.' : result.recommendedOptions.length > 1 ? 'Good options to consider.' : result.recommendedOptions.length ? 'An option worth considering.' : 'The saved pick is unavailable.'}
+			{result.recommendedOptions.length > 1 ? 'Good options to consider.' : result.recommendedOptions.length ? 'An option worth considering.' : 'No suitable option to suggest yet.'}
 		</h1>
 		<p class="mt-6 max-w-[760px] text-pretty text-base leading-7 text-muted-foreground sm:text-[17px]">
 			{decisionCopy}
@@ -68,82 +66,67 @@
 	</div>
 
 	<section class="mt-8" aria-label="Recommended options">
-		{#if result.recommendedOptions.length && !result.noStrongBuyReason}
-			<div class={`grid gap-5 ${result.recommendedOptions.length > 1 ? 'md:grid-cols-2' : ''} ${result.recommendedOptions.length === 3 ? 'xl:grid-cols-3' : ''}`}>
+		{#if result.recommendedOptions.length}
+			<div class={`grid gap-5 ${result.recommendedOptions.length > 1 ? 'md:grid-cols-2' : ''} ${result.recommendedOptions.length === 3 ? 'lg:grid-cols-3' : ''}`}>
 				{#each result.recommendedOptions as option, index (option.productId)}
 					<article class="flex flex-col border border-border bg-card/45 p-5 sm:p-7">
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<p class="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Option {index + 1}</p>
-							<p class="text-xs text-muted-foreground">{option.confidence} confidence</p>
 						</div>
 						<h2 class="mt-4 text-balance text-2xl leading-tight font-[510] tracking-[-0.03em] text-foreground sm:text-3xl">{option.productName}</h2>
 						<p class="mt-4 text-sm leading-7 text-muted-foreground">{option.rationale}</p>
+						{#if option.tradeoffs.length}
+							<div class="mt-4 text-sm leading-6 text-muted-foreground">
+								<h3 class="font-[510] text-foreground">Tradeoffs</h3>
+								{#each option.tradeoffs as tradeoff}<p class="mt-1">{tradeoff}</p>{/each}
+							</div>
+						{/if}
+						{#if option.budgetNote}<p class="mt-4 text-sm leading-6 text-muted-foreground">{option.budgetNote}</p>{/if}
 						<div class="mt-6 flex flex-wrap items-center gap-3">
-							{#if option.purchaseUrl && !option.listingTrust?.isBlocking}
+							{#if option.purchaseUrl}
 								<Button href={option.purchaseUrl} target="_blank" rel="noreferrer noopener" variant="outline">View listing <ExternalLink /></Button>
 							{:else if option.productUrl}
-								<Button href={option.productUrl} target="_blank" rel="noreferrer noopener" variant="outline">View product <ExternalLink /></Button>
+								<Button href={option.productUrl} target="_blank" rel="noreferrer noopener" variant="outline">Learn more <ExternalLink /></Button>
 							{/if}
-							<EvidenceDetails evidence={option.evidence} sources={option.sources} label="Why this fits" />
 						</div>
-						<div class="mt-6 border-t border-border pt-5">
-							{#if option.listingId}
+						{#if option.listingId}
+							<div class="mt-6 border-t border-border pt-5">
 								<p class="text-sm text-foreground">{option.priceLabel ?? 'Price unavailable'}{option.sellerName ? ` · ${option.sellerName}` : ''}</p>
-								<div class="mt-3 flex items-center gap-2">
-									{#if option.listingTrust?.isRisky}<AlertTriangle class="size-4 text-destructive" />{:else}<ShieldCheck class="size-4 text-muted-foreground" />{/if}
-									<p class="text-sm font-[510] text-foreground">{option.listingTrust?.levelLabel ?? 'Listing not fully checked'}</p>
-								</div>
-								<p class="mt-2 text-sm leading-6 text-muted-foreground">{option.listingTrust?.summary ?? 'Check the seller, warranty and current availability before buying.'}</p>
-								{#if option.listingTrust}<div class="mt-3"><EvidenceDetails evidence={option.listingTrust.evidence} sources={option.listingTrust.sources} label="Listing check" /></div>{/if}
-							{:else}
-								<p class="text-sm leading-6 text-muted-foreground">Seller, price and availability still need checking before you buy.</p>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					</article>
 				{/each}
 			</div>
 		{:else}
 			<div class="border-y border-border bg-card/45 p-5 sm:p-8 lg:p-10">
-				{#if !result.noStrongBuyReason}<p class="text-sm leading-6 text-muted-foreground">The saved final pick is unavailable.</p>{/if}
-				<div class="mt-5 max-w-[680px]"><EvidenceDetails evidence={result.resultEvidence} sources={result.resultSources} label={result.noStrongBuyReason ? 'What blocked a recommendation' : 'Saved decision evidence'} /></div>
+				{#if !result.noStrongBuyReason}<p class="text-sm leading-6 text-muted-foreground">This saved decision has no suggested options.</p>{/if}
 			</div>
 		{/if}
 	</section>
 
-	{#if result.warnings.length || result.hasWeakEvidence || result.hasConflictingEvidence || result.hasPartialSources}
-		<section class="mt-6 border border-destructive/30 bg-destructive/[0.045] p-5 sm:p-6" aria-labelledby="watch-outs-title">
-			<div class="flex items-start gap-3">
-				<AlertTriangle class="mt-0.5 size-4 shrink-0 text-destructive" />
-				<div class="min-w-0">
-					<h2 id="watch-outs-title" class="text-sm font-[510] text-foreground">What to watch</h2>
-					<div class="mt-2 grid gap-3 text-sm leading-6 text-muted-foreground">
-						{#if result.hasConflictingEvidence}<p>Some sources disagree on details that may affect this decision.</p>{/if}
-						{#if result.hasWeakEvidence}<p>Some supporting claims have limited evidence. Treat them as less certain.</p>{/if}
-						{#if result.hasPartialSources}<p>Some sources could not be fully checked, so the comparison is based on the usable evidence.</p>{/if}
-						{#each result.warnings.slice(0, 3) as warning}
-							<div>
-								<p>{warning.text}</p>
-								<div class="mt-2 max-w-[680px]"><EvidenceDetails evidence={warning.evidence} sources={warning.sources} label="Supporting evidence" /></div>
+	{#if result.runnerUps.length}
+		<section class="mt-8 border-t border-border pt-6" aria-labelledby="runners-up-title">
+			<h2 id="runners-up-title" class="text-lg font-[510] text-foreground">Runners-up</h2>
+			<div class="mt-4 grid gap-5 md:grid-cols-2">
+				{#each result.runnerUps as option (option.productId)}
+					<article class="rounded-md border border-border/60 p-5">
+						<h3 class="text-lg font-[510] text-foreground">{option.productName}</h3>
+						{#if option.rationale}<p class="mt-3 text-sm leading-6 text-muted-foreground">{option.rationale}</p>{/if}
+						{#if option.tradeoffs.length}
+							<div class="mt-3 text-sm leading-6 text-muted-foreground">
+								<h4 class="font-[510] text-foreground">Tradeoffs</h4>
+								{#each option.tradeoffs as tradeoff}<p class="mt-1">{tradeoff}</p>{/each}
 							</div>
-						{/each}
-						{#if result.warnings.length > 3}
-							<details class="group/warnings border-t border-destructive/20 pt-3">
-								<summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-[510] text-foreground marker:hidden focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
-									<span>More warnings ({result.warnings.length - 3})</span>
-									<ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-open/warnings:rotate-90" />
-								</summary>
-								<div class="mt-3 grid gap-3">
-									{#each result.warnings.slice(3) as warning}
-										<div>
-											<p>{warning.text}</p>
-											<div class="mt-2 max-w-[680px]"><EvidenceDetails evidence={warning.evidence} sources={warning.sources} label="Supporting evidence" /></div>
-										</div>
-									{/each}
-								</div>
-							</details>
 						{/if}
-					</div>
-				</div>
+						{#if option.budgetNote}<p class="mt-3 text-sm leading-6 text-muted-foreground">{option.budgetNote}</p>{/if}
+						{#if option.priceLabel}<p class="mt-3 text-sm text-foreground">{option.priceLabel}</p>{/if}
+						{#if option.purchaseUrl}
+							<a class="mt-4 inline-flex items-center gap-2 rounded-sm text-sm text-foreground underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none" href={option.purchaseUrl} target="_blank" rel="noreferrer noopener">View listing <ExternalLink class="size-3.5" /></a>
+						{:else if option.productUrl}
+							<a class="mt-4 inline-flex items-center gap-2 rounded-sm text-sm text-foreground underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none" href={option.productUrl} target="_blank" rel="noreferrer noopener">Learn more <ExternalLink class="size-3.5" /></a>
+						{/if}
+					</article>
+				{/each}
 			</div>
 		</section>
 	{/if}
@@ -166,7 +149,7 @@
 			onclick={() => (showSourceDetails = !showSourceDetails)}
 			aria-expanded={showSourceDetails}
 		>
-			<span>Source details</span>
+			<span>Available sources</span>
 			{#if showSourceDetails}<ChevronDown />{:else}<ChevronRight />{/if}
 		</button>
 	</div>
@@ -213,7 +196,7 @@
 	{#if showSourceDetails}
 		<section class="mt-10" aria-labelledby="sources-title">
 			<div class="flex items-end justify-between gap-4">
-				<div><h2 id="sources-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Sources checked</h2><p class="mt-1 text-sm text-muted-foreground">Open the evidence behind the recommendation.</p></div>
+				<div><h2 id="sources-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Available sources</h2><p class="mt-1 text-sm text-muted-foreground">Read the pages and search snippets gathered for this decision.</p></div>
 				<p class="font-mono text-xs text-muted-foreground">{result.sourceViews.length} total</p>
 			</div>
 			{#if result.sourceViews.length}
@@ -222,7 +205,8 @@
 						<article class="grid gap-4 py-5 sm:grid-cols-[1fr_auto] sm:items-start">
 							<div class="min-w-0">
 								<p class="break-words text-sm font-[510] text-foreground">{source.title}</p>
-								<p class="mt-1 break-all text-xs leading-5 text-muted-foreground">{source.typeLabel} · {source.qualityLabel} · {source.displayUrl}</p>
+								<p class="mt-1 break-all text-xs leading-5 text-muted-foreground">{source.typeLabel} · {source.displayUrl}</p>
+								{#if source.snippet}<p class="mt-3 text-sm leading-6 text-muted-foreground">Search snippet: {source.snippet}</p>{/if}
 								<div class="mt-3 max-w-[760px]"><EvidenceDetails evidence={source.evidence} sources={[]} label="Evidence from this source" /></div>
 							</div>
 							{#if source.url}<Button href={source.url} target="_blank" rel="noreferrer noopener" variant="outline" size="sm">Open source <ExternalLink /></Button>{/if}
@@ -244,6 +228,6 @@
 
 	<div class="mt-10 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
 		<Button type="button" variant="outline" onclick={onStartOver}><ArrowLeft /> Ask another question</Button>
-		<p class="max-w-[560px] text-xs leading-5 text-muted-foreground sm:text-right">Decision based on the evidence available for “{question}”. Prices and availability can change.</p>
+		<p class="max-w-[560px] text-xs leading-5 text-muted-foreground sm:text-right">Advice for “{question}”. Prices and availability can change.</p>
 	</div>
 </div>

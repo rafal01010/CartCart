@@ -234,12 +234,8 @@ def _support_state(payload: Any) -> dict[str, Any]:
         ),
         **({"gaps": list(dict.fromkeys(gaps))} if gaps else {}),
         "references": references,
-        "coverage": "Other original or omitted passages remain unreviewed. Reread before safety claims.",
+        "coverage": "Original and omitted passages remain available. Cautions are advisory context for model judgment.",
     }
-
-
-class ResearchCoverageError(RuntimeError):
-    pass
 
 
 @dataclass
@@ -319,12 +315,50 @@ class ResearchHistory:
             "original_characters": len(view.original),
             "omitted_material_unreviewed": True,
             "unreviewed_cautions": True,
-            "coverage": "Exact originals remain available through read_research_result. Reread omitted support before claims. SQLite source evidence remains canonical.",
+            "coverage": "Saved originals remain available through read_research_result. Retained notes and cautions inform the owner model.",
         }
         quotes: list[dict[str, Any]] = []
+        source_notes: list[dict[str, Any]] = []
+        excerpt_limit = max(120, min(700, characters // 6))
 
         def collect(value: Any) -> None:
             if isinstance(value, dict):
+                for field, kind in (
+                    ("source_excerpt", value.get("kind", "source_note")),
+                    ("text", "page_excerpt"),
+                    ("snippet", "search_snippet"),
+                ):
+                    text = value.get(field)
+                    if not isinstance(text, str) or not text.strip():
+                        continue
+                    if not any(
+                        value.get(key) for key in ("source_id", "snapshot_id", "url")
+                    ):
+                        continue
+                    text = " ".join(text.split())
+                    note = {
+                        **{
+                            key: value[key]
+                            for key in (
+                                "source_id",
+                                "snapshot_id",
+                                "url",
+                                "title",
+                                "published_date",
+                            )
+                            if value.get(key) is not None
+                        },
+                        "kind": kind,
+                        "source_excerpt": text[:excerpt_limit],
+                        "truncated": bool(
+                            value.get("truncated")
+                            or value.get("text_truncated")
+                            or value.get("snippet_truncated")
+                            or len(text) > excerpt_limit
+                        ),
+                    }
+                    if note not in source_notes:
+                        source_notes.append(note)
                 if value.get("status") == "succeeded" and isinstance(
                     value.get("quote"), str
                 ):
@@ -357,6 +391,10 @@ class ResearchHistory:
         for key, rows in (
             ("recorded_quotes", reversed(quotes)),
             ("cautions", support.get("cautions", [])),
+            (
+                "source_notes",
+                sorted(source_notes, key=lambda note: note["kind"] != "page_excerpt"),
+            ),
             ("identities", identities),
             ("references", reversed(support.get("references", []))),
             ("gaps", support.get("gaps", [])),
@@ -441,92 +479,6 @@ class ResearchHistory:
             observed = self.transported_text.setdefault(source_id, [])
             observed.extend(text for text in texts if text not in observed)
 
-    def quote_visible(self, source_id: object, quote: str) -> bool:
-        identity = str(source_id)
-        return identity not in self.compacted_sources or any(
-            quote in text for text in self.transported_text.get(identity, ())
-        )
-
-    def unjustified_safety_claims(
-        self, text: str, quotes: Sequence[str], source_ids: Sequence[str]
-    ) -> tuple[str, ...]:
-        relevant = []
-        selected_ids = set(source_ids)
-
-        def scoped(value: Any) -> None:
-            if isinstance(value, dict):
-                if any(
-                    str(value.get(key)) in selected_ids
-                    for key in ("source_id", "snapshot_id")
-                ):
-                    relevant.append(_support_state(value))
-                    return
-                for child in value.values():
-                    scoped(child)
-            elif isinstance(value, list):
-                for child in value:
-                    scoped(child)
-
-        for view in self.views.values():
-            scoped(view.payload)
-        if not relevant:
-            return ()
-        broad = re.compile(
-            r"\b(?:safe to buy|(?:seller|listing) (?:is )?(?:safe|legitimate|trusted|verified)|"
-            r"(?:fully|completely) (?:safe|checked|verified)|"
-            r"no (?:hidden )?(?:risks?|warnings?|cautions?|conflicts?|warranty issues?)|"
-            r"(?:reputable|legitimate|trusted|verified|authentic|genuine) (?:seller|listing|offer)|"
-            r"(?:seller|listing|offer|product) (?:is )?(?:reputable|authentic|genuine|low[- ]risk)|"
-            r"(?:buy|purchase) (?:confidently|with confidence)|confident purchase)\b",
-            re.IGNORECASE,
-        )
-        warranty = re.compile(
-            r"\b(?:(?:includes?|has|provides?|offers?|with) (?:a |full |valid )?local warranty|"
-            r"local warranty (?:is )?(?:included|available|valid|confirmed|covered))\b",
-            re.IGNORECASE,
-        )
-        unsupported = []
-        for sentence in re.split(r"(?<=[.!?;])\s+|\n", text):
-            if re.match(
-                r"^(?:check\s+)?whether\s+(?:this |the )?(?:product|seller|listing|offer)\s+is\s+(?:safe to buy|legitimate|trusted|verified|reputable|authentic|genuine)[.?!]?$",
-                sentence.strip(),
-                re.IGNORECASE,
-            ):
-                continue
-            sentence = re.sub(
-                r"\b(?:not|never)\s+(?:safe to buy|(?:fully|completely) (?:safe|checked|verified))|"
-                r"\b(?:check|whether)\s+(?:the\s+)?(?:seller|listing|local warranty)|"
-                r"\b(?:may|might|could)\s+(?:be\s+)?(?:safe to buy|legitimate|trusted|verified)",
-                "qualified",
-                sentence,
-                flags=re.IGNORECASE,
-            )
-            if broad.search(sentence):
-                unsupported.append(sentence)
-            elif warranty.search(sentence):
-                claim = warranty.search(sentence)
-                assert claim is not None
-                exact_support = any(
-                    claim.group(0).casefold() in quote.casefold() for quote in quotes
-                )
-                deferred_warranty = any(
-                    state.get("unreviewed_cautions")
-                    and "warranty" in state.get("caution_focus_terms", [])
-                    for state in relevant
-                )
-                conflicting_warranty = any(
-                    re.search(
-                        r"no local warranty|warranty.*(?:conflict|uncertain|unverified|not covered)|(?:conflict|uncertain|unverified).*warranty",
-                        caution,
-                        re.IGNORECASE,
-                    )
-                    for state in relevant
-                    for caution in state.get("cautions", [])
-                )
-                if not exact_support or deferred_warranty or conflicting_warranty:
-                    unsupported.append(sentence)
-        return tuple(unsupported)
-
     def register(
         self, tool: str, output: str, *, force: bool = False, fresh: bool = False
     ) -> str:
@@ -563,22 +515,21 @@ class ResearchHistory:
                 "status": "unknown_view",
                 "gap": "Original is unavailable in this shopping invocation.",
             }
-        originals = tuple(_strings(view.payload))
-        if (
-            not 1 <= len(retained_facts) <= 12
-            or any(not fact.strip() or len(fact) > 400 for fact in retained_facts)
-            or any(
-                not any(fact in text for text in originals) for fact in retained_facts
-            )
+        if not 1 <= len(retained_facts) <= 12 or any(
+            not fact.strip() or len(fact) > 400 for fact in retained_facts
         ):
             return {
                 "status": "invalid_request",
-                "gap": "Retained facts must be 1 to 12 exact original passages, each at most 400 characters.",
+                "gap": "Retained notes must be 1 to 12 nonblank passages, each at most 400 characters.",
             }
         facts = list(
             dict.fromkeys([*(view.state or {}).get("facts", []), *retained_facts])
         )
-        view.state = {"facts": facts, **_support_state(view.payload)}
+        view.state = {
+            "facts": facts,
+            "facts_are_model_notes": True,
+            **_support_state(view.payload),
+        }
         return {
             "status": "processed",
             "view_id": view_id,
@@ -817,9 +768,9 @@ def processed_view_id(output: str) -> str | None:
 def history_tools() -> tuple[FunctionTool, FunctionTool]:
     @function_tool
     async def complete_research_result(view_id: str, retained_facts: list[str]) -> str:
-        """After interpreting a result, retain exact useful passages before retiring its bulk.
+        """After interpreting a result, retain useful notes before retiring its bulk.
 
-        Snippets remain unverified leads. Record page quotes for factual decisions.
+        Keep snippets and page text labeled. These notes may paraphrase the original.
         Unreviewed original passages cannot establish safety. Keep conflicts and gaps.
         """
         history = _history.get()

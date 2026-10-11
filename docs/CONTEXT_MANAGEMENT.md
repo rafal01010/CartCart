@@ -1,5 +1,16 @@
 # Context management
 
+## Current recommendation policy, Task 216
+
+Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.
+
+Advice and source associations are independent. Recommendation evidence IDs, sources, comparison matrices, checked listings and mode records are optional. The UI leads with recommendations, reasons, tradeoffs and unknowns, then shows available page sources and search snippets. A snippet is labeled as a snippet. A source note is not a verbatim quotation. No exact substring, quote visibility, span membership or hash equality admits recommendations or retries.
+
+The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
+
+Task 216 Phase 1 is implementation only. Live calls, retries and reruns remain on hold. Only scoped launch lint, syntax and frontend checks are permitted. Tasks 216, 214, 215 and 100A remain unfinished until the revised live acceptance passes. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes. See [Task 216](TASK_216.md) and [restart handoff](TASK_216_RESTART.md).
+
+
 Task 100B passed its offline acceptance gate on 2026-10-04 after completing
 prerequisite Task 209. The [gate results](EVALUATION.md#context-management-gate)
 record affected regressions, the refreshed audit and quick 27/27 before full
@@ -34,58 +45,32 @@ characters. No explicit research-result completion was recorded before the block
 The matching diagnostics are in
 `data/artifacts/task100a-20261008/attempt2-safe-diagnostics.json`.
 
-Task 213 adds automatic fitting at the shared `BudgetedModel` transport boundary.
-It first projects reducible text and removes exact duplicate state. An optional
-bounded model call selects exact spans from original chunks. It cannot author
-facts. Invalid selections, provider errors and timeouts use structural projection.
-The complete request is measured again with instructions, tool/output/handoff
-schemas and the unchanged conservative buffer before transport.
+The shared `BudgetedModel` transport boundary projects reducible text,
+deduplicates identical state and measures the complete request with instructions,
+schemas and the unchanged conservative buffer. Task 214 replaced paid span
+selection with deterministic whole-exchange archives and bounded original views.
+No extra model call fits or fact-checks the recommendation.
 
-Originals remain in scoped `ResearchHistory` and canonical SQLite source records.
-Derived views preserve structured JSON, SDK call/output pairs, buyer constraints,
-IDs, neutral URLs, amounts, evidence claims and quotes. Each omission has an
-original lookup handle and explicit unreviewed coverage. Material cautions have
-bounded exact previews and deferred counts. An omitted passage cannot establish
-safety. After automatic shortening, quote persistence additionally checks text
-actually sent to the model. A bounded source reread must expose omitted support
-before it can be quoted.
-Scoped original-view reads associate exposed source text with its exact source
-ID. Metadata and caution previews do not authorize quotes from another source.
-Focused fetches and rereads retain an exact passage around the requested focus
-even when optional selection fails or chooses unrelated text.
+Originals remain in invocation-scoped `ResearchHistory` and canonical SQLite
+records. Derived views preserve buyer constraints, identities, neutral URLs,
+amounts, useful source notes, cautions and lookup handles. SDK function
+call/output pairs remain intact. Hashes and offsets are diagnostics, not advice
+or retry prerequisites. A source note may paraphrase fetched content. Literal
+quotations are labeled separately when available.
 
-Each shortening request uses the configured underlying model, at most 8,000
-original text characters, 12 exact selected spans of at most 400 characters,
-768 output tokens and five seconds. A workflow permits at most three shortening
-requests. They reserve and settle the same workflow and owner/source ledgers,
-including unknown failure cost. They cannot spend final-step reserves. Fitting
-requests continue research. Residual reducible pressure can close new research
-while retaining exact lookup and quote recording. Irreducible contracts and true
-cumulative exhaustion remain explicit technical failures.
+Research selection ranks relevance, novelty, source role, dates and regional
+context. Domain quality is advisory. Duplicate suppression and bounded shortlists
+remain; exact candidate text, fact coverage, professional reviews and minimum
+domain counts do not determine whether research or advice can proceed.
+Search snippets and fetched pages are useful context without quote capture.
 
-Provider research configured with a buyer brief now selects a bounded shortlist
-by relevance, novelty, source role/quality, known dates and regional hints.
-Relevant contrary and seller-risk leads receive priority. Tracking variants and
-substantially repeated leads can be deferred; semantic variant parameters and
-different source roles remain distinct. All original returned leads and initial
-selection reasons persist. The active reply exposes `evidence_need_id`, selection
-reasons and deferred retrieval handles. `read_search_results(need_id=...)` widens
-an unresolved need. A page fetch records its evidence need. Exact fetched quotes,
-not snippets or processing receipts, establish coverage. Open material cautions
-prevent premature stopping. Covered research stops new provider calls while
-original rereads remain available. Product-only suggestions remain valid.
-Need identity preserves the complete query and required fact types. Warranty,
-price, availability, variant, seller, release and support queries require an
-exact factual assertion with the requested subject qualifiers. A matching lead
-title or unrelated color quote cannot close those questions.
-
-An owner with insufficient support after actual shortening retains an explicit
-research limitation, missing checks and canonical reviewed evidence. Verification
-permits narrowly defined process and missing-check statements in a no-pick
-result. A process limitation cannot authorize factual warranty, seller, price or
-specification claims. The normal independent verifier and same-run result
-persistence still run. Public schemas and the live Task 100A checkpoint remain
-unchanged. Task 213 acceptance evidence is recorded below after verification.
+When limits require closure, tools and handoffs close and the owner synthesizes
+from available research and buyer preferences. Task 216 removes funded quote
+capture and follow-up fetch rounds. Missing sources, seller details or prices do
+not alone exclude a candidate. A final-call failure is a retryable technical
+failure with saved research, not a no-option buying judgment. Ordinary runs
+persist owner advice without a verifier pass. Historical acceptance measurements
+below describe their original implementations and do not establish Task 216.
 
 ## What caused the investigation
 
@@ -141,7 +126,7 @@ initial constructions before the extraction/full-owner/source-manager captures
 were added and before SDK dictionary-schema construction was corrected. Compare
 shared boundaries directly; do not treat added coverage as a measured saving.
 The completed report records deterministic before/after projection for each input.
-The verifier schema includes its production bounded snapshot tool; its audited
+The historical verifier measurement included the then-production bounded snapshot tool; its audited
 fixture input does not include a persisted original-support reload. That extra
 input is measured by focused SDK tests, not invented in the audit.
 
@@ -176,52 +161,31 @@ simulated. They prove transport/accounting contracts, not live reasoning quality
 | General, Technology and product ownership | Project exact typed state; defer completed page bodies | Keep original brief, ownership transfers, arguments, source IDs, gaps and recorded exact quotes. Keep new and unprocessed reads, including distinct spans. Explicitly processed bodies can retire into exact facts, caution/gap coverage and original lookup references without quoting the entire page. |
 | SDK prior turns and bookkeeping | Remove completed body text; minify structured results | Every tool call/output pair and handoff remains; distinct unprocessed text remains exact. Processed cached bodies share one useful state and unchanged receipts. Opaque hosted-search/reasoning items remain; arbitrary deletion could break SDK history. |
 | QueryPlanner and discovery | Preserve derived queries separately; deduplicate identical research | Queries use purpose, identity, current region/date and gaps. Original request stays unchanged. Cache keys include query, intent, region and result limit. |
-| Extraction | Bounded deferred page retrieval; exact validation | Default 4,000-character reads support offset/focus lookup. Only the first assigned snapshot is read into initial input; remaining IDs are deferred without consuming read quota. Interpret and validate only spans actually supplied to the model; canonical snapshots remain complete. |
+| Extraction | Bounded deferred page retrieval | Default 4,000-character reads support offset/focus lookup. The first assigned snapshot enters initial input; remaining IDs are deferred. Available original context informs typed interpretation without per-claim substring or hash admission. |
 | Products, listings, evidence, analysis and trust | Project JSON; remove byte-identical records with IDs | Preserve differing variants, sellers, prices, currencies, sources, dates, conflicts and hard flags. Same ID with different content is not a duplicate. |
 | Dedupe | Existing deterministic service | No extra model or parallel summary state. Full source URLs distinguish offer variants. |
 | YouTube | Bounded deferred permitted captions; existing typed model interpretation | Six segments per read, at most 1,000 characters each; segment and character cursors reach late facts, including within a single long segment. Any omitted text is reported as truncated. Original segment IDs/text/timestamps remain canonical. Canonical disclosures and stronger bias warnings survive selection. |
 | Reddit | Bounded deferred permitted public text; existing typed model interpretation | 1,600-character views support focus/offset. Public provenance, dates, independent supporting quotes, qualitative caveats and access gaps remain. No private/deleted content fallback. |
 | Amazon and IKEA | Exact typed fact projection; existing scoped tools | Marketplace, ASIN/variant/seller, regional price/stock, review risks, official-store country and shipping limits remain. A global page is not local availability. |
-| Comparison and verification | Exact typed canonical support; JSON projection | Original evidence claims/IDs, listings, amounts, conflicts and trust flags pass unchanged. Verifier reloads same-run canonical evidence and checks exact page support or validated specialist source records before model approval. Its bounded snapshot tool can reload context; derived analyses cannot establish new factual support. |
+| Comparison and optional editorial assistance | Bounded supplied context; JSON projection | Comparison receives saved candidates, prices, available sources, limitations and advisory trust. The optional tool-free verifier preserves owner choices and returns notes without per-claim revalidation. Normal run/refinement/retry stages omit it. |
 | Recovery and refinement reuse | Current typed state; same bounded gateway | Recovery uses the original owner allowance. New refinements get a new run ledger and current constraints. Same-region/currency budget refinements reuse saved evidence; region/currency changes invalidate reuse. Persisted support retains original provenance. |
-| Extra model summarizer | Not added | Measured mechanical savings avoid another model call. Existing typed interpretation is semantic work; its output cannot establish a fact without validated original support. |
+| Extra model summarizer | Not added | Measured mechanical savings avoid another model call. Existing typed interpretation uses available context and qualifies unknowns; it does not require a new fact-check call. |
 
-An explicitly processed body can leave active history after exact retained facts,
-cautions, gaps and unresolved coverage are recorded with original lookup.
-Without that checkpoint, only complete exact quotation or an identical retained
-read can replace a body. A partial quote alone cannot retire a different read or
-assess its unquoted remainder. SDK pairs remain intact. The approved lookup
-reloads a bounded canonical span; no model can supply an arbitrary filesystem
-path. Tool exhaustion closes only that issuing owner's quota. Omitted passages
-remain unreviewed, and categorical safety assurances require the completion
-checks described below.
+Completed bodies can retire into useful notes, cautions, gaps and original lookup
+references. SDK pairs remain intact. Scoped original reads retain run/source
+identity and bounded text; arbitrary filesystem paths are not accepted.
+Source-manager and owner-consultation views retain useful bounded context.
+Reusable source specialists preserve their existing provider and access contracts.
+Unavailable optional source content becomes a gap while the owner uses other
+information. No per-claim source reread is required to finish advice.
 
-Source managers and owner consultations project validated source bundles into
-exact cited evidence and metadata without replaying raw caption/discussion text.
-Full canonical support remains available for persistence and validation. Both
-YouTube and Reddit require quotes to match an exact span actually read.
-
-Verification reloads original permitted captions and public discussion text for
-semantic review records. It revalidates quotes with the existing source creators
-and keeps only bounded exact support plus IDs, timestamps, dates and full-text
-hashes in the prompt. Its snapshot tool can reload bounded caption/discussion
-spans when a metadata-only snapshot has no page body. Full captions, discussion
-text and descriptions stay canonical. Amazon provider facts selected unchanged
-by the model remain exact canonical provider records; derived marketplace/store
-statements are reconstructed from persisted seller, region, price and stock
-fields. Derived narrative cannot establish a new product fact.
-
-The recording boundary verifies exact quotes against the original snapshot and
-an observed span. Activity retains snapshot ID, offsets and full-content SHA-256;
-canonical `SourceEvidence.claim` retains the exact quote. Tests reconstruct
-late-page quotes and reject unread, fabricated or cross-run support. Canonical
-quote records reach the verifier intact. Extraction and verification reload
-original support by assigned same-run ID. Extraction claims must be exact
-substrings of one observed span, not fabricated paraphrases or spliced reads;
-product/listing interpretation remains in the typed entity fields. Existing owner
-validation checks support against persisted snapshots before accepting a draft.
-A valid ID alone never authorizes a fabricated claim. External content remains
-untrusted after projection. No recursive model summaries replace source records.
+The source-note boundary preserves run-scoped associations and bounded content.
+Offsets and hashes may describe literal source spans. They cannot veto note
+admission, candidate selection or saved retry. Exact substring matching is used
+only to distinguish an available literal quotation from a paraphrase. Product
+and listing interpretation remains in typed entity fields. External content
+remains untrusted information. The final model prompt asks for honest uncertainty
+and forbids invented facts, prices, quotations, reviews or source links.
 
 ## Limits and accounting
 
@@ -263,18 +227,12 @@ backstop remain necessary. Completion checks use the settled ledger interval
 when transport events exist. Injected runners without events use owner SDK
 usage plus source consultation aggregates once; child activity is diagnostic.
 
-Before research consumes reserved decision/verification room, the adapter closes
-research tools and handoffs and requests a bounded final output from existing
-support. If that final output cannot be funded or violates the input bound, or
-if the model keeps requesting a closed tool, the run stops with
-`ContextBudgetExceeded`. Owner recovery does not retry this failure. An empty
-owner result under cumulative-spending finalization is a technical failure.
-Context-only shortening can produce a verified limited result with its actual
-research limitation and missing support. The same guard applies to recovery. Owner rationale now carries bounded exact
-quotes instead of describing review provenance as a product fact; purchase
-price, regional availability and seller trust remain explicitly unchecked. Budget exceptions wrapped by SDK tool
-errors propagate as technical failures. The completion guards retain their
-90,000/30,000-token ceilings without adding overlapping child totals.
+Before research consumes downstream reservations, the adapter closes tools and
+handoffs and requests bounded final advice from available information. If the
+call cannot be funded or fit, it raises `ContextBudgetExceeded`. The run fails
+technically with saved research. Missing citations, warranty, trust or price
+cannot substitute an empty buying judgment for a failed final model call.
+Configured owner/source ceilings and usage accounting remain unchanged.
 
 Persisted `context_call` activity separates estimated inputs from actual input
 and output usage, before/after sizes, instruction/schema overhead, source/evidence
@@ -288,7 +246,7 @@ Task 101's broader telemetry work remains unstarted.
 Context preparation creates no disposable runtime files or second evidence
 store. Full pages stay in existing SQLite snapshots/artifacts. Source-tool caches
 are confined to the current run/brief/region and exact source identity; recorded
-spans carry content hashes so a changed snapshot cannot reuse stale quote proof.
+spans may carry hashes for diagnostics. Hash equality is not an advice or retry gate.
 Concurrent/refined runs cannot reuse another run's handles or mutable ledger.
 
 Success, failure, timeout and cancellation reset in-memory context scopes.
@@ -323,15 +281,10 @@ passages against the original view and keeps source, evidence, candidate and
 listing identities, detected exact cautions, structured warnings and gaps.
 Unrepresented and omitted passages remain explicitly unreviewed. Processing
 a snippet does not make it verified evidence or establish seller safety.
-The owner completion boundary rejects categorical safety, legitimacy and
-warranty assurances over relevant unreviewed support. It checks cited source
-rows separately so another variant cannot supply safety or conflict context.
-Local-warranty assertions need an exact cited passage and cannot override a
-known conflicting or deferred warranty caution. The technical failure code
-`unreviewed_research` returns a precise gap and does not trigger an automatic
-recovery attempt. This deterministic safeguard covers explicit assurance
-forms, including safe purchases, reputable or authentic sellers/products and
-no-warning claims; it is not a general semantic judge.
+The owner receives bounded caution and uncertainty context. It weighs actual
+adverse information and qualifies positive claims itself. Historical categorical
+safety/warranty assertion vetoes and `unreviewed_research` completion gates are
+removed by Task 216. Exact retained passages are not an advice prerequisite.
 Batch independent processing calls with the next independent research calls
 to avoid a model turn for each receipt.
 
@@ -350,8 +303,7 @@ and compatible ownership transfers share that state. Independent root
 invocations have separate lookup namespaces. SQLite retains original search
 leads, pages and evidence. Direct owner consultations also retain their complete
 validated bundles and consultation notes in run-local canonical state before
-returning bounded useful views. `read_source_bundle` reloads exact versions
-by bundle or consultation identity. The combined owner reply is capped at
+returning bounded useful views. `read_source_bundle` uses saved bundle or consultation identity and can fall back to the available saved version. Diagnostic hash mismatches do not veto reuse. The combined owner reply is capped at
 11,000 characters before lifecycle metadata, using consistent UTF-8 JSON. A missing original or wrong run cannot
 authorize lookup or retirement. Source-specific tools remain the authority for
 full page, transcript, discussion and typed regional-store support.
@@ -362,8 +314,7 @@ the original same-run batch or reads a full original snippet by source ID with
 focus and offsets. Snippet cautions are discovery cautions, never page support.
 Changed snippet/title records get distinct identities; variants and sellers
 remain separate. Compatible run, region, policy and provider instances share
-completed query and observed-source state across ownership transfers. Changed
-consultation constraints or source versions invalidate reuse.
+completed query and observed-source state across ownership transfers. Changed consultation constraints remain distinct. Optional diagnostic source versions do not veto saved-context reuse.
 
 Owner evidence reads expose offsets, hashes, total size and unresolved coverage.
 They retain up to six exact caution previews of at most 300 characters from
@@ -373,9 +324,7 @@ unreviewed marker. Full original lookup remains available. Empty default
 metadata is omitted from model-facing views. Assigned category analysts receive
 the selected route rather than the whole routing registry. Unmatched products
 receive an explicit evidence gap, not unrelated evidence. Repeated identical
-video metadata is represented once with exact per-claim references. Canonical
-verification runs before typed original-support projection; bounded rereads
-retain the full original support. Distinct recommendation and refinement
+video metadata is represented once with exact per-claim references. Typed original-support projection retains useful bounded context; ordinary completion has no canonical verification pass. Distinct recommendation and refinement
 graphs, seller flags, quotes and citation edges remain intact.
 
 The configured models are GPT-6 Sol and Luna. Their documented context windows
@@ -490,7 +439,9 @@ in this acceptance invocation. Evidence is under
 summaries and the independent root-cause review. Phone age/support, launch
 uncertainty and final seller/citation acceptance remain pending Task 100A.
 
-## Task 214 transport repair
+## Historical Task 214 transport repair
+
+This section records the pre-Task-216 implementation and failed live attempts. Its quote-capture and verifier policy was superseded by Task 216.
 
 The owner replaced the broad offline gate for this invocation with actual guided
 live runs and authorized reruns. Narrow Ruff and compilation checks establish
@@ -535,32 +486,22 @@ and completion before fetching. Empty/failed reads expose a source-switch gap.
 Planning projections no longer mutate transport caches; only actual sent packets
 commit visibility. Typed stage JSON is projected inside SDK text envelopes.
 
-The owner then revised product selection: trusted official exact support can
+Before Task 216, the owner revised product selection so trusted official exact support could
 establish a product-only option without a second review domain. Manufacturer
 claims stay attributed and unknown stock, price, warranty and support stay
-qualified. Independent reviews improve confidence and remain required for
-unsupported comparative assertions. Basic research starts with two focused
+qualified. That earlier policy still required independent reviews for unsupported comparisons. Task 216 removes this admission requirement. Basic research starts with two focused
 queries and three hits each; deferred discovery leads remain uncertain/unreviewed.
-The normal result shows up to three distinct verified options, with separate
-tradeoffs and citations. This policy revision is owner-authorized, not evidence
+The earlier result contract expected up to three verified options with tradeoffs and citations. Task 216 makes source associations optional. This policy revision is owner-authorized, not evidence
 that the sixth no-option result passed acceptance.
 
-Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
-receives exact stored quote support, title, URL, offsets, hashes and bounded
-original context upfront. Canonical verification input survives compaction.
-At most two source rereads are allowed before a final report. Existing independent
-factual, seller and budget guardrails remain. The owner explicitly increased
-the local VerifierCriticAgent timeout from inherited60seconds to180seconds; all
-other configured models, reasoning, providers and context/spending limits remain.
-A processing timeout fails the check with a retryable error, rather than publishing
-a no-option buying judgment. Failed-read activity remains saved for diagnosis.
+The pre-Task-216 verifier repair loaded stored quote/hash context and retained
+independent factual, seller and budget checks. Those buying-policy gates are
+removed by Task 216. The owner-authorized timeout change from 60 to 180 seconds
+remains configured for explicit optional workbench use. No revised live
+acceptance is claimed.
 
-POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
-atomically and resumes its decision/verification from persisted research. It
-preserves canonical IDs, old events and immutable result versions, requires an
-unchanged same-session request/region/brief, and rejects duplicate active retries.
-The synchronous response reports the final run status; the UI reads its matching
-result directly without replaying historical terminal SSE events. Future owner
-drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
-reconstruct a decision from revalidated exact saved support, with research tools
-disabled. They do not rerun intake or provider searches.
+Saved retries retain the existing research and owner checkpoints. They finish
+with tools disabled and do not repeat source research or verification. Missing
+quotes, offsets or hashes cannot prevent saved-context reuse. Operational run,
+request and source identity still apply. Failed final calls remain technical
+failures, with prior immutable result versions available.

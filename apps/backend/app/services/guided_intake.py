@@ -52,7 +52,6 @@ from app.schemas.money import Money
 from app.schemas.products import UserAddedProduct
 from app.schemas.regions import Region
 from app.services.product_deduplication import canonical_listing_url
-from app.services.shopping_guardrails import blocked_guardrail_or_none
 from app.services.shopping_intent import has_unconstrained_budget
 from app.services.volunteered_products import (
     is_link_only,
@@ -112,7 +111,6 @@ class GuidedIntakeService:
             session_id=session.session_id,
             query=request.query,
             region_setup=request.region_setup,
-            blocked_guardrail=blocked_guardrail_or_none(request.query),
         )
         _fixture_sessions[session.session_id] = fixture
         if fixture.blocked_guardrail is None:
@@ -274,7 +272,6 @@ class GuidedIntakeService:
             session_id=session_id,
             query=session.original_input.query,
             region_setup=region_setup,
-            blocked_guardrail=blocked_guardrail_or_none(session.original_input.query),
         )
         _fixture_sessions[session_id] = fixture
         return fixture

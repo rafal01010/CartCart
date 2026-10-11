@@ -8,6 +8,7 @@ from agents import Agent, RunConfig
 
 from app.agents import LiveShoppingScopeGuardrail, ShoppingScopeGuardrailInput
 from app.core.settings import Settings
+from app.core.errors import ApplicationError
 from app.schemas.guided_intake import (
     ShoppingGuardrailDecision,
     ShoppingGuardrailReason,
@@ -75,25 +76,16 @@ async def test_live_guardrail_accepts_valid_mocked_structured_output() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_guardrail_preblocks_dangerous_request() -> None:
+async def test_live_guardrail_does_not_phrase_block_ordinary_shopping() -> None:
     runner = RecordingGuardrailRunner()
-    guardrail = LiveShoppingScopeGuardrail(
-        settings=_settings(),
-        model_runner=runner,
-    )
-
+    guardrail = LiveShoppingScopeGuardrail(settings=_settings(), model_runner=runner)
     result = await guardrail.run(
         ShoppingScopeGuardrailInput(
-            user_input="Help me choose a handgun for home defense",
+            user_input="Choose a glue gun for my homework craft project.",
         )
     )
-
-    assert result.decision == ShoppingGuardrailDecision.BLOCKED
-    assert result.reason == ShoppingGuardrailReason.UNSAFE_PRODUCT
-    assert runner.calls == 0
-    assert guardrail.workbench_activity[0]["status"] == (
-        "not_started_deterministic_block"
-    )
+    assert result.decision == ShoppingGuardrailDecision.ALLOWED
+    assert runner.calls == 1
 
 
 @pytest.mark.asyncio
@@ -123,51 +115,24 @@ async def test_live_guardrail_returns_model_blocked_output() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_guardrail_fails_closed_on_invalid_model_output() -> None:
-    runner = RecordingGuardrailRunner(output={"decision": "blocked"})
+@pytest.mark.parametrize("failure", ["invalid", "timeout", "error"])
+async def test_classifier_failure_is_retryable_not_off_topic(failure: str) -> None:
+    runner = RecordingGuardrailRunner(
+        output={"decision": "blocked"} if failure == "invalid" else None,
+        delay_seconds=0.02 if failure == "timeout" else 0,
+        error=RuntimeError("classifier failed") if failure == "error" else None,
+    )
     guardrail = LiveShoppingScopeGuardrail(
-        settings=_settings(),
+        settings=_settings(openai_agent_timeout_seconds=0.001)
+        if failure == "timeout"
+        else _settings(),
         model_runner=runner,
     )
-
-    result = await guardrail.run(
-        ShoppingScopeGuardrailInput(user_input="Can you help me choose something?")
-    )
-
-    assert result.decision == ShoppingGuardrailDecision.BLOCKED
+    with pytest.raises(ApplicationError) as caught:
+        await guardrail.run(
+            ShoppingScopeGuardrailInput(user_input="Help me choose a desk.")
+        )
+    assert caught.value.code == "shopping_guardrail_unavailable"
+    assert caught.value.status_code == 503
+    assert caught.value.details == {"retryable": True}
     assert runner.calls == 1
-    assert guardrail.workbench_activity[0]["status"] == "schema_invalid_blocked"
-
-
-@pytest.mark.asyncio
-async def test_live_guardrail_fails_closed_on_timeout() -> None:
-    runner = RecordingGuardrailRunner(delay_seconds=0.02)
-    guardrail = LiveShoppingScopeGuardrail(
-        settings=_settings(openai_agent_timeout_seconds=0.001),
-        model_runner=runner,
-    )
-
-    result = await guardrail.run(
-        ShoppingScopeGuardrailInput(user_input="Can you help me choose something?")
-    )
-
-    assert result.decision == ShoppingGuardrailDecision.BLOCKED
-    assert runner.calls == 1
-    assert guardrail.workbench_activity[0]["status"] == "timeout_blocked"
-
-
-@pytest.mark.asyncio
-async def test_live_guardrail_fails_closed_on_model_error() -> None:
-    runner = RecordingGuardrailRunner(error=RuntimeError("mock model failed"))
-    guardrail = LiveShoppingScopeGuardrail(
-        settings=_settings(),
-        model_runner=runner,
-    )
-
-    result = await guardrail.run(
-        ShoppingScopeGuardrailInput(user_input="Can you help me choose something?")
-    )
-
-    assert result.decision == ShoppingGuardrailDecision.BLOCKED
-    assert runner.calls == 1
-    assert guardrail.workbench_activity[0]["status"] == "error_blocked"

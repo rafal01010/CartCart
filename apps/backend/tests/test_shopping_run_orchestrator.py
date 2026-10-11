@@ -531,9 +531,14 @@ class RecordingGenericAnalystAgent:
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
         self.calls.append(input_data)
         evidence_ids = tuple(item.evidence_id for item in input_data.evidence)
-        if not evidence_ids:
-            evidence_ids = input_data.product.source_ids
-        source_ids = input_data.product.source_ids or evidence_ids
+        source_ids = tuple(
+            dict.fromkeys(
+                (
+                    *input_data.product.source_ids,
+                    *(item.source_id for item in input_data.evidence),
+                )
+            )
+        )
         self.workbench_activity = (
             {
                 "tool_name": "openai_agents_structured_output",
@@ -622,6 +627,9 @@ class RecordingComparisonDecisionAgent:
 
 
 class RecordingVerifierCriticAgent:
+    def __init__(self) -> None:
+        self.calls: list[VerificationAgentInput] = []
+
     workbench_activity = (
         {
             "tool_name": "openai_agents_structured_output",
@@ -631,6 +639,7 @@ class RecordingVerifierCriticAgent:
     )
 
     async def run(self, input_data: VerificationAgentInput) -> VerificationReport:
+        self.calls.append(input_data)
         return VerificationReport(
             approved=True,
             recommendation_bundle=input_data.recommendation_bundle,
@@ -727,6 +736,8 @@ async def test_shopping_run_orchestrator_records_all_expected_fixture_stages(
 
         expected_stages = ShoppingRunOrchestrator.stage_order()
         executable_stages = ShoppingRunOrchestrator.executable_stage_order()
+        assert RunStage.VERIFICATION not in expected_stages
+        assert RunStage.VERIFICATION not in executable_stages
 
         assert loaded_run is not None
         assert loaded_run.status == RunStatus.SUCCEEDED
@@ -1334,7 +1345,8 @@ async def test_extraction_continues_and_persists_failed_source_snapshot(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("budget_failure", [False, True])
 async def test_failed_run_state_is_checkpointed_before_exception_escapes(
-    tmp_path: Path, budget_failure: bool,
+    tmp_path: Path,
+    budget_failure: bool,
 ) -> None:
     from app.agents.context_management import ContextBudgetExceeded, active_budget
 
@@ -1342,7 +1354,14 @@ async def test_failed_run_state_is_checkpointed_before_exception_escapes(
         async def search(self, query, options=None):
             budget = active_budget()
             assert budget is not None
-            budget.events.append({"tool_name": "context_call", "status": "blocked", "input": {"stage": "discovery"}, "output": {"actual_input_tokens": None}})
+            budget.events.append(
+                {
+                    "tool_name": "context_call",
+                    "status": "blocked",
+                    "input": {"stage": "discovery"},
+                    "output": {"actual_input_tokens": None},
+                }
+            )
             raise ContextBudgetExceeded("Model input exceeds its limit.")
 
     settings = Settings(  # type: ignore[call-arg]
@@ -1376,16 +1395,25 @@ async def test_failed_run_state_is_checkpointed_before_exception_escapes(
                     ),
                     video_review_repository=VideoReviewRepository(db_session),
                 ),
-                search_provider=ExhaustedSearchProvider() if budget_failure else FailingSearchProvider(),
+                search_provider=ExhaustedSearchProvider()
+                if budget_failure
+                else FailingSearchProvider(),
             )
-            with pytest.raises(RuntimeError, match="Model input exceeds" if budget_failure else "Fixture discovery failed"):
+            with pytest.raises(
+                RuntimeError,
+                match="Model input exceeds"
+                if budget_failure
+                else "Fixture discovery failed",
+            ):
                 await orchestrator.run(run.run_id, shopping_session.current_brief)
 
         async with session_factory() as db_session:
             run_repository = RunRepository(db_session)
             loaded_run = await run_repository.get(run.run_id)
             events = await run_repository.list_events(run.run_id)
-            result = await ResultRepository(db_session).get_recommendation_bundle(run.run_id)
+            result = await ResultRepository(db_session).get_recommendation_bundle(
+                run.run_id
+            )
             records = await ResultRepository(db_session).list_agent_records(run.run_id)
 
         assert loaded_run is not None
@@ -1396,7 +1424,11 @@ async def test_failed_run_state_is_checkpointed_before_exception_escapes(
         assert result is None
         if budget_failure:
             assert "Model input exceeds its limit." in events[-1].error.error.message
-            assert any(item.get("status") == "blocked" for record in records for item in record.tool_activity)
+            assert any(
+                item.get("status") == "blocked"
+                for record in records
+                for item in record.tool_activity
+            )
     finally:
         await engine.dispose()
 
@@ -2141,6 +2173,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
     analyst = RecordingGenericAnalystAgent()
     general = RecordingGeneralShoppingAgent()
     extraction_provider = RecordingExtractionProvider()
+    verifier = RecordingVerifierCriticAgent()
 
     try:
         async with engine.begin() as connection:
@@ -2184,7 +2217,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
                 generic_product_analyst_agent=analyst,
                 seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
                 comparison_decision_agent=RecordingComparisonDecisionAgent(),
-                verifier_critic_agent=RecordingVerifierCriticAgent(),
+                verifier_critic_agent=verifier,
                 search_provider=ListingSearchProvider(),
                 extraction_provider=extraction_provider,
                 default_region_code="US",
@@ -2221,12 +2254,13 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert len(analyst.calls) == 1
         assert context.category_analyses
         assert context.recommendation_bundle is not None
-        assert context.verification_report is not None
-        assert context.verification_report.approved is True
+        assert context.verification_report is None
+        assert verifier.calls == []
+        assert RunStage.VERIFICATION not in context.stage_outputs
         assert result is not None
         assert result.recommendation_bundle.no_strong_buy is True
         assert result.recommendation_bundle.result_author == "GeneralShoppingAgent"
-        assert result.recommendation_bundle.verification_action == "approved"
+        assert result.recommendation_bundle.verification_action is None
         assert result.recommendation_bundle.final_product_id == (
             context.recommendation_bundle.final_product_id
         )
@@ -2275,11 +2309,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].duration_ms is not None
         assert records_by_stage[RunStage.CATEGORY_ANALYSIS].model_name == "large-model"
         assert records_by_stage[RunStage.COMPARISON_DECISION].model_name is None
-        assert records_by_stage[RunStage.VERIFICATION].model_name == "large-model"
-        assert (
-            records_by_stage[RunStage.VERIFICATION].tool_activity[0]["status"]
-            == "model_verifier_critic_completed"
-        )
+        assert RunStage.VERIFICATION not in records_by_stage
 
     finally:
         await engine.dispose()

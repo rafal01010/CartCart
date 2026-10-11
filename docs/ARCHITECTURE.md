@@ -1,5 +1,36 @@
 # CartCart Architecture
 
+## Advice ownership, Task 219
+
+Shared shopper guidance defines direct what-to-buy prose in the owner, Technology/specialist handoffs, saved-research resume, forced completion, retained comparison/category analyzers and optional editorial verifier. It removes intake echoes, confidence narration, missing-source or missing-stock passages and where/how-to-buy rituals. Research targets suitability and meaningful relative differences. Known product age, support, compatibility and launch differences can matter; absent information does not require a warning or a mandatory search.
+
+Existing rationale and tradeoff fields carry shopper advice. Diagnostic fields and factual source records retain their schemas and storage. The result component removes generated confidence, generic warning, unknowns and seller-check copy while preserving authored reasons, tradeoffs, supported budget notes and neutral links. Controlled fixture writers own developer labels; literal shopping and evidence text is never filtered by the word fixture. Task 220 retains ownership of history, duplicate comparison, refinement and restart layout work. Live validation deferred to Task 221.
+
+## Authored choice groups, Task 218
+
+The shopping owner assigns candidate `choice_group` before retaining its decision draft. Finalization keeps up to three primary choices and up to two optional runners-up rather than truncating all candidates to three or treating every later candidate as a runner. `RecommendationBundle.primary_product_ids` and existing `runner_up_product_ids` preserve membership through JSON storage and direct API projection. Existing mode records retain product reasons, tradeoffs and optional provenance. The frontend maps each group separately.
+
+Model and schema boundaries validate counts, unique membership and final-pick consistency. They do not choose brands or impose a budget veto. The owner weighs suitability, adverse information, preferences and explained modest budget stretches; useful company/provider diversity is a preference, with explicit exclusive requests respected. One or two primary choices and zero runners are valid.
+
+Null or absent primary IDs retain historical bundle compatibility. Old checkpoint candidates may omit their group. No new table, saved-record rewrite, agent, route, provider or model stage is added. Task 216 recommendation-by-default and Task 217 source projection remain. Task 219 owns concise advice; Task 220 page simplification remains a separate implementation unit. Live validation is deferred to Task 221.
+
+## Offline shopper-feedback implementation, Task 217
+
+Tasks 217-220 and their prerequisites have an active live-call hold. Task 217 keeps the existing shopping owner, SDK handoffs, research state and provider boundaries. Broad queries start with category, buyer intent, preferences and region, then follow useful results into products and companies. Named brands are preferences unless explicitly exclusive. Relevance, new information and useful breadth guide the bounded lead selection; duplicates and repeated facts are deferred while original records remain available. The owner stops when enough useful information exists, without source or video quotas.
+
+The normal owner may request optional `video_review` intelligence through `consult_source_intelligence`. The source manager delegates to the existing YouTube specialist, which searches metadata and reads approved public captions through typed tools. Returned video bundles and provenance use the existing persistence repositories. Bounded parent context prioritizes cited transcript segments, with full originals available for reread. No separate mandatory source stage or verifier is introduced. Live search relevance and substantive caption use remain deferred to Task 221.
+
+## Current recommendation policy, Task 216
+
+Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.
+
+Advice and source associations are independent. Recommendation evidence IDs, sources, comparison matrices, checked listings and mode records are optional. The UI leads with recommendations, reasons and meaningful tradeoffs, then shows available page sources and search snippets. Unknowns remain diagnostic fields. A snippet is labeled as a snippet. A source note is not a verbatim quotation. No exact substring, quote visibility, span membership or hash equality admits recommendations or retries.
+
+The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
+
+The owner resumed live calls on 2026-10-11. Tasks 216, 214, 215 and 100A passed revised guided-browser acceptance. See [saved IDs, browser evidence, SQLite/API matches, usage and checks](TASK_216_LIVE_ACCEPTANCE.md). No P1 work started. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes.
+
+
 Status: Current architecture and remaining design direction
 Last updated: 2026-10-06
 
@@ -208,7 +239,7 @@ They keep guide state in fixture memory, update the persisted session
 existing `/api/sessions/{session_id}/runs` endpoint responsible for starting the
 deterministic analysis run. A live OpenAI Agents SDK `ShoppingGuideAgent` now
 implements the same `GuidedIntakeState` contract for isolated mock/live
-workbench runs, including deterministic guardrail prechecks and an `IntakeAgent`
+workbench runs, including SDK input-guardrail checks and an `IntakeAgent`
 handoff only after enough information exists. The normal shopper API is not
 routed through the live guide yet.
 
@@ -224,9 +255,7 @@ The isolated workbench also exposes live OpenAI Agents SDK `QueryPlannerAgent`,
 Query planning produces region-aware shopping, review, official-source, price,
 and video-review query strategy without tools, and falls back to a generic
 search plan instead of blocking product categories that lack specialists.
-Current discovery selects only supplied search-result source IDs for extraction, rejects
-weak/proxy-like selections, and returns `insufficient_candidates` when no
-credible source remains. Category routing uses no tools, normalizes model output
+Current discovery selects only supplied search-result source IDs for extraction, uses source quality as advisory context and returns explicit gaps when source inspection cannot finish. Category routing uses no tools, normalizes model output
 through the executable catalog, sends MVP technology specialist categories
 through `TechnologyDomainAnalystAgent`, and keeps
 `GenericProductAnalystAgent` as the fallback for unknown or unsupported
@@ -266,9 +295,7 @@ technology-domain or generic analysis instead of forcing non-watch input
 through smartwatch logic.
 Seller/listing trust analysis uses no tools, consumes only supplied listing
 records, evidence, and deterministic trust-rule assessments, and keeps product
-quality separate from listing trust. Hard deterministic suspicious signals such
-as implausibly low price or contradictory listing data cannot be silently
-overridden by model output.
+quality separate from listing trust. Actual price and listing contradictions inform the model. It may improve or worsen the rule-derived assessment and must preserve the scope of its explanation.
 
 Region setup is outside the main shopping question flow. If no region preference
 or explicit refusal is saved locally, the frontend can show a lightweight setup
@@ -279,19 +306,12 @@ the pending guided flow after either choice. Backend defaults remain allowed for
 fixture/local operation, but must be marked as defaulted or inferred rather than
 user-confirmed.
 
-Guardrail behavior runs before costly discovery or analysis. Deterministic
-prechecks block obvious off-topic, unsafe, illegal, or inappropriate product
-requests before model-backed classification or provider work starts. The live
-`ShoppingScopeGuardrail` then uses an OpenAI Agents SDK input-guardrail pattern
-for requests that need classification beyond deterministic rules. Blocked
-requests receive short regular-person-facing redirection copy and do not start
-source retrieval or analysis runs.
+The OpenAI Agents SDK input guardrail classifies shopping scope and unsafe or illegal requests before research. The application has no phrase-list refusal tripwires. A blocked input receives the classifier's short redirection. Classifier errors and timeouts are retryable technical failures.
 
 ## Workflow Architecture
 
 CartCart uses deterministic orchestration around agent-owned research decisions.
-The backend owns stage order, typed tool safety, budgets, persistence, hard
-schema/evidence-ID validation, policy enforcement, trace IDs, and user-safe
+The backend owns stage order, typed tool safety, budgets, persistence, schema and run identity validation, trace IDs, and user-safe
 events. `DiscoveryAgent` owns semantic source classification, relevance,
 candidate/model hints, review-to-candidate leads, and follow-up search/fetch
 decisions. `ExtractionAgent` is the primary interpreter of persisted snapshots
@@ -375,17 +395,14 @@ are instructed to transfer early through General, Technology, and Smartphone.
 Model exceptions, timeouts and unrecovered owner validation failures are failed
 shopping runs with saved activity, rather than completed no-strong-buy decisions.
 
-Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. The target SDK handoffs are limited to General -> Technology -> eligible specialist ownership; backend code remains responsible for the persisted workflow and hard policy gates.
+Agents should produce typed outputs at each stage. Search, fetch, extraction, persistence, and scoring support should live behind tools or services with clear contracts. The target SDK handoffs are limited to General -> Technology -> eligible specialist ownership; backend code remains responsible for the persisted workflow and operational boundaries.
 
 Production SDK wrappers use the shared bounded model gateway described in
 [context management](CONTEXT_MANAGEMENT.md). Each model turn, transfer and nested
 source call projects exact typed state and can retire explicitly processed
 bodies into exact useful facts, bounded caution/gap state and canonical lookup
 references. New and unprocessed text stays visible. Omitted passages remain
-unreviewed, and SDK call pairs stay intact. Extraction
-reads one initial page and defers other assigned IDs. Verification reloads
-canonical same-run evidence and has a bounded original snapshot read tool;
-derived analysis cannot establish new factual support. Shared
+unreviewed, and SDK call pairs stay intact. Extraction reads one initial page and defers other assigned IDs. Comparison consumes available saved research. Optional editorial assistance uses supplied context without source rereads or per-claim revalidation. Shared
 pre-call reservations preserve decision/verification room; the existing owner
 and source ceilings remain. Budget failures stop the shopping run explicitly.
 No extra model summarizer or temporary evidence store is introduced.
@@ -412,13 +429,13 @@ Recommended stages:
 11. Reusable source-intelligence checks add relevant YouTube/video, Reddit/community, Amazon, and IKEA evidence bundles for grouped products without replacing normal web/listing evidence.
 12. Category analysis evaluates product fit, specs, tradeoffs, and evidence gaps.
 13. Seller/listing trust analysis evaluates buyer-safety signals.
-14. Decision produces recommendation modes and a final best pick or an explicit no-strong-buy result.
-15. Verification checks source support, trust handling, budget handling, duplicate handling, and output restraint.
+14. The owning model recommends useful options with reasons, tradeoffs and unknowns, or explains its no-option judgment. A winner and modes are optional.
+15. Persist model-owned advice directly. Optional editorial review is an explicit workbench capability, outside the run stage sequence.
 16. The frontend renders staged results. A refinement stores a pending run
     and a typed recompute plan linked to the exact prior result version.
     Execution runs fresh research when the plan invalidates it, or reads
     validated candidate evidence from the prior run for budget and mode
-    changes. It then produces a new decision and verification record. Results
+    changes. It then produces a new model-owned decision. Results
     are numbered across the session, and failed runs leave the last successful
     result accessible. Considered-product outcomes are snapshotted per run so
     later corrections do not change older result views. The shopper opens one
@@ -516,8 +533,7 @@ The owner design keeps the guided UI: `ShoppingGuideAgent` asks progressive
 questions, `IntakeAgent` normalizes the brief, and the backend applies
 scope/safe-product checks before a run. Every ordinary request then enters
 `GeneralShoppingAgent` as first model owner. General can research and finish
-any broad request, including one without a specialist, with a cited result or
-an explicit evidence gap. It may SDK-handoff only to
+any broad request, including one without a specialist, with useful advice and optional sources, or an explicit no-option judgment. It may SDK-handoff only to
 `TechnologyDomainAnalystAgent`. Technology may finish broad technology
 requests or hand off only to a catalog-approved implemented monitor,
 smartphone, laptop, earphones/headphones, TV, or smartwatch specialist. The
@@ -527,55 +543,26 @@ target in this shopper-owner handoff graph. `GenericProductAnalystAgent`
 continues as an evidence-only `CategoryAnalysis` capability in the current
 workflow; it is distinct from General.
 
-Each active owner now gets bounded typed access to persisted discovery/extraction
-artifacts, approved provider research, same-run source lookup, recorded-source
-and persisted-candidate comparison, deterministic listing-risk checks, and one
-source-manager consultation. A persisted product or an exact owner-recorded
-page quote can scope that consultation; the latter is a research candidate,
-not a verified listing. The source manager delegates
-to YouTube, Reddit, Amazon, and IKEA specialists; it does not become a second
-unrestricted researcher. Backend code owns provider credentials, source and
-region policy, budgets, evidence-ID checks, suspicious-listing blocks, and
-persistence. The last owner drafts the result; backend code reloads its same-run
-quotes and source links, then the independent verifier approves, revises with
-an auditable change, or blocks it to a no-strong-buy answer. A quote-backed
-product may be persisted without inventing a purchase listing. The parent
-never silently rewrites a transferred owner's answer. Persist
-the actual handoff chain, last owner/author, cited sources and evidence,
-verification changes, models/usage, and result version before UI projection.
+Each active owner gets bounded access to persisted research, approved provider
+search/fetch, source lookup, candidate comparison, advisory listing trust and
+optional source-manager consultation. A persisted product or a named candidate
+can scope that consultation without an exact quotation. The source manager
+delegates to YouTube, Reddit, Amazon and IKEA specialists within their existing
+permissions. Backend code owns credentials, run/source identity, URL safety,
+context/spending limits and persistence. The last owner authors the advice.
+Candidates can be saved without a listing or citation. Persist the actual handoff
+chain, author, available associations, usage and immutable result version.
 
-All shopper owners return a required, nonblank `GeneralModelOutput.rationale`
-of at most 1500 characters. A successful `GeneralShoppingDecisionDraft` keeps
-that text verbatim. Result conversion uses the same explanation for
-`final_rationale` and the best-overall mode, with the selected candidate's
-validated same-run evidence. Backend reference checks and independent claim
-checks still apply before display. Missing or unsafe research retains the
-existing cautious no-strong-buy path. Verifier revisions require an authored
-audit reason before automatic guardrail notes are added. Approved revisions
-record changed fields and reasons while retaining the actual owner and handoffs.
-
-Final verification binds recognized factual specifications to the candidate
-asserted in each displayed claim. The shared backend check runs before model
-verification and again after an approved revision. A citation for another
-product cannot establish the selected product's specification. Supported
-comparisons can cite both products; the check retains each claim's subject
-rather than requiring every citation to describe the winner. Listing targets
-resolve through stored product relationships. Canonical original support remains
-the factual authority; derived analysis does not establish new facts. These
-bounded lexical checks supplement the model verifier and do not prove arbitrary
-natural-language entailment or repair incorrectly created evidence targets.
+Shopper owners return a bounded primary rationale and optional candidate reasons, tradeoffs, unknowns and warnings. Projection persists each selected candidate even without sources, a checked listing or mode records. It retains known source associations while omitting invalid optional references. Operational identity errors use a technical failure. Missing information cannot become a deterministic no-option result.
 
 Hosted OpenAI web search is implemented alongside existing approved provider
 tools for live `DiscoveryAgent`, all eight shopper owners, and the four
 site/source specialists, and as a scoped optional tool for live
 `SellerListingTrustAgent`. Owners also have typed provider search/fetch and
-exact-page quote recording. Hosted citations remain weak leads; the decision draft
-accepts exact fetched official product evidence for product-only options.
-Other product/listing support retains the corroborated review path. Price, regional availability, and seller-trust
-claims still require their existing independent checks. Hosted search is not planned for the source manager as unrestricted search
+optional source-note recording. Hosted citations, search snippets and fetched pages are labeled available information. The owning model weighs them without source-count, review, exact quote or official-only eligibility. Hosted search is not planned for the source manager as unrestricted search
 or for intake-only, extraction-only, comparison-only, and verification-only
 roles. The model may choose either research path; a search hit is not a
-verified listing, and only validated persisted citations support claims.
+verified listing. Available snippets and fetched content can inform qualified model advice without a separately recorded citation.
 
 Discovery reads real SDK `web_search_call` items and URL annotations. Public,
 policy-allowed cited URLs are persisted as run-scoped search results and
@@ -594,17 +581,7 @@ changes to an agent's selected model or removal of required tools. Technology
 owner recovery after specialist failure remains separately recorded. Fixture
 runs remain network-free.
 
-Live listing trust receives a run-scoped citation store and the buyer region.
-Its hosted domain filter permits only the current listing or seller site, and
-backend URL checks further bind marketplace results to the exact listing or
-seller page. Actual URL annotations can become weak source-metadata records;
-their IDs are attached only to neutral, unverified trust leads. Search snippets,
-marketplace ratings, and model-only claims cannot raise trust or establish
-seller reputation, return/warranty coverage, or listing facts. The existing
-deterministic trust assessment remains authoritative for suspicious flags and
-for the trust level when supplied evidence is weak or unknown. The agent can
-finish without a search; missing citations, failed calls, and rejected pages
-leave an explicit gap in internal activity.
+Live listing trust receives source identity, buyer region, available seller information and advisory rule scores. The model can improve or worsen that assessment. Official stores need no mandatory background check. Meaningful adverse findings retain their listing scope. The final owner model weighs those findings without deterministic score exclusions.
 
 Each live source specialist has `tool_choice=auto` and a source-specific hosted
 domain filter: YouTube, Reddit, the target Amazon marketplace, or the official
@@ -642,52 +619,40 @@ The Amazon SDK specialist now selects candidate products and marketplace source 
 
 These rules define the minimum behavior expected from schemas, tests, agents, source policy, and result rendering.
 
-### Budget Handling
+### Budget handling
 
-- Budget input must distinguish a hard cap from a preferred budget.
-- If the user explicitly says a budget is strict, final picks must not exceed it unless the result is an explicit no-strong-buy outcome explaining why no acceptable option was found.
-- If the budget is a preference, the app may recommend a stretch option only when the tradeoff is explicit and a within-budget option or no-strong-buy alternative is also represented.
-- Recommendation modes should be computed from the same stored analysis pass, including best overall, best value, best within budget, and stretch pick when applicable.
-- Products should not be discarded solely for exceeding a soft budget. They may be ranked lower, moved to a stretch mode, or rejected for overpaying when the price/value case is weak.
-- Tests should cover hard cap, soft/preferred budget, missing budget, currency/region mismatch, and justified stretch behavior.
+Pass budget intent, known prices, currencies and comparable over-budget amounts
+to the owning model. The model may recommend a slightly over-budget option with
+an explanation. There is no hard cap, fixed stretch percentage or required
+within-budget companion. Missing and unlimited budgets remain distinct. Unknown
+or incomparable prices are not labeled within budget. Modes are optional.
 
-### Source And Marketplace Policy
+### Source and marketplace policy
 
-- Reseller-only platforms are excluded from MVP discovery and recommendation candidates.
-- A source known to be reseller-only should be marked excluded with a reason, not quietly used as evidence for a recommendation.
-- Mixed marketplaces may be included only when seller/listing legitimacy can be assessed with available signals.
-- Mixed-marketplace listings must preserve listing identity separately from product identity because the same product can be safe from one seller and risky from another.
-- Canonical grouping must preserve each listing's seller trust signal, price, regional availability, and source quality so later trust and recommendation stages can prefer or reject listings independently of product desirability.
-- A mixed-marketplace listing with unknown seller identity, unclear fulfillment, unclear return/warranty policy, suspicious price, or sparse/contradictory metadata must not be treated as equivalent to an established retailer or official source.
-- The system must not recommend a matching listing merely because it matches the query.
-- Tests should cover excluded reseller-only sources, allowed established retailers, mixed marketplaces with strong seller signals, and mixed marketplaces with weak or suspicious seller signals.
+Source classes, reputations, scores and historical exclusions are advisory.
+Usable content from unknown or mixed-marketplace sources remains available
+through approved access paths. Preserve seller, variant, regional availability,
+price and source context. Official product pages and company announcements are
+useful sources, and reviews are optional. Basic URL/content validity and network
+access protections remain operational requirements.
 
-### Seller And Listing Trust
+### Seller and listing trust
 
-- Product quality and listing trust are separate dimensions.
-- `ListingTrustAssessment` should support at least `strong`, `reasonable`, `mixed`, `weak`, `suspicious`, and `unknown`.
-- Suspicious deterministic signals cannot be silently overridden by an agent.
-- Price plausibility checks compare same-product listing prices first and use
-  category-level prices only as a conservative fallback, so extreme low-price
-  outliers can be flagged without treating normal retailer discounts as unsafe.
-- Every explicit recommended offer is subject to listing safety and comparable-price hard caps. This includes final and alternate mode listings and unambiguous saved runner-up comparison-row offers. Product-only recommendations do not infer an offer. Ordinary comparison-only rows and rejected items are not purchase recommendations.
-- A suspicious recommended offer requires a blocking warning attached to that exact offer or an unambiguous warning identifying it. A seller mention, another offer's warning, or a rejected-item entry cannot authorize the recommended offer. Excluding the offer also satisfies this rule.
-- A good product from a bad listing should be shown as a product/listing mismatch, not as a safe buy.
-- Trust notes should cite the source or listing signals that support them when available.
+Product quality and listing trust remain separate. The model may improve or
+worsen the rule-derived assessment. An official store provides acceptable seller
+context without a mandatory review count or checklist. Actual contradictions and
+implausible prices inform model judgment with their scope. Missing reviews,
+warranty, seller details or price are unknowns and cannot alone exclude a product.
+The owner preserves its specific offer warnings. Trust levels and scores cannot
+remove a card or neutral link.
 
-### Evidence And Confidence
+### Evidence and confidence
 
-- Factual claims about products, prices, sellers, reviews, warranties, availability, community discussion, official-store evidence, marketplace evidence, or video evidence must reference source IDs.
-- Evidence quality and analysis confidence are separate fields. A product can be desirable with weak evidence, or well-evidenced but still a poor fit.
-- Unknown, inferred, and source-confirmed values must remain distinguishable.
-- Conflicting evidence should be preserved as conflicting records and surfaced when material to the decision.
-- Weak evidence should reduce confidence and may lead to no-strong-buy, but it should not force the system to invent certainty.
-- Reusable source-intelligence schemas use explicit evidence targets so product, listing, seller, review, source-only metadata, and region-specific facts do not collapse into recommendation fields.
-- Video-derived claims must include transcript availability status and timestamps when available. Missing transcripts must be represented as an evidence gap.
-- Reddit/community-derived claims must identify the source thread/comment context where available and remain qualitative unless corroborated by stronger sources.
-- Amazon-derived claims must preserve marketplace/listing/seller/fulfillment and regional availability context instead of collapsing Amazon evidence into generic product truth.
-- IKEA-derived claims must preserve country/region context and must not imply global shipping or availability.
-- Tests should reject unsupported factual claims and verify confidence/evidence-quality separation.
+- Available source associations and confidence are advisory.
+- Unknown, inferred, user-reported and source-confirmed values remain distinguishable.
+- The model preserves material conflicts and qualifies uncertain current facts.
+- Source-specific information retains regional, seller, variant and availability context.
+- Sources and exact quotations are optional. Source notes are labeled without implying verbatim quotation.
 
 ### Current Broad Category Fallback
 
@@ -704,38 +669,18 @@ These rules define the minimum behavior expected from schemas, tests, agents, so
 - Normal guided intake should ask for product names or descriptions, not product URLs.
 - Name- or description-based user-added products remain hints through scoped lookup queries and DiscoveryAgent selection. ExtractionAgent explicitly links cited listings to a hint as confirmed or possible; a query hit alone is not a match. Ambiguous variants stay separate while each listing keeps its seller and trust context.
 - URL-based user-added products are an advanced or corrective path; the run workflow fetches and extracts them through the normal source/listing pipeline before deduplication, then marks the deduped product/listing as user-supplied.
-- Manual fallback is available for an inconclusive researched candidate or an explicit shopper correction. It preserves the shopper's reported identity and optional seller, price, availability, review, warranty, and specification details as unverified input, with per-field unknown/user-reported status. A manual-only candidate gets a source-free, listing-free shortlist row and comparison entry; it cannot become a buying pick without independent evidence.
+- Manual fallback is available for an inconclusive researched candidate or an explicit shopper correction. It preserves the shopper's reported identity and optional seller, price, availability, review, warranty, and specification details as unverified input, with per-field unknown/user-reported status. A manual-only candidate remains labeled user-reported and can inform the owning model without independent evidence.
 - A user-added product can win, place as a runner-up, be rejected for a meaningful reason, or be excluded because the listing is unsafe.
 - User-added products should be marked as user-supplied in stored state and result output so the UI can distinguish them from discovered candidates.
 
-### No-Strong-Buy Outcome
+### No-option decisions and warnings
 
-- The recommendation bundle must support either one final best pick or an explicit no-strong-buy result.
-- No-strong-buy is appropriate when all candidates are materially unsafe, poor fits, over budget under a hard cap, unsupported by adequate evidence, unavailable in the selected region, or too conflicted to recommend responsibly.
-- No-strong-buy should include actionable next steps, such as changing budget, broadening constraints, waiting for better evidence, checking safer retailers, or adding more candidates.
-- No-strong-buy is not an error state. It is a valid decision outcome.
-- Tests should enforce that final output cannot contain both an unqualified best pick and a no-strong-buy outcome.
-
-### Red Flags And Warnings
-
-- Red flags should be reserved for material concerns that can affect purchase safety or recommendation quality.
-- Red flags include suspicious seller/listing signals, extreme price outliers, unclear warranty/returns, region mismatch, likely counterfeit or misleading listing, critical missing product feature, material evidence conflict, or weak evidence for a high-impact claim.
-- Warnings should be visible in the result bundle and linked to affected products/listings and source evidence where possible.
-- Do not add generic warnings solely to fill a UI section.
-- A blocking concern should prevent a listing from being the safe final purchase option even if the product itself ranks highly.
-- Recommendation assembly should convert material listing-trust assessments into
-  listing-level warnings or rejections. A suspicious final listing must become a
-  no-strong-buy outcome or be replaced by a safer listing for the same product.
-  Shared verification checks every explicit recommended offer before model
-  review and after approved revisions. An alternate above a comparable hard cap
-  blocks the draft even when the primary offer is within budget. Preferred-budget
-  stretch rules and unknown or different-currency prices retain their existing
-  behavior.
+The model recommends by default. It may discourage a purchase for strong adverse information and suggest useful alternatives. Missing reviews, citations, seller metadata or price cannot alone erase options. A specific warning retains its product or offer scope. Technical failures use retryable failed runs rather than buying judgments. No-option results carry the model's own reason.
 
 ### Conditional Why-Not Output
 
 - Rejected-item or "why not" output should appear only when there is a meaningful negative reason.
-- Meaningful reasons must be explicit in structured output. MVP avoid reason codes cover suspicious listing, poor fit for stated constraints, overpaying or hard-budget violation, missing critical feature, and materially weak evidence.
+- Meaningful reasons must be explicit in structured output. MVP avoid reason codes cover suspicious listing, poor fit for stated constraints, material overpaying, unsuitable products and meaningful adverse findings.
 - Duplicate/near-duplicate inferior listings, region unavailability, or better equivalent alternatives may be represented only when they map to one of the explicit avoid reason codes or a later schema expansion adds a specific code.
 - Ordinary non-winning candidates do not need forced negative explanations.
 - The result schema should allow rejected items to be absent or empty.
@@ -878,7 +823,12 @@ constructs a fixed backend-owned `yt-dlp` argument list, requests manual
 subtitles before automatic captions, and never downloads video or audio. It
 ignores user yt-dlp configuration, disables plugins and remote EJS components,
 uses the configured Deno runtime, bounds subprocess time/output/temp storage,
-and always removes its temporary directory. WebVTT parsing is deterministic and
+and always removes its temporary directory. The runner receives the existing
+`temp_storage_limit_bytes` alongside timeout and output bounds, samples disk
+usage every 10 ms, and stops/reaps owned writers before cleanup. POSIX runs
+use a separate process group so cancellation and failures also stop descendants.
+Sampled enforcement permits growth during one poll plus scheduling and
+termination delay; it is not a hard filesystem quota. WebVTT parsing is deterministic and
 preserves language and timestamps while removing duplicate rolling-caption
 text. Missing dependencies, unavailable or restricted captions, rate limits,
 challenge failures, and other provider failures become sanitized explicit gaps;
@@ -974,144 +924,65 @@ Tavily is the implemented live general search adapter. Brave remains reserved
 without a runtime adapter. SerpApi is optional and used only for Amazon product
 intelligence.
 
-Source policy:
+Source policy prefers official manufacturer pages, company announcements and
+region-relevant sources while keeping reviews optional. Unknown domains,
+reseller platforms and mixed marketplaces remain usable through approved access
+paths. Product, seller, regional and variant contexts remain distinguishable.
+Actual material concerns inform model judgment without an automatic exclusion.
 
-- Prefer official manufacturer pages, established retailers, reputable review sources, and region-relevant retailers.
-- Exclude reseller-only platforms initially.
-- Allow mixed marketplaces only when seller/listing legitimacy can be meaningfully assessed.
-- Preserve source evidence and conflicts rather than flattening incompatible claims.
-- Do not recommend a listing merely because it matches the query; source quality and buyer safety are part of candidacy.
+`apps/backend/app/providers/source_quality.py` normalizes neutral URLs and
+classifies source domains. It returns advisory quality, region relevance and
+reasons. Historical exclusion and mandatory-trust fields no longer discard
+usable research or options. Query planning preserves useful results and stores
+advisory metadata for later model context.
 
-The current source-policy implementation lives in
-`apps/backend/app/providers/source_quality.py`. It normalizes source URLs and
-removes common affiliate/tracking parameters, classifies the project-owner
-approved seed domains, and returns separate fields for source quality,
-exclusion, listing-trust requirements, region relevance, and human-readable
-reasons. Its domain/source class is a policy/quality signal, not a semantic
-page classification or extraction eligibility verdict. Domain quality never substitutes for offer quality: marketplace and
-mixed-retailer listings remain trust-required, Amazon remains listing-specific,
-Reddit and other communities remain qualitative, and IKEA price/stock evidence
-is strong only on the matching country or region path. Unknown sources are not
-automatically excluded. Query planning now applies the scorer to provider search
-results before persistence, filters sources explicitly excluded by policy, and
-records source class, region relevance, and listing-trust requirements in
-provider metadata for later stages.
+## Recommendation principles
 
-## Recommendation Principles
-
-CartCart should distinguish product quality from listing trust. A good product sold through a suspicious listing should not become a safe recommendation.
-
-Recommendations should support:
-
-- One best pick or an explicit no-strong-buy outcome with next-step guidance.
-- Runner-ups.
-- Best value, within-budget, and stretch modes when supported by the same analysis pass.
-- Budget semantics that distinguish hard caps from preferences.
-- Material warnings and red flags.
-- Rejected or "why not" output only when there is a meaningful negative reason.
-- Source-backed factual claims with confidence and evidence quality represented separately.
+Recommend by default from available information and buyer preferences. Give useful
+distinct options with concise reasons, practical tradeoffs and relevant unknowns.
+A final winner, mode records, citations and checked offers are optional. The model
+weighs actual adverse findings and buyer requirements. Source quality and seller
+trust inform judgment without deciding eligibility. Budgets inform the model,
+including known currency and over-budget amount when comparable.
 
 ### Processed research views
 
-`research_history.py` owns invocation-scoped original tool views and explicit
-processing checkpoints. Large unprocessed results remain in SDK history. Once
-exact useful facts are validated against the original view, preparation can
-replace bulk with those facts, caution/gap state, identities and a bounded
-reread reference. Source originals remain in existing repositories or validated
-run-local owner-bundle state. Compatible handoffs share completed research;
-nested source transcripts remain local and returned bundles stay bounded.
-`model_input_projection.py` scopes downstream inputs and deduplicates identical
-source metadata without changing canonical evidence or public schemas.
-General, Technology and eligible specialist ownership remains unchanged.
+`research_history.py` keeps invocation-scoped originals and processing checkpoints.
+Bounded derived views retain identities, useful source notes, cautions, gaps and
+original lookup handles. Notes may paraphrase originals and are labeled as notes.
+Exact quotation metadata is diagnostic; it cannot veto a recommendation or retry.
+Canonical sources stay in existing repositories. SDK call/output pairs and
+ownership transfers remain intact. No extra summarizer agent or evidence store
+is introduced.
 
-Owner completion rejects explicit unsupported safety, seller-legitimacy and
-local-warranty assurances over relevant unreviewed or conflicting support.
-The technical `unreviewed_research` outcome does not trigger recovery. Tool
-exhaustion belongs to the issuing owner; a fresh handoff retains its own quota.
+### Automatic request fitting and research selection
 
-## Automatic request fitting and research selection
+`BudgetedModel` measures the complete request and reserves transport usage.
+Deterministic archives and bounded original views shorten reducible inputs.
+Required buyer state, identity, SDK pairs and result contracts remain intact.
+Irreducible input or cumulative-spending failures are technical errors.
+Before research reaches its operational allowance, tools and handoffs close and
+the model synthesizes advice from available snippets, pages and source notes.
+Task 216 removes the funded quote-capture and follow-up-fetch phases.
 
-Task 213 keeps request fitting in `BudgetedModel`, which owns complete input
-estimates and transport reservations. `CompactionPlan` projects reducible fields
-with exact excerpts and scoped original handles. Required buyer state, SDK pairs,
-identity edges, quotes and final recommendation bundles stay exact. Task 214 replaces paid span selection with deterministic whole-exchange
-rotation and bounded original views. Complete old call/output batches and their
-reasoning/messages move to same-invocation exact archives. Recent batches and
-unmatched calls remain. A derived checkpoint preserves support identities,
-cautions and unresolved coverage. Emergency fitting can retire the remaining
-complete batches while keeping canonical records and scoped rereads. Scoped lookup is an internal capability of bounded model
-roles, not a new source agent. Model names still come from environment settings.
+`ResearchSelection` shares buyer-scoped leads across compatible owners. It ranks
+relevance and novelty, preserves contrary information and supports bounded
+shortlists and deferred lookup. Review counts, exact facts and quoted coverage
+are not completion or recommendation prerequisites. Domain labels and quality
+scores are advisory. URL/access protections and provider limits remain.
 
-`ResearchSelection` belongs to shared `ResearchRunState`. It holds the immutable
-buyer brief, open evidence needs, original leads, selection decisions and exact
-quoted coverage. Provider adapters enforce URL policy and persist originals; the
-selector ranks useful/novel leads and protects material contrary support. Handoffs
-share the plan through existing same-run ownership. No-brief consumers retain
-bounded provider-order paging. The owner hierarchy and broad generic fallback
-remain unchanged.
+### Saved decisions and retries
 
-Automatic projection does not mark omitted support reviewed. Citation admission
-checks canonical page spans and text actually exposed to the owner after
-shortening. Limited owner decisions retain their technical research limitation
-and reviewed support through independent verification and persistence.
+Eligible retries claim the saved run atomically and reuse its owner checkpoints,
+research and candidate artifacts. They preserve canonical identities, old events
+and immutable result versions. The request/brief must remain compatible, and a
+second active retry is rejected. The final owner call uses saved information
+without research tools. Refinement decisions reuse the applicable research run
+when the saved plan permits it. Model failures remain retryable technical errors.
+They do not become a no-option buying judgment.
 
-Task 214 keeps the actual native `response.output` groups in invocation-only
-transport state. This permits hosted-only responses to retire with their
-reasoning. Pending function calls pin their native group. Final completion
-planning measures a fitted tool-free packet; capture reserves that measured
-cost against both ledgers. The actual SDK callback enforces the one existing
-source fetch. A bounded quote phase prevents read-only capture loops.
-
-Discovery prioritizes dated official announcements and useful official product
-pages. Independent reviews are optional. Substantive official product facts
-can support a qualified product suggestion. Store pages serve checked regional
-purchase details. Navigation, setup and shipping copy is a dead end requiring a
-source switch. Publication dates remain distinct from release or event dates.
-
-Task214 owner-flow repair (2026-10-10): after the live General/Technology/product
-owner returns its draft, the orchestrator proceeds to persisted listing trust,
-canonical decision validation, independent verification and saving. It does not
-run a duplicate query/discovery/extraction/source/category pipeline whose answer
-would be ignored by the authoritative owner. Persisted owner products, listings
-and evidence are loaded for seller checks. Approved source specialists remain
-optional tools of the owner; generic-category ownership and fixture/refinement
-paths remain available. Basic phone research first seeks official current iPhone
-and Samsung facts, with relevant Oppo, Xiaomi or other manufacturer alternatives.
-Reviews, including substantive MKBHD content when accessible,
-are optional confidence improvements. Source titles alone are not review verdicts.
-
-The bounded discovery adapter classifies only inspected leads. Omitted persisted
-leads retain UNCERTAIN/confidence0/IGNORE-for-now decisions marked unreviewed;
-unknown, duplicate, excluded and unsupported selected IDs still fail validation.
-Its existing catalog UNCERTAIN_SOURCE fallback and tool permissions are unchanged.
-Exact citation validation accepts only an observed same-origin/query/path redirect
-that changes a trailing slash, with matching extraction source ID and redirect
-provenance; arbitrary redirected citations remain rejected.
-
-Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
-receives exact stored quote support, title, URL, offsets, hashes and bounded
-original context upfront. Canonical verification input survives compaction.
-At most two source rereads are allowed before a final report. Existing independent
-factual, seller and budget guardrails remain. The owner explicitly increased
-the local VerifierCriticAgent timeout from inherited60seconds to180seconds; all
-other configured models, reasoning, providers and context/spending limits remain.
-A processing timeout fails the check with a retryable error, rather than publishing
-a no-option buying judgment. Failed-read activity remains saved for diagnosis.
-
-POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
-atomically and resumes its decision/verification from persisted research. It
-preserves canonical IDs, old events and immutable result versions, requires an
-unchanged same-session request/region/brief, and rejects duplicate active retries.
-The synchronous response reports the final run status; the UI reads its matching
-result directly without replaying historical terminal SSE events. Future owner
-drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
-reconstruct a decision from revalidated exact saved support, with research tools
-disabled. They do not rerun intake or provider searches.
-
-The verifier uses a compact internal verdict. An unchanged decision returns a
-null recommendation bundle, which the backend reconstructs from its existing
-typed result before applying the public VerificationReport and strict
-postchecks. Revisions carry the changed bundle and audit reasons. Model, schema
-and source-loading failures retain safe classification and fail technically;
-they do not publish a no-option buying judgment. The runtime catalog retains
-the same public VerificationReport contract, tools, routes and source agents.
+`VerifierCriticAgent` remains an explicit optional workbench capability. It receives
+the saved bundle and supplied context, has no tools and cannot change the owner's
+choices or block advice. Its observations are editorial notes. The configured
+model/profile and authorized 180-second timeout remain available. Ordinary run,
+refinement and retry orchestration omit the verifier.

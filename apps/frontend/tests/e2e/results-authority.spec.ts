@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { SessionResultsResponse } from '../../src/lib/api/types.js';
 
-for (const variant of ['no modes', 'alternate only', 'product only', 'no strong buy', 'rowless runner-ups'] as const) {
+for (const variant of ['no modes', 'alternate only', 'product only', 'no strong buy', 'rowless runner-ups', 'uncited', 'no final'] as const) {
 	test(`preserves the saved decision with ${variant}`, async ({ page }) => {
 		await page.addInitScript(() => {
 			window.localStorage.setItem('cartcart.region', JSON.stringify({ status: 'refused' }));
@@ -11,12 +11,18 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 			const response = await route.fetch();
 			const result: SessionResultsResponse = await response.json();
 			const bundle = result.recommendation_bundle;
-			if (variant === 'alternate only') {
+			if (variant === 'alternate only' || variant === 'no final' || variant === 'uncited') {
 				bundle.mode_results = bundle.mode_results.filter((mode) => mode.mode === 'best_value');
 			} else {
 				bundle.mode_results = [];
 			}
 			if (variant === 'product only') bundle.final_listing_id = null;
+		if (variant === 'no final') { bundle.final_product_id = null; bundle.final_listing_id = null; }
+		if (variant === 'uncited') {
+			result.source_evidence = []; result.source_snapshots = []; result.source_results = [];
+			bundle.evidence_ids = []; bundle.source_ids = [];
+			bundle.mode_results = bundle.mode_results.map((mode) => ({ ...mode, evidence_ids: [], source_ids: [] }));
+		}
 			if (variant === 'rowless runner-ups') {
 				const runnerIds = new Set(bundle.runner_up_product_ids);
 				bundle.comparison_matrix.rows = bundle.comparison_matrix.rows.filter((row) => !runnerIds.has(row.product_id));
@@ -27,6 +33,8 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 				bundle.final_listing_id = null;
 				bundle.final_rationale = null;
 				bundle.no_strong_buy = true;
+				bundle.primary_product_ids = [];
+			bundle.runner_up_product_ids = [];
 				bundle.no_strong_buy_reason = 'The available evidence does not support a strong buy.';
 			}
 			saved = result;
@@ -39,44 +47,41 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 		await page.getByRole('button', { name: 'Skip all', exact: true }).click();
 		await expect(page.getByRole('button', { name: 'Refine this decision', exact: true })).toBeVisible();
 		if (!saved) throw new Error('The saved fixture result was not loaded.');
-		const summary = page.getByRole('region', { name: 'Recommendation summary', exact: true });
+		const options = page.getByRole('region', { name: 'Recommended options', exact: true });
 		if (variant === 'no strong buy') {
-			await expect(page.getByRole('heading', { name: 'None are strong buys yet.' })).toBeVisible();
-			await expect(summary.getByRole('heading', { level: 2 })).toHaveCount(0);
-			await expect(page.getByRole('tab')).toHaveCount(0);
+			await expect(page.getByRole('heading', { name: 'No suitable option to suggest yet.' })).toBeVisible();
+			await expect(options.getByRole('heading', { level: 2 })).toHaveCount(0);
 		} else {
-			const final = saved.products.find((item) => item.product_id === saved?.recommendation_bundle.final_product_id);
-			if (!final) throw new Error('The fixture final product is missing.');
-			await expect(summary.getByRole('heading', { level: 2, name: final.name, exact: true })).toBeVisible();
-			await expect(summary).toContainText('Dell UltraSharp U2724DE is the best pick because it balances monitor fit, USB-C convenience, evidence quality, and a trustworthy official listing.');
-			if (variant === 'product only') {
-				await expect(summary.getByRole('link', { name: 'View listing' })).toHaveCount(0);
-				await expect(summary).toContainText('Seller details unavailable');
-			} else {
-				const listing = saved.listings.find((item) => item.listing_id === saved?.recommendation_bundle.final_listing_id);
-				if (!listing) throw new Error('The fixture final listing is missing.');
-				await expect(summary).toContainText(listing.seller.seller_name);
-				await expect(summary.getByRole('link', { name: 'View listing' })).toHaveAttribute('href', listing.canonical_url ?? listing.url);
+			if (variant !== 'no final') {
+				const final = saved.products.find((item) => item.product_id === saved?.recommendation_bundle.final_product_id);
+				if (!final) throw new Error('The fixture final product is missing.');
+				await expect(options.getByRole('heading', { level: 2, name: final.name, exact: true })).toBeVisible();
+				const card = options.locator('article').filter({ has: page.getByRole('heading', { level: 2, name: final.name, exact: true }) });
+				if (variant === 'product only') {
+					await expect(card.getByRole('link', { name: 'View listing' })).toHaveCount(0);
+					await expect(card).not.toContainText('Check the current price, availability and seller before buying.');
+					if (saved.recommendation_bundle.final_rationale) await expect(page.locator('main')).toContainText(saved.recommendation_bundle.final_rationale);
+				} else {
+					const listing = saved.listings.find((item) => item.listing_id === saved?.recommendation_bundle.final_listing_id);
+					if (listing) await expect(card).toContainText(listing.seller.seller_name);
+				}
 			}
-			if (variant === 'alternate only') {
-				const mode = saved.recommendation_bundle.mode_results[0];
-				const alternate = saved.products.find((item) => item.product_id === mode?.product_id);
-				if (!alternate) throw new Error('The fixture alternate product is missing.');
-				await page.getByRole('tab', { name: 'Best value', exact: true }).click();
-				await expect(summary.getByRole('heading', { level: 2, name: alternate.name, exact: true })).toBeVisible();
-				await page.getByRole('tab', { name: 'Best overall', exact: true }).click();
-				await expect(summary.getByRole('heading', { level: 2, name: final.name, exact: true })).toBeVisible();
+			const primaryIds = saved.recommendation_bundle.primary_product_ids
+				?? [saved.recommendation_bundle.final_product_id].filter((id): id is string => id !== null && id !== undefined);
+			await expect(options.getByRole('heading', { level: 2 })).toHaveCount(primaryIds.length);
+			for (const id of primaryIds) {
+				const product = saved.products.find((item) => item.product_id === id);
+				if (!product) throw new Error('A saved primary product is missing.');
+				await expect(options.getByRole('heading', { level: 2, name: product.name, exact: true })).toBeVisible();
 			}
-		}
-		await page.getByRole('button', { name: 'Supporting details', exact: true }).click();
-		const runners = page.locator('section[aria-labelledby="runner-ups-title"]');
-		for (const id of saved.recommendation_bundle.runner_up_product_ids) {
-			const product = saved.products.find((item) => item.product_id === id);
-			if (!product) throw new Error('A saved fixture runner-up is missing.');
-			await expect(runners).toContainText(product.name);
-			if (variant === 'rowless runner-ups') {
-				await expect(runners.getByRole('link', { name: `Open listing for ${product.name}`, exact: true })).toHaveCount(0);
+			const runners = page.getByRole('region', { name: 'Runners-up', exact: true });
+			await expect(runners.getByRole('heading', { level: 3 })).toHaveCount(saved.recommendation_bundle.runner_up_product_ids.length);
+			for (const id of saved.recommendation_bundle.runner_up_product_ids) {
+				const product = saved.products.find((item) => item.product_id === id);
+				if (!product) throw new Error('A saved runner-up product is missing.');
+				await expect(runners.getByRole('heading', { level: 3, name: product.name, exact: true })).toBeVisible();
 			}
+
 		}
 	});
 }

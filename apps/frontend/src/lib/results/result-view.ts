@@ -1,5 +1,6 @@
 import type {
 	EntityId,
+	Money,
 	RecommendationMode,
 	RecommendationModeResult,
 	RejectedItem,
@@ -7,6 +8,7 @@ import type {
 	SessionResultsResponse,
 	SourceEvidence,
 	SourceSnapshot,
+	SearchSourceResult,
 } from '$lib/api/types.js';
 
 export interface EvidenceView {
@@ -22,6 +24,7 @@ export interface EvidenceView {
 	sourceUrl: string | null;
 	timestampLabels: string[];
 	metadata: string[];
+	disclosures: string[];
 }
 
 export interface SourceView {
@@ -37,6 +40,7 @@ export interface SourceView {
 	extractionStatus: string;
 	capturedLabel: string;
 	evidence: EvidenceView[];
+	snippet?: string | null;
 }
 
 export interface ModeView {
@@ -47,11 +51,14 @@ export interface ModeView {
 	listingTitle: string | null;
 	sellerName: string | null;
 	priceLabel: string | null;
+	budgetNote: string | null;
 	purchaseUrl: string | null;
 	productUrl: string | null;
 	productId: EntityId;
 	listingId: EntityId | null;
 	rationale: string;
+	tradeoffs: string[];
+	unknowns: string[];
 	confidence: string;
 	listingTrust: TrustView | null;
 	evidence: EvidenceView[];
@@ -158,6 +165,13 @@ const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
 	weak_evidence: 'Weak evidence',
 };
 
+type BudgetComparison =
+	| { kind: 'unavailable' }
+	| { kind: 'unknown_price'; requestedLabel: string }
+	| { kind: 'incomparable'; requestedLabel: string }
+	| { kind: 'within_budget'; requestedLabel: string }
+	| { kind: 'over_budget'; requestedLabel: string; overLabel: string };
+
 const MEANINGFUL_REJECTION_REASONS = new Set<RejectionReason>(
 	Object.keys(REJECTION_REASON_LABELS) as RejectionReason[],
 );
@@ -171,15 +185,41 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 	const evidenceViews = result.source_evidence.map((evidence) =>
 		toEvidenceView(evidence, sourceById.get(evidence.source_id)),
 	);
-	const sourceViews = result.source_snapshots.map((source) =>
+	const referencedSourceIds = new Set([
+		...(result.recommendation_bundle.source_ids ?? []),
+		...(result.recommendation_bundle.mode_results ?? []).flatMap((mode) => mode.source_ids ?? []),
+		...result.recommendation_bundle.rejected_items.flatMap((item) => item.source_ids),
+		...result.source_evidence.map((evidence) => evidence.source_id),
+		...result.products.flatMap((product) => product.source_ids),
+		...result.listings.flatMap((listing) => listing.source_ids),
+		...result.category_analyses.flatMap((analysis) => analysis.source_ids ?? []),
+		...result.trust_assessments.flatMap((trust) => trust.source_ids),
+	]);
+	const snapshotUrls = new Set(result.source_snapshots.map((source) => sourceIdentity({ id: source.source_id, url: source.url })));
+	const rawSourceViews = [...result.source_snapshots.map((source) =>
 		toSourceView(
 			source,
 			result.source_evidence
 				.filter((evidence) => evidence.source_id === source.source_id)
 				.map((evidence) => toEvidenceView(evidence, source)),
 		),
-	);
-	const sourceViewById = new Map(sourceViews.map((source) => [source.id, source]));
+	), ...(result.source_results ?? []).filter((source) => {
+		const raw = source.provider.raw;
+		const metadata = typeof raw === 'object' && raw !== null && 'research_selection' in raw
+			? raw.research_selection : null;
+		const status = typeof metadata === 'object' && metadata !== null && 'status' in metadata
+			? metadata.status : null;
+		return !['deferred', 'rejected'].includes(typeof status === 'string' ? status : '')
+			|| referencedSourceIds.has(source.source_id)
+			|| snapshotUrls.has(sourceIdentity({ id: source.source_id, url: source.url }));
+	}).map(toSearchSourceView)];
+	const sourceViews = dedupeSources(rawSourceViews);
+	const sourceViewByUrl = new Map(sourceViews.map((source) => [sourceIdentity(source), source]));
+	const sourceViewById = new Map<EntityId, SourceView>();
+	for (const source of rawSourceViews) {
+		const combined = sourceViewByUrl.get(sourceIdentity(source));
+		if (combined) sourceViewById.set(source.id, combined);
+	}
 	const trustViews = result.trust_assessments.map((trust) =>
 		toTrustView(trust, evidenceById, sourceById, sourceViewById),
 	);
@@ -196,37 +236,29 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 			sourceById,
 			sourceViewById,
 			trustViewByListingId,
+			result.shopping_brief,
 		);
-	const modeViews = result.recommendation_bundle.mode_results.map(projectMode);
+	const modeViews = (result.recommendation_bundle.mode_results ?? []).map(projectMode);
 	const finalRecommendation = buildFinalRecommendation(result);
 	const finalMode = finalRecommendation ? projectMode(finalRecommendation) : null;
 	const resultEvidence = mapEvidence(result.recommendation_bundle.evidence_ids, evidenceById, sourceById);
 	const resultSources = mapSources(
 		[
-			...result.recommendation_bundle.source_ids,
+			...(result.recommendation_bundle.source_ids ?? []),
 			...resultEvidence.map((evidence) => evidence.sourceId),
 		],
 		sourceViewById,
 	);
 
 	const decisionModes = findDecisionModes(modeViews, finalMode);
-	const runnerUps = dedupeModes(buildRunnerUpRecommendations(result).map(projectMode));
-	const seenProducts = new Set<EntityId>();
-	const recommendedOptions = result.recommendation_bundle.no_strong_buy || !finalMode ? [] : [
-		...(finalMode ? [finalMode] : []), ...runnerUps, ...decisionModes,
-	].filter((mode) => {
-		const supported = mode.evidence.some((item) => {
-			const target = evidenceById.get(item.id)?.target;
-			return target?.product_id === mode.productId ||
-				(mode.listingId !== null && target?.listing_id === mode.listingId) ||
-				(target?.target_type === 'source_metadata' && sourceById.has(item.sourceId) &&
-					productById.get(mode.productId)?.source_ids.includes(item.sourceId));
-		});
-		if (!productById.has(mode.productId) || !supported || mode.listingTrust?.isBlocking ||
-			!mode.rationale.trim() || seenProducts.has(mode.productId)) return false;
-		seenProducts.add(mode.productId);
-		return true;
-	}).slice(0, 3);
+	const groups = recommendationGroups(result);
+	const recommendedOptions = groups.primary.map((productId) =>
+		projectMode(productId === finalRecommendation?.product_id
+			? finalRecommendation : buildProductRecommendation(result, productId, 'best_overall')),
+	);
+	const runnerUps = groups.runners.map((productId) =>
+		projectMode(buildProductRecommendation(result, productId, 'runner_up')),
+	);
 
 	return {
 		versionLabel: `v${result.result_version.version}`,
@@ -235,9 +267,9 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 		recommendedOptions,
 		resultEvidence,
 		resultSources,
-		noStrongBuyReason: result.recommendation_bundle.no_strong_buy
+		noStrongBuyReason: result.recommendation_bundle.no_strong_buy && !recommendedOptions.length && !runnerUps.length
 			? shopperSafeText(
-				result.recommendation_bundle.no_strong_buy_reason ?? 'No suitable option is confirmed yet.',
+				result.recommendation_bundle.no_strong_buy_reason ?? 'No suitable option to suggest yet.',
 				)
 			: null,
 		whyItWins: shopperSafeOptionalText(
@@ -329,7 +361,7 @@ function buildComparisonProducts(
 			manual: Boolean(manual),
 			criteria: matrix.criteria.map((criterion) => ({
 				name: shopperSafeText(criterion.name),
-				value: row && evidence.length > 0 && typeof row.scores[criterion.name] === 'number'
+				value: row && typeof row.scores[criterion.name] === 'number'
 					? scoreLabel(row.scores[criterion.name]) : 'Unknown',
 			})),
 			summary: row?.summary ? shopperSafeText(row.summary) : null,
@@ -351,11 +383,13 @@ export function modeLabel(mode: RecommendationMode): string {
 }
 
 export function selectModeView(view: ResultView, selectedKey: string | null): ModeView | null {
-	if (!view.finalMode || view.noStrongBuyReason) return null;
-	if (!selectedKey) return view.finalMode;
+	const defaultMode = view.finalMode ?? view.recommendedOptions[0] ?? null;
+	if (!selectedKey) return defaultMode;
 	return (
 		view.decisionModes.find((mode) => mode.key === selectedKey) ??
-		view.finalMode
+		view.modeViews.find((mode) => mode.key === selectedKey) ??
+		view.recommendedOptions.find((mode) => mode.key === selectedKey) ??
+		defaultMode
 	);
 }
 
@@ -372,11 +406,10 @@ export function scoreLabel(score: number | null | undefined): string {
 function buildFinalRecommendation(result: SessionResultsResponse): RecommendationModeResult | null {
 	const bundle = result.recommendation_bundle;
 	const productId = bundle.final_product_id;
-	if (bundle.no_strong_buy || !productId || !result.products.some((product) => product.product_id === productId)) return null;
+	if (!productId) return null;
 	const listingId = bundle.final_listing_id ?? null;
-	const matchingBestOverall = bundle.mode_results.find(
+	const matchingFinalMode = (bundle.mode_results ?? []).find(
 		(mode) =>
-			mode.mode === 'best_overall' &&
 			mode.product_id === productId &&
 			(mode.listing_id ?? null) === listingId,
 	);
@@ -385,65 +418,85 @@ function buildFinalRecommendation(result: SessionResultsResponse): Recommendatio
 		(item) => item.product_id === productId && (item.listing_id ?? null) === listingId,
 	);
 	return {
-		mode: 'best_overall',
+		mode: matchingFinalMode?.mode ?? 'best_overall',
 		product_id: productId,
 		listing_id: listingId,
-		title: matchingBestOverall?.title ?? modeLabel('best_overall'),
-		rationale: bundle.final_rationale ?? matchingBestOverall?.rationale ?? '',
-		confidence: matchingBestOverall?.confidence ?? analysis?.confidence ?? { level: 'unknown' },
+		title: matchingFinalMode?.title ?? modeLabel('best_overall'),
+		rationale: matchingFinalMode?.rationale ?? bundle.final_rationale ?? '',
+		tradeoffs: matchingFinalMode?.tradeoffs ?? analysis?.weaknesses ?? [],
+		unknowns: matchingFinalMode?.unknowns ?? [],
+		confidence: matchingFinalMode?.confidence ?? analysis?.confidence ?? { level: 'unknown' },
 		evidence_ids: [...new Set([
-			...bundle.evidence_ids,
-			...(matchingBestOverall?.evidence_ids ?? []),
+			...(bundle.evidence_ids ?? []),
+			...(matchingFinalMode?.evidence_ids ?? []),
 			...(row?.evidence_ids ?? []),
 			...(analysis?.evidence_ids ?? []),
 		])],
 		source_ids: [...new Set([
-			...bundle.source_ids,
-			...(matchingBestOverall?.source_ids ?? []),
+			...(bundle.source_ids ?? []),
+			...(matchingFinalMode?.source_ids ?? []),
 			...(analysis?.source_ids ?? []),
 		])],
 	};
 }
 
-function buildRunnerUpRecommendations(result: SessionResultsResponse): RecommendationModeResult[] {
+function recommendationGroups(result: SessionResultsResponse): { primary: EntityId[]; runners: EntityId[] } {
 	const bundle = result.recommendation_bundle;
-	const runnerIds = new Set([
-		...bundle.runner_up_product_ids,
-		...bundle.mode_results.filter((mode) => mode.mode === 'runner_up').map((mode) => mode.product_id),
+	const knownProducts = new Set(result.products.map((product) => product.product_id));
+	const uniqueKnown = (ids: EntityId[]) => [...new Set(ids)].filter((id) => knownProducts.has(id));
+	if (bundle.primary_product_ids != null) {
+		const primary = uniqueKnown(bundle.primary_product_ids).slice(0, 3);
+		const primaryIds = new Set(primary);
+		return {
+			primary,
+			runners: uniqueKnown(bundle.runner_up_product_ids ?? []).filter((id) => !primaryIds.has(id)).slice(0, 2),
+		};
+	}
+	const modes = bundle.mode_results ?? [];
+	const runners = uniqueKnown([
+		...(bundle.runner_up_product_ids ?? []),
+		...modes.filter((mode) => mode.mode === 'runner_up').map((mode) => mode.product_id),
 	]);
-	return [...runnerIds].flatMap((productId) => {
-		if (productId === bundle.final_product_id || !result.products.some((product) => product.product_id === productId)) return [];
-		const savedModes = bundle.mode_results.filter((mode) => mode.product_id === productId);
-		if (savedModes.length) return savedModes;
-		const rows = result.comparison_matrix.rows.filter((item) => item.product_id === productId);
-		const listingIds = new Set(rows.map((item) => item.listing_id ?? null));
-		const analysis = result.category_analyses.find((item) => item.product_id === productId);
-		return [{
-			mode: 'runner_up',
-			product_id: productId,
-			listing_id: listingIds.size === 1 ? [...listingIds][0] ?? null : null,
-			title: modeLabel('runner_up'),
-			rationale: (rows.length === 1 ? rows[0]?.summary : null) ?? analysis?.fit_summary ?? '',
-			confidence: analysis?.confidence ?? { level: 'unknown' },
-			evidence_ids: [...new Set([...rows.flatMap((row) => row.evidence_ids), ...(analysis?.evidence_ids ?? [])])],
-			source_ids: analysis?.source_ids ?? [],
-		} satisfies RecommendationModeResult];
-	});
+	const runnerIds = new Set(runners);
+	const primary = uniqueKnown([
+		...(bundle.final_product_id ? [bundle.final_product_id] : []),
+		...modes.filter((mode) => mode.mode !== 'runner_up' && !runnerIds.has(mode.product_id)).map((mode) => mode.product_id),
+	]).slice(0, 3);
+	if (!primary.length && runners[0]) primary.push(runners[0]);
+	const primaryIds = new Set(primary);
+	return { primary, runners: runners.filter((id) => !primaryIds.has(id)).slice(0, 2) };
+}
+
+function buildProductRecommendation(
+	result: SessionResultsResponse,
+	productId: EntityId,
+	defaultMode: RecommendationMode,
+): RecommendationModeResult {
+	const savedModes = (result.recommendation_bundle.mode_results ?? []).filter((mode) => mode.product_id === productId);
+	const savedMode = savedModes.find((mode) => defaultMode === 'runner_up' ? mode.mode === 'runner_up' : mode.mode !== 'runner_up') ?? savedModes[0];
+	if (savedMode) return savedMode;
+	const rows = result.comparison_matrix.rows.filter((item) => item.product_id === productId);
+	const listingIds = new Set(rows.map((item) => item.listing_id ?? null));
+	const analysis = result.category_analyses.find((item) => item.product_id === productId);
+	return {
+		mode: defaultMode,
+		product_id: productId,
+		listing_id: listingIds.size === 1 ? [...listingIds][0] ?? null : null,
+		title: defaultMode === 'runner_up' ? modeLabel('runner_up') : 'Recommended option',
+		rationale: (rows.length === 1 ? rows[0]?.summary : null) ?? analysis?.fit_summary ?? '',
+		tradeoffs: analysis?.weaknesses ?? [],
+		unknowns: [],
+		confidence: analysis?.confidence ?? { level: 'unknown' },
+		evidence_ids: [...new Set([...rows.flatMap((row) => row.evidence_ids ?? []), ...(analysis?.evidence_ids ?? [])])],
+		source_ids: analysis?.source_ids ?? [],
+	};
 }
 
 function findDecisionModes(modes: ModeView[], finalMode: ModeView | null): ModeView[] {
-	if (!finalMode) return [];
-	return [finalMode, ...modes.filter((mode) => mode.mode !== 'runner_up' && mode.mode !== 'best_overall')];
-}
-
-function dedupeModes(modes: ModeView[]): ModeView[] {
-	const seen = new Set<string>();
-	return modes.filter((mode) => {
-		const key = resultKey(mode.productId, mode.listingId);
-		if (seen.has(key)) return false;
-		seen.add(key);
-		return true;
-	});
+	return [
+		...(finalMode ? [finalMode] : []),
+		...modes.filter((mode) => mode.mode !== 'runner_up' && (!finalMode || mode.mode !== 'best_overall')),
+	];
 }
 
 function toModeView(
@@ -454,38 +507,70 @@ function toModeView(
 	sourceById: Map<EntityId, SourceSnapshot>,
 	sourceViewById: Map<EntityId, SourceView>,
 	trustViewByListingId: Map<EntityId, TrustView>,
+	brief: SessionResultsResponse['shopping_brief'],
 ): ModeView {
 	const evidence = mapEvidence(mode.evidence_ids, evidenceById, sourceById);
 	const sources = mapSources(
-		[...mode.source_ids, ...evidence.map((item) => item.sourceId)],
+		[...(mode.source_ids ?? []), ...evidence.map((item) => item.sourceId)],
 		sourceViewById,
 	);
-	const productSource = mode.evidence_ids.flatMap((id) => {
-		const item = evidenceById.get(id);
-		if (!item || !(item.target.product_id === mode.product_id ||
-			(item.target.target_type === 'source_metadata' && product?.source_ids.includes(item.source_id)))) return [];
-		const source = sourceById.get(item.source_id);
-		return source?.source_type.startsWith('official') ? [source] : [];
-	})[0];
+	const productSources = mapSources(product?.source_ids ?? [], sourceViewById);
+	const productSource = productSources.find((source) => source.type.startsWith('official')) ?? productSources[0];
 	const listingTrust = mode.listing_id ? trustViewByListingId.get(mode.listing_id) ?? null : null;
+	const budget = compareBudget(brief?.budget?.amount, listing?.price);
+	const label = mode.mode === 'within_budget' && budget.kind !== 'within_budget'
+		? 'Recommended option' : mode.title || modeLabel(mode.mode);
 	return {
 		key: `${mode.mode}:${resultKey(mode.product_id, mode.listing_id ?? null)}`,
 		mode: mode.mode,
-		label: shopperSafeText(mode.title || modeLabel(mode.mode)),
-		productName: shopperSafeText(product?.name ?? mode.title ?? modeLabel(mode.mode)),
+		label: shopperSafeText(label),
+		productName: shopperSafeText(product?.name ?? label),
 		listingTitle: listing ? shopperSafeText(listing.title) : null,
 		sellerName: listing ? shopperSafeText(listing.seller.seller_name) : null,
 		priceLabel: listing?.price ? moneyLabel(listing.price.amount, listing.price.currency) : null,
+		budgetNote: budgetNote(budget),
 		purchaseUrl: neutralOutboundUrl(listing?.canonical_url ?? listing?.url),
 		productUrl: neutralOutboundUrl(productSource?.url),
 		productId: mode.product_id,
 		listingId: mode.listing_id ?? null,
 		rationale: shopperSafeText(mode.rationale),
+		tradeoffs: (mode.tradeoffs ?? []).map(shopperSafeText),
+		unknowns: (mode.unknowns ?? []).map(shopperSafeText),
 		confidence: confidenceLabel(mode.confidence.level, mode.confidence.score),
 		listingTrust,
 		evidence,
 		sources,
 	};
+}
+
+function compareBudget(
+	requested: Money | undefined,
+	price: SessionResultsResponse['listings'][number]['price'],
+): BudgetComparison {
+	if (!requested) return { kind: 'unavailable' };
+	const cap = Number(requested.amount);
+	if (!Number.isFinite(cap) || cap <= 0) return { kind: 'unavailable' };
+	const requestedLabel = moneyLabel(requested.amount, requested.currency);
+	const amount = price ? Number(price.amount) : Number.NaN;
+	if (!price || !Number.isFinite(amount) || amount < 0) return { kind: 'unknown_price', requestedLabel };
+	if (price.currency !== requested.currency) return { kind: 'incomparable', requestedLabel };
+	return amount <= cap
+		? { kind: 'within_budget', requestedLabel }
+		: { kind: 'over_budget', requestedLabel, overLabel: moneyLabel(amount - cap, requested.currency) };
+}
+
+function budgetNote(comparison: BudgetComparison): string | null {
+	switch (comparison.kind) {
+		case 'unavailable': return null;
+		case 'unknown_price': return null;
+		case 'incomparable': return null;
+		case 'within_budget': return null;
+		case 'over_budget': return `${comparison.overLabel} above the requested budget of ${comparison.requestedLabel}.`;
+		default: {
+			const exhaustive: never = comparison;
+			return exhaustive;
+		}
+	}
 }
 
 function toTrustView(
@@ -515,7 +600,7 @@ function toTrustView(
 		isBlocking: trust.level === 'suspicious',
 		isRisky: trust.level === 'suspicious' || trust.level === 'weak',
 		evidence,
-		sources: mapSources([...trust.source_ids, ...evidence.map((item) => item.sourceId)], sourceViewById),
+		sources: mapSources([...(trust.source_ids ?? []), ...evidence.map((item) => item.sourceId)], sourceViewById),
 	};
 }
 
@@ -539,7 +624,7 @@ function toRejectedView(
 		severity: item.severity,
 		reason: shopperSafeText(item.reason),
 		evidence,
-		sources: mapSources([...item.source_ids, ...evidence.map((record) => record.sourceId)], sourceViewById),
+		sources: mapSources([...(item.source_ids ?? []), ...evidence.map((record) => record.sourceId)], sourceViewById),
 	};
 }
 
@@ -575,6 +660,25 @@ function toSourceView(source: SourceSnapshot, evidence: EvidenceView[]): SourceV
 	};
 }
 
+function toSearchSourceView(source: SearchSourceResult): SourceView {
+	const url = neutralOutboundUrl(source.url);
+	return {
+		id: source.source_id,
+		title: shopperSafeText(source.title || source.url),
+		url,
+		displayUrl: displayUrl(url ?? source.url),
+		type: 'search_result',
+		typeLabel: 'Search result',
+		provider: providerName(source.provider),
+		quality: source.quality.level,
+		qualityLabel: sourceQualityLabel(source.quality.level, source.quality.score),
+		extractionStatus: 'Search snippet',
+		capturedLabel: 'Date unavailable',
+		snippet: source.snippet ? shopperSafeText(source.snippet) : null,
+		evidence: [],
+	};
+}
+
 function toEvidenceView(evidence: SourceEvidence, source: SourceSnapshot | SourceView | undefined): EvidenceView {
 	const sourceUrl = source && 'url' in source ? source.url : null;
 	return {
@@ -590,30 +694,31 @@ function toEvidenceView(evidence: SourceEvidence, source: SourceSnapshot | Sourc
 		sourceUrl: typeof sourceUrl === 'string' ? neutralOutboundUrl(sourceUrl) : sourceUrl,
 		timestampLabels: (evidence.timestamp_references ?? []).map(timestampLabel),
 		metadata: evidenceMetadata(evidence),
+		disclosures: evidenceDisclosures(evidence),
 	};
 }
 
 function mapEvidence(
-	ids: EntityId[],
+	ids: EntityId[] | undefined,
 	evidenceById: Map<EntityId, SourceEvidence>,
 	sourceById: Map<EntityId, SourceSnapshot>,
 ): EvidenceView[] {
-	return ids
+	return (ids ?? [])
 		.map((id) => evidenceById.get(id))
 		.filter((evidence): evidence is SourceEvidence => Boolean(evidence))
 		.map((evidence) => toEvidenceView(evidence, sourceById.get(evidence.source_id)));
 }
 
-function mapSources(ids: EntityId[], sourceViewById: Map<EntityId, SourceView>): SourceView[] {
+function mapSources(ids: EntityId[] | undefined, sourceViewById: Map<EntityId, SourceView>): SourceView[] {
 	const seen = new Set<EntityId>();
-	return ids
+	return dedupeSources((ids ?? [])
 		.filter((id) => {
 			if (seen.has(id)) return false;
 			seen.add(id);
 			return true;
 		})
 		.map((id) => sourceViewById.get(id))
-		.filter((source): source is SourceView => Boolean(source));
+		.filter((source): source is SourceView => Boolean(source)));
 }
 
 function buildWarningViews(
@@ -657,19 +762,23 @@ function buildWarningViews(
 		);
 	});
 	result.category_analyses.forEach((analysis) => {
+		const productName = result.products.find((product) => product.product_id === analysis.product_id)?.name;
 		analysis.warnings.forEach((warning, index) => {
 			appendWarning(
 				`analysis:${analysis.product_id}:${index}`,
-				warning,
+				productName ? `${productName}: ${warning}` : warning,
 				analysis.evidence_ids,
 				analysis.source_ids,
 			);
 		});
 	});
 	trustViews.forEach((trust) => {
+		const listing = result.listings.find((listing) => listing.listing_id === trust.listingId);
+		const label = listing?.title ?? listing?.seller.seller_name;
 		trust.redFlags.forEach((warning, index) => {
-			appendWarning(`trust:${trust.listingId}:${index}`, warning, [], []);
-			const existing = warnings.get(warning);
+			const text = label ? `${label}: ${warning}` : warning;
+			appendWarning(`trust:${trust.listingId}:${index}`, text, [], []);
+			const existing = warnings.get(shopperSafeText(text));
 			if (existing) {
 				existing.evidence = dedupeEvidence([...existing.evidence, ...trust.evidence]);
 				existing.sources = dedupeSources([...existing.sources, ...trust.sources]);
@@ -729,15 +838,7 @@ function evidenceMetadata(evidence: SourceEvidence): string[] {
 	if (evidence.video?.transcript_availability) {
 		metadata.push(`Transcript: ${readableLabel(evidence.video.transcript_availability)}`);
 	}
-	if (evidence.video?.channel_name) {
-		metadata.push(`Channel: ${shopperSafeText(evidence.video.channel_name)}`);
-	}
-	if (evidence.video?.sponsorship_disclosed) {
-		metadata.push('Sponsorship disclosed');
-	}
-	if (evidence.video?.affiliate_links_disclosed) {
-		metadata.push('Affiliate links disclosed by source');
-	}
+	metadata.push(...evidenceDisclosures(evidence));
 	if (evidence.video?.affiliate_bias_risk) {
 		metadata.push(`Bias risk: ${confidenceLabel(
 			evidence.video.affiliate_bias_risk.level,
@@ -745,6 +846,20 @@ function evidenceMetadata(evidence: SourceEvidence): string[] {
 		)}`);
 	}
 	return metadata;
+}
+
+function evidenceDisclosures(evidence: SourceEvidence): string[] {
+	const disclosures: string[] = [];
+	if (evidence.video?.channel_name) {
+		disclosures.push(`Channel: ${shopperSafeText(evidence.video.channel_name)}`);
+	}
+	if (evidence.video?.sponsorship_disclosed) {
+		disclosures.push('Sponsorship disclosed');
+	}
+	if (evidence.video?.affiliate_links_disclosed) {
+		disclosures.push('Affiliate links disclosed by source');
+	}
+	return disclosures;
 }
 
 function timestampLabel(timestamp: {
@@ -781,7 +896,7 @@ function trustLevelLabel(level: string): string {
 		reasonable: 'Reasonable listing',
 		mixed: 'Mixed listing',
 		weak: 'Weak listing',
-		suspicious: 'Blocked listing',
+		suspicious: 'Listing concerns',
 		unknown: 'Unknown listing',
 	};
 	return labels[level] ?? 'Listing check';
@@ -792,10 +907,7 @@ function rejectionReasonLabel(reason: RejectionReason): string {
 }
 
 export function shopperSafeText(value: string): string {
-	return value
-		.replace(/\bfixture[-\s]*/gi, '')
-		.replace(/\s{2,}/g, ' ')
-		.trim();
+	return value;
 }
 
 function shopperSafeOptionalText(value: string | null): string | null {
@@ -817,12 +929,26 @@ function dedupeEvidence(evidence: EvidenceView[]): EvidenceView[] {
 }
 
 function dedupeSources(sources: SourceView[]): SourceView[] {
-	const seen = new Set<EntityId>();
-	return sources.filter((source) => {
-		if (seen.has(source.id)) return false;
-		seen.add(source.id);
-		return true;
-	});
+	const grouped = new Map<string, SourceView>();
+	for (const source of sources) {
+		const key = sourceIdentity(source);
+		const previous = grouped.get(key);
+		grouped.set(key, previous ? {
+			...previous,
+			evidence: dedupeEvidence([...previous.evidence, ...source.evidence]),
+			snippet: [...new Set([previous.snippet, source.snippet].filter(hasText))].join('\n') || null,
+		} : source);
+	}
+	return [...grouped.values()];
+}
+
+function sourceIdentity(source: Pick<SourceView, 'id' | 'url'>): string {
+	const neutral = neutralOutboundUrl(source.url);
+	if (!neutral) return source.id;
+	const url = new URL(neutral);
+	url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+	url.searchParams.sort();
+	return url.toString();
 }
 
 export function neutralOutboundUrl(value: string | null | undefined): string | null {

@@ -25,9 +25,7 @@ from app.tools.record_tavily_search_fixture import record_tavily_search_fixture
 from app.schemas.search_sources import SearchIntent, SearchQuery, SourceQualityLevel
 
 
-FIXTURE_PATH = (
-    Path(__file__).parent / "fixtures" / "providers" / "tavily_search.json"
-)
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "providers" / "tavily_search.json"
 
 
 @pytest.mark.asyncio
@@ -79,8 +77,6 @@ async def test_tavily_search_maps_recorded_response_through_provider_contract() 
         "include_raw_content": False,
         "include_images": False,
         "include_usage": True,
-        "include_domains": ["reviews.example.com"],
-        "exclude_domains": ["reseller.example"],
     }
     assert len(results) == 2
     assert results[0].query == query
@@ -135,8 +131,7 @@ async def test_tavily_search_fixture_replays_deterministically() -> None:
                 ),
             )
         return [
-            result.model_dump(mode="json", exclude={"source_id"})
-            for result in results
+            result.model_dump(mode="json", exclude={"source_id"}) for result in results
         ]
 
     assert await replay() == await replay()

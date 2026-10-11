@@ -1,5 +1,30 @@
 # CartCart Supported Agents And Source Capabilities
 
+## Shopper prose ownership, Task 219
+
+The General shopping owner, its Technology/specialist handoffs, retained category/comparison agents and optional editorial verifier share concise what-to-buy guidance. Reasons, meaningful relative tradeoffs, budget/value explanations and major product limitations belong in advice. Confidence, evidence gaps and process cautions remain internal. Routine seller, availability, checkout and launch-absence work is not part of the normal question.
+
+Agent identities, hierarchy, catalog routes, tool permissions and provider fallback are unchanged. Optional investigation of a concrete adverse listing concern remains available to the owner. No mandatory seller-check stage or model call is added. Controlled fixture copy avoids developer labels without editing canonical evidence or filtering real words. Live validation deferred to Task 221.
+
+## Choice authoring, Task 218
+
+The current General shopping owner, its Technology/specialist handoffs and the retained comparison agent author distinct primary choices and optional runners-up. Live owner candidates carry `choice_group`; persisted bundles carry `primary_product_ids` and `runner_up_product_ids`, with per-product explanations retained in mode records. Primary choices have a maximum of three, runners a maximum of two. One or two primary choices and no runners are valid.
+
+Useful company/provider variety is model guidance, not an eligibility registry. Same-company family/size variants usually belong among runners, unless an exclusive preference or meaningful difference warrants primary choices. The model weighs suitability, adverse information and supported modest budget stretches. Missing sources or offer details do not suppress advice.
+
+Agent identities, hierarchy, catalog routes, tool permissions and source-provider fallback remain unchanged. This task changes the authored/retained choice contract, not the routing catalog. Historical bundles and owner checkpoints remain readable. Live validation is deferred to Task 221; the implementation conversation authorizes no model, research or caption calls.
+
+## Current recommendation policy, Task 216
+
+Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.
+
+Advice and source associations are independent. Recommendation evidence IDs, sources, comparison matrices, checked listings and mode records are optional. The UI leads with recommendations, reasons and meaningful tradeoffs, then shows available page sources and search snippets. Unknowns remain diagnostic fields. A snippet is labeled as a snippet. A source note is not a verbatim quotation. No exact substring, quote visibility, span membership or hash equality admits recommendations or retries.
+
+The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
+
+The owner resumed live calls on 2026-10-11. Tasks 216, 214, 215 and 100A passed revised guided-browser acceptance. See [saved IDs, browser evidence, SQLite/API matches, usage and checks](docs/TASK_216_LIVE_ACCEPTANCE.md). No P1 work started. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes.
+
+
 Status: Agent-first research runtime with fixture limitations called out below
 Last updated: 2026-10-06
 
@@ -23,7 +48,7 @@ Reusable source intelligence means retrieving usable source-backed information, 
 - The agent tool matrix below must be updated whenever an agent gains, loses, or changes SDK tools, typed sub-runs, provider/service boundaries, or forbidden direct actions.
 - A proposed or required future agent can appear here before it is implemented, but its status must not be changed to `implemented` until code, tests, and eval coverage exist.
 - The 2026-06-02 required source-intelligence expansion is a design update only. The runtime catalog must be brought back into sync in the dedicated implementation backfill task before provider/live-agent work continues.
-- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. The live OpenAI Agents SDK `ShoppingScopeGuardrail`, `IntakeAgent`, `ShoppingGuideAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` are available through their typed protocols in the isolated workbench and, when explicitly configured, the normal shopping-run workflow. The 2026-06-21 reusable source-intelligence implementations for YouTube, Reddit, Amazon, and IKEA are provider-backed through typed provider/service and evidence-creation boundaries in the isolated workbench and opt-in normal workflow. The normal full shopping workflow remains fixture-first by default; live-agent workflow mode requires explicit configuration and credentials.
+- The 2026-06-12 guided-intake backfill adds fixture-mode `ShoppingGuideAgent` and `ShoppingScopeGuardrail` contracts to the runtime catalog. The live OpenAI Agents SDK `ShoppingScopeGuardrail`, `IntakeAgent`, `ShoppingGuideAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`, `GenericProductAnalystAgent`, `TechnologyDomainAnalystAgent`, `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, `SmartwatchSpecialistAgent`, `SellerListingTrustAgent`, `ComparisonDecisionAgent`, and `VerifierCriticAgent` are available through their typed protocols in the isolated workbench and, when explicitly configured, applicable shopping-run stages. The verifier is an optional workbench capability and is omitted from shopping runs. The 2026-06-21 reusable source-intelligence implementations for YouTube, Reddit, Amazon, and IKEA are provider-backed through typed provider/service and evidence-creation boundaries in the isolated workbench and opt-in normal workflow. The normal full shopping workflow remains fixture-first by default; live-agent workflow mode requires explicit configuration and credentials.
 - Four source SDK specialists and their parent agent-as-tool wiring are implemented and passed the Task 89P gate: focused offline checks cover all four specialists and parent delegation, and an authorized unsandboxed OpenAI smoke confirmed a real Sol parent invoking the Luna IKEA specialist as an SDK tool over an in-process fixture, returning validated cited evidence. Real source providers and the normal end-to-end live shopping workflow were not exercised; local app settings still select fixture-agent mode by default.
 
 ## Architectural Decision
@@ -35,7 +60,7 @@ CartCart uses deterministic workflow orchestration with typed agent steps. The o
 Today the guided API gathers a brief, then the live run enters
 `GeneralShoppingAgent` after intake and before query planning, discovery, or
 category routing. The last SDK owner authors the persisted result after
-independent backend citation checks and verifier review.
+operational parsing and persistence without a mandatory verifier.
 `CategoryRouterAgent` returns a `ProductAnalysisRoute`; domain/specialist calls
 return `CategoryAnalysis`; `ComparisonDecisionAgent` remains a separate typed
 capability, not the live result author.
@@ -73,28 +98,7 @@ a shopper-request handoff target. `ComparisonDecisionAgent` remains available
 for isolated typed/fixture use; it no longer authors the live owner result.
 `DiscoveryAgent` and `ExtractionAgent` supply bounded research and cited
 entities. `SellerListingTrustAgent` supplies separate listing-risk evidence.
-Manual fallback entries are user reports. A manual-only entry appears as a
-source-free candidate in comparison, skips cited product analysis, and cannot
-become a buying pick through the typed comparison fallback. The active live
-owner also requires independently checked citations before selecting it.
-`SourceIntelligenceManagerAgent` delegates scoped work to the four source SDK
-agents-as-tools; neither the manager nor source specialists take over the
-shopper request. The active owner may consume their validated persisted
-artifacts through run-scoped typed tools, alongside approved provider research
-and comparison helpers. Backend code keeps credentials, source/region policy,
-budgets, seller-risk invariants, source/evidence-ID validation, and persistence.
-The actual last owner drafts the result; independent backend checks and
-`VerifierCriticAgent` may approve, request an auditable correction, or block it.
-Persistence records the originating owner, actual handoff chain, citations,
-verification changes, model/usage, and result version. The parent does not
-resume to write a replacement answer.
-
-General, Technology, and terminal specialists must include a nonblank primary
-`rationale` of at most 1500 characters in `GeneralModelOutput`. Successful
-drafts retain that authored explanation through best-overall result conversion
-and independent verification. Unsupported copy becomes a safe no-strong-buy
-answer. Verifier corrections require an authored audit reason, which is recorded
-with changed fields and the unchanged owner/handoff provenance.
+Manual fallback entries are labeled user reports. They can inform model recommendations without a checked offer or independent citation. Source and seller tools provide advisory context without taking ownership. The actual last owner authors concise reasons, tradeoffs, unknowns and specific warnings. Backend code preserves run identity, credentials, bounded context/spending, neutral links, actual ownership and immutable result versions. Source associations are optional and cannot erase advice.
 
 Research semantics belong to agents, not to provider metadata or page-shape
 heuristics. `DiscoveryAgent` classifies and judges search results, identifies
@@ -163,7 +167,7 @@ read from SDK `web_search_call` items, and cited public URLs become weak,
 run-scoped search results, unextracted snapshots, and source-metadata evidence
 with persisted IDs. The agent can reject those leads. A hosted citation alone
 never verifies a listing, price, seller, or product claim; page extraction and
-backend evidence checks remain necessary. Missing citations, failed hosted
+operational identity and access checks remain necessary. Missing citations, failed hosted
 calls, and incompatible model overrides surface as explicit gaps/errors.
 Models are selected through the existing environment settings, run profiles,
 and exact-agent overrides. Hosted-tool attachment does not use a model-name
@@ -175,7 +179,7 @@ a separately recorded run.
 
 Specialized product/domain agents should normally be invoked as typed sub-runs or agents-as-tools when the orchestrator needs a scoped analysis result. OpenAI Agents SDK handoffs should be used only when a specialist should actually take over control of a conversational turn.
 
-The YouTube, Reddit, Amazon, and IKEA roles have model-running OpenAI Agents SDK implementations with bounded source-specific tools and optional site-scoped hosted search. In live-agent shopping runs, `SourceIntelligenceManagerAgent` chooses relevant specialists after deduplication and invokes them through SDK agent-as-tool delegation. Default fixture-provider runs remain network-free provider-backed simulations; a service call is never counted as a model run. Source agents return cited evidence, not recommendations. Hosted citations are persisted as weak source leads; only validated site-tool evidence supports transcripts, discussion signals, marketplace offers, or official IKEA claims.
+The YouTube, Reddit, Amazon, and IKEA roles have model-running OpenAI Agents SDK implementations with bounded source-specific tools and optional site-scoped hosted search. In the normal live-agent path, the current shopping owner may call `consult_source_intelligence` for a relevant candidate. `SourceIntelligenceManagerAgent` delegates the requested capability through SDK agents-as-tools. Retained comparison workflows can also invoke the separate source stage. Default fixture-provider runs remain network-free provider-backed simulations; a service call is never counted as a model run. Source agents return cited evidence, not recommendations. Hosted citations are persisted as weak source leads; only validated site-tool evidence supports transcripts, discussion signals, marketplace offers, or official IKEA claims.
 
 The product supports broad shopping queries when no deep specialist exists. The
 generic per-product analysis fallback remains, and the live General owner can
@@ -195,11 +199,13 @@ two-year-old phones for value, and researches credible imminent launches before
 advising whether to buy now. Explicit unlimited budget favors current flagships;
 unspecified budget remains unspecified. Official regional availability and
 warranty are checked separately from global reviews. An official product or
-launch page with exact verified support can establish a product-only option
+launch page can inform a qualified product-only option
 without a priced listing or independent review. Reviews improve comparative
-confidence. Broad phone questions resolve current iPhone and Samsung flagships
-and up to one other supported alternative; MKBHD is a preferred YouTube reviewer
-when substantive video access is available, never an invented transcript. Price modes still require checked offers. General and Technology
+confidence. Broad questions begin with category, buyer-intent and regional discovery,
+then follow useful results into relevant companies and products. Named families are
+preferences unless explicitly exclusive. No manufacturer list or preferred video
+channel controls eligibility. Optional video review consultation uses approved
+public captions for substantive review claims, never titles as a transcript. Known prices inform model judgment; checked offers and modes are optional. General and Technology
 are instructed to delegate known phone categories early, with real SDK handoff
 records proving whether the phone owner actually ran.
 
@@ -209,9 +215,7 @@ evidence, never fixture transcripts, discussions, reviews or offers. Fixture
 workflows and explicit offline provider injection retain deterministic replay.
 
 An unrecovered technical owner failure is retained in tool activity as
-`research_failed` and stops the shopping workflow with a failed run. A completed
-search with genuinely insufficient evidence remains a distinct no-strong-buy
-outcome. Normal shopping APIs reject live providers combined with fixture agents
+`research_failed` and stops the shopping workflow with a failed run. A completed owner call may make an explicit no-option judgment. Missing evidence alone does not force that judgment. Normal shopping APIs reject live providers combined with fixture agents
 before research begins. Fixture-only runs and isolated provider probes remain
 available.
 
@@ -224,7 +228,7 @@ available.
 - MVP technology specialists are `MonitorSpecialistAgent`, `SmartphoneSpecialistAgent`, `LaptopSpecialistAgent`, `EarphonesHeadphonesSpecialistAgent`, `TVSpecialistAgent`, and `SmartwatchSpecialistAgent`.
 - `YouTubeReviewIntelligenceAgent`, `RedditCommunityIntelligenceAgent`, `AmazonProductIntelligenceAgent`, and `IKEAStoreIntelligenceAgent` are approved as reusable `required-mvp` source intelligence capabilities, not as category specialists.
 - Reusable source intelligence agents are evidence retrieval and normalization tools. They must not be limited to availability checks, and they must not make final purchase recommendations.
-- YouTube metadata may use the official YouTube Data API when configured. Transcript text may be used only through authorized official caption access, future user-provided transcript input, or a separately approved third-party provider. The system must never assume transcript availability.
+- YouTube metadata may use the official YouTube Data API when configured. Approved public-caption access is implemented by the self-managed `YtDlpTranscriptProvider` behind the typed `TranscriptProvider` boundary. Authorized official captions and future user-provided transcript input remain distinct access strategies. The system must never assume transcript availability.
 - YouTube model or validation failures return metadata-only evidence with an explicit gap. Visible sponsorship and affiliate disclosures, channel signals, observed transcript availability, and source references remain attached to the fallback. Transcript text comes only from approved tools; failed model claims do not enter evidence. The catalog declares the fixture evidence-gap fallback.
 - Reddit community evidence should be gathered through approved search/extraction providers, for example domain-scoped web search for public `reddit.com` results. It must summarize recurring user-reported patterns with source links and quality warnings rather than treating anecdotes as authoritative product facts.
 - Amazon product intelligence should retrieve product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, and review signals when compliant provider access is available. It must preserve marketplace seller risk separately from product quality and must not add affiliate logic.
@@ -268,7 +272,7 @@ ShoppingRunOrchestrator                                      [required-mvp]
     KitchenAppliancesDomainAnalystAgent                      [proposed-later]
   SellerListingTrustAgent                                    [required-mvp]
   ComparisonDecisionAgent                                    [required-mvp]
-  VerifierCriticAgent                                        [required-mvp]
+  VerifierCriticAgent                                        [implemented]
 ```
 
 ## Reusable Source Intelligence Agents
@@ -312,19 +316,9 @@ selection and interpretation in live runs; fixture provider services package
 source evidence without model judgment. Both paths return structured evidence
 with source references and confidence, not final purchase recommendations.
 
-`SellerListingTrustAgent` owns listing and seller trust assessment independently of product quality. Its live SDK agent can choose hosted web search for the supplied seller/listing and buyer region, or use supplied evidence alone. Exact cited URLs are retained as weak, run-scoped trust leads with source/evidence IDs. These leads can identify a question to check but cannot verify seller reputation, policy terms, or a listing claim or raise trust. Suspicious deterministic trust flags cannot be silently overridden by agent output.
+`SellerListingTrustAgent` evaluates seller context separately from product fit. The model may improve or worsen a rule-derived assessment using supplied information. An official store provides acceptable context without a mandatory background check. Source identity and actual concerns are preserved with their scope. Missing reviews, policy details and scores cannot reject a recommendation.
 
-`ComparisonDecisionAgent` can produce comparative modes in its isolated typed path; the active SDK owner authors the live result and any supported modes. `VerifierCriticAgent` owns final checks for unsupported claims, source gaps, suspicious-listing handling, budget handling, fallback behavior, and output restraint. Recognized factual specifications must be supported for the asserted candidate through evidence targets and stored product/listing relationships. Supported comparisons may cite several candidates; another candidate's facts cannot establish the winner's specifications. Shared backend checks enforce this before verification and after approved revisions.
-
-Listing safety and comparable-price hard caps apply to every explicit recommended
-offer, including alternate modes and explicit saved runner-up offers. A suspicious
-offer requires a blocking warning tied to its own listing or exclusion. Generic
-seller mentions, unrelated warnings and rejected-item entries do not authorize
-recommended offers. Comparison-only rows, rejected offers and product-only
-recommendations retain their existing meaning. Preferred-budget stretch, missing
-prices and non-comparable currencies retain their existing policies. Workbench
-scenarios expose these checks through the existing runtime registry; agent roles,
-SDK tools, routing and fallback behavior do not change.
+`ComparisonDecisionAgent` remains the owning model for retained comparison and refinement paths. Ranked candidates and lowered advisory scores inform its judgment. It may recommend options without prices, sources, mode records or a decisive winner. `VerifierCriticAgent` remains optional editorial assistance in the isolated workbench and is omitted from shopping runs.
 
 ## Why These Are Source Intelligence Agents
 
@@ -345,11 +339,16 @@ discovery in configured live mode plus deterministic fixture and disabled modes.
 It returns video ID, neutral watch URL, title, description, channel, publish
 date, and duration when available. Transcript availability remains explicitly
 `not_checked`; transcript retrieval is not part of the metadata adapter. The
-separate transcript-ingestion path accepts only declared authorized official,
-user-provided, or approved third-party access, preserves language and
+separate transcript-ingestion path uses the accepted self-managed
+`YtDlpTranscriptProvider` for approved public captions. It preserves language and
 timestamps, records unavailable/provider-failure gaps, and refuses video claims
-that are not present in cited transcript text. Product-claim summarization
-remains later agent work.
+that are not present in cited transcript text. The current model-running
+`YouTubeReviewIntelligenceAgent` interprets product-specific review claims through
+bounded tools, validates cited transcript excerpts, and returns evidence rather
+than purchase recommendations. The provider uses pinned local dependencies,
+fixed arguments, no cookies, no media downloads, and no remote EJS components.
+Execution and temporary storage are bounded. Failed access or interpretation
+retains metadata-only context and explicit gaps.
 
 ### Reddit Community Intelligence
 
@@ -447,7 +446,7 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `SmartwatchSpecialistAgent` | `required-mvp` | Provide deeper smartwatch-specific analysis. | Specialist tool/sub-run through technology domain | Smartwatch brief/products/evidence | `CategoryAnalysis` | Fall back to technology-domain analysis, then generic analysis if needed. |
 | `MouseSpecialistAgent` | `proposed-later` | Deeper mouse analysis. | Not implemented | TBD | TBD | Technology domain or generic fallback when later approved. |
 | `KitchenAppliancesDomainAnalystAgent` | `proposed-later` | Domain reasoning for kitchen appliance purchases. | Not implemented | TBD | TBD | Generic fallback until implemented. |
-| `SellerListingTrustAgent` | `required-mvp` | Review seller/store/listing legitimacy, suspicious prices, and trust/red-flag evidence. | Cross-cutting typed step | Listings and source evidence | `ListingTrustAssessment` | Unknown trust if evidence is insufficient; suspicious deterministic flags cannot be silently overridden. |
+| `SellerListingTrustAgent` | `required-mvp` | Review seller/store/listing legitimacy, suspicious prices, and trust/red-flag evidence. | Cross-cutting typed step | Listings and source evidence | `ListingTrustAssessment` | Unknown trust remains an unknown. The model may improve or worsen the rule-derived assessment; scores and concerns are advisory. |
 | `YouTubeReviewIntelligenceAgent` | `required-mvp` | Discover relevant product review videos, collect permitted transcript/metadata evidence, summarize product-specific claims, and return timestamped source evidence. | Reusable source agent/tool | Brief, candidate products, optional source/video queries | `VideoReviewEvidenceBundle` | If transcripts are unavailable, return metadata-only evidence or explicit evidence gaps; never fabricate video claims. |
 | `RedditCommunityIntelligenceAgent` | `required-mvp` | Discover relevant Reddit discussions, collect permitted public thread/comment evidence, summarize recurring owner/community signals, and flag anecdotal or low-quality evidence. | Reusable source agent/tool | Brief, candidate products, optional source/community queries | `CommunityDiscussionEvidenceBundle` | If relevant public content cannot be fetched or quality is weak, return explicit evidence gaps; never treat anecdotes as authoritative product facts. |
 | `AmazonProductIntelligenceAgent` | `required-mvp` | Assess Amazon product/listing identity, seller/fulfillment, regional availability or ship-to-region status, product-page information, review signals, and suspicious marketplace/review patterns. | Reusable source agent/tool | Product/listing candidates and target region | `AmazonProductEvidenceBundle` | Use only compliant APIs/providers or permitted user-visible pages; preserve seller/listing trust concerns separately from product desirability. |
@@ -456,8 +455,8 @@ IKEA evidence should be official-source evidence, not a generic marketplace subs
 | `OfficialBrandStoreAgent` | `proposed-later` | Locate official brand/store pages by country and assess official price, availability, warranty, and authorized sellers. | Reusable source agent/tool | Brand/product and region | Official-source evidence | Generic search/source extraction fallback. |
 | `ProfessionalReviewSourceAgent` | `proposed-later` | Gather structured evidence from reputable written review sites and lab-test sources where available. | Reusable source agent/tool | Product/category and region | Review evidence | Generic source extraction fallback. |
 | `CommunityDiscussionSignalAgent` | `proposed-later` | Summarize recurring owner complaints/praise from community discussions when allowed and source quality is adequate. | Reusable source agent/tool | Product/category and source set | Community signal evidence | Treat as lower-confidence qualitative signal, not definitive truth. |
-| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates, including source-free manual fallback entries | `RecommendationBundle` | Return no options only when no suitable supported option remains; keep manual-only entries in comparison with zero verified evidence and never choose them as a buying pick; emit avoid/rejected items only with explicit material reason codes, not for ordinary non-winners. |
-| `VerifierCriticAgent` | `required-mvp` | Verify claim evidence, budgets, red flags, fallback behavior, duplicates, and output restraint. | Final typed step | Draft bundle, products, listings, evidence, trust, analyses, and dedupe context | Approved/revised/rejected bundle | Block unsupported or unsafe recommendation output. |
+| `ComparisonDecisionAgent` | `required-mvp` | Compare candidates and generate recommendation modes from one analysis pass. | Typed step | Brief and all assessed candidates, including source-free manual fallback entries | `RecommendationBundle` | Recommend by default from available context. User-reported candidates may inform advice without a checked offer. Scores, sources, prices and modes are optional; meaningful rejections remain model-authored. |
+| `VerifierCriticAgent` | `implemented` | Offer optional editorial suggestions when explicitly invoked. | Tool subrun in the workbench | Draft advice and available context | Nonblocking editorial notes preserving the owner choice | No per-claim source revalidation or buying veto. Normal runs omit this stage. |
 
 The current runtime includes live OpenAI Agents SDK `ShoppingGuideAgent`,
 `IntakeAgent`, `QueryPlannerAgent`, `DiscoveryAgent`, `CategoryRouterAgent`,
@@ -473,7 +472,7 @@ behind the typed `GuidedIntakeState`, `ShoppingBrief`,
 `VerificationReport`
 protocols for isolated
 mock/live workbench runs. The live
-guide uses structured output, deterministic guardrail prechecks, mocked/live
+guide uses structured output, SDK input-guardrail checks, mocked/live
 workbench scenarios, and an `IntakeAgent` handoff only when it reaches
 `ready_for_analysis`. The live query planner uses structured output with no
 tools and falls back to a generic region-aware search plan rather than blocking
@@ -525,13 +524,12 @@ battery, durability, app ecosystem, and source IDs, and falls back to
 technology-domain or generic analysis for non-watch input or specialist
 failure. The live seller/listing trust agent consumes the supplied listing,
 evidence, and deterministic assessment. It may use seller/listing-scoped
-hosted web search, but preserves hard suspicious deterministic signals such
-as implausibly low price or contradictory listing data rather than silently
-overriding them. The live comparison decision agent uses structured output with
-no tools, consumes only supplied assessed candidates, evidence, trust, and
-dedupe inputs, returns a `RecommendationBundle`, and falls back to an explicit
-no-strong-buy bundle when model output is invalid, times out, or cannot support
-a safe best pick. In the live source-intelligence stage, a model-running
+hosted web search and may improve or worsen the advisory rule-derived assessment.
+Actual concerns retain their scope. The live comparison decision agent uses
+structured output with no tools, consumes supplied candidates, optional evidence,
+trust, budget and dedupe context, and returns a `RecommendationBundle`.
+Model/output failure is a retryable technical error with saved research.
+In the live source-intelligence stage, a model-running
 manager delegates to YouTube, Reddit, Amazon, and IKEA SDK agents-as-tools.
 Those agents use bounded source tools and return cited evidence bundles;
 fixture runs use provider services without model calls. The normal shopping
@@ -579,7 +577,7 @@ without a specialist; Technology can also finish without a specialist. A
 10. Amazon evidence must preserve marketplace, ASIN/listing identity where available, seller/fulfillment, review signal provenance, regional availability or ship-to-region status, and confidence.
 11. IKEA evidence must preserve country/region context, official source URLs, local price/currency and availability where available, store/delivery limitations, and confidence.
 12. Seller/listing trust assessment applies independently of category analysis and must be surfaced where it materially affects purchase safety.
-13. Recommendation output must be verified after product, source, and trust outputs are combined.
+13. The owning model decides from available product, source and trust context. Normal output has no mandatory verifier; editorial workbench assistance is optional and nonblocking.
 
 ## Tool, Handoff, And Control Policy
 
@@ -603,13 +601,13 @@ provider arguments or call vendor SDKs directly.
 
 | Agent | Current SDK tools exposed directly to agent | Allowed typed sub-runs / agents-as-tools | Allowed provider/service boundaries | Forbidden direct actions |
 | --- | --- | --- | --- | --- |
-| `ShoppingScopeGuardrail` | None. Uses deterministic prechecks plus structured guardrail output. | None. | Shopping/safe-product deterministic guardrail service before model classification. | Starting search, extraction, analysis, or provider calls for blocked requests. |
+| `ShoppingScopeGuardrail` | SDK input guardrail with structured classifier output. | None. | Semantic request classification before research. | Starting retrieval after a blocked input; converting classifier errors into shopping judgments. |
 | `ShoppingGuideAgent` | None. | `IntakeAgent` only after enough information exists. | Guided-intake state service and deterministic guardrail precheck. | Product recommendations, source retrieval, product links as normal intake, raw provider/tool controls. |
 | `GeneralShoppingAgent` | Live SDK `web_search`, `search_sources`, `fetch_source`, `record_source_quote`, run-evidence lookup, evidence/candidate comparison, deterministic listing-trust check, and scoped source consultation. | One SDK handoff to Technology when its validated context matches the shopper's technology request; source specialists remain nested under the source manager. | Run-scoped provider search/fetch, persisted quote evidence, and backend-validated source/trust helpers. | Treating a hosted hit as a listing or making uncited price, availability, seller, or product claims. |
 | `IntakeAgent` | None. | None. | None beyond supplied user/session input. | Search, extraction, source intelligence, recommendation generation, invented region/budget certainty. |
 | `QueryPlannerAgent` | None. | None. | None directly. The workflow calls `SearchProvider` adapters after a validated `SearchPlan` is returned and may provide user-added product hints for scoped lookup queries. | Direct web search, browsing, provider SDK calls, category blocking because no specialist exists, asking users for product links. |
 | `DiscoveryAgent` | `web_search` is a hosted SDK tool in live runs; `search_sources` and `fetch_source` remain bounded provider function tools. | None today. | Hosted URL citations are filtered and persisted as weak source leads with source/evidence IDs; supplied results and approved provider calls retain backend-owned policy and budgets. | Arbitrary URLs/provider arguments, vendor SDKs, unbounded browsing, fabricated source IDs, treating hosted snippets as verified listings or product facts. |
-| `ExtractionAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None today. | Typed output with valid source/evidence IDs and zero/one/many products/listings; backend validates entity links, neutral listing URLs, exact evidence claims within individual observed spans, cited price text, editorial-page listing exclusion, item-level URLs on collection pages, review-evidence matches, and user-added candidate/listing links. | Direct scraping/vendor SDKs, invented facts/IDs, treating review articles as stores, or treating a user-added lookup hit as a confirmed identity. |
+| `ExtractionAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None today. | Typed output with valid source/evidence IDs and zero/one/many products/listings; backend validates entity links, neutral listing URLs, optional source associations and available price context, editorial-page listing exclusion, item-level URLs on collection pages, review-evidence matches, and user-added candidate/listing links. | Direct scraping/vendor SDKs, invented facts/IDs, treating review articles as stores, or treating a user-added lookup hit as a confirmed identity. |
 | `ExtractionReviewAgent` | Fixture/workbench compatibility only; no live SDK tools. | None in target architecture. | Existing legacy snapshot/extraction contract until replacement. | Being treated as the primary semantic interpreter or injecting monitor fixtures for unrelated requests. |
 | `DeduplicationReviewAgent` | Not implemented live yet. | May be a typed sub-run only for uncertain duplicate pairs. | Supplied product/listing/evidence records and deterministic dedupe signals. | Collapsing uncertain products without evidence, fetching new source data. |
 | `CategoryRouterAgent` | None. | None. | Executable agent catalog for allowed route normalization and fallback. | Calling analysts directly, inventing specialists, unsupported-category refusal for normal products. |
@@ -621,14 +619,14 @@ provider arguments or call vendor SDKs directly.
 | `EarphonesHeadphonesSpecialistAgent` | Hosted `web_search`, bounded provider search/fetch/quote, run-evidence lookup, evidence/candidate comparison, deterministic listing-trust check, and scoped source consultation as a handoff owner. | Terminal SDK handoff owner for audio; separate typed per-product sub-run. | Supplied audio context and previously recorded evidence. | Analyzing non-audio products as headphone-scoped, raw provider access, unsupported factual claims. |
 | `TVSpecialistAgent` | Hosted `web_search`, bounded provider search/fetch/quote, run-evidence lookup, evidence/candidate comparison, deterministic listing-trust check, and scoped source consultation as a handoff owner. | Terminal SDK handoff owner for TVs; separate typed per-product sub-run. | Supplied TV context and previously recorded evidence. | Analyzing non-TV products as TV-scoped, raw provider access, unsupported factual claims. |
 | `SmartwatchSpecialistAgent` | Hosted `web_search`, bounded provider search/fetch/quote, run-evidence lookup, evidence/candidate comparison, deterministic listing-trust check, and scoped source consultation as a handoff owner. | Terminal SDK handoff owner for watches; separate typed per-product sub-run. | Supplied watch context and previously recorded evidence. | Analyzing non-watch products as watch-scoped, raw provider access, unsupported factual claims. |
-| `SellerListingTrustAgent` | None. | None. | Supplied listing, evidence, deterministic trust-rule assessment, price-plausibility signals, and optional seller/listing-scoped hosted `web_search`. | Silently overriding hard suspicious flags, treating a search snippet or rating as verified seller trust, fetching arbitrary seller pages, treating product quality as listing trust. |
+| `SellerListingTrustAgent` | None. | None. | Supplied listing, evidence, deterministic trust-rule assessment, price-plausibility signals, and optional seller/listing-scoped hosted `web_search`. | Inventing seller facts, fetching arbitrary seller pages or treating product quality as listing trust. Rule-derived flags remain advisory and can be revised by the model. |
 | `SourceIntelligenceManagerAgent` | Model-running post-dedupe parent in live-agent shopping runs; fixture mode has no parent model call. | Choose relevant source specialists and explain skipped sources. | Four SDK specialist agent-tools over server-supplied candidates and region. | Direct provider SDK access, invented evidence, bypassing specialist/capability budgets. |
 | `YouTubeReviewIntelligenceAgent` | SDK agent-as-tool under the live source manager; isolated workbench fixture mode uses `YouTubeReviewIntelligenceService`. | Select review videos, interpret timestamped product-specific pros/cons/concerns and visible bias. | Bounded `search_videos`, `read_video_metadata`, `read_video_transcript`, and optional YouTube-scoped hosted `web_search`. | Direct `yt-dlp`, WebVTT parsing, arbitrary API args, fabricated transcript claims, final recommendations. |
 | `RedditCommunityIntelligenceAgent` | SDK agent-as-tool under the live source manager; isolated workbench fixture mode uses `RedditCommunityIntelligenceService`. | Select public discussions and interpret cited qualitative owner signals. | Bounded `search_community_discussions`, `read_community_discussion`, and optional Reddit-scoped hosted `web_search`. | Private/deleted/logged-in access, treating anecdotes as authoritative facts, final recommendations. |
 | `AmazonProductIntelligenceAgent` | SDK agent-as-tool under the live source manager; isolated workbench fixture mode uses `AmazonProductIntelligenceService`. | Select relevant marketplace sources, interpret ASIN/variant identity, and organize cited product, offer, seller, review, and region evidence. | Bounded `search_amazon_products`, `read_amazon_product`, and optional marketplace-scoped hosted `web_search` over approved provider results and persisted source context. | Affiliate links, unapproved scraping, invented prices/review counts/shipping, collapsing seller risk into product quality. |
 | `IKEAStoreIntelligenceAgent` | SDK agent-as-tool under the live source manager; isolated workbench fixture mode uses `IKEAStoreIntelligenceService`. | Select relevant official regional product sources and interpret cited item, local price/currency, availability, and store/delivery context with gaps. | Bounded `search_ikea_products`, `read_ikea_product`, and optional official-region-scoped hosted `web_search` over approved results and persisted snapshots. | Global shipping inference, non-official source substitution, unapproved scraping, invented regional purchase claims. |
-| `ComparisonDecisionAgent` | None. | None. | Supplied brief, category analyses, trust assessments, dedupe decisions, and evidence. | New search/extraction, unsupported product claims, recommending suspicious listings without blocking warning, forced avoid items for ordinary non-winners. |
-| `VerifierCriticAgent` | `read_source_snapshot`, limited to assigned same-run persisted IDs and bounded text. | None. | Supplied draft recommendation bundle, products, listings, source evidence, trust assessments, category analyses, and dedupe decisions. Canonical evidence is reloaded and matched against exact page or validated specialist support; derived analyses cannot establish facts. | New provider calls, hidden rewriting without blocking issues, approving uncited factual claims or shopper-visible internal process language. |
+| `ComparisonDecisionAgent` | None. | None. | Supplied brief, category analyses, trust assessments, dedupe decisions, and evidence. | New search/extraction, invented current facts or links, deterministic trust/budget/source eligibility and forced avoid items for ordinary non-winners. |
+| `VerifierCriticAgent` | None. | None. | Supplied advice, products, listings, optional sources, trust assessments, category analyses and dedupe context. Optional wording suggestions preserve the owner choices. | Provider calls, per-claim source revalidation, buying vetoes or replacement of the owner choices. |
 
 ### Research access: implemented and planned roles
 
@@ -654,7 +652,7 @@ hits alone are not verified listings or citations. The catalog separates
 - `ShoppingBrief` is owned by intake and user corrections.
 - `SearchPlan` and source strategy are owned by query planning.
 - `SearchResult` and `SourceSnapshot` are provider/persistence records, not semantic product classifications. Generic results remain eligible for agent inspection.
-- Live `ExtractionAgent` output owns cited `CanonicalProduct`, `ProductListing`, product mentions, `SourceEvidence`, and explicit gaps; one snapshot may yield zero, one, or many entities. Deterministic parsing may provide signals, while schema/source-ID validation and policy checks remain hard backend gates. `ProductListingExtractor` remains a fixture/legacy helper, not the live semantic authority.
+- Live `ExtractionAgent` output owns cited `CanonicalProduct`, `ProductListing`, product mentions, `SourceEvidence`, and explicit gaps; one snapshot may yield zero, one, or many entities. Deterministic parsing may provide signals, while schema, run/source identity and access protections remain operational boundaries. `ProductListingExtractor` remains a fixture/legacy helper, not the live semantic authority.
 - `DeduplicationDecision` records duplicate reasoning and must preserve uncertain cases.
 - `ReusableSourceIntelligenceRequest` is the orchestrator's shared source-capability request. The four typed specialist inputs carry run ID, brief, products, listings, persisted snapshots, source-specific query hints, and applicable region. Product/listing/snapshot IDs must be unique and listings must reference supplied products. The four bundle schemas require local source references for evidence and gaps, unique evidence IDs, and valid video/discussion/listing/store context links. Provider failures and unavailable source content produce explicit gaps or empty evidence, never invented claims. The SDK source manager uses a strong profile, each specialist uses its own fast profile, and the backend bounds calls, turns, tools, and accepted source/evidence IDs.
 - `VideoReviewEvidenceBundle` is the YouTube/source-video evidence boundary. It must include transcript availability status, source references, timestamped transcript evidence where available, explicit transcript gaps where unavailable, and sponsorship/affiliate-bias signals.
@@ -665,7 +663,7 @@ hits alone are not verified listings or citations. The catalog separates
 - `CategoryAnalysis` is the product/category analysis boundary.
 - `RecommendationBundle` is the comparison and decision boundary.
 - Important output schemas should be versioned when implemented.
-- Factual claims about products, listings, prices, sellers, reviews, source-only metadata, region availability, community discussion, marketplace evidence, official-store evidence, or video evidence must reference source IDs.
+- Recommendation source associations are optional. Preserve available sources and qualify unknown facts without inventing prices, quotations, reviews or source links.
 - Known, unknown, and inferred fields must remain distinguishable.
 - Product-level and listing-level entities must not be collapsed.
 
@@ -674,7 +672,7 @@ hits alone are not verified listings or citations. The catalog separates
 - Providers must be configured through explicit adapters; agents should not directly call vendor SDKs or scrape pages outside approved tools.
 - Provider adapters should expose capability and compliance flags so agents can distinguish disabled providers, metadata-only evidence, transcript access, community discussion retrieval, marketplace product/review retrieval, regional official-store lookup, and availability signals before using provider output.
 - Provider keys, enabled-provider flags, timeouts, and capability flags belong in runtime configuration once implementation begins.
-- Reseller-only platforms are excluded initially. Mixed marketplaces are allowed only when seller/listing trust can be assessed.
+- Domain classifications and marketplace trust are advisory. Unknown or previously excluded domains may supply useful content through approved access paths. Actual seller concerns retain their scope and source.
 - YouTube metadata may come from the official YouTube Data API when configured.
 - YouTube transcript text may be used only through authorized official caption access, future user-provided transcript input, or the accepted self-managed `YtDlpTranscriptProvider` public-caption path.
 - `YtDlpTranscriptProvider` must remain behind the typed provider boundary with pinned `yt-dlp`/`yt-dlp-ejs` and Deno dependencies, fixed backend-owned arguments, no cookies or media downloads, bounded execution/storage, deterministic WebVTT parsing, and explicit metadata-only gaps for failed access.
@@ -709,77 +707,30 @@ Examples:
 - Change fallback: treat this as a behavior change requiring documented rationale and regression evaluation across affected categories.
 
 
-## Bounded evidence context
+## Bounded research context
 
-All 24 model-running roles declare `BoundedEvidenceContext` in the runtime
-catalog. Their SDK wrappers share per-call input preparation and cumulative
-reservations through transfers and nested source tools. Ownership and source
-permissions remain unchanged. Large exact state fails explicitly when it cannot
-fit; context limits never authorize invented facts or weaker seller checks.
+Model-running roles use the shared bounded SDK gateway for request preparation
+and cumulative reservations. Existing ownership, source permissions and spending
+limits remain. Irreducible oversized requests fail technically. Page/source tools
+retain run-scoped IDs, bounded offset/focus reads and retrievable originals.
+Hashes and offsets describe versions; they do not admit advice or retries.
 
-Page and extraction reads accept same-run IDs with optional offsets/focus and
-return bounded exact spans with version hashes. YouTube captions support focused
-segment reads; Reddit supports focused public-summary reads. Canonical quotes,
-timestamps, disclosures, variant/seller/region identities and hard risks remain
-available for validation. Page bodies can leave active SDK history after a
-subsequent recorded quote; unquoted reads remain. Validated source bundle views
-omit raw caption/discussion text while retaining exact evidence and provenance.
-Call/output pairs, ownership transfers and exact recorded quotes stay. No extra
-summarizer agent or runtime scratch-file store was added. See the
-[stage matrix and limits](docs/CONTEXT_MANAGEMENT.md) and the late-source fixtures
-in [evaluation](docs/EVALUATION.md#context-management-gate).
+Owners and research roles retain approved `complete_research_result`,
+`read_research_result`, `read_search_results` and `read_source_bundle` controls
+where their runtime catalog permits them. Processing preserves useful notes,
+source identity, cautions and gaps without requiring exact quote coverage.
+The optional verifier has no research or original-read tools.
 
-### Shared processed-research controls
+General, Technology and specialist owners share useful leads through existing
+run state. Source quality and domain labels inform selection without discarding
+usable content solely for a score or reputation. Source specialists retain their
+site-specific provider/access contracts and return bounded source context.
+Failed optional sources remain gaps while the owner uses available information.
 
-Owners, Discovery, Extraction, reusable source agents, the source manager and
-the verifier's scoped original reader expose explicit research processing and
-bounded original-view retrieval when local research tools are attached. The
-runtime catalog declares `complete_research_result` and `read_research_result`.
-Provider research roles also expose `read_search_results`; owner source
-consultations expose `read_source_bundle`. These helpers preserve original
-support, source identity, warnings, gaps and unreviewed coverage. Processing
-a search lead does not verify it. Agent ownership, routing and fallback
-capabilities remain unchanged.
-
-### Automatic context and useful research
-
-Task 213 adds automatic request fitting to the existing bounded SDK adapter.
-Bounded model roles approve same-invocation `read_research_result` lookup, with no
-new external source permission. Task 214 removes paid exact-span rewriting. Deterministic archives and bounded
-views use existing same-invocation lookup and usage ledgers. Derived context has explicit unreviewed omissions;
-original facts and citation relationships remain canonical. Actual transported
-page text also constrains quote admission after shortening.
-
-General, Technology and specialist owners share buyer-scoped evidence needs and
-lead selection through the existing run state. Search replies add useful
-shortlists, selection reasons and deferred handles. Optional `need_id` on page
-fetches and deferred lookup connects new research to missing support. Validated
-page quotes close coverage; material concerns keep it open. Product-only advice,
-broad category support, handoffs and source-agent fallback remain unchanged.
-
-Task 214 keeps owner routing and source permissions unchanged. Funded closure
-permits one run-scoped already discovered source fetch, followed by quote/read
-capture and completion. Invocation-only native response groups allow hosted
-search and reasoning history to retire together. This is transport state, not
-a new source agent or evidence store.
-
-Task214 owner-flow repair (2026-10-10): after the live General/Technology/product
-owner returns its draft, the orchestrator proceeds to persisted listing trust,
-canonical decision validation, independent verification and saving. It does not
-run a duplicate query/discovery/extraction/source/category pipeline whose answer
-would be ignored by the authoritative owner. Persisted owner products, listings
-and evidence are loaded for seller checks. Approved source specialists remain
-optional tools of the owner; generic-category ownership and fixture/refinement
-paths remain available. Basic phone research first seeks official current iPhone
-and Samsung facts, with relevant Oppo, Xiaomi or other manufacturer alternatives.
-Company announcements and substantive official product websites are sufficient
-for qualified product-only suggestions. Reviews, including substantive MKBHD content when accessible,
-are optional confidence improvements. Source titles alone are not review verdicts.
-
-The bounded discovery adapter classifies only inspected leads. Omitted persisted
-leads retain UNCERTAIN/confidence0/IGNORE-for-now decisions marked unreviewed;
-unknown, duplicate, excluded and unsupported selected IDs still fail validation.
-Its existing catalog UNCERTAIN_SOURCE fallback and tool permissions are unchanged.
-Exact citation validation accepts only an observed same-origin/query/path redirect
-that changes a trailing slash, with matching extraction source ID and redirect
-provenance; arbitrary redirected citations remain rejected.
+Task 216 closes research directly to model synthesis when operational limits
+require it. It removes quote-capture rounds and mandatory verification. Saved
+owner checkpoints support tool-free final retries with existing research.
+Basic phone research favors dated official announcements and product pages,
+including relevant Apple, Samsung, Oppo and Xiaomi options. Reviews are optional.
+Company claims, publication dates and release dates remain distinguishable.
+Broad categories and generic fallback remain available.

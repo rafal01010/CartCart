@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -15,10 +14,11 @@ from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
+from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
 from app.core.settings import Settings
 from app.schemas.analysis import CategoryAnalysis
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.ids import ListingId, SourceId, new_id
+from app.schemas.ids import ListingId, SourceId
 from app.schemas.products import ProductListing
 from app.schemas.search_sources import SourceQualityLevel
 
@@ -184,14 +184,15 @@ def _build_generic_product_analyst_agent(model: str) -> Agent[Any]:
             "broad buy-anything fallback for categories without a specialist, so "
             "never refuse a normal product category or say a category is "
             "unsupported because no specialist exists. Use only the supplied "
-            "product, listing, and evidence records. Cite supplied evidence_ids "
-            "and source_ids for factual claims, and do not invent specs, prices, "
+            "product, listing, and available evidence. Source associations are optional. "
+            "Give useful qualified judgment without inventing specs, prices, "
             "seller facts, product IDs, listing IDs, evidence IDs, or source IDs. "
-            "Cover practical fit, tradeoffs, weaknesses, warnings, and evidence "
-            "gaps. If evidence is weak or sparse, return lower confidence and "
-            "plain limitations instead of inventing certainty. Do not rank final "
+            "Cover practical fit, tradeoffs and known material weaknesses. "
+            "Record confidence and evidence gaps only as internal metadata. "
+            "Do not invent certainty. Do not rank final "
             "recommendations, browse, call tools, or expose agents, providers, "
-            "prompts, traces, policies, or schemas to shoppers."
+            "prompts, traces, policies, or schemas to shoppers. "
+            + SHOPPER_ADVICE_GUIDANCE
         ),
         tools=[],
         output_type=CategoryAnalysis,
@@ -223,7 +224,6 @@ def _coerce_category_analysis_result(
         else CategoryAnalysis.model_validate(value)
     )
     analysis = _normalize_category_analysis(analysis, input_data)
-    _validate_analysis_policy(analysis, input_data)
     return analysis
 
 
@@ -240,54 +240,23 @@ def _normalize_category_analysis(
         raise ValueError("generic analysis output used unknown listing IDs.")
 
     known_evidence_ids = {item.evidence_id for item in input_data.evidence}
-    unknown_evidence_ids = set(analysis.evidence_ids) - known_evidence_ids
-    if unknown_evidence_ids:
-        raise ValueError("generic analysis output used unknown evidence IDs.")
-
+    evidence_ids = tuple(
+        item for item in analysis.evidence_ids if item in known_evidence_ids
+    )
     known_source_ids = _known_source_ids(input_data)
-    unknown_source_ids = set(analysis.source_ids) - known_source_ids
-    if unknown_source_ids:
-        raise ValueError("generic analysis output used unknown source IDs.")
-
-    cited_source_ids = _source_ids_for_evidence_ids(input_data, analysis.evidence_ids)
-    source_ids = _dedupe_source_ids((*analysis.source_ids, *cited_source_ids))
-    if input_data.evidence and not source_ids:
-        raise ValueError("generic analysis output did not preserve source IDs.")
-
+    source_ids = _dedupe_source_ids(
+        (
+            *(item for item in analysis.source_ids if item in known_source_ids),
+            *_source_ids_for_evidence_ids(input_data, evidence_ids),
+        )
+    )
     return analysis.model_copy(
         update={
             "listing_ids": listing_ids,
+            "evidence_ids": evidence_ids,
             "source_ids": source_ids,
         }
     )
-
-
-def _validate_analysis_policy(
-    analysis: CategoryAnalysis,
-    input_data: ProductAnalysisAgentInput,
-) -> None:
-    if not analysis.strengths:
-        raise ValueError("generic analysis output must include fit strengths.")
-    if not analysis.weaknesses:
-        raise ValueError("generic analysis output must include tradeoffs or gaps.")
-
-    texts = (
-        analysis.category,
-        analysis.fit_summary,
-        *analysis.strengths,
-        *analysis.weaknesses,
-        *analysis.warnings,
-    )
-    if any(_contains_artificial_blocking(text) for text in texts):
-        raise ValueError(
-            "generic analysis output included artificial category blocking."
-        )
-
-    if _has_weak_or_sparse_evidence(input_data):
-        if analysis.confidence.score > 0.6:
-            raise ValueError("weak evidence requires restrained confidence.")
-        if not _mentions_evidence_limitation(analysis):
-            raise ValueError("weak evidence requires explicit limitations.")
 
 
 def _fallback_category_analysis(
@@ -301,18 +270,7 @@ def _fallback_category_analysis(
     source_ids = _fallback_source_ids(input_data)
     score = 0.45 if weak_or_sparse else 0.62
 
-    fit_summary = (
-        f"Broad {category} fit analysis for {product_name} based on the supplied "
-        "product, listing, and source evidence. It can identify practical "
-        "tradeoffs, but it is not a final recommendation."
-    )
-    strengths = _fallback_strengths(input_data)
-    weaknesses = (
-        f"Key {category} tradeoffs still need checking against the shopper's "
-        "comfort, durability, warranty, returns, and region needs.",
-        "Evidence gaps may remain around long-term owner experience, service "
-        "support, and whether the listing details fully match the product.",
-    )
+    fit_summary = f"Consider {product_name} for {category}."
     warnings: tuple[str, ...] = ()
     if weak_or_sparse:
         warnings = (
@@ -325,8 +283,7 @@ def _fallback_category_analysis(
     ):
         warnings = (
             *warnings,
-            "Seller and listing trust still need a separate check before this "
-            "could be treated as a safe purchase option.",
+            "Listing seller context is incomplete.",
         )
 
     return CategoryAnalysis(
@@ -334,8 +291,6 @@ def _fallback_category_analysis(
         listing_ids=listing_ids,
         category=category,
         fit_summary=fit_summary,
-        strengths=strengths,
-        weaknesses=weaknesses,
         warnings=warnings,
         confidence=_confidence(
             score,
@@ -343,25 +298,6 @@ def _fallback_category_analysis(
         ),
         evidence_ids=evidence_ids,
         source_ids=source_ids,
-    )
-
-
-def _fallback_strengths(input_data: ProductAnalysisAgentInput) -> tuple[str, ...]:
-    strengths = []
-    if input_data.evidence:
-        strengths.append(
-            "Supplied evidence gives a source-backed starting point for screening fit."
-        )
-    if input_data.listings:
-        strengths.append(
-            "A concrete listing is available for later price, availability, and seller checks."
-        )
-    if input_data.brief.constraints or input_data.brief.preferences:
-        strengths.append(
-            "The shopper's stated needs can be compared against the candidate's known details."
-        )
-    return tuple(strengths) or (
-        "The candidate can be screened against the shopper's request, but evidence is minimal.",
     )
 
 
@@ -386,15 +322,7 @@ def _input_listing_ids(input_data: ProductAnalysisAgentInput) -> tuple[ListingId
 def _fallback_evidence_ids(
     input_data: ProductAnalysisAgentInput,
 ) -> tuple[SourceId, ...]:
-    evidence_ids = tuple(item.evidence_id for item in input_data.evidence)
-    if evidence_ids:
-        return evidence_ids
-
-    source_ids = _fallback_source_ids(input_data)
-    if source_ids:
-        return source_ids
-
-    return (new_id(),)
+    return tuple(dict.fromkeys(item.evidence_id for item in input_data.evidence))
 
 
 def _fallback_source_ids(input_data: ProductAnalysisAgentInput) -> tuple[SourceId, ...]:
@@ -442,7 +370,7 @@ def _analysis_category(input_data: ProductAnalysisAgentInput) -> str:
         input_data.product.category,
         _category_from_query(input_data.brief.original_query),
     ):
-        if candidate and not _contains_artificial_blocking(candidate):
+        if candidate:
             return " ".join(candidate.strip().split())
     return "general product"
 
@@ -466,49 +394,10 @@ def _has_weak_or_sparse_evidence(input_data: ProductAnalysisAgentInput) -> bool:
     )
 
 
-def _mentions_evidence_limitation(analysis: CategoryAnalysis) -> bool:
-    combined = " ".join(
-        (
-            analysis.fit_summary,
-            *analysis.weaknesses,
-            *analysis.warnings,
-            analysis.confidence.rationale or "",
-        )
-    ).casefold()
-    markers = (
-        "evidence",
-        "gap",
-        "limited",
-        "sparse",
-        "weak",
-        "missing",
-        "unknown",
-        "uncertain",
-    )
-    return any(marker in combined for marker in markers)
-
-
 def _listing_has_marketplace_or_unknown_seller(listing: ProductListing) -> bool:
     if listing.seller is None:
         return True
     return listing.seller.is_marketplace_seller is not False
-
-
-def _contains_artificial_blocking(text: str | None) -> bool:
-    if not text:
-        return False
-    normalized = text.casefold()
-    patterns = (
-        r"\bunsupported categor",
-        r"\bunsupported product",
-        r"\bnot supported\b",
-        r"\bno specialist\b",
-        r"\bspecialist-only\b",
-        r"\bcannot (?:support|analyze|assess)\b",
-        r"\bcan't (?:support|analyze|assess)\b",
-        r"\brefuse(?:d|s)? (?:category|product|analysis)\b",
-    )
-    return any(re.search(pattern, normalized) is not None for pattern in patterns)
 
 
 def _confidence(score: float, rationale: str) -> Confidence:

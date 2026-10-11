@@ -460,6 +460,7 @@ async def test_active_owner_result_is_verified_persisted_and_returned(
                     candidates=tuple(
                         GeneralCandidateSelection(
                             name=candidate.name,
+                            choice_group="primary" if candidate.name == name else "runner_up",
                             evidence_ids=tuple(
                                 item.evidence_id for item in candidate.evidence
                             ),

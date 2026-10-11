@@ -57,11 +57,10 @@ def test_research_sdk_tool_allowlist_is_scoped_by_agent() -> None:
     assert DEFAULT_AGENT_CATALOG.require("QueryPlannerAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_RESEARCH_RESULT,
     )
-    assert DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent").approved_sdk_tools == (
-        ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
-        ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,
-        ApprovedSDKTool.READ_RESEARCH_RESULT,
-    )
+    verifier = DEFAULT_AGENT_CATALOG.require("VerifierCriticAgent")
+    assert verifier.status == AgentStatus.IMPLEMENTED
+    assert verifier.invocation_mode == InvocationMode.TOOL_SUBRUN
+    assert verifier.approved_sdk_tools == (ApprovedSDKTool.READ_RESEARCH_RESULT,)
     assert DEFAULT_AGENT_CATALOG.require("ExtractionAgent").approved_sdk_tools == (
         ApprovedSDKTool.READ_SOURCE_SNAPSHOT,
         ApprovedSDKTool.COMPLETE_RESEARCH_RESULT,

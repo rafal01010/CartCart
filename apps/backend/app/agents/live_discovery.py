@@ -34,7 +34,7 @@ from app.schemas.ids import SourceId
 from app.schemas.search_sources import SearchResult
 
 
-_EXCLUDED_RAW_FLAGS = frozenset(
+_ADVISORY_CAUTION_FLAGS = frozenset(
     {
         "excluded",
         "source_policy_excluded",
@@ -384,9 +384,10 @@ def _build_discovery_agent(
             "You own shopping-source research. Inspect the supplied seed results and "
             "classify only the bounded sources you actually inspect. Other persisted leads remain unreviewed. "
             "choose hosted web_search or search_sources for bounded follow-up "
-            "research when reviews, broad "
-            "collections, weak matches, or too few listings leave the research "
-            "incomplete. Use the shopping brief's buying region for follow-up "
+            "research for concrete gaps that could change the advice. Start broad requests with "
+            "buyer-relevant current options, then follow actual results into useful companies and models. "
+            "Reuse saved sources and stop when enough useful information is available. "
+            "Use the shopping brief's buying region for follow-up "
             "searches. Search for named models found in reviews when useful. "
             "Treat user_added_products as shopper-considered candidate hints. "
             "Seek matching official, retailer, marketplace, and review sources "
@@ -415,13 +416,13 @@ def _build_discovery_agent(
             "and uncertain sources. Retain reviews as evidence; do not turn a "
             "review into a listing. Select source IDs needing page inspection "
             "in selected_source_ids (fetch or retain_as_evidence actions). "
-            "Use fetch_source by ID to resolve ambiguity when needed. Excluded "
+            "Use fetch_source by ID to resolve ambiguity when needed. "
             "For hosted web citations, classify each useful cited URL in "
             "hosted_source_decisions; use the exact cited URL, never invent an ID. "
             "A hosted snippet is an unverified source lead, not a product listing "
             "or proof of price, availability, or seller trust. You may reject weak "
             "or irrelevant citations. "
-            "or unsafe sources must be ignored. If nothing useful remains, "
+            "Source-quality scores and historical exclusion flags are advisory. Respect network access protections. If nothing useful remains, "
             "return insufficient_candidates with explicit reasons. Never invent "
             "IDs, prices, specs, sellers, or product facts."
         ),
@@ -485,7 +486,7 @@ def _safe_provider_raw(raw: dict[str, Any]) -> dict[str, Any]:
         "region_relevance",
         "region_relevance_score",
         "source_policy_version",
-        *_EXCLUDED_RAW_FLAGS,
+        *_ADVISORY_CAUTION_FLAGS,
     }
     return {key: value for key, value in raw.items() if key in allowed_keys}
 
@@ -606,15 +607,6 @@ def _validate_discovery_policy(output: DiscoveryAgentOutput) -> None:
         raise ValueError(
             "discovery must classify every observed source ID exactly once."
         )
-    if any(
-        decision.next_action != DiscoveryNextAction.IGNORE
-        for decision in output.source_decisions
-        if any(
-            result_by_id[decision.source_id].provider.raw.get(flag)
-            for flag in _EXCLUDED_RAW_FLAGS
-        )
-    ):
-        raise ValueError("excluded sources cannot be selected for research.")
     selected = set(output.selected_source_ids)
     actionable = {
         decision.source_id
@@ -659,8 +651,7 @@ def _mock_discovery_from_model_input(model_input: str) -> DiscoveryAgentOutput:
     decisions: list[DiscoverySourceDecision] = []
     for result in input_data.seed_results:
         text = f"{result.title} {result.snippet or ''}".casefold()
-        excluded = any(result.provider.raw.get(flag) for flag in _EXCLUDED_RAW_FLAGS)
-        if excluded or "proxy" in text or "unrelated" in text:
+        if "unrelated" in text:
             kind, action = DiscoverySourceKind.IRRELEVANT, DiscoveryNextAction.IGNORE
         elif "review" in text or "best tvs" in text:
             kind, action = (

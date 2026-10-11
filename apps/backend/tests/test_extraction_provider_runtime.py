@@ -129,7 +129,7 @@ async def test_http_static_adapter_returns_failed_snapshot_for_blocked_source(
 
 
 @pytest.mark.asyncio
-async def test_http_static_adapter_enforces_extraction_source_policy(
+async def test_http_static_adapter_treats_domain_reputation_as_advisory(
     tmp_path: Path,
 ) -> None:
     policy = SourceAllowAvoidPolicy(
@@ -141,12 +141,31 @@ async def test_http_static_adapter_enforces_extraction_source_policy(
             ),
         )
     )
-    snapshot = await HttpStaticExtractionProvider(snapshot_dir=tmp_path).extract(
-        AnyHttpUrl("https://blocked.example/product"),
-        ExtractionProviderOptions(source_policy=policy),
-    )
+    seen = []
 
-    assert snapshot.extraction_status == ExtractionStatus.EXCLUDED
-    assert snapshot.provider.raw["extraction_failure_code"] == (
-        "source_policy_excluded"
-    )
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(
+            200,
+            text="<html><body><p>Useful product information.</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+    async def resolve(_hostname: str, _port: int) -> tuple[str, ...]:
+        return ("93.184.216.34",)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        snapshot = await HttpStaticExtractionProvider(
+            snapshot_dir=tmp_path,
+            client=client,
+            minimum_static_word_count=1,
+            host_resolver=resolve,
+        ).extract(
+            AnyHttpUrl("https://blocked.example/product"),
+            ExtractionProviderOptions(source_policy=policy),
+        )
+
+    assert seen == ["https://blocked.example/product"]
+    assert snapshot.extraction_status == ExtractionStatus.SUCCEEDED
+    assert snapshot.extracted_content is not None
+    assert "Useful product information." in snapshot.extracted_content.text

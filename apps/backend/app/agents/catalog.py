@@ -347,8 +347,7 @@ def _entry(
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
 ) -> AgentCatalogEntry:
     local_research = any(
-        tool not in {ApprovedSDKTool.HOSTED_WEB_SEARCH}
-        for tool in approved_sdk_tools
+        tool not in {ApprovedSDKTool.HOSTED_WEB_SEARCH} for tool in approved_sdk_tools
     )
     if local_research:
         approved_sdk_tools = (
@@ -489,14 +488,30 @@ _OWNER_APPROVED_TOOLS = (
 
 
 _BOUNDED_SDK_AGENTS = {
-    "GeneralShoppingAgent", "TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent",
-    "MonitorSpecialistAgent", "LaptopSpecialistAgent", "EarphonesHeadphonesSpecialistAgent",
-    "TVSpecialistAgent", "SmartwatchSpecialistAgent", "ShoppingScopeGuardrail",
-    "IntakeAgent", "ShoppingGuideAgent", "QueryPlannerAgent", "DiscoveryAgent", "ExtractionAgent",
-    "CategoryRouterAgent", "GenericProductAnalystAgent", "SellerListingTrustAgent",
-    "ComparisonDecisionAgent", "VerifierCriticAgent", "SourceIntelligenceManagerAgent",
-    "YouTubeReviewIntelligenceAgent", "RedditCommunityIntelligenceAgent",
-    "AmazonProductIntelligenceAgent", "IKEAStoreIntelligenceAgent",
+    "GeneralShoppingAgent",
+    "TechnologyDomainAnalystAgent",
+    "SmartphoneSpecialistAgent",
+    "MonitorSpecialistAgent",
+    "LaptopSpecialistAgent",
+    "EarphonesHeadphonesSpecialistAgent",
+    "TVSpecialistAgent",
+    "SmartwatchSpecialistAgent",
+    "ShoppingScopeGuardrail",
+    "IntakeAgent",
+    "ShoppingGuideAgent",
+    "QueryPlannerAgent",
+    "DiscoveryAgent",
+    "ExtractionAgent",
+    "CategoryRouterAgent",
+    "GenericProductAnalystAgent",
+    "SellerListingTrustAgent",
+    "ComparisonDecisionAgent",
+    "VerifierCriticAgent",
+    "SourceIntelligenceManagerAgent",
+    "YouTubeReviewIntelligenceAgent",
+    "RedditCommunityIntelligenceAgent",
+    "AmazonProductIntelligenceAgent",
+    "IKEAStoreIntelligenceAgent",
 }
 
 
@@ -924,13 +939,12 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "VerifierCriticAgent": _entry(
         "VerifierCriticAgent",
-        status=AgentStatus.REQUIRED_MVP,
+        status=AgentStatus.IMPLEMENTED,
         kind=AgentKind.VERIFIER,
-        invocation_mode=InvocationMode.FINAL_TYPED_STEP,
+        invocation_mode=InvocationMode.TOOL_SUBRUN,
         contract_name="VerifierCriticAgent",
         output_schema="VerificationReport",
         run_profile=AgentRunProfileName.STRONG,
-        approved_sdk_tools=(ApprovedSDKTool.READ_SOURCE_SNAPSHOT,),
     ),
 }
 

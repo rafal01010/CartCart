@@ -30,13 +30,12 @@ from app.schemas.analysis import (
     ListingTrustSignalPolarity,
 )
 from app.schemas.base import CartCartBaseModel
-from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.ids import RunId, SourceId, new_id
+from app.schemas.ids import RunId, SourceId
 from app.schemas.regions import RegionCode
 from app.services.listing_trust import ListingTrustRuleContext, assess_listing_trust
 
 
-_HARD_SUSPICIOUS_SIGNAL_KINDS = frozenset(
+_ADVISORY_CONCERN_KINDS = frozenset(
     {
         ListingTrustSignalKind.SUSPICIOUS_PRICE,
         ListingTrustSignalKind.CONTRADICTORY_LISTING_DATA,
@@ -132,15 +131,11 @@ class LiveSellerListingTrustAgent:
         hosted_tool = None
         citation_store = None
         region_code = input_data.target_region_code or _listing_region(input_data)
-        if configuration.mode == OpenAIAgentRuntimeMode.LIVE:
-            if region_code is None:
-                raise OpenAIAgentConfigurationError(
-                    "Seller/listing hosted search requires a buyer region."
-                )
-            if self.citation_store_factory is None:
-                raise OpenAIAgentConfigurationError(
-                    "Live SellerListingTrustAgent requires run-scoped citation persistence."
-                )
+        if (
+            configuration.mode == OpenAIAgentRuntimeMode.LIVE
+            and region_code is not None
+            and self.citation_store_factory is not None
+        ):
             citation_store = self.citation_store_factory(input_data.run_id)
             if citation_store.run_id != input_data.run_id:
                 raise OpenAIAgentConfigurationError(
@@ -193,16 +188,24 @@ class LiveSellerListingTrustAgent:
             gap = None
             if citation_store is not None:
                 assert region_code is not None
-                persisted, hosted_activity, gap = await persist_trust_search_leads(
-                    raw=raw_result,
-                    selected_urls=tuple(lead.url for lead in model_output.web_leads),
-                    listing=input_data.listing,
-                    run_id=input_data.run_id,
-                    region_code=region_code,
-                    citation_store=citation_store,
-                    source_policy=trust_search_policy(input_data.listing),
-                    require_sdk_metadata=True,
-                )
+                try:
+                    persisted, hosted_activity, gap = await persist_trust_search_leads(
+                        raw=raw_result,
+                        selected_urls=tuple(
+                            lead.url for lead in model_output.web_leads
+                        ),
+                        listing=input_data.listing,
+                        run_id=input_data.run_id,
+                        region_code=region_code,
+                        citation_store=citation_store,
+                        source_policy=trust_search_policy(input_data.listing),
+                        require_sdk_metadata=True,
+                    )
+                except ContextBudgetExceeded:
+                    raise
+                except Exception:
+                    gap = "An optional seller source could not be retained. The supplied seller assessment remains available."
+
             assessment = _attach_web_leads(
                 assessment, model_output.web_leads, persisted
             )
@@ -251,12 +254,7 @@ class LiveSellerListingTrustAgent:
             )
             return assessment
 
-        status = (
-            "hard_suspicious_flag_preserved"
-            if _has_hard_suspicious_flags(rule_based)
-            and assessment.level == ListingTrustLevel.SUSPICIOUS
-            else "model_listing_trust_completed"
-        )
+        status = "model_listing_trust_completed"
         self._set_activity(
             status, input_data, assessment, hosted_activity, hosted_tool is not None
         )
@@ -286,9 +284,9 @@ class LiveSellerListingTrustAgent:
                     "seller_name": input_data.listing.seller.seller_name,
                     "evidence_count": len(input_data.evidence),
                     "rule_based_level": rule_based.level.value,
-                    "hard_suspicious_signal_kinds": [
+                    "advisory_concern_signal_kinds": [
                         signal.kind.value
-                        for signal in _hard_suspicious_signals(rule_based)
+                        for signal in _advisory_concern_signals(rule_based)
                     ],
                 },
                 "output": assessment.model_dump(mode="json"),
@@ -314,27 +312,15 @@ def _build_seller_listing_trust_agent(
             tool_choice="auto",
         ),
         instructions=(
-            "Review one supplied product listing for buyer-safety trust and "
-            "return a structured assessment and optional cited web_leads. Assess listing "
-            "and seller trust independently of product quality or product fit. "
-            "Use the supplied listing, source evidence, and deterministic "
-            "rule-based assessment. When supplied trust evidence is weak, you may "
-            "use web_search to inspect the exact seller, listing, or return/warranty "
-            "question for the supplied buyer region; skip it when evidence suffices. "
-            "Search only the supplied listing or seller sites. Put useful exact "
-            "cited URLs and their question in web_leads. A search snippet, "
-            "marketplace rating, or uncited assertion cannot establish a trusted "
-            "seller or a verified return/warranty policy. Never infer product "
-            "quality from seller reputation. Do not invent seller, price, return, "
-            "warranty, review, source, or evidence facts. Preserve supplied listing_id, evidence_ids, "
-            "source_ids, and deterministic trust signals. If deterministic "
-            "rules mark suspicious price or contradictory listing data, do not "
-            "silently downgrade or override those hard suspicious flags; keep a "
-            "clear red flag and explanation. Use unknown or weak trust when "
-            "evidence is insufficient, and reserve reasonable or strong trust "
-            "for established seller/source evidence with clear policy signals. "
-            "Do not recommend products or expose agents, providers, prompts, "
-            "traces, policies, or schemas to shoppers."
+            "Assess the supplied seller and listing independently of product quality and return an assessment. "
+            "Rule scores, source reputation, review counts and price-plausibility flags are advisory context. "
+            "You may improve or worsen the rule assessment when the supplied information supports your judgment. "
+            "An official store is acceptable seller context without a mandatory background check, reviews or policy checklist. "
+            "Missing reviews, price, stock or warranty are unknowns, not adverse findings. Multiple reviews without meaningful "
+            "adverse findings can be positive context. Weigh actual seller concerns, their scope and sources. "
+            "Do not invent seller facts, prices, reviews or source links. Keep supplied IDs. "
+            "If an optional search tool is supplied, use it only for a useful seller or listing question, never as a prerequisite. "
+            "Write a concise summary for an ordinary shopper."
         ),
         tools=[hosted_tool] if hosted_tool else [],
         output_type=SellerListingTrustModelOutput,
@@ -355,8 +341,8 @@ def _model_input(
                 evidence.model_dump(mode="json") for evidence in input_data.evidence
             ],
             "rule_based_assessment": rule_based.model_dump(mode="json"),
-            "hard_suspicious_signal_kinds": [
-                signal.kind.value for signal in _hard_suspicious_signals(rule_based)
+            "advisory_concern_signal_kinds": [
+                signal.kind.value for signal in _advisory_concern_signals(rule_based)
             ],
         },
         sort_keys=True,
@@ -439,74 +425,51 @@ def _validate_listing_trust_policy(
     if assessment.listing_id != input_data.listing.listing_id:
         raise ValueError("listing trust output used an unknown listing ID.")
 
-    known_evidence_ids = _known_evidence_ids(input_data, rule_based)
-    unknown_evidence_ids = set(assessment.evidence_ids) - known_evidence_ids
-    if unknown_evidence_ids:
-        raise ValueError("listing trust output used unknown evidence IDs.")
-
-    known_source_ids = _known_source_ids(input_data, rule_based)
-    unknown_source_ids = set(assessment.source_ids) - known_source_ids
-    if unknown_source_ids:
-        raise ValueError("listing trust output used unknown source IDs.")
-
-    for signal in assessment.trust_signals:
-        if set(signal.evidence_ids) - known_evidence_ids:
-            raise ValueError("listing trust signal used unknown evidence IDs.")
-        if set(signal.source_ids) - known_source_ids:
-            raise ValueError("listing trust signal used unknown source IDs.")
-
-    if _has_hard_suspicious_flags(rule_based):
-        if not _model_output_explains_hard_flags(assessment, rule_based):
-            raise ValueError(
-                "hard deterministic suspicious flags require explicit explanation."
-            )
-
 
 def _normalize_listing_trust_assessment(
     assessment: ListingTrustAssessment,
     input_data: SellerListingTrustAgentInput,
     rule_based: ListingTrustAssessment,
 ) -> ListingTrustAssessment:
-    evidence_ids = _dedupe_source_ids(
-        (*assessment.evidence_ids, *_fallback_evidence_ids(input_data, rule_based))
+    known_evidence = _known_evidence_ids(input_data, rule_based)
+    known_sources = _known_source_ids(input_data, rule_based)
+    return assessment.model_copy(
+        update={
+            "evidence_ids": _dedupe_source_ids(
+                value
+                for value in (
+                    *assessment.evidence_ids,
+                    *_fallback_evidence_ids(input_data, rule_based),
+                )
+                if value in known_evidence
+            ),
+            "source_ids": _dedupe_source_ids(
+                value
+                for value in (
+                    *assessment.source_ids,
+                    *_fallback_source_ids(input_data, rule_based),
+                )
+                if value in known_sources
+            ),
+            "trust_signals": tuple(
+                signal.model_copy(
+                    update={
+                        "evidence_ids": tuple(
+                            value
+                            for value in signal.evidence_ids
+                            if value in known_evidence
+                        ),
+                        "source_ids": tuple(
+                            value
+                            for value in signal.source_ids
+                            if value in known_sources
+                        ),
+                    }
+                )
+                for signal in assessment.trust_signals
+            ),
+        }
     )
-    source_ids = _dedupe_source_ids(
-        (*assessment.source_ids, *_fallback_source_ids(input_data, rule_based))
-    )
-    trust_signals = rule_based.trust_signals
-    red_flags = rule_based.red_flags
-    positive_signals = rule_based.positive_signals
-    update: dict[str, Any] = {
-        "evidence_ids": evidence_ids,
-        "source_ids": source_ids,
-        "trust_signals": trust_signals,
-        "red_flags": red_flags,
-        "positive_signals": positive_signals,
-        "summary": rule_based.summary,
-    }
-
-    if _has_hard_suspicious_flags(rule_based):
-        update.update(
-            {
-                "level": ListingTrustLevel.SUSPICIOUS,
-                "confidence": _preserved_hard_flag_confidence(
-                    assessment.confidence,
-                    rule_based.confidence,
-                ),
-            }
-        )
-    elif _more_severe(rule_based.level, assessment.level):
-        update.update(
-            {
-                "level": rule_based.level,
-                "confidence": _lower_confidence(
-                    assessment.confidence,
-                    rule_based.confidence,
-                ),
-            }
-        )
-
-    return assessment.model_copy(update=update)
 
 
 def _mock_assessment_from_model_input(model_input: str) -> ListingTrustAssessment:
@@ -544,8 +507,7 @@ def _rule_based_assessment(
     return assess_listing_trust(
         input_data.listing,
         ListingTrustRuleContext(
-            evidence_ids=_input_evidence_ids(input_data)
-            or input_data.listing.source_ids,
+            evidence_ids=_input_evidence_ids(input_data),
             source_ids=input_data.listing.source_ids,
         ),
     )
@@ -566,15 +528,11 @@ def _known_source_ids(
 
 
 def _fallback_evidence_ids(
-    input_data: SellerListingTrustAgentInput,
-    rule_based: ListingTrustAssessment,
+    input_data: SellerListingTrustAgentInput, rule_based: ListingTrustAssessment
 ) -> tuple[SourceId, ...]:
-    evidence_ids = _input_evidence_ids(input_data)
-    if evidence_ids:
-        return _dedupe_source_ids((*evidence_ids, *rule_based.evidence_ids))
-    if rule_based.evidence_ids:
-        return rule_based.evidence_ids
-    return input_data.listing.source_ids or (new_id(),)
+    return _dedupe_source_ids(
+        (*_input_evidence_ids(input_data), *rule_based.evidence_ids)
+    )
 
 
 def _fallback_source_ids(
@@ -596,103 +554,15 @@ def _input_evidence_ids(
     return tuple(evidence.evidence_id for evidence in input_data.evidence)
 
 
-def _hard_suspicious_signals(
+def _advisory_concern_signals(
     assessment: ListingTrustAssessment,
 ) -> tuple[ListingTrustSignal, ...]:
     return tuple(
         signal
         for signal in assessment.trust_signals
-        if signal.kind in _HARD_SUSPICIOUS_SIGNAL_KINDS
+        if signal.kind in _ADVISORY_CONCERN_KINDS
     )
-
-
-def _has_hard_suspicious_flags(assessment: ListingTrustAssessment) -> bool:
-    return bool(_hard_suspicious_signals(assessment))
-
-
-def _model_output_explains_hard_flags(
-    assessment: ListingTrustAssessment,
-    rule_based: ListingTrustAssessment,
-) -> bool:
-    combined_text = " ".join(
-        (
-            assessment.summary,
-            *assessment.red_flags,
-            *assessment.positive_signals,
-            *(
-                signal.summary
-                for signal in assessment.trust_signals
-                if signal.kind in _HARD_SUSPICIOUS_SIGNAL_KINDS
-            ),
-        )
-    ).casefold()
-    if not combined_text.strip():
-        return False
-
-    for signal in _hard_suspicious_signals(rule_based):
-        if signal.kind == ListingTrustSignalKind.SUSPICIOUS_PRICE:
-            if not any(
-                marker in combined_text
-                for marker in ("price", "too low", "discount", "cheap")
-            ):
-                return False
-        if signal.kind == ListingTrustSignalKind.CONTRADICTORY_LISTING_DATA:
-            if not any(
-                marker in combined_text
-                for marker in ("contradict", "mismatch", "conflict", "differs")
-            ):
-                return False
-    return True
 
 
 def _dedupe_source_ids(source_ids: Iterable[SourceId]) -> tuple[SourceId, ...]:
     return tuple(dict.fromkeys(source_ids))
-
-
-def _more_severe(left: ListingTrustLevel, right: ListingTrustLevel) -> bool:
-    return _severity_rank(left) > _severity_rank(right)
-
-
-def _severity_rank(level: ListingTrustLevel) -> int:
-    return {
-        ListingTrustLevel.STRONG: 0,
-        ListingTrustLevel.REASONABLE: 1,
-        ListingTrustLevel.MIXED: 2,
-        ListingTrustLevel.UNKNOWN: 3,
-        ListingTrustLevel.WEAK: 4,
-        ListingTrustLevel.SUSPICIOUS: 5,
-    }[level]
-
-
-def _preserved_hard_flag_confidence(
-    model_confidence: Confidence,
-    rule_confidence: Confidence,
-) -> Confidence:
-    score = max(model_confidence.score, rule_confidence.score, 0.75)
-    return Confidence(
-        score=score,
-        level=ConfidenceLevel.HIGH if score >= 0.75 else ConfidenceLevel.MEDIUM,
-        rationale=(
-            "Hard deterministic suspicious listing signals were preserved after "
-            "model review."
-        ),
-    )
-
-
-def _lower_confidence(
-    model_confidence: Confidence,
-    rule_confidence: Confidence,
-) -> Confidence:
-    score = min(model_confidence.score, rule_confidence.score)
-    level = (
-        ConfidenceLevel.LOW
-        if score < 0.5
-        else ConfidenceLevel.MEDIUM
-        if score < 0.75
-        else ConfidenceLevel.HIGH
-    )
-    return Confidence(
-        score=score,
-        level=level,
-        rationale=rule_confidence.rationale or model_confidence.rationale,
-    )

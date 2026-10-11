@@ -47,8 +47,9 @@ class FixtureYtDlpRunner:
         cwd: Path,
         timeout_seconds: float,
         output_limit_bytes: int,
+        temp_storage_limit_bytes: int,
     ) -> YtDlpCommandResult:
-        del timeout_seconds, output_limit_bytes
+        del timeout_seconds, output_limit_bytes, temp_storage_limit_bytes
         self.commands.append(command)
         self.working_directories.append(cwd)
         call_number = len(self.commands)

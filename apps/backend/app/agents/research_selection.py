@@ -4,7 +4,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from enum import StrEnum
 from hashlib import sha256
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -20,67 +19,6 @@ _STOP_WORDS = frozenset(
     "would budget problem unlimited money price review reviews official source "
     "check latest current product products shopping".split()
 )
-
-
-class ResearchFact(StrEnum):
-    WARRANTY = "warranty"
-    PRICE = "price"
-    AVAILABILITY = "availability"
-    VARIANT = "variant"
-    SELLER = "seller"
-    RELEASE = "release"
-    SUPPORT = "support"
-
-
-_FACT_CUES = {
-    ResearchFact.WARRANTY: r"\bwarrant(?:y|ies)\b",
-    ResearchFact.PRICE: r"\b(?:price|prices|cost|costs|budget|priced)\b",
-    ResearchFact.AVAILABILITY: r"\b(?:stock|availability|available|shipping|delivery|region|regional)\b",
-    ResearchFact.VARIANT: r"\b(?:variant|variants|import|imported|capacity|storage|ram|\d+\s*gb)\b",
-    ResearchFact.SELLER: r"\b(?:seller|trust|legitimacy|legitimate|counterfeit|authentic|safety|safe)\b",
-    ResearchFact.RELEASE: r"\b(?:release|released|launch|launched|generation)\b",
-    ResearchFact.SUPPORT: r"\b(?:updates|support)\b",
-}
-_FACT_ASSERTIONS = {
-    ResearchFact.WARRANTY: r"\b(?:no|without|includes?|has|provides?|offers?|with|covered by|comes with|does not have|does not include)\b[^.!?]{0,55}\bwarranty\b|\bwarranty\b[^.!?]{0,65}\b(?:included|available|valid|covered|unavailable|excluded|limited|unverified|uncertain|\d+\s*(?:years?|months?))\b",
-    ResearchFact.PRICE: r"\b(?:price|costs?|priced|sells?|sale)\b[^.!?]{0,55}\d|(?:\b[A-Z]{3}\s*|[$€£₱])\d[\d,.]*",
-    ResearchFact.AVAILABILITY: r"\b(?:in (?:local )?stock|out of stock|available|not available|unavailable|ships? to|delivers? to|delivery (?:available|unavailable)|pickup only)\b",
-    ResearchFact.VARIANT: r"\b(?:imported|\d+\s*gb)\b|\b(?:variant|model|capacity|storage|ram)\b\s+(?:is|of|[:=])\s+\w+|\b(?:has|uses?|includes?)\s+(?:a |an |the )?\w+(?:\s+\w+){0,2}\s+(?:variant|model|capacity|storage|ram)\b",
-    ResearchFact.SELLER: r"\b(?:seller|listing|offer)\b[^.!?]{0,60}\b(?:verified|unverified|legitimate|illegitimate|suspicious|counterfeit|authentic|unknown|unsafe|risk)\b|\b(?:unverified|suspicious|counterfeit|unknown)\b[^.!?]{0,30}\b(?:seller|listing|offer)\b",
-    ResearchFact.RELEASE: r"\b(?:released|launched|announced|launches|releases)\b[^.!?]{0,70}\b(?:\d{4}|today|yesterday|tomorrow)\b|\b\d{4}\b[^.!?]{0,70}\b(?:release|launch)\b",
-    ResearchFact.SUPPORT: r"\b(?:support|updates)\b[^.!?]{0,65}\b(?:until|through|ends?|ended|\d+\s*(?:years?|months?))\b|\b\d+\s*(?:years?|months?)\b[^.!?]{0,35}\b(?:support|updates)\b",
-}
-_FACT_CONTEXT_WORDS = frozenset(
-    "find show tell compare comparison information details specs specifications "
-    "features official review reviews check status warranty warranties price prices cost "
-    "costs budget stock availability available shipping delivery region regional variant "
-    "variants import imported capacity storage ram seller trust legitimacy legitimate "
-    "counterfeit authentic safety safe release released launch launched generation "
-    "updates support".split()
-)
-
-
-def _required_facts(query: str, intent: SearchIntent) -> frozenset[ResearchFact]:
-    required = {
-        fact
-        for fact, pattern in _FACT_CUES.items()
-        if re.search(pattern, query, re.IGNORECASE)
-    }
-    if intent == SearchIntent.PRICE_CHECK:
-        required.add(ResearchFact.PRICE)
-    elif intent == SearchIntent.TRUST_CHECK:
-        required.add(ResearchFact.SELLER)
-    return frozenset(required)
-
-
-def _supports_need(need: "EvidenceNeed", quote: str) -> bool:
-    subject = terms(need.query) - _FACT_CONTEXT_WORDS
-    if not subject or not subject <= terms(quote):
-        return False
-    return all(
-        re.search(_FACT_ASSERTIONS[fact], quote, re.IGNORECASE)
-        for fact in need.required_facts
-    )
 
 
 def terms(text: str) -> frozenset[str]:
@@ -100,7 +38,7 @@ def equivalent_url(url: str) -> str:
         and key.casefold() not in {"ref", "referrer", "fbclid", "gclid"}
     )
     return urlunsplit(
-        (parts.scheme, parts.netloc.casefold(), parts.path, urlencode(query), "")
+        (parts.scheme, parts.netloc.casefold(), parts.path.rstrip("/") or "/", urlencode(query), "")
     )
 
 
@@ -109,7 +47,6 @@ class EvidenceNeed:
     need_id: str
     intent: SearchIntent
     query: str
-    required_facts: frozenset[ResearchFact]
     evidence_ids: set[SourceId] = field(default_factory=set)
 
 
@@ -149,34 +86,21 @@ class ResearchSelection:
 
     @property
     def covered(self) -> bool:
-        return (
-            bool(self.needs)
-            and all(need.evidence_ids for need in self.needs.values())
-            and {SearchIntent.OFFICIAL_SOURCE, SearchIntent.REVIEW}
-            <= self.support_roles
-            and any(
-                official != review
-                for official in self.support_sites.get(SearchIntent.OFFICIAL_SOURCE, ())
-                for review in self.support_sites.get(SearchIntent.REVIEW, ())
-            )
-            and not any(self.unreviewed_cautions.values())
+        return bool(self.needs) and all(
+            need.evidence_ids for need in self.needs.values()
         )
 
     def need(self, query: str, intent: SearchIntent) -> EvidenceNeed:
-        required_facts = _required_facts(query, intent)
         identity = json.dumps(
             [
                 intent.value,
                 " ".join(query.casefold().split()),
-                sorted(fact.value for fact in required_facts),
             ],
             ensure_ascii=False,
             separators=(",", ":"),
         )
         key = sha256(identity.encode()).hexdigest()[:16]
-        return self.needs.setdefault(
-            key, EvidenceNeed(key, intent, query, required_facts)
-        )
+        return self.needs.setdefault(key, EvidenceNeed(key, intent, query))
 
     def reject(self, lead: SearchResult, need: EvidenceNeed, reason: str) -> None:
         self.leads[lead.source_id] = lead
@@ -194,7 +118,13 @@ class ResearchSelection:
     ) -> tuple[SearchResult, ...]:
         previous_leads = dict(self.leads)
         query_terms = terms(need.query)
-        buyer_terms = terms(self.brief.original_query)
+        buyer_terms = terms(
+            " ".join([
+                self.brief.original_query,
+                self.brief.category or "",
+                *(item.text for item in self.brief.preferences),
+            ])
+        )
         ranked = []
         for lead in results:
             content = terms(lead.title + " " + (lead.snippet or ""))
@@ -238,17 +168,6 @@ class ResearchSelection:
                         for quote in self.quotes.get(lead.source_id, ())
                     )
                 )
-        ranked.sort(
-            key=lambda item: (
-                -int(item[0] > 0 and item[1]),
-                -item[0],
-                -item[2],
-                -item[3],
-                -item[4],
-                -item[5],
-                str(item[6].source_id),
-            )
-        )
         selected: list[SearchResult] = []
         admitted_urls = {
             equivalent_url(str(previous_leads[source_id].url)): source_id
@@ -256,7 +175,27 @@ class ResearchSelection:
             if source_id in previous_leads
         }
         characters = 0
-        for relevance, caution, _, _, _, _, lead in ranked:
+        while ranked:
+            prior = [
+                *selected,
+                *(
+                    previous_leads[source_id]
+                    for source_id in self.admitted
+                    if source_id in previous_leads
+                ),
+            ]
+            known_terms = frozenset().union(
+                *(terms(item.title + " " + (item.snippet or "")) for item in prior)
+            )
+            sites = {urlsplit(str(item.url)).netloc.casefold() for item in prior}
+            ranked.sort(key=lambda item: (
+                -int(item[0] > 0 and item[1]),
+                -item[0], -item[4],
+                -len(terms(item[6].title + " " + (item[6].snippet or "")) - known_terms),
+                -int(urlsplit(str(item[6].url)).netloc.casefold() not in sites),
+                -item[2], -item[3], -item[5], str(item[6].source_id),
+            ))
+            relevance, caution, _, _, _, _, lead = ranked.pop(0)
             url = equivalent_url(str(lead.url))
             equivalent = admitted_urls.get(url)
             size = len(
@@ -276,13 +215,13 @@ class ResearchSelection:
             )
             reason = "resolves_open_evidence_need"
             status = "selected"
-            if not relevance:
-                status, reason = "deferred", "no_buyer_or_need_match"
-            elif equivalent is not None and not _new_caution(
-                lead, previous_leads.get(equivalent) or self.leads[equivalent]
+            if equivalent is not None and any(
+                equivalent_url(str(previous.url)) == url
+                and not _new_information(lead, previous)
+                for previous in prior
             ):
                 status, reason = "deferred", "equivalent_url_already_admitted"
-            elif not caution and any(
+            elif equivalent is None and not caution and any(
                 _redundant(lead, previous)
                 for previous in [
                     *selected,
@@ -313,8 +252,6 @@ class ResearchSelection:
     def admit_fetch(
         self, source: SearchResult, need_id: str | None
     ) -> EvidenceNeed | None:
-        if self.covered:
-            return None
         decision = self.decisions.get(source.source_id)
         need = self.needs.get(need_id or (decision.need_id if decision else ""))
         if need is None:
@@ -347,7 +284,7 @@ class ResearchSelection:
         supported = False
         if decision is not None:
             need = self.needs[decision.need_id]
-            supported = _supports_need(need, quote)
+            supported = True
             if supported:
                 need.evidence_ids.add(evidence_id)
         if supported:
@@ -364,7 +301,7 @@ class ResearchSelection:
 
     def widen(self, need_id: str, *, limit: int) -> tuple[SearchResult, ...]:
         need = self.needs.get(need_id)
-        if need is None or self.covered:
+        if need is None:
             return ()
         pending = [
             self.leads[source_id]
@@ -392,10 +329,13 @@ def _role(source: SearchResult) -> SearchIntent:
     return source.query.intent
 
 
-def _new_caution(lead: SearchResult, previous: SearchResult) -> bool:
+def _new_information(lead: SearchResult, previous: SearchResult) -> bool:
     return bool(
         set(material_cautions(lead.snippet or ""))
         - set(material_cautions(previous.snippet or ""))
+        or terms(lead.snippet or "") != terms(previous.snippet or "")
+        or re.findall(r"\d+(?:[./-]\d+)*", lead.snippet or "")
+        != re.findall(r"\d+(?:[./-]\d+)*", previous.snippet or "")
     )
 
 

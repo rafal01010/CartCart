@@ -202,9 +202,11 @@ def _build_query_planner_agent(model: str) -> Agent[Any]:
         instructions=(
             RESEARCH_QUERY_GUIDANCE
             + "Create a SearchPlan from the shopper's ShoppingBrief. Return only "
-            "the structured SearchPlan. Start with at most two focused queries for useful official product facts "
-            "and optional review/comparison evidence. Reviews are never required to return product options. "
-            "For a hard price cap, use a regional priced shopping query instead of the official query. "
+            "the structured SearchPlan. Start broad requests with general discovery of useful current options "
+            "for the buyer's category, preferences, region and budget. Named companies are examples unless "
+            "explicitly exclusive. Follow actual results with official/specification or comparative queries "
+            "only for concrete decision gaps. Reviews are optional. Reuse existing information and stop "
+            "when enough useful context is available; do not fill a search or source quota. "
             "Do not add overlapping price, store, warranty, shipping, or video queries before a specific gap exists. "
             "If the input contains user_added_products with "
             "product names or short descriptions, include scoped shopping or "
@@ -304,21 +306,7 @@ def _initial_queries(
     queries: tuple[SearchQuery, ...], brief: ShoppingBrief
 ) -> tuple[SearchQuery, ...]:
     queries = _dedupe_queries(queries)
-    preferred = (
-        SearchIntent.PRICE_CHECK
-        if brief.budget and brief.budget.mode == BudgetMode.HARD_CAP
-        else SearchIntent.OFFICIAL_SOURCE
-    )
-    shopping = next((query for query in queries if query.intent == preferred), None)
-    shopping = shopping or next(
-        (query for query in queries if _is_shopping_query(query)), None
-    )
-    review = next(
-        (query for query in queries if _is_review_query(query) and query != shopping),
-        None,
-    )
-    review = review or next((query for query in queries if query != shopping), None)
-    return tuple(query for query in (shopping, review) if query is not None)
+    return queries
 
 
 def _validate_query_plan_policy(plan: SearchPlan) -> None:
@@ -390,6 +378,8 @@ def _default_source_types(intent: SearchIntent) -> tuple[SourceType, ...]:
             SourceType.RETAILER_LISTING,
             SourceType.PRODUCT_PAGE,
             SourceType.OFFICIAL_BRAND_PAGE,
+            SourceType.PROFESSIONAL_REVIEW,
+            SourceType.SEARCH_RESULT,
         ),
         SearchIntent.PRICE_CHECK: (
             SourceType.RETAILER_LISTING,
@@ -419,35 +409,22 @@ def _fallback_search_plan(brief: ShoppingBrief) -> SearchPlan:
     region_code = _region_code_from_brief(brief)
     region_phrase = _region_phrase(region_code)
     budget_phrase = _budget_phrase(brief)
-    shopping_intent = (
-        SearchIntent.PRICE_CHECK
-        if brief.budget and brief.budget.mode == BudgetMode.HARD_CAP
-        else SearchIntent.OFFICIAL_SOURCE
-    )
-    shopping_purpose = "priced retailer listings" if shopping_intent == SearchIntent.PRICE_CHECK else "official product announcement"
+    shopping_intent = SearchIntent.DISCOVERY
 
     queries = (
         SearchQuery(
             query=_clean_query(
-                f"{descriptor} {budget_phrase} {region_phrase} {shopping_purpose}"
+                f"{descriptor} {budget_phrase} {region_phrase} useful current options comparison"
             ),
             intent=shopping_intent,
             region_code=region_code,
             required_source_types=_default_source_types(shopping_intent),
         ),
-        SearchQuery(
-            query=_clean_query(
-                f"{descriptor} {budget_phrase} {region_phrase} reviews comparison"
-            ),
-            intent=SearchIntent.REVIEW,
-            region_code=region_code,
-            required_source_types=_default_source_types(SearchIntent.REVIEW),
-        ),
     )
     return SearchPlan(
         queries=_dedupe_queries(queries),
         rationale=(
-            "Two focused region-aware queries for official product facts and substantive reviews."
+            "Begin with buyer-relevant discovery; follow useful results into concrete decision gaps."
         ),
     )
 

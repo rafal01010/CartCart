@@ -109,7 +109,9 @@
 		resultView ? selectModeView(resultView, selectedModeKey) : null,
 	);
 	const regionLabel = $derived(
-		regionPreference?.status === 'provided'
+		currentSession?.current_brief.region
+			? regionByCode(currentSession.current_brief.region.region.country_code).label
+			: regionPreference?.status === 'provided'
 			? regionPreference.region.label
 			: regionPreference?.status === 'refused'
 				? 'Region not set'
@@ -457,7 +459,7 @@
 
 	function recommendationRetryId(results: SessionResultsResponse): RunId | null {
 		const bundle = results.recommendation_bundle;
-		return (bundle.verification_action === 'blocked' || bundle.no_strong_buy) && results.source_evidence.length > 0
+		return bundle.verification_action === 'blocked'
 			? results.result_version.run_id : null;
 	}
 
@@ -714,7 +716,10 @@
 					}
 				} catch { /* Keep the displayed saved decision available. */ }
 			}
-			if (!recovered && generation === flowGeneration && sessionId === activeSessionId) refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
+			if (!recovered && generation === flowGeneration && sessionId === activeSessionId) {
+				retryableAnalysisRun = requestedRun;
+				refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
+			}
 		} finally {
 			if (generation === flowGeneration && sessionId === activeSessionId) {
 				if (!refinementError && request.region) {
@@ -787,13 +792,14 @@
 				<div class="mx-auto mb-6 max-w-[1180px]">
 					{#if recommendationRetryRunId && !viewingPrevious}
 						<div class="mb-5 flex flex-wrap items-center gap-3 border border-border bg-card px-5 py-4">
-							<p class="text-sm leading-6 text-muted-foreground">The recommendation could not be confirmed. You can run the check again using the information already gathered.</p>
-							<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry recommendation check</Button>
+							<p class="text-sm leading-6 text-muted-foreground">This saved run stopped before advice was ready. Try again using the information already gathered.</p>
+							<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry recommendation</Button>
 						</div>
 					{/if}
 					{#if refinementPending}<p role="status" class="mb-4 text-sm text-muted-foreground">Updating your decision. You can review the previous result below.</p>{/if}
 					{#if refinementError}<p role="alert" class="mb-4 text-sm text-destructive">{refinementError}</p>{/if}
 					{#if viewingPrevious}<p class="mb-3 text-sm text-muted-foreground">Viewing an earlier decision.</p><Button variant="outline" disabled={decisionBusy} onclick={() => latestVersionId && showDecisionVersion(latestVersionId)}>Return to latest decision</Button>
+					{:else if refinementError && retryableAnalysisRun}<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry update</Button>
 					{:else}<Button variant="outline" disabled={decisionBusy} onclick={openRefinement}>{refinementError ? 'Try refining again' : 'Refine this decision'}</Button>{/if}
 					<DecisionHistory history={decisionHistory} selectedId={displayedVersionId} pending={decisionBusy} error={historyError} onSelect={showDecisionVersion} onReload={loadDecisionHistory} />
 				</div>

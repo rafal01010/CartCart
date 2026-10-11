@@ -1,13 +1,10 @@
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 from pydantic import AnyHttpUrl
 
 from app.providers.contracts import (
     ExtractionProviderOptions,
-    SourceAllowAvoidPolicy,
-    SourcePolicyRule,
 )
 from app.schemas.search_sources import (
     ExtractionStatus,
@@ -72,24 +69,6 @@ class HttpStaticExtractionProvider:
         source_type = (
             options.source_type if options is not None else SourceType.PRODUCT_PAGE
         )
-        source_policy = (
-            options.source_policy if options is not None else SourceAllowAvoidPolicy()
-        )
-        policy_reason = _source_policy_exclusion_reason(
-            url,
-            source_type=source_type,
-            policy=source_policy,
-        )
-        if policy_reason is not None:
-            return _failed_snapshot(
-                url,
-                source_type=source_type,
-                status=ExtractionStatus.EXCLUDED,
-                failure_code="source_policy_excluded",
-                failure_message=policy_reason,
-                retryable=False,
-            )
-
         try:
             snapshot = await self._fetcher.fetch(url, source_type=source_type)
         except SourceFetchError as exc:
@@ -164,42 +143,3 @@ def _failed_snapshot(
         extraction_status=status,
         http_status_code=http_status_code,
     )
-
-
-def _source_policy_exclusion_reason(
-    url: AnyHttpUrl,
-    *,
-    source_type: SourceType,
-    policy: SourceAllowAvoidPolicy,
-) -> str | None:
-    hostname = (urlsplit(str(url)).hostname or "").casefold().removeprefix("www.")
-    matching_avoid = next(
-        (
-            rule
-            for rule in policy.avoid
-            if _rule_matches(rule, hostname=hostname, source_type=source_type)
-        ),
-        None,
-    )
-    if matching_avoid is not None:
-        return matching_avoid.reason
-    if policy.allow and not any(
-        _rule_matches(rule, hostname=hostname, source_type=source_type)
-        for rule in policy.allow
-    ):
-        return "Source is outside the extraction allow policy."
-    return None
-
-
-def _rule_matches(
-    rule: SourcePolicyRule,
-    *,
-    hostname: str,
-    source_type: SourceType,
-) -> bool:
-    if rule.source_type is not None and rule.source_type != source_type:
-        return False
-    if rule.domain is None:
-        return True
-    domain = rule.domain.casefold().strip(".").removeprefix("www.")
-    return hostname == domain or hostname.endswith(f".{domain}")

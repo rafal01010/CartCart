@@ -30,10 +30,7 @@ def test_only_explicit_processing_retires_verified_views_and_keeps_late_warranty
         output = history.register("fetch_source", original)
         view_id = json.loads(output)["_research_view"]["view_id"]
         assert retired_output(output) == output
-        assert (
-            history.complete(view_id, ["Invented safe seller."])["status"]
-            == "invalid_request"
-        )
+        assert history.complete(view_id, [""])["status"] == "invalid_request"
         assert retired_output(output) == output
         assert history.complete(view_id, ["Price PHP 90000."])["status"] == "processed"
         compact = retired_output(output)
@@ -41,7 +38,7 @@ def test_only_explicit_processing_retires_verified_views_and_keeps_late_warranty
         assert state["retained"]["facts"] == ["Price PHP 90000."]
         assert state["retained"]["cautions"] == ["No local warranty."]
         assert state["retained"]["identities"] == {"source_id": ["same-run-page"]}
-        assert "unreviewed" in state["retained"]["coverage"]
+        assert "advisory" in state["retained"]["coverage"]
         assert len(compact) < len(output) / 2
         reread = history.read(view_id, focus="No local warranty")
         assert "No local warranty." in reread["text"]
@@ -267,54 +264,8 @@ def test_retired_cautions_keep_bounds_and_explicit_deferred_coverage():
         assert retained["unreviewed_cautions"] is True
         assert retained["cautions_truncated"] is True
         assert {"warranty", "seller"}.issubset(retained["caution_focus_terms"])
-        assert history.unjustified_safety_claims(
-            "This product has a local warranty.",
-            ["This product has a local warranty."],
-            ["bounded-cautions"],
-        ) == ("This product has a local warranty.",)
         assert (
             history.read(view_id, focus="Warranty uncertain")["status"] == "succeeded"
-        )
-
-
-@pytest.mark.parametrize(
-    "assurance",
-    [
-        "The listing is safe to buy; price may change.",
-        "The seller is legitimate and not counterfeit.",
-        "This product is safe to buy before Friday.",
-        "This is a reputable seller.",
-        "You can buy confidently.",
-        "This product is genuine.",
-        "The offer is low-risk.",
-    ],
-)
-def test_unprocessed_research_and_unrelated_qualifications_cannot_prove_safety(
-    assurance,
-):
-    with history_scope() as history:
-        history.register(
-            "fetch_source",
-            json.dumps(
-                {
-                    "status": "succeeded",
-                    "source_id": "unchecked",
-                    "text": "Price PHP 90000. "
-                    + "Navigation. " * 400
-                    + "No local warranty.",
-                }
-            ),
-        )
-        assert history.unjustified_safety_claims(
-            assurance, ["Price PHP 90000."], ["unchecked"]
-        )
-        assert not history.unjustified_safety_claims(
-            "This product is not safe to buy.", ["Price PHP 90000."], ["unchecked"]
-        )
-        assert not history.unjustified_safety_claims(
-            "Check whether this product is safe to buy.",
-            ["Price PHP 90000."],
-            ["unchecked"],
         )
 
 

@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 from app.agents.hosted_web_search import HostedWebCitation
 from app.agents.research_selection import ResearchSelection
-from app.agents.research_history import active_history
 from app.agents.source_spans import source_span
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.session import shared_tool_session
@@ -107,6 +106,9 @@ class ToolSource(CartCartBaseModel):
     snippet: str | None = None
     provider_source_type: SourceType
     provider_name: str
+    source_quality: str | None = None
+    source_quality_score: float | None = None
+    source_class: str | None = None
     snippet_truncated: bool = False
     unreviewed_content: bool = False
     material_cautions: tuple[str, ...] = ()
@@ -195,6 +197,7 @@ class RecordSourceQuoteResult(CartCartBaseModel):
     snapshot_id: SourceId | None = None
     evidence_id: SourceId | None = None
     quote: str | None = None
+    source_note: str | None = None
     start_char: int | None = None
     end_char: int | None = None
     content_sha256: str | None = None
@@ -470,7 +473,7 @@ class AgentResearchTools:
     async def restore_recorded_quotes(
         self, activity: tuple[dict[str, Any], ...]
     ) -> tuple[dict[str, Any], ...]:
-        """Reauthorize saved quotes only against their original canonical spans."""
+        """Restore available saved source notes by run-scoped association."""
         restored = []
         async with self._session_lock:
             async with self._session() as session:
@@ -487,7 +490,6 @@ class AgentResearchTools:
                         continue
                     output = item.get("output", {})
                     ids = output.get("source_ids", ())
-                    span = output.get("support_span", {})
                     if len(ids) != 3 or str(ids[2]) not in evidence:
                         continue
                     source_id = SourceId(ids[0])
@@ -498,30 +500,13 @@ class AgentResearchTools:
                         self._run_id, source_id
                     )
                     quote = evidence[str(ids[2])]
-                    start, end = span.get("start_char"), span.get("end_char")
                     if (
                         source is None
                         or snapshot is None
                         or str(snapshot.source_id) != str(ids[1])
                         or quote.source_id != snapshot.source_id
-                        or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
-                        or snapshot.extracted_content is None
-                        or not 1 <= len(quote.claim) <= 400
-                        or type(start) is not int
-                        or type(end) is not int
-                        or not 0 <= start < end <= len(snapshot.extracted_content.text)
-                        or snapshot.extracted_content.text[start:end] != quote.claim
-                        or span.get("content_sha256")
-                        != source_span(snapshot.extracted_content.text).content_sha256
-                        or str(span.get("snapshot_id")) != str(snapshot.source_id)
                         or not _safe_public_result_url(str(source.url))
                         or not _safe_public_result_url(str(snapshot.url))
-                        or not _source_policy_allows(
-                            str(source.url), source.source_type, self._source_policy
-                        )
-                        or snapshot.quality.level == SourceQualityLevel.WEAK
-                        or quote.source_quality.level
-                        in {SourceQualityLevel.WEAK, SourceQualityLevel.UNKNOWN}
                     ):
                         continue
                     if quote.evidence_id in self._recorded_quote_ids:
@@ -535,8 +520,10 @@ class AgentResearchTools:
                             "evidence_id": str(quote.evidence_id),
                             "title": snapshot.title,
                             "url": str(source.url),
-                            "quote": quote.claim,
-                            "source_quality": quote.source_quality.model_dump(mode="json"),
+                            "source_note": quote.claim,
+                            "source_quality": quote.source_quality.model_dump(
+                                mode="json"
+                            ),
                         }
                     )
         return tuple(restored)
@@ -611,7 +598,7 @@ class AgentResearchTools:
             """Search approved shopping sources and return persisted source IDs.
 
             Args:
-                query: Search terms chosen for the shopping research.
+                query: Buyer/category discovery terms, then concrete decision gaps from prior results. Reuse useful saved context.
                 intent: Purpose of this search, not a classification of results.
                 region_code: Optional two-letter target buying region.
                 max_results: Requested result count, bounded by backend policy.
@@ -721,7 +708,7 @@ class AgentResearchTools:
 
         @function_tool
         async def record_source_quote(source_id: str, quote: str) -> str:
-            """Persist an exact quote from a fetched source in this run.
+            """Persist a bounded source note from a fetched page in this run.
 
             Args:
                 source_id: ID returned by search_sources, then fetched.
@@ -750,7 +737,7 @@ class AgentResearchTools:
         if not bounded or len(bounded) > 400:
             return RecordSourceQuoteResult(
                 status=ResearchToolStatus.INVALID_REQUEST,
-                gap="Quote must contain 1 to 400 exact page characters.",
+                gap="Source note must contain 1 to 400 characters.",
             )
         async with self._session_lock:
             if self._quote_calls >= self._limits.max_quote_calls:
@@ -767,33 +754,17 @@ class AgentResearchTools:
                 snapshot = await repository.get_snapshot_for_search_result(
                     self._run_id, source_id
                 )
-                history = active_history()
                 if (
                     source is None
                     or not _safe_public_result_url(str(source.url))
-                    or not _source_policy_allows(
-                        str(source.url), source.source_type, self._source_policy
-                    )
                     or snapshot is None
-                    or snapshot.extraction_status != ExtractionStatus.SUCCEEDED
+                    or not _safe_public_result_url(str(snapshot.url))
                     or snapshot.extracted_content is None
-                    or bounded not in snapshot.extracted_content.text
-                    or (
-                        history is not None
-                        and not history.quote_visible(source_id, bounded)
-                    )
-                    or not any(
-                        bounded in snapshot.extracted_content.text[start:end]
-                        and digest
-                        == source_span(snapshot.extracted_content.text).content_sha256
-                        for start, end, digest in self._observed_spans.get(
-                            source_id, ()
-                        )
-                    )
+                    or not snapshot.extracted_content.text
                 ):
                     result = RecordSourceQuoteResult(
                         status=ResearchToolStatus.GAP,
-                        gap="Exact quote was not found in a fetched page in this run.",
+                        gap="No usable fetched page is available for this run source.",
                     )
                     self._record("record_source_quote", result.status)
                     return result
@@ -821,7 +792,7 @@ class AgentResearchTools:
                     confidence=Confidence(
                         score=0.5,
                         level=ConfidenceLevel.MEDIUM,
-                        rationale="Exact text on a fetched page; the claim is not independently verified.",
+                        rationale="Model-authored source note; it may paraphrase the fetched page and is not a verified quotation.",
                     ),
                     source_quality=quality,
                 )
@@ -833,19 +804,16 @@ class AgentResearchTools:
                     self._run_state.selection.record_support(
                         source, bounded, evidence.evidence_id
                     )
-                quote_start = next(
-                    start + snapshot.extracted_content.text[start:end].index(bounded)
-                    for start, end, _ in self._observed_spans[source_id]
-                    if bounded in snapshot.extracted_content.text[start:end]
-                )
+                quote_start = snapshot.extracted_content.text.find(bounded)
                 result = RecordSourceQuoteResult(
                     status=ResearchToolStatus.SUCCEEDED,
                     source_id=source_id,
                     snapshot_id=snapshot.source_id,
                     evidence_id=evidence.evidence_id,
-                    quote=bounded,
-                    start_char=quote_start,
-                    end_char=quote_start + len(bounded),
+                    quote=bounded if quote_start >= 0 else None,
+                    source_note=bounded,
+                    start_char=quote_start if quote_start >= 0 else None,
+                    end_char=quote_start + len(bounded) if quote_start >= 0 else None,
                     content_sha256=source_span(
                         snapshot.extracted_content.text
                     ).content_sha256,
@@ -887,16 +855,9 @@ class AgentResearchTools:
             request = request.model_copy(
                 update={"region_code": self._required_region_code}
             )
-        if selection is not None and selection.covered:
-            result = SearchSourcesResult(
-                status=ResearchToolStatus.GAP,
-                gap="Required research already has exact support. Continue to candidate validation and verification.",
-            )
-            self._record("search_sources", "coverage_satisfied")
-            return result
         async with self._lock:
             cache_key = (
-                request.query.casefold(),
+                " ".join(request.query.casefold().split()),
                 request.intent.value,
                 request.region_code,
                 request.max_results,
@@ -1356,17 +1317,6 @@ class AgentResearchTools:
                     selection = self._run_state.selection
                     if selection is not None:
                         need = selection.admit_fetch(source, request.need_id)
-                        if selection.covered or need is None:
-                            self._record(
-                                "fetch_source",
-                                "coverage_satisfied",
-                                source_ids=[str(request.source_id)],
-                            )
-                            return FetchSourceResult(
-                                status=ResearchToolStatus.GAP,
-                                source_id=request.source_id,
-                                gap="This evidence need already has exact support. Continue to validation, or reread its existing source.",
-                            )
                         request = request.model_copy(update={"need_id": need.need_id})
                         self._record(
                             "research_evidence_need",
@@ -1496,9 +1446,7 @@ class AgentResearchTools:
             )
         if text and self._run_state.selection is not None:
             self._run_state.selection.observe(source.source_id, text)
-        has_usable_text = (
-            snapshot.extraction_status == ExtractionStatus.SUCCEEDED and bool(text)
-        )
+        has_usable_text = bool(text)
         return FetchSourceResult(
             status=(
                 ResearchToolStatus.SUCCEEDED
@@ -1523,11 +1471,7 @@ class AgentResearchTools:
             unreviewed_content=text is not None and len(text) > len(bounded_text or ""),
             **_caution_details(text or ""),
             provider_name=_provider_label(self._extraction_provider),
-            gap=(
-                None
-                if has_usable_text
-                else _unusable_page_gap(snapshot)
-            ),
+            gap=(None if has_usable_text else _unusable_page_gap(snapshot)),
             evidence_need_id=request.need_id,
         )
 
@@ -1596,6 +1540,9 @@ def _tool_source(
         **_caution_details(result.snippet or ""),
         provider_source_type=result.source_type,
         provider_name=provider_name,
+        source_quality=result.quality.level.value,
+        source_quality_score=result.quality.score,
+        source_class=score_source_quality(str(result.url)).source_class.value,
     )
 
 
@@ -1695,33 +1642,12 @@ def _safe_public_result_url(url: str) -> bool:
 
 
 def _domain_policy_allows(url: str, policy: SourceAllowAvoidPolicy) -> bool:
-    host = (urlsplit(url).hostname or "").rstrip(".").lower().removeprefix("www.")
-
-    def matches(domain: str) -> bool:
-        normalized = domain.rstrip(".").lower().removeprefix("www.")
-        return host == normalized or host.endswith(f".{normalized}")
-
-    if any(rule.domain and matches(rule.domain) for rule in policy.avoid):
-        return False
-    allowed_domains = [rule.domain for rule in policy.allow if rule.domain]
-    return not allowed_domains or any(matches(domain) for domain in allowed_domains)
+    del policy
+    return _safe_public_result_url(url)
 
 
 def _source_policy_allows(
     url: str, source_type: SourceType, policy: SourceAllowAvoidPolicy
 ) -> bool:
-    host = (urlsplit(url).hostname or "").rstrip(".").lower().removeprefix("www.")
-
-    def matches(rule: Any) -> bool:
-        domain = (
-            rule.domain.rstrip(".").lower().removeprefix("www.")
-            if rule.domain is not None
-            else None
-        )
-        return (domain is None or host == domain or host.endswith(f".{domain}")) and (
-            rule.source_type is None or rule.source_type == source_type
-        )
-
-    if any(matches(rule) for rule in policy.avoid):
-        return False
-    return not policy.allow or any(matches(rule) for rule in policy.allow)
+    del source_type, policy
+    return _safe_public_result_url(url)

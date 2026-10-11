@@ -349,6 +349,15 @@ dependencies. The provider uses fixed arguments including `--skip-download`,
 Deno runtime. It ignores local yt-dlp config, disallows plugins and remote EJS
 components, and never reads browser, server-account, or user-uploaded cookies.
 
+Task 217 prepares `yt_dlp` and enabled caption settings in local `.env` and
+`.env.example` without retrieval. The implementation hold prohibits live calls
+until separate Task 221 authorization. The existing time, output, storage and
+segment settings are unchanged. The command runner samples temporary storage
+every 10 ms and terminates/reaps owned writers before cleanup on storage/output
+failure, timeout or cancellation. POSIX process groups include descendants.
+The disk bound has a sampled enforcement allowance, not a hard filesystem quota;
+the local paced-writer measurement is recorded in the Task 217 handoff.
+
 ### Live Amazon Intelligence Example
 
 ```dotenv

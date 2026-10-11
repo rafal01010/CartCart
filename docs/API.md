@@ -1,7 +1,42 @@
 # CartCart API
 
+## Shopper advice and diagnostic fields, Task 219
+
+The response contract is unchanged. Overall and per-choice `rationale` and `tradeoffs` carry concise advice about what to buy. Supported prices and useful budget/value explanations can inform that advice, including explained modest stretches. `confidence`, `unknowns`, analysis cautions, trust records and bundle warnings remain available for internal diagnostics and saved-record compatibility. The normal result does not aggregate them into generic checking or warning sections.
+
+Product and seller names, user input, source titles and evidence claims are projected literally. Developer labels belong to controlled fixture writers rather than a global text filter. Existing saved authored rationale and tradeoffs are preserved, including older wording that predates the new prompt. No schema migration or saved-record rewrite is required. Live validation deferred to Task 221.
+
+## Primary choices and runners-up, Task 218
+
+New authored bundles carry `primary_product_ids` for one to three primary choices and `runner_up_product_ids` for zero to two optional runners-up. IDs are unique within each group and disjoint across groups. A saved final pick, when present, belongs to the primary group. A no-option result has empty explicit groups. These are structural limits, not required counts.
+
+`mode_results` retains each product's authored reason, tradeoffs, optional listing and source associations. Mode labels do not change explicit group membership. The result API returns the saved groups directly; the frontend renders primary cards and a separate Runners-up section. Source-free and product-only recommendations remain valid.
+
+An absent or null `primary_product_ids` identifies historical JSON. Its saved final pick and non-runner modes supply primary choices, while saved runner IDs and runner modes remain secondary. Display groups deduplicate product IDs and respect the maxima. A historical runner-only answer preserves useful advice by displaying its first runner as one primary choice. This read projection never rewrites immutable saved records. Existing JSON storage requires no database migration.
+
+The live owner marks candidate `choice_group` as `primary` or `runner_up`; retained old checkpoints may omit it. The model prefers useful company/provider variety, usually places family/size variants among runners, respects exclusive preferences and explains meaningful benefits, tradeoffs and supported modest budget stretches. No company, SKU, source or budget gate selects a product. Live validation is deferred to Task 221 under the active live-call hold.
+
+## Offline research readiness, Task 217
+
+Tasks 217-220 and their prerequisites do not authorize live calls. Task 217 changes research instructions, bounded lead selection and internal source consultation persistence. Public result schemas, immutable versions and recommendation-by-default semantics remain unchanged. Optional video consultation returns validated source evidence and relevant transcript excerpts to the owner; video metadata alone does not establish spoken review claims. Existing video-source, segment and bundle IDs retain provenance. Database and ownership failures propagate as technical failures rather than optional-source gaps. No minimum source count or required review is added. Actual guided-browser and saved-result acceptance is deferred to Task 221.
+
+The result API retains original search results and snapshots. Frontend projection merges equivalent neutral URLs into one source view with combined evidence and labeled snippets, retaining aliases for referenced source IDs. Unused deferred or rejected leads stay internal; fetched and referenced sources remain available. Functional URL parameters such as video and product IDs are preserved. No public schema or database migration is required.
+
+## Current recommendation policy, Task 216
+
+Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.
+
+Results add optional `source_results` for saved search snippets and optional `shopping_brief` from the saved owner/intake checkpoint or refinement plan. This immutable context supports budget labels without borrowing a later session budget. Old records may omit it. `RecommendationModeResult` can carry `tradeoffs` and `unknowns`; all are ordinary JSON fields with no database migration.
+
+Advice and source associations are independent. Recommendation evidence IDs, sources, comparison matrices, checked listings and mode records are optional. The UI leads with recommendations, reasons and meaningful tradeoffs, then shows available page sources and search snippets. Unknowns remain diagnostic fields. A snippet is labeled as a snippet. A source note is not a verbatim quotation. No exact substring, quote visibility, span membership or hash equality admits recommendations or retries.
+
+The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
+
+The owner resumed live calls on 2026-10-11. Tasks 216, 214, 215 and 100A passed revised guided-browser acceptance. See [saved IDs, browser evidence, SQLite/API matches, usage and checks](TASK_216_LIVE_ACCEPTANCE.md). No P1 work started. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes.
+
+
 Status: Implemented API and future contract direction
-Last updated: 2026-10-06
+Last updated: 2026-10-10
 
 ## Contract Direction
 
@@ -306,37 +341,11 @@ agent-tool activity. Fixture mode keeps a provider-service simulation.
 
 Returns the latest recommendation bundle for the session, including final pick or no-strong-buy result, supported comparison modes, trust notes, warnings, source references, and result version. Live bundles retain `result_author`, `handoff_chain`, `verification_action`, and `verification_changes` for audit. The shopper view renders the recommendation and evidence without agent or handoff details.
 
-For an approved live owner result, `final_rationale` and the best-overall mode
-rationale preserve the final SDK owner's primary explanation. Verifier
-revisions record the changed fields and authored reasons in
-`verification_changes`. A missing revision reason blocks the result even when
-automatic guardrail checks pass. Blocked results return a cautious
-no-strong-buy answer without the unsupported primary explanation. The internal
-owner contract requires a nonblank explanation of at most 1500 characters.
-The public result schema and result-version links remain unchanged.
+The final SDK owner authors the saved primary explanation and optional alternatives. Candidate reasons, tradeoffs and unknowns survive projection. The internal explanation length remains bounded at 1500 characters. Source and evidence associations may be empty. A missing or invalid optional association is omitted without suppressing advice. `verification_action` and `verification_changes` remain nullable historical audit fields. No verifier approval is required to save or display a recommendation.
 
-Recognized factual specifications require evidence for the candidate asserted
-in the claim, including final, mode, and comparison explanations. Correctly
-targeted evidence for another product cannot establish the winner's
-specification. Supported comparisons retain citations for each named product.
-The backend repeats this check after an approved verifier revision. A blocked
-live result records the reason in `verification_changes` and clears the purchase
-pick through the existing cautious result contract.
+`final_product_id` and the exact `final_listing_id` identify an optional saved preferred pick. In explicitly grouped bundles, that product belongs to `primary_product_ids`. Primary IDs and runner IDs determine the displayed groups. `mode_results` carries supporting explanation and optional offer records, even when a mode label differs from its authored choice group. A null final listing stays product-only when another mode names an offer.
 
-`final_product_id` and the exact `final_listing_id` identify the saved final
-decision. `mode_results` is optional supporting data and may be empty or contain
-only alternatives. The frontend builds the main pick from the final references,
-`final_rationale`, and preserved evidence. A null final listing stays a
-product-only recommendation, even when an optional mode names a purchase offer.
-Mode tabs include the saved final decision so shoppers can return to it after
-viewing an alternative. Saved `runner_up_product_ids` remain visible without
-duplicate mode records, using available comparison or category analysis data.
-Explicit saved runner-up offers retain their product/listing pairs.
-Shortlist membership alone does not attach a purchase offer. A runner-up without
-a saved mode or comparison-row listing stays product-only, retaining its saved
-analysis and evidence.
-Missing explanations, confidence, and offer details remain unavailable rather
-than inferred from scores or unrelated candidates.
+Historical bundles without explicit primary IDs retain saved final and runner membership through the compatibility projection described above. A product without a saved mode uses available comparison or category-analysis text. Explicit saved offers retain their product/listing pairs. Shortlist membership alone does not attach a purchase offer. A runner without a saved mode or comparison-row listing stays product-only. Missing confidence and offer details remain unavailable rather than inferred from scores or unrelated candidates.
 
 Current implementation returns the latest successful persisted result bundle for the
 session across its runs. The response includes result-version metadata, trust
@@ -355,22 +364,11 @@ matching products by name. Shortlist and considered-product data belong to the
 run that produced this result; a candidate added after that run appears after
 the next completed run.
 
-The persisted recommendation bundle preserves listing trust. Weak or suspicious
-listing assessments produce listing-level warnings or rejections. Every explicit
-recommended listing, including alternate modes and saved runner-up offers,
-must satisfy seller safety and comparable-price hard caps. A suspicious offer
-requires a blocking warning identifying that offer or exclusion. An ordinary
-seller mention or another offer's warning does not qualify. Comparison-only
-rows and rejected offers can remain visible without becoming buying picks.
-Product-only recommendations do not infer listing IDs. Unknown prices and
-different currencies do not establish a hard-cap breach. When
-`no_strong_buy=true`, `no_strong_buy_reason` should explain what blocked a
-responsible recommendation and include a plain-language next step for the
-shopper. If the session exists but no result has been saved yet, the API
-returns `404` with `result_not_ready`.
-When research yields no verified product, the persisted no-strong-buy bundle
-has no final product, empty comparison rows, and may have no evidence IDs.
-It is an honest result, not a monitor-fixture fallback.
+Seller assessments remain inspectable advisory context. The owner model weighs actual concerns and can recommend a product or a specific offer with its own cautions. Rule-derived trust levels, missing prices and requested hard-cap budgets cannot clear the recommendation. Over-budget amounts and price comparability are supplied to the model. Unknown or different-currency prices do not establish affordability.
+
+The result response adds optional `source_results`, defaulting to an empty array, for saved search titles, URLs and snippets. It preserves `source_snapshots` and `source_evidence`. `RecommendationModeResult` adds optional `tradeoffs` and `unknowns`, both defaulting to empty arrays. Mode records and `final_listing_id` remain optional. A bundle can contain selected alternatives without a decisive final product. No-source and no-comparison advice is representable. These fields are stored in existing JSON result records, so no destructive migration is needed.
+
+A model-authored no-option result uses `no_strong_buy` and the owner's reason. Technical failures use the failed run or retryable API error, never a fabricated no-option buying judgment. If no result has been saved, the API returns `404` with `result_not_ready`.
 
 `POST /api/sessions/{session_id}/products`
 
@@ -580,7 +578,7 @@ Use Pydantic schemas for API contracts and agent structured outputs. Important s
 - Create IKEA evidence only from approved normalized regional store context, require neutral official URLs on the declared country path, keep product facts separate from regional price/availability/store evidence, and represent missing or unavailable fields as explicit gaps without implying shipping elsewhere.
 - Require source IDs for factual claims about products, listings, prices, sellers, reviews, regions, community discussion, marketplace evidence, official-store evidence, and video evidence.
 - Require evidence targets for source-backed claims so product, listing, seller, review, candidate, region, and source-metadata evidence remain distinguishable.
-- Require evidence ID citations on downstream analysis and recommendation claims while retaining source IDs for source-level inspection.
+- Retain optional evidence and source IDs for inspection without making them recommendation prerequisites.
 - Separate known, unknown, and inferred fields.
 - Preserve confidence separately from evidence quality.
 - Keep product-level and listing-level entities separate.
@@ -669,7 +667,7 @@ Task 214 adds safe internal diagnostics for `failure_stage`, active owner output
 allowance, final transport reservation and blocking condition. Hosted search
 without URL annotations remains unverified discovery; uncited selected URLs
 are rejected and cannot create canonical support. Candidate validation still
-requires exact recorded quotes and same-run source validation. A trusted official
+uses available same-run context without exact quote admission. A trusted official
 source can support a product-only option; reviews add comparative confidence.
 Unknown purchase details remain qualified. The result view shows up to three
 distinct supported options. Public result schemas are unchanged.

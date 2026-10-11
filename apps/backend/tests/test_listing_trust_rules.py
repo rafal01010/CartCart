@@ -106,7 +106,7 @@ def test_trust_rules_mark_reasonable_marketplace_listing_with_clear_seller() -> 
     assert ListingTrustSignalKind.REVIEW_COUNT in signal_kinds(assessment)
 
 
-def test_trust_rules_mark_mixed_listing_with_positive_and_negative_signals() -> None:
+def test_trust_rules_assess_positive_and_negative_signals_as_advisory_context() -> None:
     listing = make_listing(
         url="https://walmart.com/ip/acme-widget/123",
         seller_name="Acme Marketplace Partner",
@@ -123,7 +123,7 @@ def test_trust_rules_mark_mixed_listing_with_positive_and_negative_signals() -> 
         ),
     )
 
-    assert assessment.level == ListingTrustLevel.MIXED
+    assert assessment.level == ListingTrustLevel.REASONABLE
     assert assessment.positive_signals
     assert assessment.red_flags
 
@@ -175,9 +175,7 @@ def test_trust_rules_mark_suspicious_listing_for_price_and_contradictions() -> N
 
     assert assessment.level == ListingTrustLevel.SUSPICIOUS
     assert ListingTrustSignalKind.SUSPICIOUS_PRICE in signal_kinds(assessment)
-    assert ListingTrustSignalKind.CONTRADICTORY_LISTING_DATA in signal_kinds(
-        assessment
-    )
+    assert ListingTrustSignalKind.CONTRADICTORY_LISTING_DATA in signal_kinds(assessment)
 
 
 def test_trust_rules_mark_unknown_when_evidence_is_too_sparse() -> None:
@@ -253,7 +251,9 @@ def test_price_plausibility_uses_category_fallback_conservatively() -> None:
     assert findings[0].basis == PriceComparisonBasis.CATEGORY
 
 
-def test_price_plausibility_keeps_trusted_retailer_discount_below_suspicious_line() -> None:
+def test_price_plausibility_keeps_trusted_retailer_discount_below_suspicious_line() -> (
+    None
+):
     sale_listing = make_listing(
         url="https://apple.com/shop/product/acme-widget",
         seller_name="Apple",
@@ -269,3 +269,39 @@ def test_price_plausibility_keeps_trusted_retailer_discount_below_suspicious_lin
     )
 
     assert compare_price_plausibility((listings,)) == ()
+
+
+def test_official_store_does_not_require_reviews_or_complete_purchase_details() -> None:
+    listing = make_listing(
+        url="https://apple.com/shop/product/kettle",
+        seller_name="Apple",
+        seller_trust_signal=SellerTrustSignal.UNKNOWN,
+        price=None,
+        region=False,
+        retailer_id=None,
+    )
+    result = assess_listing_trust(listing)
+    assert result.level == ListingTrustLevel.REASONABLE
+    assert result.red_flags == ()
+    assert ListingTrustSignalKind.MISSING_METADATA in signal_kinds(result)
+
+
+def test_small_review_history_is_positive_context_without_minimum_count() -> None:
+    result = assess_listing_trust(
+        make_listing(), ListingTrustRuleContext(review_count=2)
+    )
+    assert "Listing has some review history (2 reviews)." in result.positive_signals
+    assert not any("review" in flag for flag in result.red_flags)
+
+
+def test_price_plausibility_sources_are_not_fabricated_evidence_ids() -> None:
+    cheap = make_listing(price="20.00")
+    evidence_id = new_id()
+    contexts = price_plausibility_contexts(
+        ((cheap, make_listing(price="199.00"), make_listing(price="209.00")),),
+        {cheap.listing_id: ListingTrustRuleContext(evidence_ids=(evidence_id,))},
+    )
+    context = contexts[cheap.listing_id]
+    assert context.suspicious_price is True
+    assert context.evidence_ids == (evidence_id,)
+    assert cheap.source_ids[0] in context.source_ids

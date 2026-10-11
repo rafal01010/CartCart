@@ -480,20 +480,15 @@ def test_region_setup_can_be_refused_or_supplied_after_creation(
     assert supplied.json()["region_setup"]["region"]["country_code"] == "PH"
 
 
-def test_guardrail_blocks_off_topic_and_unsafe_requests(
+@pytest.mark.parametrize(
+    "query", ("Write a poem about a laptop", "Which gun should I buy?")
+)
+def test_fixture_guide_does_not_semantically_classify_request(
     guided_api_client: TestClient,
+    query: str,
 ) -> None:
-    off_topic = _create_guided_session(
-        guided_api_client,
-        "Write a poem about a laptop",
-    )
-    unsafe = _create_guided_session(
-        guided_api_client,
-        "Which gun should I buy?",
-    )
+    session = _create_guided_session(guided_api_client, query)
 
-    assert off_topic["guide"]["status"] == "blocked"
-    assert off_topic["guide"]["guardrail"]["reason"] == "off_topic"
-    assert "shopping decisions" in off_topic["guide"]["guardrail"]["message"]
-    assert unsafe["guide"]["status"] == "blocked"
-    assert unsafe["guide"]["guardrail"]["reason"] == "unsafe_product"
+    assert session["guide"]["status"] == "collecting"
+    assert session["guide"]["guardrail"] is None
+    assert session["guide"]["current_question"] is not None

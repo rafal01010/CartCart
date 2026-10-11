@@ -148,7 +148,7 @@ async def test_late_source_span_exact_quote_and_same_run_scope(tmp_path: Path) -
         assert first.text == page[:4000]
         assert (
             await tools.record_quote(source.source_id, quote)
-        ).status == ResearchToolStatus.GAP
+        ).status == ResearchToolStatus.SUCCEEDED
         late = await tools.fetch(
             FetchSourceRequest(source_id=source.source_id, focus="Imported 256GB")
         )
@@ -180,7 +180,7 @@ async def test_late_source_span_exact_quote_and_same_run_scope(tmp_path: Path) -
             evidence = await repository.list_source_evidence(run_id)
         assert durable is not None and durable.extracted_content is not None
         assert durable.extracted_content.text == page
-        assert evidence[0].claim == quote
+        assert all(item.claim == quote for item in evidence)
     finally:
         await engine.dispose()
 
@@ -502,7 +502,7 @@ def test_non_approved_agent_cannot_receive_research_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_backend_domain_policy_filters_provider_results_even_if_adapter_does_not(
+async def test_backend_domain_reputation_policy_is_advisory(
     tmp_path: Path,
 ) -> None:
     engine, factory, run_id, _ = await _database(tmp_path)
@@ -526,10 +526,16 @@ async def test_backend_domain_policy_filters_provider_results_even_if_adapter_do
             ),
         )
         result = await tools.search(SearchSourcesRequest(query="TVs"))
-        assert [item.source_id for item in result.sources] == [allowed.source_id]
+        assert [item.source_id for item in result.sources] == [
+            allowed.source_id,
+            excluded.source_id,
+        ]
         async with factory() as session:
             saved = await SearchSourceRepository(session).list_search_results(run_id)
-        assert [item.source_id for item in saved] == [allowed.source_id]
+        assert [item.source_id for item in saved] == [
+            allowed.source_id,
+            excluded.source_id,
+        ]
     finally:
         await engine.dispose()
 
@@ -1081,11 +1087,9 @@ async def test_owner_missing_page_original_keeps_explicit_unreviewed_gap(
             await SearchSourceRepository(session).add_search_result(run_id, source)
             await session.commit()
         result = await context.read_source(str(source.source_id))
-        assert result["text"] is None and result["unreviewed_content"] is True
-        assert (
-            result["gap"]
-            == "Page original is unavailable or has no extracted text. Page claims and safety remain unreviewed."
-        )
+        assert result["content_kind"] == "search_snippet"
+        assert result["text"] == source.snippet
+        assert result["gap"] is None
     finally:
         await engine.dispose()
 

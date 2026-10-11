@@ -2818,6 +2818,22 @@
             ],
             "title": "No Strong Buy Reason"
           },
+          "primary_product_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Product Ids"
+          },
           "rejected_items": {
             "items": {
               "$ref": "#/components/schemas/RejectedItem"
@@ -2884,9 +2900,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "comparison_matrix"
-        ],
         "title": "RecommendationBundle",
         "type": "object"
       },
@@ -2912,7 +2925,6 @@
               "format": "uuid",
               "type": "string"
             },
-            "minItems": 1,
             "title": "Evidence Ids",
             "type": "array"
           },
@@ -2955,6 +2967,20 @@
             "minLength": 1,
             "title": "Title",
             "type": "string"
+          },
+          "tradeoffs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tradeoffs",
+            "type": "array"
+          },
+          "unknowns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknowns",
+            "type": "array"
           }
         },
         "required": [
@@ -2962,8 +2988,7 @@
           "product_id",
           "title",
           "rationale",
-          "confidence",
-          "evidence_ids"
+          "confidence"
         ],
         "title": "RecommendationModeResult",
         "type": "object"
@@ -3784,6 +3809,16 @@
           "result_version": {
             "$ref": "#/components/schemas/ResultVersionResponse"
           },
+          "shopping_brief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShoppingBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "shortlist": {
             "items": {
               "$ref": "#/components/schemas/ShortlistItemResponse"
@@ -3796,6 +3831,13 @@
               "$ref": "#/components/schemas/SourceEvidence"
             },
             "title": "Source Evidence",
+            "type": "array"
+          },
+          "source_results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "title": "Source Results",
             "type": "array"
           },
           "source_snapshots": {

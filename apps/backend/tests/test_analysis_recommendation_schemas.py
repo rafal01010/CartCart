@@ -233,21 +233,31 @@ def test_rejected_item_infers_legacy_reason_code() -> None:
     assert item.reason_code == RejectionReason.WEAK_EVIDENCE
 
 
-def test_source_backed_recommendation_claims_require_evidence_ids() -> None:
+def test_advice_accepts_missing_sources_comparison_listing_and_modes() -> None:
     product_id = new_id()
+    bundle = RecommendationBundle(
+        final_product_id=product_id,
+        final_rationale="A useful option for your preferences; local price is unknown.",
+    )
+    assert bundle.evidence_ids == ()
+    assert bundle.source_ids == ()
+    assert bundle.final_listing_id is None
+    assert bundle.comparison_matrix.rows == ()
+    assert bundle.mode_results == ()
 
-    with pytest.raises(ValidationError):
-        RecommendationModeResult(
-            mode=RecommendationMode.BEST_OVERALL,
-            product_id=product_id,
-            title="Best overall",
-            rationale="A recommendation claim without evidence IDs.",
-            confidence=make_confidence(),
-        )
 
-    with pytest.raises(ValidationError):
-        RecommendationBundle(
-            final_product_id=product_id,
-            final_rationale="A final recommendation without evidence IDs.",
-            comparison_matrix=make_comparison_matrix(product_id),
-        )
+def test_alternatives_do_not_require_a_decisive_winner_or_citations() -> None:
+    product_id = new_id()
+    mode = RecommendationModeResult(
+        mode=RecommendationMode.RUNNER_UP,
+        product_id=product_id,
+        title="Another useful option",
+        rationale="Choose it if portability matters most.",
+        tradeoffs=("Smaller screen.",),
+        unknowns=("Current local price is unknown.",),
+        confidence=make_confidence(),
+    )
+    bundle = RecommendationBundle(mode_results=(mode,))
+    assert bundle.final_product_id is None
+    assert bundle.mode_results[0].evidence_ids == ()
+    assert bundle.mode_results[0].tradeoffs == ("Smaller screen.",)

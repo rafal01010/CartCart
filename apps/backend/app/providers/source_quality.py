@@ -12,7 +12,7 @@ from app.schemas.regions import RegionCode
 from app.schemas.search_sources import SourceQuality, SourceQualityLevel
 
 
-SOURCE_POLICY_VERSION = "cartcart_source_quality_v1_2026-06-13"
+SOURCE_POLICY_VERSION = "cartcart_source_quality_v2_2026-10-10"
 
 MVP_TARGET_REGIONS = frozenset(
     {"PH", "US", "KR", "CA", "JP", "SG", "MO", "AU", "NZ", "HK", "TW"}
@@ -211,7 +211,7 @@ _OFFICIAL_MANUFACTURER_DOMAINS = {
 }
 
 
-_EXCLUDED_DOMAINS = {
+_HISTORICAL_CAUTION_DOMAINS = {
     "aliexpress.com",
     "buyee.jp",
     "carousell.com.hk",
@@ -496,8 +496,8 @@ def score_source_quality(
     rule = _classify_domain(domain, parsed.path)
     reasons = [rule.rationale]
     score = rule.baseline_score
-    excluded = rule.excluded
-    requires_trust = rule.requires_trust_assessment
+    excluded = False
+    requires_trust = False
 
     region_score, region_level, region_reasons = _score_region_relevance(
         domain,
@@ -513,9 +513,7 @@ def score_source_quality(
             reasons.append("The official domain does not match the product brand.")
         if details.evidence_context == SourceEvidenceContext.PURCHASE:
             score -= (1.0 - region_score) * 0.35
-            reasons.append(
-                "Official purchase details are only strong when the regional store matches."
-            )
+            reasons.append("Regional store context helps assess purchase details.")
 
     if rule.source_class == SourceClass.COMMUNITY:
         if details.recurring_community_signal:
@@ -534,11 +532,11 @@ def score_source_quality(
         )
 
     if _is_amazon_domain(domain):
-        requires_trust = True
+        requires_trust = False
         if details.evidence_context == SourceEvidenceContext.REVIEW:
             score -= 0.05
             reasons.append(
-                "Amazon reviews require variant-mixing and manipulation checks."
+                "Amazon review context may include variant mixing or manipulation concerns."
             )
         else:
             reasons.append(
@@ -586,17 +584,13 @@ def _classify_domain(domain: str, path: str) -> _DomainRule:
         return _rule(
             SourceClass.RESELLER_IMPORT_PROXY,
             0.2,
-            "Facebook Marketplace is excluded as normal purchase evidence.",
-            excluded=True,
-            requires_trust_assessment=True,
+            "Facebook Marketplace offers need seller-specific caution. Its content remains usable context.",
         )
-    if _matches_any(domain, _EXCLUDED_DOMAINS):
+    if _matches_any(domain, _HISTORICAL_CAUTION_DOMAINS):
         return _rule(
             SourceClass.RESELLER_IMPORT_PROXY,
             0.2,
-            "The platform is excluded as normal purchase evidence by the MVP seed.",
-            excluded=True,
-            requires_trust_assessment=True,
+            "The historical seed flags this platform for seller-specific caution. Content remains usable context.",
         )
     for candidate, regions in _AMAZON_REGIONS.items():
         if _domain_matches(domain, candidate):
@@ -605,7 +599,6 @@ def _classify_domain(domain: str, path: str) -> _DomainRule:
                 0.45,
                 "Amazon is a mixed marketplace and must be assessed per listing.",
                 regions=regions,
-                requires_trust_assessment=True,
             )
     for candidate, regions in _OPEN_MARKETPLACE_REGIONS.items():
         if _domain_matches(domain, candidate):
@@ -614,7 +607,6 @@ def _classify_domain(domain: str, path: str) -> _DomainRule:
                 0.45,
                 "The domain is an open marketplace requiring seller and listing checks.",
                 regions=regions,
-                requires_trust_assessment=True,
             )
     for candidate, regions in _MIXED_RETAILER_REGIONS.items():
         if _domain_matches(domain, candidate):
@@ -623,7 +615,6 @@ def _classify_domain(domain: str, path: str) -> _DomainRule:
                 0.65,
                 "The established retailer also carries offers that require listing checks.",
                 regions=regions,
-                requires_trust_assessment=True,
             )
     for candidate, regions in _FIRST_PARTY_RETAILER_REGIONS.items():
         if _domain_matches(domain, candidate):
@@ -662,7 +653,6 @@ def _classify_domain(domain: str, path: str) -> _DomainRule:
             SourceClass.PRICE_COMPARISON,
             0.35,
             "The source may discover shops or prices but is not the seller of record.",
-            requires_trust_assessment=True,
         )
     if _matches_any(domain, _OFFICIAL_MANUFACTURER_DOMAINS):
         return _rule(
@@ -818,11 +808,11 @@ def _quality_level(
 ) -> SourceQualityLevel:
     if source_class == SourceClass.UNKNOWN and not heuristic_reasons:
         return SourceQualityLevel.UNKNOWN
-    if score >= 0.85:
+    if score >= 0.75:
         return SourceQualityLevel.STRONG
-    if score >= 0.65:
+    if score >= 0.5:
         return SourceQualityLevel.ADEQUATE
-    if score >= 0.4:
+    if score >= 0.25:
         return SourceQualityLevel.MIXED
     return SourceQualityLevel.WEAK
 

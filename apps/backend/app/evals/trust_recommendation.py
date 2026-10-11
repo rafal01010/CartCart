@@ -31,6 +31,7 @@ from app.agents.live_verifier_critic import (
     LiveVerifierCriticAgent,
     MockVerifierCriticModelRunner,
 )
+from app.core.errors import ApplicationError
 from app.core.settings import Settings
 from app.evals.schemas import EvalMetadata, LocalEvalCase
 from app.schemas.analysis import ListingTrustAssessment, RecommendationBundle
@@ -88,6 +89,7 @@ class TrustFixture(CartCartBaseModel):
 
 class RecommendationFixture(CartCartBaseModel):
     request: ComparisonDecisionAgentInput
+    model_output: RecommendationBundle | None = None
     failure: Failure | None = None
 
 
@@ -184,7 +186,7 @@ def _validate_candidate_references(
 
 class TrustRecommendationRule(CartCartBaseModel):
     field: str = Field(
-        pattern=r"^(guardrail|trust|price_findings|recommendation|verification|runtime_status|model_calls)(\.(\w+|\*))*$"
+        pattern=r"^(guardrail|technical_failure|trust|price_findings|recommendation|verification|runtime_status|model_calls)(\.(\w+|\*))*$"
     )
     operator: Literal["equals", "set_equals", "contains_text", "count"] = "equals"
     value: JsonValue
@@ -217,8 +219,15 @@ class TrustRecommendationExpectation(CartCartBaseModel):
         return self
 
 
+class TechnicalFailure(CartCartBaseModel):
+    code: str
+    status_code: int
+    retryable: bool
+
+
 class TrustRecommendationOutput(VersionedSchema):
     guardrail: ShoppingGuardrailResult | None = None
+    technical_failure: TechnicalFailure | None = None
     trust: ListingTrustAssessment | None = None
     price_findings: tuple[PricePlausibilityFinding, ...] = ()
     recommendation: RecommendationBundle | None = None
@@ -283,6 +292,8 @@ def trust_recommendation_cases(
         roots = {case.inputs.stage, "runtime_status", "model_calls"}
         if case.inputs.stage == "trust":
             roots.add("price_findings")
+        if case.inputs.stage == "guardrail":
+            roots.add("technical_failure")
         if any(r.field.split(".")[0] not in roots for r in case.expected_output.fields):
             raise ValueError("Criteria must address the selected stage.")
         if not any(
@@ -339,7 +350,20 @@ class TrustRecommendationTask:
             guardrail_agent = LiveShoppingScopeGuardrail(
                 self.settings, model_runner=guardrail_runner
             )
-            guardrail_result = await guardrail_agent.run(fixture.request)
+            try:
+                guardrail_result = await guardrail_agent.run(fixture.request)
+            except ApplicationError as exc:
+                if exc.code != "shopping_guardrail_unavailable":
+                    raise
+                return TrustRecommendationOutput(
+                    technical_failure=TechnicalFailure(
+                        code=exc.code,
+                        status_code=exc.status_code,
+                        retryable=bool((exc.details or {}).get("retryable")),
+                    ),
+                    runtime_status=exc.code,
+                    model_calls=guardrail_runner.calls,
+                )
             return TrustRecommendationOutput(
                 guardrail=guardrail_result,
                 runtime_status=guardrail_agent.workbench_activity[0]["status"],

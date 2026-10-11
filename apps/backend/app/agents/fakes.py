@@ -314,17 +314,17 @@ class FakeExtractionReviewAgent:
         )
         evidence = _source_metadata_evidence(snapshot)
         product = CanonicalProduct(
-            name="Fixture Monitor 27",
-            brand="Fixture",
+            name="Example Monitor 27",
+            brand="Example",
             model="Monitor 27",
             category="monitor",
             source_ids=(snapshot.source_id,),
         )
         listing = ProductListing(
             product_id=product.product_id,
-            title="Fixture Monitor 27 - Official Store",
+            title="Example Monitor 27 - Official Store",
             url=AnyHttpUrl("https://example.com/products/fixture-monitor-27"),
-            seller=SellerProfile(seller_name="Fixture Official"),
+            seller=SellerProfile(seller_name="Example Official"),
             source_ids=(snapshot.source_id,),
         )
         return ExtractionReviewAgentOutput(
@@ -483,8 +483,8 @@ class FakeYouTubeReviewIntelligenceAgent:
         video = VideoSource(
             video_id="fixture-video-1",
             url=AnyHttpUrl("https://www.youtube.com/watch?v=fixture-video-1"),
-            title="Fixture review video",
-            channel_name="Fixture Reviews",
+            title="Product review video",
+            channel_name="Example Reviews",
             transcript_availability=TranscriptAvailability.NOT_CHECKED,
         )
         return VideoReviewEvidenceBundle(
@@ -522,10 +522,10 @@ class FakeRedditCommunityIntelligenceAgent:
             url=source_url,
             community_name="r/BuyItForLife",
             thread_id="fixture-thread",
-            thread_title="Fixture owner impressions",
+            thread_title="Owner impressions",
             comment_count=12,
             extracted_public_summary=(
-                "Fixture public thread summary with recurring owner comments."
+                "Public thread summary with recurring owner comments."
             ),
         )
         return CommunityDiscussionEvidenceBundle(
@@ -545,7 +545,7 @@ class FakeRedditCommunityIntelligenceAgent:
                         product_id=product_id,
                     ),
                     claim=(
-                        "Fixture Reddit discussion reports recurring owner "
+                        "Reddit discussion reports recurring owner "
                         "setup concerns."
                     ),
                     confidence=_confidence(0.6),
@@ -600,8 +600,8 @@ class FakeAmazonProductIntelligenceAgent:
             marketplace_country_code=region_code,
             listing_url=listing_url,
             asin="B012345678",
-            product_title="Fixture product listing",
-            seller_name="Fixture Marketplace Seller",
+            product_title="Example product listing",
+            seller_name="Example Marketplace Seller",
             fulfillment="Fulfilled by Amazon",
             ships_to_region_code=region_code,
             ships_to_region=True,
@@ -625,7 +625,7 @@ class FakeAmazonProductIntelligenceAgent:
                         product_id=product_id,
                     ),
                     fact_type=AmazonEvidenceFactType.PRODUCT_PAGE_FACT,
-                    claim="Fixture Amazon page provides product-page facts.",
+                    claim="Amazon page provides product-page facts.",
                     confidence=_confidence(0.7),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.ADEQUATE,
@@ -640,7 +640,7 @@ class FakeAmazonProductIntelligenceAgent:
                         listing_id=listing_id,
                     ),
                     fact_type=AmazonEvidenceFactType.LISTING_IDENTITY,
-                    claim="Fixture Amazon listing identity preserves ASIN B012345678.",
+                    claim="Amazon listing identity preserves ASIN B012345678.",
                     confidence=_confidence(0.75),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.ADEQUATE,
@@ -655,7 +655,7 @@ class FakeAmazonProductIntelligenceAgent:
                         listing_id=listing_id,
                     ),
                     fact_type=AmazonEvidenceFactType.SELLER_FULFILLMENT,
-                    claim="Fixture seller and fulfillment are represented separately.",
+                    claim="Seller and fulfillment are represented separately.",
                     confidence=_confidence(0.65),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.MIXED,
@@ -670,7 +670,7 @@ class FakeAmazonProductIntelligenceAgent:
                         review_id="fixture-review-summary",
                     ),
                     fact_type=AmazonEvidenceFactType.REVIEW_SUMMARY,
-                    claim="Fixture Amazon review summary is source-specific evidence.",
+                    claim="Amazon review summary is source-specific evidence.",
                     confidence=_confidence(0.6),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.MIXED,
@@ -686,7 +686,7 @@ class FakeAmazonProductIntelligenceAgent:
                     ),
                     fact_type=AmazonEvidenceFactType.REGIONAL_AVAILABILITY,
                     claim=(
-                        "Fixture Amazon listing includes regional ship-to evidence."
+                        "Amazon listing includes regional ship-to evidence."
                     ),
                     confidence=_confidence(0.65),
                     source_quality=SourceQuality(
@@ -735,7 +735,7 @@ class FakeIKEAStoreIntelligenceAgent:
             country_code=region_code,
             official_url=official_url,
             product_code="12345678",
-            product_name="Fixture IKEA product",
+            product_name="Example IKEA product",
             store_name=f"IKEA {region_code}",
             delivery_area=f"{region_code} online delivery",
             availability=RegionalStoreAvailability.UNKNOWN,
@@ -757,7 +757,7 @@ class FakeIKEAStoreIntelligenceAgent:
                         product_id=product_id,
                     ),
                     fact_type=IKEAEvidenceFactType.OFFICIAL_PRODUCT_FACT,
-                    claim="Fixture IKEA page preserves official product context.",
+                    claim="IKEA page preserves official product context.",
                     confidence=_confidence(0.7),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.STRONG,
@@ -772,7 +772,7 @@ class FakeIKEAStoreIntelligenceAgent:
                         region_code=region_code,
                     ),
                     fact_type=IKEAEvidenceFactType.STORE_DELIVERY_CONTEXT,
-                    claim="Fixture IKEA evidence is scoped to a country or region.",
+                    claim="IKEA evidence is scoped to a country or region.",
                     confidence=_confidence(0.65),
                     source_quality=SourceQuality(
                         level=SourceQualityLevel.ADEQUATE,
@@ -820,21 +820,21 @@ class FakeComparisonDecisionAgent:
                     listing_id=listing.listing_id if listing else None,
                     scores={"fit": 0.8},
                     evidence_ids=evidence_ids,
-                    summary="Fixture comparison row.",
+                    summary="An option to consider.",
                 ),
             ),
         )
         recommendation = RecommendationBundle(
             final_product_id=product.product_id,
             final_listing_id=listing.listing_id if listing else None,
-            final_rationale="Fixture recommendation.",
+            final_rationale="Consider this option.",
             mode_results=(
                 RecommendationModeResult(
                     mode=RecommendationMode.BEST_OVERALL,
                     product_id=product.product_id,
                     listing_id=listing.listing_id if listing else None,
-                    title="Fixture best overall",
-                    rationale="Fixture mode selected the first product.",
+                    title="Recommended option",
+                    rationale="An option to consider for your shopping needs.",
                     confidence=_confidence(),
                     evidence_ids=evidence_ids,
                 ),
@@ -1102,8 +1102,8 @@ def _search_result(query: SearchQuery) -> SearchResult:
     return SearchResult(
         query=query,
         url=AnyHttpUrl("https://example.com/reviews/fixture-monitor-27"),
-        title="Fixture Monitor 27 Review",
-        snippet="Fixture search result.",
+        title="Example Monitor 27 Review",
+        snippet="Monitor review.",
         source_type=SourceType.PROFESSIONAL_REVIEW,
         provider=ProviderMetadata(provider_name="fixture"),
         quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
@@ -1145,7 +1145,7 @@ def _source_snapshot() -> SourceSnapshot:
         url=AnyHttpUrl("https://example.com/reviews/fixture-monitor-27"),
         source_type=SourceType.PROFESSIONAL_REVIEW,
         provider=ProviderMetadata(provider_name="fixture"),
-        title="Fixture Monitor 27 Review",
+        title="Example Monitor 27 Review",
         extraction_status=ExtractionStatus.SUCCEEDED,
         quality=SourceQuality(level=SourceQualityLevel.ADEQUATE, score=0.7),
     )
@@ -1159,7 +1159,7 @@ def _source_metadata_evidence(snapshot: SourceSnapshot) -> SourceEvidence:
             source_id=snapshot.source_id,
         ),
         evidence_type=EvidenceType.OTHER,
-        claim="Fixture source was available for review.",
+        claim="Source was available for review.",
         confidence=_confidence(),
         source_quality=snapshot.quality,
     )
@@ -1176,8 +1176,8 @@ def _category_analysis(
         product_id=input_data.product.product_id,
         listing_ids=tuple(listing.listing_id for listing in input_data.listings),
         category=category,
-        fit_summary=f"Fixture {category} analysis.",
-        strengths=("Fixture strength.",),
+        fit_summary=f"Consider {input_data.product.name} for {category}.",
+        strengths=(),
         confidence=_confidence(),
         evidence_ids=evidence_ids,
         source_ids=input_data.product.source_ids,

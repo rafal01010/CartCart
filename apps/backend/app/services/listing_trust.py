@@ -54,7 +54,7 @@ def assess_listing_trust(
     context: ListingTrustRuleContext | None = None,
 ) -> ListingTrustAssessment:
     details = context or ListingTrustRuleContext()
-    evidence_ids = details.evidence_ids or listing.source_ids
+    evidence_ids = details.evidence_ids
     source_ids = tuple(dict.fromkeys((*details.source_ids, *listing.source_ids)))
     source_class = score_source_quality(str(listing.url)).source_class
 
@@ -97,19 +97,17 @@ def assess_listing_trust(
 
     missing = _missing_metadata(listing, details)
     if missing:
-        score -= min(0.24, 0.06 * len(missing))
         summary = "Missing listing metadata: " + ", ".join(missing) + "."
         signals.append(
             _signal(
                 ListingTrustSignalKind.MISSING_METADATA,
-                ListingTrustSignalPolarity.NEGATIVE,
-                0.64,
+                ListingTrustSignalPolarity.UNKNOWN,
+                0.35,
                 summary,
                 evidence_ids,
                 source_ids,
             )
         )
-        red_flags.append(summary)
 
     suspicious = False
     if details.suspicious_price:
@@ -193,7 +191,9 @@ def compare_price_plausibility(
             if finding is None:
                 finding = _price_plausibility_finding(
                     listing,
-                    category_prices.get(listing.price.currency, ()) if listing.price else (),
+                    category_prices.get(listing.price.currency, ())
+                    if listing.price
+                    else (),
                     PriceComparisonBasis.CATEGORY,
                 )
             if finding is not None:
@@ -215,9 +215,6 @@ def price_plausibility_contexts(
                 "suspicious_price": True,
                 "suspicious_price_reasons": tuple(
                     dict.fromkeys((*current.suspicious_price_reasons, finding.summary))
-                ),
-                "evidence_ids": tuple(
-                    dict.fromkeys((*current.evidence_ids, *finding.source_ids))
                 ),
                 "source_ids": tuple(
                     dict.fromkeys((*current.source_ids, *finding.source_ids))
@@ -252,9 +249,7 @@ def _price_plausibility_finding(
         for peer, amount in comparison_prices
         if peer.listing_id != listing.listing_id and amount > 0
     )
-    minimum_peers = (
-        2 if basis == PriceComparisonBasis.CANONICAL_GROUP else 4
-    )
+    minimum_peers = 2 if basis == PriceComparisonBasis.CANONICAL_GROUP else 4
     if len(peer_prices) < minimum_peers:
         return None
 
@@ -264,7 +259,9 @@ def _price_plausibility_finding(
 
     price = listing.price.amount
     ratio = price / median
-    suspicious = _is_implausibly_low_price(listing, ratio, median, median - price, basis)
+    suspicious = _is_implausibly_low_price(
+        listing, ratio, median, median - price, basis
+    )
     if not suspicious:
         return None
 
@@ -382,11 +379,9 @@ def _seller_signal(
         polarity = ListingTrustSignalPolarity.NEGATIVE
         strength = 0.72
     elif not known and trust_signal != SellerTrustSignal.UNKNOWN:
-        score -= 0.18
         summary = "Seller identity is missing or generic."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.68
+        polarity = ListingTrustSignalPolarity.UNKNOWN
+        strength = 0.35
     elif trust_signal == SellerTrustSignal.STRONG:
         score += 0.2
         summary = "Seller identity is clear and has a strong extracted signal."
@@ -454,22 +449,20 @@ def _source_type_signal(
         polarity = ListingTrustSignalPolarity.NEUTRAL
         strength = 0.55
     elif source_class == SourceClass.RESELLER_IMPORT_PROXY:
-        score = -0.35
-        summary = "Source is excluded or reseller-like for normal purchase evidence."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.9
+        summary = (
+            "Source is a reseller or import source; assess the actual offer context."
+        )
+        polarity = ListingTrustSignalPolarity.NEUTRAL
+        strength = 0.4
     elif source_class in {
         SourceClass.REVIEW_TESTING,
         SourceClass.REVIEW_EDITORIAL,
         SourceClass.COMMUNITY,
         SourceClass.PRICE_COMPARISON,
     }:
-        score = -0.12
         summary = "Source is not the seller of record for this listing."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.64
+        polarity = ListingTrustSignalPolarity.NEUTRAL
+        strength = 0.4
     else:
         summary = "Source type is not recognized as an established retailer."
         polarity = ListingTrustSignalPolarity.UNKNOWN
@@ -508,24 +501,16 @@ def _review_count_signal(
         positives.append(summary)
         polarity = ListingTrustSignalPolarity.POSITIVE
         strength = 0.72
-    elif review_count >= 10:
+    elif review_count > 0:
         score = 0.04
         summary = f"Listing has some review history ({review_count} reviews)."
         positives.append(summary)
         polarity = ListingTrustSignalPolarity.POSITIVE
         strength = 0.58
-    elif review_count == 0:
-        score = -0.1
-        summary = "Listing has no visible review history."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.62
     else:
-        score = -0.06
-        summary = f"Listing has very little review history ({review_count} reviews)."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.54
+        summary = "Listing has no visible review history."
+        polarity = ListingTrustSignalPolarity.UNKNOWN
+        strength = 0.35
 
     signals.append(
         _signal(
@@ -562,21 +547,9 @@ def _policy_signal(
         positives.append(summary)
         polarity = ListingTrustSignalPolarity.POSITIVE
         strength = 0.62
-    elif return_policy_present is False and warranty_present is False:
-        score = -0.12
-        summary = "Return and warranty details are both unclear or missing."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.72
-    elif return_policy_present is False or warranty_present is False:
-        score = -0.06
-        summary = "Return or warranty clarity is missing."
-        red_flags.append(summary)
-        polarity = ListingTrustSignalPolarity.NEGATIVE
-        strength = 0.58
     else:
         score = 0.0
-        summary = "Return and warranty clarity is unavailable."
+        summary = "Some return or warranty details are unavailable."
         polarity = ListingTrustSignalPolarity.UNKNOWN
         strength = 0.35
 
@@ -619,7 +592,10 @@ def _is_unknown_assessment(
         return False
     if context.review_count is not None:
         return False
-    if context.return_policy_present is not None or context.warranty_present is not None:
+    if (
+        context.return_policy_present is not None
+        or context.warranty_present is not None
+    ):
         return False
     if context.missing_metadata:
         return False
@@ -669,13 +645,13 @@ def _level_from_score(
     if suspicious:
         return ListingTrustLevel.SUSPICIOUS
     score = min(1.0, max(0.0, raw_score))
-    if score >= 0.82 and not red_flags:
+    if score >= 0.70 and not red_flags:
         return ListingTrustLevel.STRONG
-    if score >= 0.65 and len(red_flags) <= 1:
+    if score >= 0.50 and len(red_flags) <= 1:
         return ListingTrustLevel.REASONABLE
-    if positives and red_flags and score >= 0.35:
+    if positives and red_flags and score >= 0.30:
         return ListingTrustLevel.MIXED
-    if score >= 0.48:
+    if score >= 0.30:
         return ListingTrustLevel.MIXED
     return ListingTrustLevel.WEAK
 
@@ -683,7 +659,9 @@ def _level_from_score(
 def _confidence_for_level(level: ListingTrustLevel, raw_score: float) -> Confidence:
     clamped = min(1.0, max(0.0, raw_score))
     if level == ListingTrustLevel.SUSPICIOUS:
-        return _confidence(0.86, "Deterministic red flags require blocking caution.")
+        return _confidence(
+            0.86, "Advisory signals identify a concern for the buying decision."
+        )
     if level == ListingTrustLevel.STRONG:
         return _confidence(max(0.82, clamped), "Strong deterministic trust signals.")
     if level == ListingTrustLevel.REASONABLE:
@@ -700,8 +678,7 @@ def _summary_for_level(level: ListingTrustLevel) -> str:
         ListingTrustLevel.MIXED: "The listing has both useful and concerning trust signals.",
         ListingTrustLevel.WEAK: "The listing has weak seller or listing trust signals.",
         ListingTrustLevel.SUSPICIOUS: (
-            "The listing has suspicious trust signals and should not be treated "
-            "as a safe buy."
+            "The listing has concerning signals to weigh before buying."
         ),
         ListingTrustLevel.UNKNOWN: (
             "There is not enough seller or listing evidence to judge trust."

@@ -145,11 +145,8 @@ async def test_unconstrained_phone_queries_are_current_and_regional() -> None:
         settings=_settings(), model_runner=MockQueryPlannerModelRunner()
     )
     plan = await agent.run(QueryPlannerAgentInput(run_id=new_id(), brief=brief))
-    assert len(plan.queries) == 2
-    assert {query.intent for query in plan.queries} == {
-        SearchIntent.OFFICIAL_SOURCE,
-        SearchIntent.REVIEW,
-    }
+    assert len(plan.queries) == 1
+    assert {query.intent for query in plan.queries} == {SearchIntent.DISCOVERY}
     for query in plan.queries:
         assert "budget" not in query.query.casefold()
         assert "Philippines" in query.query
@@ -229,13 +226,10 @@ async def test_live_query_planner_falls_back_on_invalid_or_blocking_output() -> 
 
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
-    assert len(result.queries) == 2
-    assert {query.intent for query in result.queries} == {
-        SearchIntent.PRICE_CHECK,
-        SearchIntent.REVIEW,
-    }
+    assert len(result.queries) == 1
+    assert {query.intent for query in result.queries} == {SearchIntent.DISCOVERY}
     assert _has_shopping_query(result)
-    assert _has_review_query(result)
+    assert not _has_review_query(result)
     assert all(query.region_code == "US" for query in result.queries)
     assert not _contains_artificial_blocking(result)
 
@@ -253,7 +247,7 @@ async def test_live_query_planner_falls_back_on_timeout() -> None:
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "timeout_fallback"
     assert _has_shopping_query(result)
-    assert _has_review_query(result)
+    assert not _has_review_query(result)
 
 
 @pytest.mark.asyncio
@@ -266,7 +260,7 @@ async def test_live_query_planner_falls_back_on_model_error() -> None:
     assert runner.calls == 1
     assert agent.workbench_activity[0]["status"] == "error_fallback"
     assert _has_shopping_query(result)
-    assert _has_review_query(result)
+    assert not _has_review_query(result)
 
 
 @pytest.mark.asyncio
@@ -280,7 +274,7 @@ async def test_live_query_planner_supports_unknown_category_with_generic_strateg
 
     assert runner.calls == 1
     assert _has_shopping_query(result)
-    assert _has_review_query(result)
+    assert not _has_review_query(result)
     assert all(query.region_code == "US" for query in result.queries)
     assert all(query.required_source_types for query in result.queries)
     assert "organize a small entryway" in " ".join(
@@ -305,7 +299,6 @@ async def test_live_query_planner_agent_live_opt_in() -> None:
 
     assert result.queries
     assert _has_shopping_query(result)
-    assert _has_review_query(result)
 
 
 def _has_shopping_query(plan: SearchPlan) -> bool:

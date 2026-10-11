@@ -86,12 +86,10 @@ class VideoReviewRepository:
             str(reference.url): reference.source_id
             for reference in bundle.source_references
         }
-        fallback_source_id = bundle.source_references[0].source_id
-
         for video in bundle.videos:
             await self.add_video_source(
                 run_id,
-                source_id_by_url.get(str(video.url), fallback_source_id),
+                source_id_by_url.get(str(video.url), bundle.source_references[0].source_id),
                 video,
             )
 
@@ -128,6 +126,14 @@ class VideoReviewRepository:
             str(bundle_id),
         )
         if record is None:
+            return None
+        return record.to_schema()
+
+    async def get_video_review_bundle_for_run(
+        self, run_id: RunId, bundle_id: SourceId
+    ) -> VideoReviewEvidenceBundle | None:
+        record = await self._session.get(VideoReviewEvidenceBundleRecord, str(bundle_id))
+        if record is None or record.run_id != str(run_id):
             return None
         return record.to_schema()
 

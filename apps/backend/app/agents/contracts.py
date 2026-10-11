@@ -9,6 +9,7 @@ from app.schemas.analysis import (
     DeduplicationDecision,
     ListingTrustAssessment,
     RecommendationBundle,
+    RecommendationChoiceGroup,
     RecommendationMode,
 )
 from app.schemas.base import CartCartBaseModel, VersionedSchema
@@ -75,23 +76,27 @@ class GeneralShoppingOutcome(StrEnum):
 
 class GeneralShoppingEvidence(CartCartBaseModel):
     source_id: SourceId
-    snapshot_id: SourceId
-    evidence_id: SourceId
+    snapshot_id: SourceId | None = None
+    evidence_id: SourceId | None = None
     url: AnyHttpUrl
     source_type: SourceType
-    quote: str = Field(min_length=1, max_length=400)
+    quote: str = Field(default="", max_length=400)
 
 
 class GeneralShoppingCandidate(CartCartBaseModel):
     name: str = Field(min_length=1, max_length=200)
-    evidence: tuple[GeneralShoppingEvidence, ...] = Field(min_length=1)
+    choice_group: RecommendationChoiceGroup | None = None
+    evidence: tuple[GeneralShoppingEvidence, ...] = Field(default_factory=tuple)
+    rationale: str | None = Field(default=None, max_length=1500)
+    tradeoff: str | None = Field(default=None, max_length=1000)
+    unknowns: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class GeneralShoppingModeSelection(CartCartBaseModel):
     mode: RecommendationMode
     candidate_name: str = Field(min_length=1, max_length=200)
     rationale: str = Field(min_length=1, max_length=1500)
-    evidence_ids: tuple[SourceId, ...] = Field(min_length=1, max_length=8)
+    evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple, max_length=8)
     listing_id: ListingId | None = None
 
 
@@ -107,7 +112,27 @@ class GeneralShoppingDecisionDraft(VersionedSchema):
     selected_candidate_name: str | None = None
     evidence_gaps: tuple[str, ...] = Field(default_factory=tuple)
     hosted_lead_source_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    warnings: tuple[str, ...] = Field(default_factory=tuple)
     rationale: str = Field(min_length=1, max_length=1500)
+
+    @model_validator(mode="after")
+    def _valid_retained_choice_groups(self) -> "GeneralShoppingDecisionDraft":
+        if all(candidate.choice_group is None for candidate in self.candidates):
+            return self
+        if any(candidate.choice_group is None for candidate in self.candidates):
+            raise ValueError("retained candidates cannot mix legacy and explicit choice groups.")
+        names = [candidate.name.casefold() for candidate in self.candidates]
+        if len(set(names)) != len(names):
+            raise ValueError("retained candidate names must be unique across choice groups.")
+        primary = tuple(candidate for candidate in self.candidates if candidate.choice_group == "primary")
+        runners = tuple(candidate for candidate in self.candidates if candidate.choice_group == "runner_up")
+        if not primary or len(primary) > 3 or len(runners) > 2:
+            raise ValueError("retained choices require one to three primary choices and at most two runners-up.")
+        if self.selected_candidate_name is not None and self.selected_candidate_name.casefold() not in {
+            candidate.name.casefold() for candidate in primary
+        }:
+            raise ValueError("the retained selected candidate must be a primary choice.")
+        return self
 
 
 class QueryPlannerAgentInput(VersionedSchema):
@@ -491,6 +516,8 @@ class ComparisonDecisionAgentInput(VersionedSchema):
         default_factory=tuple
     )
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    source_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
+    source_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
     user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
 
 
@@ -548,7 +575,7 @@ class GeneralShoppingAgent(Protocol):
     async def run(
         self, input_data: GeneralShoppingAgentInput
     ) -> GeneralShoppingDecisionDraft:
-        """Own a broad live shopping request with checked evidence."""
+        """Own a broad live shopping request using available information."""
 
     async def resume_saved(
         self,
@@ -557,7 +584,7 @@ class GeneralShoppingAgent(Protocol):
         owner_agent_name: str,
         activity: tuple[dict[str, Any], ...],
     ) -> GeneralShoppingDecisionDraft:
-        """Finish a saved legacy decision without new source research."""
+        """Finish a saved decision without repeating source research."""
 
 
 class CategoryRouterAgent(Protocol):

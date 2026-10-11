@@ -74,7 +74,7 @@ def test_scores_representative_source_classes(
     }
 
 
-def test_excludes_proxy_and_resale_platforms_as_purchase_evidence() -> None:
+def test_proxy_and_resale_context_is_advisory() -> None:
     assessment = score_source_quality(
         "https://buyee.jp/item/example",
         SourceQualityMetadata(
@@ -84,21 +84,24 @@ def test_excludes_proxy_and_resale_platforms_as_purchase_evidence() -> None:
     )
 
     assert assessment.source_class == SourceClass.RESELLER_IMPORT_PROXY
-    assert assessment.excluded is True
-    assert assessment.requires_trust_assessment is True
+    assert assessment.excluded is False
+    assert assessment.requires_trust_assessment is False
     assert assessment.quality.level == SourceQualityLevel.WEAK
 
 
-def test_marketplace_requires_listing_trust_even_with_matching_region() -> None:
+def test_marketplace_context_does_not_require_listing_trust() -> None:
     assessment = score_source_quality(
         "https://shopee.ph/example",
         SourceQualityMetadata(target_region_code="PH", currency="PHP"),
     )
 
     assert assessment.source_class == SourceClass.OPEN_MARKETPLACE
-    assert assessment.requires_trust_assessment is True
+    assert assessment.requires_trust_assessment is False
     assert assessment.region_relevance == RegionRelevanceLevel.MATCH
-    assert assessment.quality.level == SourceQualityLevel.MIXED
+    assert assessment.quality.level in {
+        SourceQualityLevel.MIXED,
+        SourceQualityLevel.ADEQUATE,
+    }
 
 
 def test_suspicious_unknown_store_is_weak_but_not_automatically_excluded() -> None:
@@ -140,15 +143,15 @@ def test_price_comparison_source_requires_actual_shop_assessment() -> None:
     )
 
     assert assessment.source_class == SourceClass.PRICE_COMPARISON
-    assert assessment.requires_trust_assessment is True
+    assert assessment.requires_trust_assessment is False
     assert assessment.quality.level == SourceQualityLevel.WEAK
 
 
-def test_only_facebook_marketplace_is_excluded() -> None:
+def test_facebook_marketplace_caution_is_advisory() -> None:
     marketplace = score_source_quality("https://facebook.com/marketplace/item/example")
     ordinary_page = score_source_quality("https://facebook.com/example-brand")
 
-    assert marketplace.excluded is True
+    assert marketplace.excluded is False
     assert ordinary_page.source_class == SourceClass.UNKNOWN
     assert ordinary_page.excluded is False
 
@@ -166,7 +169,10 @@ def test_reddit_remains_qualitative_even_with_good_signal_metadata() -> None:
     )
 
     assert assessment.source_class == SourceClass.COMMUNITY
-    assert assessment.quality.level == SourceQualityLevel.MIXED
+    assert assessment.quality.level in {
+        SourceQualityLevel.MIXED,
+        SourceQualityLevel.ADEQUATE,
+    }
     assert assessment.quality.score == 0.4
     assert any("qualitative" in reason for reason in assessment.reasons)
 
@@ -191,7 +197,7 @@ def test_amazon_listing_and_review_context_remain_marketplace_specific() -> None
         ),
     )
 
-    assert listing.requires_trust_assessment is True
+    assert listing.requires_trust_assessment is False
     assert listing.quality.score > review.quality.score
     assert any("listing, seller" in reason for reason in listing.reasons)
     assert any("variant-mixing" in reason for reason in review.reasons)

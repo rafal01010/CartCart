@@ -9,7 +9,7 @@ from app.schemas.runs import ArtifactDisposition, RecomputeStage, RefinementRequ
 from app.services.refinement_planning import build_recompute_plan
 
 
-def _plan(*, evidence: bool = True, **changes: object):
+def _plan(*, candidates: bool = True, **changes: object):
     session_id, old_run_id, new_run_id = new_id(), new_id(), new_id()
     prior_version_id = new_id()
     prior_result = cast(
@@ -35,7 +35,7 @@ def _plan(*, evidence: bool = True, **changes: object):
             category="headphones",
             category_source="user_provided",
         ),
-        has_candidate_evidence=evidence,
+        has_saved_candidates=candidates,
     )
     assert plan.prior_run_id == old_run_id
     assert plan.prior_result_version_id == prior_version_id
@@ -48,7 +48,7 @@ def _dispositions(plan) -> dict[str, ArtifactDisposition]:
     }
 
 
-def test_budget_and_mode_reuse_valid_candidate_evidence() -> None:
+def test_budget_and_mode_reuse_saved_candidates_without_citations() -> None:
     budget = _plan(
         budget=BudgetConstraint.model_validate(
             {"amount": {"amount": "150", "currency": "USD"}, "mode": "hard_cap"}
@@ -89,9 +89,9 @@ def test_category_and_region_invalidate_affected_research() -> None:
     assert "region" in region.artifacts[1].reason.lower()
 
 
-def test_missing_evidence_or_unstructured_change_fails_closed() -> None:
+def test_missing_candidates_or_unstructured_change_needs_research() -> None:
     budget = _plan(
-        evidence=False,
+        candidates=False,
         budget={"amount": {"amount": "150", "currency": "USD"}, "mode": "hard_cap"},
     )
     assert RecomputeStage.SEARCH in budget.stages

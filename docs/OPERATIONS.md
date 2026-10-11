@@ -1,5 +1,40 @@
 # CartCart Operations
 
+## Task 219 implementation boundary
+
+Task 219 changes shopper prompt and copy ownership without a new schema, database migration or dependency. Environment configuration, models, reasoning, providers and context/spending limits remain unchanged. Task 217 caption configuration remains prepared only; enabling it does not authorize retrieval. The optional verifier retains its authorized 180-second timeout and remains absent from normal, refinement and retry workflows.
+
+Shared advice guidance removes routine checkout/seller-check work. Concrete adverse seller or listing information can still inform the owning model; seller/listing legitimacy remains an analysis concern. Diagnostic warnings and factual records persist internally. Controlled fixture writers avoid deliberately generated developer labels while literal product, seller, user and source text remains intact. Tasks 217-220 and their prerequisites remain offline only. Live validation deferred to Task 221.
+
+## Task 218 implementation boundary
+
+Task 218 carries explicit primary and optional runner membership through existing JSON persistence and the result API. It needs no database migration, dependency installation or environment change. Existing saved records remain readable without rewriting them. Models, reasoning, providers and context/spending limits stay configured as before, including Task 217's prepared approved-caption settings. Configuration enablement does not authorize retrieval.
+
+The normal shopping workflow still omits standalone query-planning, discovery, extraction, deduplication, source-manager and category-analysis stages because those operations occur inside owner tools. Mandatory verification remains removed; the optional verifier retains its authorized 180-second timeout. Task 218 adds no model stage.
+
+Tasks 217-220 remain under the live-call hold. Use only scoped launch lint, syntax, local contract/projection and frontend checks for this unit. Live validation is deferred to Task 221 after a separate explicit resumption. See [the implementation handoff](TASK_218_IMPLEMENTATION_HANDOFF.md) for actual checks and remaining limitations.
+
+## Task 217 prepared captions and active live hold
+
+Tasks 217-220 and their prerequisites are offline implementation units. No live model, search/page provider, video/caption retrieval, shopping run, retry or rerun is authorized. Task 221 requires a separate explicit resumption after all implementation units pass. Older authorizations and live examples below do not override this hold.
+
+Task 217 adds `CARTCART_TRANSCRIPT_PROVIDER=yt_dlp` and `CARTCART_TRANSCRIPT_PROVIDER_ENABLED=true` to the local `apps/backend/.env` and prepares the same values in `.env.example`. Other settings and credentials are retained. Pinned yt-dlp 2026.6.9, yt-dlp-ejs 0.8.0 and Deno 2.8.1 are already installed; local version inspection and provider construction require no retrieval. No dependency installation is needed. Configuration enablement is not authorization to call the provider. Existing managed processes may still hold earlier settings until a future authorized restart; this unit does not claim effective live-server parity.
+
+Caption time, output, temporary-storage and segment settings remain unchanged. Task 175 supervises temporary storage while the owned process runs, and terminates/reaps writers before temporary cleanup on cancellation, timeout or resource failure. Disk enforcement is sampled, with an allowance determined by writer throughput during the sampling interval plus scheduling and termination delay; it is not a filesystem quota. Local paced-writer checks record the observed allowance.
+
+The normal owner workflow continues to omit separate query-planning, discovery, extraction, deduplication, source-manager and category-analysis stages because useful research is performed inside owner tools. Mandatory verification remains removed from normal, refinement and retry workflows. Optional source consultation remains available inside the owner; the optional editorial verifier retains its authorized 180-second timeout. Models, reasoning, other providers and context/spending limits are unchanged. Live validation is deferred to Task 221.
+
+## Current recommendation policy, Task 216
+
+Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.
+
+Advice and source associations are independent. Recommendation evidence IDs, sources, comparison matrices, checked listings and mode records are optional. The UI leads with recommendations, reasons and meaningful tradeoffs, then shows available page sources and search snippets. Unknowns remain diagnostic fields. A snippet is labeled as a snippet. A source note is not a verbatim quotation. No exact substring, quote visibility, span membership or hash equality admits recommendations or retries.
+
+The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
+
+The owner resumed live calls on 2026-10-11. Tasks 216, 214, 215 and 100A passed revised guided-browser acceptance. See [saved IDs, browser evidence, SQLite/API matches, usage and checks](TASK_216_LIVE_ACCEPTANCE.md). No P1 work started. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes.
+
+
 Status: Current local operations reference
 Last updated: 2026-10-06
 
@@ -692,8 +727,8 @@ shopping API and in the isolated workbench. It uses a `strong` profile, up to
 the configured initial turn budget, 2,500 output tokens per turn, bounded provider search/fetch/quote
 tools, optional hosted search,
 and run-scoped citation persistence. The last SDK owner's draft is persisted
-after same-run reference checks and verifier review; the bundle records author,
-handoffs, verifier changes, and cited IDs. Fixture mode remains offline;
+after operational parsing without mandatory verifier review; the bundle records author,
+handoffs, optional source associations and immutable result versions. Fixture mode remains offline;
 workbench mock mode uses in-process providers and a scripted model runner.
 The resolved model and optional reasoning effort are set on each SDK `Agent`,
 not as run-wide `RunConfig` overrides, so later handoffs need not inherit the
@@ -736,7 +771,7 @@ no model is not proof that a specialist or hosted search ran.
 Hosted research uses medium context, current-date/regional instructions and
 actual SDK search-source metadata. General permits six search actions and
 eighteen hosted actions total, including page opens/finds, within the configured
-run budgets. Typed provider limits, domain policies, citations and seller checks
+run budgets. Typed provider limits, access protections and source identity checks
 remain enforced. A technical research failure becomes a failed run; missing
 independent product evidence can still produce an honest no-strong-buy result.
 The General owner runs the whole SDK handoff chain under one timeout and turn
@@ -784,8 +819,7 @@ Listing trust uses its `strong` profile and also requires a compatible hosted
 search model, a buyer region, a public listing or seller domain, and run-scoped
 citation persistence before a live call. Its workbench activity separates an
 actual `web_search` call from retained/rejected citation URLs and persisted
-source/evidence IDs. Cited pages remain unverified leads; hard suspicious
-flags and weak/unknown trust cannot be upgraded by snippets or ratings. A
+source/evidence IDs. Cited pages remain source context. The model may improve or worsen a rule-derived trust assessment using available information. A
 failed or uncited search is recorded as a gap. Fixture/mock runs attach no
 hosted tool.
 
@@ -820,8 +854,7 @@ scripts/local/run-agent-workbench.sh \
 
 Fixture mode uses deterministic fake agents and does not make provider or model
 calls. Mock mode uses mocked model runners for implemented live agents; for
-`ShoppingScopeGuardrail`, `guardrail/blocked-dangerous-product` proves an
-obvious unsafe request is blocked before the model runner starts. For
+`ShoppingScopeGuardrail`, `guardrail/blocked-dangerous-product` is a classifier scenario. Refusal uses the SDK input guardrail, rather than phrase matching before the classifier. For
 `ShoppingGuideAgent`, `guide/headphones-missing-budget` checks a concise
 follow-up without recommendation output, while `guide/ready-monitor-brief`
 checks the ready-for-analysis transition and `IntakeAgent` handoff. For
@@ -833,7 +866,7 @@ queries for a non-specialist category, while
 `query-planner/unknown-category-generic` checks generic fallback strategy
 without artificial category blocking. For `DiscoveryAgent`,
 `discovery/select-valid-sources` checks explicit retailer/review decisions and
-rejection of an excluded proxy; `discovery/tv-review-and-generic-results`
+advisory classification of a proxy source; `discovery/tv-review-and-generic-results`
 covers eight reviews plus eighteen generic shopping results, and
 `discovery/misleading-domains` checks title/context against misleading domains.
 Pair these with `discovery/no-good-results` for an honest
@@ -955,20 +988,14 @@ evidence. Task 89Y is complete. Live source-provider availability has not been
 tested; application providers remained fixtures. Do not retry a failed
 credentialed smoke without renewed authorization.
 
-For `ComparisonDecisionAgent`, `comparison/monitor-shortlist` checks a
-source-backed three-monitor shortlist with best overall, best value,
-within-budget, stretch, and runner-up modes, while
-`comparison/no-strong-buy` checks an explicit no-strong-buy outcome when trust
-and evidence do not support a safe recommendation. For `VerifierCriticAgent`,
-`verifier/unsupported-claim-block` checks that an uncited product/spec claim
-blocks output, while `verifier/suspicious-listing-warning` checks that a
-suspicious final listing without a trust caveat is rejected or made visibly
-unsafe for display. The `verifier/suspicious-alternate-seller-mention` and
-`verifier/hard-cap-alternate` scenarios check unsafe alternate offers despite a
-safe final listing. `verifier/safe-alternate`,
-`verifier/over-cap-comparison-only` and `verifier/suspicious-rejected-offer`
-preserve supported offers and comparison or rejection records.
-`verifier/suspicious-alternate-warning` checks an offer-specific blocking caution.
+For `ComparisonDecisionAgent`, retained scenarios inspect model advice from all
+supplied candidates with optional modes and sources. Missing evidence or unknown
+trust does not force no-option output. The retained `VerifierCriticAgent` scenarios exercise optional editorial
+assistance. Historical scenario names include `unsupported-claim-block` and
+`hard-cap-alternate`; these names no longer describe a buying veto. The assistant
+preserves owner choices, returns notes and does not require citations or recheck
+budgets. Comparison receives all candidates with advisory scores and budget
+context; missing sources, prices or trust do not force an empty answer.
 Use `--mode mock` for these offline contract checks. They do not require live
 research or credentials. `--mode live` still requires
 `CARTCART_LIVE_AGENTS_ENABLED=true`, `OPENAI_API_KEY`, and a live runner
@@ -1283,9 +1310,9 @@ allowance is not Smartphone's active 1,500 cap. Safe diagnostics need to expose
 that distinction as part of 214. Evidence is under
 `data/artifacts/task100a-20261010/`; Task 100A remains unchecked.
 
-Task214 owner-flow repair (2026-10-10): after the live General/Technology/product
-owner returns its draft, the orchestrator proceeds to persisted listing trust,
-canonical decision validation, independent verification and saving. It does not
+The Task 216 owner flow persists the last General/Technology/product owner
+draft after operational parsing, with advisory listing context and optional
+source associations. It has no independent verification stage. It does not
 run a duplicate query/discovery/extraction/source/category pipeline whose answer
 would be ignored by the authoritative owner. Persisted owner products, listings
 and evidence are loaded for seller checks. Approved source specialists remain
@@ -1294,52 +1321,28 @@ paths remain available. Basic phone research first seeks official current iPhone
 and Samsung facts; reviews, including substantive MKBHD content when accessible,
 are optional confidence improvements. Source titles alone are not review verdicts.
 
-The bounded discovery adapter classifies only inspected leads. Omitted persisted
-leads retain UNCERTAIN/confidence0/IGNORE-for-now decisions marked unreviewed;
-unknown, duplicate, excluded and unsupported selected IDs still fail validation.
-Its existing catalog UNCERTAIN_SOURCE fallback and tool permissions are unchanged.
-Exact citation validation accepts only an observed same-origin/query/path redirect
-that changes a trailing slash, with matching extraction source ID and redirect
-provenance; arbitrary redirected citations remain rejected.
+The bounded discovery adapter classifies inspected leads and keeps deferred
+leads available. Unknown or duplicate IDs remain structural errors. Domain
+reputation, historical exclusions and low source-quality scores are advisory.
+Optional source associations are dropped when invalid without erasing advice.
 
-Task214 verifier/retry repair (2026-10-10; live acceptance pending): verification
-receives exact stored quote support, title, URL, offsets, hashes and bounded
-original context upfront. Canonical verification input survives compaction.
-At most two source rereads are allowed before a final report. Existing independent
-factual, seller and budget guardrails remain. The owner explicitly increased
-the local VerifierCriticAgent timeout from an inherited 60 seconds to 180 seconds; all
-other configured models, reasoning, providers and context/spending limits remain.
-A processing timeout fails the check with a retryable error, rather than publishing
-a no-option buying judgment. Failed-read activity remains saved for diagnosis.
+The authorized 180-second `VerifierCriticAgent` timeout remains configured for
+explicit workbench use. The optional assistant has no source tools and cannot
+block or replace owner choices. It is absent from run/refinement/retry stages.
+Other configured models, reasoning, providers and context/spending limits remain.
 
-POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims the same eligible run
-atomically and resumes its decision/verification from persisted research. It
-preserves canonical IDs, old events and immutable result versions, requires an
-unchanged same-session request/region/brief, and rejects duplicate active retries.
-The synchronous response reports the final run status; the UI reads its matching
-result directly without replaying historical terminal SSE events. Future owner
-drafts retain a typed checkpoint in existing agent records. Legacy timeout runs
-reconstruct a decision from revalidated exact saved support, with research tools
-disabled. They do not rerun intake or provider searches.
-
-A saved blocked final check also offers same-run retry when evidence remains.
-The latest matching result controls eligibility; an old timeout record cannot
-make an already approved result retryable. Buyer preference and decision prose
-do not establish product facts and should not need lexical overlap with a quote.
-Factual claims, exact citations, candidate ownership, seller risks and hard
-budgets remain checked before and after model verification.
-
-The verifier uses a compact internal verdict. An unchanged decision returns a
-null recommendation bundle, which the backend reconstructs from its existing
-typed result before applying the public VerificationReport and strict
-postchecks. Revisions carry the changed bundle and audit reasons. Model, schema
-and source-loading failures retain safe classification and fail technically;
-they do not publish a no-option buying judgment. The runtime catalog retains
-the same public VerificationReport contract, tools, routes and source agents.
+POST `/api/sessions/{session_id}/runs/{run_id}/retry` claims an eligible saved run
+atomically and resumes its decision using existing research and checkpoints.
+It preserves canonical IDs, old events and immutable result versions, requires
+compatible same-session request/region/brief state and rejects active duplicate
+retries. The response reports the final run status. The UI reads the matching
+result without replaying historical terminal SSE events. Missing citations,
+quotes or hashes do not prevent reuse. Final model failures remain technical
+errors with saved information available; they do not publish no-option advice.
 
 Task 215's current owner hold forbids live retries and new live runs until the
 owner resumes them. Attempt 14's saved no-option result is an output-validation
 rejection, not a timeout or token failure. Local services remain available, and
 no research worker is active. The matching saved sources and owner checkpoint
-are retained for a later decision/verification retry. See
+are retained for a later saved-decision retry after authorization. See
 `docs/TASK_215_RESTART.md` for the exact state.

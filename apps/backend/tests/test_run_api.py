@@ -30,7 +30,16 @@ from app.core.settings import AgentWorkflowMode
 from app.orchestration.shopping_runs import ShoppingRunOrchestrator
 from app.services.runs import RunService
 from app.agents.live_general_shopping import LiveGeneralShoppingAgent
+from app.agents.live_guardrails import (
+    LiveShoppingScopeGuardrail,
+    MockShoppingGuardrailModelRunner,
+)
 from app.providers import FakeExtractionProvider, FakeSearchProvider
+from app.schemas.guided_intake import (
+    ShoppingGuardrailDecision,
+    ShoppingGuardrailReason,
+    ShoppingGuardrailResult,
+)
 from app.schemas.runs import RunStage
 
 
@@ -129,7 +138,9 @@ def test_technical_research_failure_is_failed_run_without_buying_result(
     run_id = response.json()["run_id"]
     status = run_api_client.get(f"/api/sessions/{session_id}/runs/{run_id}").json()
     assert status["current_stage"] == "general_owner"
-    assert "No buying decision" in status["error"]["error"]["message"]
+    assert status["error"]["error"]["message"] == (
+        "The shopping advice could not finish. Please retry using the saved research."
+    )
     assert run_api_client.get(f"/api/sessions/{session_id}/results").status_code == 404
 
 
@@ -422,12 +433,31 @@ def test_create_run_rejects_invalid_session(run_api_client: TestClient) -> None:
     assert body["error"]["details"] == {"session_id": str(session_id)}
 
 
-def test_create_run_blocks_unsafe_shopping_request_before_run_start(
+def test_create_run_uses_mocked_classifier_block_before_run_start(
     run_api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    classifier = MockShoppingGuardrailModelRunner(
+        output=ShoppingGuardrailResult(
+            decision=ShoppingGuardrailDecision.BLOCKED,
+            reason=ShoppingGuardrailReason.UNSAFE_PRODUCT,
+            message="This request is outside ordinary shopping help.",
+        )
+    )
+    run_api_client.app.state.settings.agent_workflow_mode = AgentWorkflowMode.LIVE
+    monkeypatch.setattr(
+        "app.services.runs.require_live_openai_agent_configuration",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.runs.LiveShoppingScopeGuardrail",
+        lambda *, settings: LiveShoppingScopeGuardrail(
+            settings=settings, model_runner=classifier
+        ),
+    )
     create_response = run_api_client.post(
         "/api/sessions",
-        json={"query": "Help me choose a handgun for home defense"},
+        json={"query": "A request for the classifier to review"},
     )
     assert create_response.status_code == 201
     session_id = create_response.json()["session_id"]
@@ -438,6 +468,8 @@ def test_create_run_blocks_unsafe_shopping_request_before_run_start(
     body = response.json()
     assert body["error"]["code"] == "shopping_guardrail_blocked"
     assert body["error"]["details"] == {"reason": "unsafe_product"}
+    assert classifier.calls == 1
+    assert run_api_client.get(f"/api/sessions/{session_id}/results").status_code == 404
 
 
 def test_get_run_status_returns_persisted_run(run_api_client: TestClient) -> None:

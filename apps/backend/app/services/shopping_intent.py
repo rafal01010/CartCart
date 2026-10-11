@@ -37,8 +37,9 @@ def search_intent_text(text: str) -> str:
 RESEARCH_QUERY_GUIDANCE = (
     "Form search queries for a specific research purpose rather than copying the shopper's sentence. "
     "Use the current brief, candidate identities, buying region, research_context.current_date "
-    "and unresolved evidence gaps. Follow-up queries should target the missing fact, variant, "
-    "seller or conflicting claim. Keep original shopper wording unchanged in the brief. "
+    "and unresolved product questions. Follow-up queries should target suitability, variants, "
+    "meaningful product differences or conflicting claims. Do not plan where/how-to-buy, checkout "
+    "or routine seller, stock and availability checks. Keep original shopper wording unchanged in the brief. "
     "An unlimited budget does not mean budget or cheap products; a missing budget does not "
     "authorize inventing a cap. Do not invent preferences, product generations, availability "
     "or confirmed launch dates. Record derived queries separately through the research tools. "

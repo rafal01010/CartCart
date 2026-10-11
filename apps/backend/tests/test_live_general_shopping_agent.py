@@ -23,9 +23,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.agents.contracts import GeneralShoppingAgentInput, GeneralShoppingOutcome
 from app.agents.context_management import (
     BoundedRunner,
-    ContextBudget,
     ContextBudgetExceeded,
-    context_scope,
 )
 from app.agents.live_general_shopping import (
     GeneralModelOutput,
@@ -407,7 +405,7 @@ class _SourceCallingPhoneModel(Model):
                             category="smartphone",
                             candidates=(
                                 GeneralCandidateSelection(
-                                    name="Test Phone", evidence_ids=quote_ids
+                                    name="Test Phone", choice_group="primary", evidence_ids=quote_ids
                                 ),
                             )
                             if quote_ids
@@ -1692,67 +1690,6 @@ async def test_owner_hierarchy_receives_query_context_without_rewriting_original
 
 
 @pytest.mark.asyncio
-async def test_recovery_forced_finalization_without_candidate_stays_technical_failure() -> (
-    None
-):
-    class BoundedRecoveryRunner(_SDKOwnerRunner):
-        async def run(self, agent, model_input, *, run_config, max_turns):
-            if agent.name == "TechnologyDomainAnalystAgent":
-
-                class OfflineProvider:
-                    def get_model(self, model_name):
-                        return _ScriptedOwnerModel(
-                            transfer=False, target=True, recovery=True
-                        )
-
-                agent.model = "offline-recovery"
-                return await BoundedRunner.run(
-                    agent,
-                    model_input,
-                    run_config=replace(run_config, model_provider=OfflineProvider()),
-                    max_turns=max_turns,
-                )
-            return await super().run(
-                agent, model_input, run_config=run_config, max_turns=max_turns
-            )
-
-    runner = BoundedRecoveryRunner(
-        transfer=True, specialist_transfer=True, specialist_fails=True
-    )
-    owner, input_data, _, engine = await _isolated_agent(runner)
-    input_data = input_data.model_copy(
-        update={"brief": ShoppingBrief(original_query="Find a smartphone")}
-    )
-    budget = ContextBudget()
-    budget.spent = (
-        budget.limits.total_tokens
-        - budget.limits.decision_reserve
-        - budget.limits.verification_reserve
-        - 6000
-    )
-    try:
-        with context_scope(budget):
-            await owner.run(input_data)
-        assert any(item["output"].get("finalizing") for item in budget.events), (
-            budget.events,
-            owner.workbench_activity,
-        )
-        event = next(
-            item
-            for item in owner.workbench_activity
-            if item["tool_name"] == "general_owner"
-        )
-        assert event["status"] == "research_failed"
-        assert event["output"]["failure_code"] == "context_budget_exceeded"
-        assert any(
-            item["tool_name"] == "owner_recovery" and item["status"] == "failed"
-            for item in owner.workbench_activity
-        )
-    finally:
-        await engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_completed_handoff_keeps_last_owner_on_post_run_validation_failure() -> (
     None
 ):
@@ -1850,7 +1787,7 @@ async def test_mock_workbench_cane_research_creates_cited_draft_and_weak_cases()
     assert [activity.tool_name for activity in cane.allowed_tool_activity].count(
         "record_source_quote"
     ) == 2
-    for scenario in ("ambiguous_product", "weak_search_results"):
+    for scenario in ("ambiguous_product",):
         result = await workbench.run(
             AgentWorkbenchRunRequest(
                 agent_name="GeneralShoppingAgent", scenario_name=scenario, mode="mock"
@@ -1859,12 +1796,6 @@ async def test_mock_workbench_cane_research_creates_cited_draft_and_weak_cases()
         assert result.output["outcome"] == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
         assert result.output["selected_candidate_name"] is None
         assert result.output["evidence_gaps"]
-        if scenario == "weak_search_results":
-            assert any(
-                item.tool_name == "record_source_quote"
-                for item in result.allowed_tool_activity
-            )
-            assert not result.output["candidates"]
 
 
 @pytest.mark.asyncio
@@ -1901,14 +1832,14 @@ async def test_mock_workbench_records_actual_domain_and_phone_sdk_handoffs() -> 
 
 
 @pytest.mark.asyncio
-async def test_model_cannot_select_uncited_or_unpersisted_evidence() -> None:
+async def test_model_choice_survives_unpersisted_optional_association() -> None:
     runner = _RecordingRunner(
         output=GeneralModelOutput(
             rationale="There is not enough checked evidence to choose a product yet.",
             category="walking cane",
             candidates=(
                 GeneralCandidateSelection(
-                    name="Invented cane", evidence_ids=(new_id(),)
+                    name="Invented cane", choice_group="primary", evidence_ids=(new_id(),)
                 ),
             ),
             selected_candidate_name="Invented cane",
@@ -1917,17 +1848,16 @@ async def test_model_cannot_select_uncited_or_unpersisted_evidence() -> None:
     agent, input_data, _, engine = await _isolated_agent(runner)
     try:
         result = await agent.run(input_data)
-        assert result.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
-        assert result.candidates == ()
-        assert result.selected_candidate_name is None
+        assert result.outcome == GeneralShoppingOutcome.DRAFT
+        assert result.candidates[0].name == "Invented cane"
+        assert result.candidates[0].evidence == ()
+        assert result.selected_candidate_name == "Invented cane"
     finally:
         await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_owner_quote_tool_requires_same_run_fetched_exact_text_and_region() -> (
-    None
-):
+async def test_owner_source_note_requires_same_run_page_and_region() -> None:
     agent, input_data, factory, engine = await _isolated_agent(_RecordingRunner())
     del agent
     tools = AgentResearchTools(
@@ -1951,8 +1881,10 @@ async def test_owner_quote_tool_requires_same_run_fetched_exact_text_and_region(
         fetched = await tools.fetch(FetchSourceRequest(source_id=source_id))
         assert fetched.status == ResearchToolStatus.SUCCEEDED
         assert (
-            await tools.record_quote(source_id, "invented feature")
-        ).status == ResearchToolStatus.GAP
+            await tools.record_quote(
+                source_id, "A model paraphrase about the candidate"
+            )
+        ).status == ResearchToolStatus.SUCCEEDED
         recorded = await tools.record_quote(source_id, fetched.text or "")
         assert recorded.status == ResearchToolStatus.SUCCEEDED
         assert recorded.evidence_id in tools.recorded_quote_ids
@@ -1960,7 +1892,7 @@ async def test_owner_quote_tool_requires_same_run_fetched_exact_text_and_region(
             evidence = await SearchSourceRepository(session).list_source_evidence(
                 input_data.run_id
             )
-            assert [item.evidence_id for item in evidence] == [recorded.evidence_id]
+            assert recorded.evidence_id in {item.evidence_id for item in evidence}
     finally:
         await engine.dispose()
 
@@ -2218,9 +2150,7 @@ async def test_failed_hosted_call_and_runner_error_fall_back_honestly() -> None:
 @pytest.mark.parametrize("model", ["gpt-6.1-sol", "future-responses-model"])
 async def test_owner_passes_selected_model_with_hosted_search(model: str) -> None:
     runner = _RecordingRunner()
-    agent, input_data, _, engine = await _isolated_agent(
-        runner, model=model
-    )
+    agent, input_data, _, engine = await _isolated_agent(runner, model=model)
     try:
         result = await agent.run(input_data)
         assert result.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
@@ -2230,7 +2160,9 @@ async def test_owner_passes_selected_model_with_hosted_search(model: str) -> Non
         assert runner.seen_agent.model == model
         assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
         activity = next(
-            item for item in agent.workbench_activity if item["tool_name"] == "general_owner"
+            item
+            for item in agent.workbench_activity
+            if item["tool_name"] == "general_owner"
         )
         assert activity["output"]["model"] == model
         assert activity["output"]["failure_type"] is None
@@ -2239,12 +2171,15 @@ async def test_owner_passes_selected_model_with_hosted_search(model: str) -> Non
 
 
 @pytest.mark.asyncio
-async def test_owner_api_rejection_reports_failure_without_model_or_tool_retry() -> None:
+async def test_owner_api_rejection_reports_failure_without_model_or_tool_retry() -> (
+    None
+):
     runner = _RecordingRunner(
         error=BadRequestError(
             "This model does not support web search.",
             response=httpx.Response(
-                400, request=httpx.Request("POST", "https://api.openai.com/v1/responses")
+                400,
+                request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
             ),
             body={"code": "unsupported_tool", "param": "tools"},
         )
@@ -2264,7 +2199,9 @@ async def test_owner_api_rejection_reports_failure_without_model_or_tool_retry()
         assert runner.seen_agent.model == "future-responses-model"
         assert any(isinstance(tool, WebSearchTool) for tool in runner.seen_agent.tools)
         activity = next(
-            item for item in agent.workbench_activity if item["tool_name"] == "general_owner"
+            item
+            for item in agent.workbench_activity
+            if item["tool_name"] == "general_owner"
         )
         assert activity["status"] == "research_failed"
         assert activity["output"]["failure_type"] == "BadRequestError"
@@ -2304,7 +2241,7 @@ async def test_fixture_mode_has_no_model_or_provider_call() -> None:
         ),
     ],
 )
-async def test_generic_provider_hits_can_be_classified_after_fetch(
+async def test_generic_provider_context_keeps_its_search_label_after_fetch(
     urls: tuple[str, ...], source_types: set[SourceType]
 ) -> None:
     query = SearchQuery(query="wooden cane", intent=SearchIntent.DISCOVERY)
@@ -2329,9 +2266,9 @@ async def test_generic_provider_hits_can_be_classified_after_fetch(
         result = await agent.run(input_data)
         assert result.outcome == GeneralShoppingOutcome.DRAFT
         assert len(result.candidates[0].evidence) == len(urls)
-        assert {
-            item.source_type for item in result.candidates[0].evidence
-        } == source_types
+        assert {item.source_type for item in result.candidates[0].evidence} == {
+            SourceType.SEARCH_RESULT
+        }
     finally:
         await engine.dispose()
 

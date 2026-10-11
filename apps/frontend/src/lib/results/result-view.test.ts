@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { render } from 'svelte/server';
+import RecommendationResult from './RecommendationResult.svelte';
+import EvidenceDetails from './EvidenceDetails.svelte';
 import type { SessionResultsResponse } from '$lib/api/types.js';
 import { buildResultView, neutralOutboundUrl, selectModeView } from './result-view.js';
 
@@ -232,7 +235,205 @@ function listing(
 	};
 }
 
+describe('recommendation grouping', () => {
+	it.each([
+		{ primary: ['product-dell'], runners: [] },
+		{ primary: ['product-dell', 'product-asus'], runners: [] },
+		{ primary: ['product-dell'], runners: ['product-asus'] },
+		{ primary: ['product-dell', 'product-asus', 'product-lg'], runners: ['product-four', 'product-five'] },
+	])('keeps explicit primary $primary and optional runners $runners separate', ({ primary, runners }) => {
+		const result: SessionResultsResponse = {
+			...baseResult,
+			products: [...baseResult.products,
+				{ ...baseResult.products[0], product_id: 'product-four', name: 'Compact alternative', source_ids: [], listing_ids: [] },
+				{ ...baseResult.products[0], product_id: 'product-five', name: 'Larger alternative', source_ids: [], listing_ids: [] },
+			],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, primary_product_ids: primary, runner_up_product_ids: runners,
+			},
+		};
+		const original = JSON.stringify(result);
+		const view = buildResultView(result);
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(primary);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(runners);
+		expect(JSON.stringify(result)).toBe(original);
+	});
+
+	it('keeps authored grouping despite unused modes and recovers reasons without citations or listings', () => {
+		const view = buildResultView({
+			...baseResult, listings: [], source_snapshots: [], source_evidence: [],
+			comparison_matrix: { schema_version: 1, criteria: [], rows: [
+				{ product_id: 'product-asus', scores: {}, evidence_ids: [], summary: 'A useful smaller choice.' },
+			] },
+			category_analyses: [{
+				schema_version: 1, product_id: 'product-lg', listing_ids: [], category: 'monitor',
+				fit_summary: 'More workspace.', strengths: [], weaknesses: ['Takes more desk space.'], warnings: [],
+				confidence: { level: 'unknown' }, evidence_ids: [], source_ids: [],
+			}],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, primary_product_ids: ['product-dell', 'product-asus'],
+				runner_up_product_ids: ['product-lg'], mode_results: [baseResult.recommendation_bundle.mode_results[0]],
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell', 'product-asus']);
+		expect(view.recommendedOptions[1]).toMatchObject({ rationale: 'A useful smaller choice.', listingId: null });
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-lg']);
+		expect(view.runnerUps[0]).toMatchObject({ rationale: 'More workspace.', tradeoffs: ['Takes more desk space.'] });
+	});
+
+	it.each([undefined, null])('infers saved legacy grouping when primary IDs are %s', (primaryIds) => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: { ...baseResult.recommendation_bundle, primary_product_ids: primaryIds },
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell', 'product-lg']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-asus']);
+	});
+
+	it('deduplicates legacy groups and excludes runner-mode membership from primary choices', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, runner_up_product_ids: ['product-dell', 'product-asus', 'product-asus'],
+				mode_results: [...baseResult.recommendation_bundle.mode_results,
+					{ ...baseResult.recommendation_bundle.mode_results[3], mode: 'runner_up' },
+				],
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-asus', 'product-lg']);
+	});
+
+	it('promotes one viable legacy runner-only recommendation without adding prerequisites', () => {
+		const view = buildResultView({
+			...baseResult, listings: [], trust_assessments: [], source_snapshots: [], source_evidence: [],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, final_product_id: null, final_listing_id: null,
+				runner_up_product_ids: ['missing-product', 'product-asus', 'product-lg'], mode_results: [],
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-asus']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-lg']);
+		expect(view.noStrongBuyReason).toBeNull();
+	});
+
+	it('keeps explicit empty no-strong-buy groups empty instead of inferring cards from modes', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, primary_product_ids: [], runner_up_product_ids: [],
+				final_product_id: null, final_listing_id: null, no_strong_buy: true,
+				no_strong_buy_reason: 'No suitable option.',
+			},
+		});
+		expect(view.recommendedOptions).toEqual([]);
+		expect(view.runnerUps).toEqual([]);
+		expect(view.noStrongBuyReason).toBe('No suitable option.');
+	});
+
+	it('does not let a stale no-strong-buy flag erase useful explicit choices', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, primary_product_ids: ['product-dell'],
+				no_strong_buy: true, no_strong_buy_reason: 'Old warning.',
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-asus']);
+		expect(view.noStrongBuyReason).toBeNull();
+	});
+
+	it('deduplicates explicit selections without promoting unrelated modes', () => {
+		const view = buildResultView({
+			...baseResult,
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, primary_product_ids: ['product-dell', 'product-dell'],
+				runner_up_product_ids: ['product-dell', 'product-asus', 'product-asus'],
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-asus']);
+	});
+
+	it('caps legacy groups at three primary choices and two runners while preserving saved records', () => {
+		const result: SessionResultsResponse = {
+			...baseResult,
+			products: [...baseResult.products,
+				{ ...baseResult.products[0], product_id: 'product-four', name: 'Fourth choice' },
+				{ ...baseResult.products[0], product_id: 'product-five', name: 'Fifth choice' },
+				{ ...baseResult.products[0], product_id: 'product-six', name: 'Sixth choice' },
+				{ ...baseResult.products[0], product_id: 'product-seven', name: 'Seventh choice' },
+			],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle, runner_up_product_ids: ['product-asus', 'product-six', 'product-seven'],
+				mode_results: [...baseResult.recommendation_bundle.mode_results,
+					{ ...baseResult.recommendation_bundle.mode_results[0], product_id: 'product-four' },
+					{ ...baseResult.recommendation_bundle.mode_results[0], product_id: 'product-five' },
+				],
+			},
+		};
+		const original = JSON.stringify(result);
+		const view = buildResultView(result);
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-dell', 'product-lg', 'product-four']);
+		expect(view.runnerUps.map((option) => option.productId)).toEqual(['product-asus', 'product-six']);
+		expect(JSON.stringify(result)).toBe(original);
+	});
+});
+
 describe('result view helpers', () => {
+	it('groups source originals by neutral URL and keeps cited ID aliases', () => {
+		const result = structuredClone(baseResult);
+		result.source_results = [
+			{
+				source_id: 'search-dell',
+				url: 'https://example.test/dell/?utm_source=search',
+				title: 'Dell discovery',
+				snippet: 'Changed display support detail.',
+				source_type: 'search_result',
+				query: { query: 'monitor', intent: 'discovery' },
+				provider: { raw: { research_selection: { status: 'deferred' } } },
+				quality: { level: 'unknown' },
+			},
+			{
+				source_id: 'unused-lead',
+				url: 'https://example.test/unused',
+				title: 'Unused lead',
+				snippet: 'Redundant original retained in the API.',
+				source_type: 'search_result',
+				query: { query: 'monitor', intent: 'discovery' },
+				provider: { raw: { research_selection: { status: 'deferred' } } },
+				quality: { level: 'unknown' },
+			},
+		];
+		result.recommendation_bundle.source_ids = ['search-dell', 'source-dell'];
+		const original = structuredClone(result);
+		const view = buildResultView(result);
+		expect(view.sourceViews.map((source) => source.id)).toEqual(['source-dell', 'source-asus', 'source-lg']);
+		expect(view.resultSources.map((source) => source.id)).toEqual(['source-dell', 'source-asus', 'source-lg']);
+		expect(view.sourceViews[0]?.snippet).toBe('Changed display support detail.');
+		expect(view.sourceViews[0]?.evidence.map((evidence) => evidence.id)).toEqual(['evidence-dell']);
+		expect(result).toEqual(original);
+	});
+
+	it('keeps functional source variants and explicitly cited deferred sources', () => {
+		const result = structuredClone(baseResult);
+		result.source_results = ['ph', 'us'].map((variant) => ({
+			source_id: `source-${variant}`,
+			url: `https://example.test/monitor?variant=${variant}&utm_source=search`,
+			title: `Monitor ${variant}`,
+			snippet: `Variant ${variant}`,
+			source_type: 'search_result',
+			query: { query: 'monitor', intent: 'discovery' },
+			provider: { raw: { research_selection: { status: 'deferred' } } },
+			quality: { level: 'unknown' },
+		}));
+		result.recommendation_bundle.source_ids = ['source-ph', 'source-us'];
+		const view = buildResultView(result);
+		expect(view.resultSources.slice(0, 2).map((source) => source.url)).toEqual([
+			'https://example.test/monitor?variant=ph', 'https://example.test/monitor?variant=us',
+		]);
+	});
 	it('renders the authoritative final decision without optional mode records', () => {
 		const view = buildResultView({
 			...baseResult,
@@ -315,7 +516,7 @@ describe('result view helpers', () => {
 		});
 		expect(view.runnerUps.map((item) => item.productName)).toEqual(['ASUS ProArt PA278CV', 'LG 27UP850']);
 		expect(view.recommendedOptions.map((item) => item.productName)).toEqual([
-			'Dell UltraSharp U2724DE', 'ASUS ProArt PA278CV', 'LG 27UP850',
+			'Dell UltraSharp U2724DE',
 		]);
 		expect(view.runnerUps[0]).toMatchObject({
 			listingId: 'listing-asus', priceLabel: '$349', rationale: 'Lower price with a checked fit.',
@@ -343,10 +544,8 @@ describe('result view helpers', () => {
 				],
 			},
 		});
-		expect(view.recommendedOptions.map((item) => item.productId)).toEqual([
-			'product-dell', 'product-asus', 'product-lg',
-		]);
-		expect(view.recommendedOptions.map((item) => item.rationale)).toEqual([
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual(['product-dell']);
+		expect([...view.recommendedOptions, ...view.runnerUps].map((item) => item.rationale)).toEqual([
 			'Best balance of fit and seller trust.',
 			'Lower price with credible evidence.',
 			'Costs more, so it only works if the budget tradeoff is acceptable.',
@@ -414,7 +613,7 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.sources.map((item) => item.id)).toEqual(['source-asus']);
 	});
 
-	it('keeps no-strong-buy unselectable even with saved alternate modes', () => {
+	it('preserves saved alternate choices when the legacy no-option flag is also present', () => {
 		const view = buildResultView({
 			...baseResult,
 			recommendation_bundle: {
@@ -423,18 +622,18 @@ describe('result view helpers', () => {
 			},
 		});
 		expect(view.finalMode).toBeNull();
-		expect(view.recommendedOptions).toEqual([]);
-		expect(selectModeView(view, null)).toBeNull();
-		expect(selectModeView(view, view.decisionModes[0]?.key ?? null)).toBeNull();
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual(['product-dell', 'product-lg']);
+		expect(selectModeView(view, null)?.productId).toBe('product-dell');
+		expect(view.noStrongBuyReason).toBeNull();
 	});
 
-	it('does not replace an unavailable final reference with a best-overall mode', () => {
+	it('shows saved choices without requiring a final reference', () => {
 		const view = buildResultView({
 			...baseResult,
 			recommendation_bundle: { ...baseResult.recommendation_bundle, final_product_id: null, final_listing_id: null },
 		});
 		expect(view.finalMode).toBeNull();
-		expect(selectModeView(view, null)).toBeNull();
+		expect(selectModeView(view, null)?.productId).toBe('product-dell');
 	});
 
 	it('uses final rationale even when the exact best-overall mode has different reasoning', () => {
@@ -500,7 +699,7 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.evidence.map((item) => item.id)).toEqual(['evidence-asus']);
 	});
 
-	it('preserves distinct explicit saved offers for the same runner-up product', () => {
+	it('grouping keeps one runner-up per product while retaining distinct saved offers', () => {
 		const view = buildResultView({
 			...baseResult,
 			listings: [...baseResult.listings, listing('listing-asus-other', 'product-asus', 'ASUS from another seller', 'Other seller', 299, 'source-asus-other')],
@@ -520,12 +719,13 @@ describe('result view helpers', () => {
 				}],
 			},
 		});
-		expect(view.runnerUps.map((item) => item.listingId)).toEqual(['listing-asus', 'listing-asus-other']);
+		expect(view.runnerUps.map((item) => item.listingId)).toEqual(['listing-asus-other']);
+		expect(view.modeViews.filter((item) => item.productId === 'product-asus').map((item) => item.listingId)).toEqual(['listing-asus', 'listing-asus', 'listing-asus-other']);
 		expect(view.runnerUps.map((item) => item.evidence.map((evidence) => evidence.id))).toEqual([
-			['evidence-asus'], ['evidence-asus-other'],
+			['evidence-asus-other'],
 		]);
 		expect(view.runnerUps.map((item) => item.sources.map((source) => source.id))).toEqual([
-			['source-asus'], ['source-asus-other'],
+			['source-asus-other'],
 		]);
 	});
 
@@ -595,7 +795,7 @@ describe('result view helpers', () => {
 		expect(view.finalMode?.label).toBe('Best overall');
 		expect(view.whyItWins).toBe('Best balance of fit and seller trust.');
 		expect(view.recommendedOptions.map((item) => item.productId)).toEqual([
-			'product-dell', 'product-asus', 'product-lg',
+			'product-dell', 'product-lg',
 		]);
 		expect(view.recommendedOptions[0]?.productUrl).toBe('https://example.test/dell');
 		expect(view.runnerUps).toHaveLength(1);
@@ -682,11 +882,11 @@ describe('result view helpers', () => {
 		expect(view.runnerUps[0]?.listingTrust?.isBlocking).toBe(true);
 		expect(view.runnerUps[0]?.listingTrust?.summary).toContain('product may fit');
 		expect(view.warnings.map((warning) => warning.text)).toContain(
-			'Seller details do not line up.',
+			'ASUS ProArt PA278CV: Seller details do not line up.',
 		);
 		expect(view.warnings.some((warning) => warning.text.includes('safer seller'))).toBe(true);
 		expect(
-			view.warnings.find((warning) => warning.text === 'Seller details do not line up.')?.evidence[0]
+			view.warnings.find((warning) => warning.text === 'ASUS ProArt PA278CV: Seller details do not line up.')?.evidence[0]
 				?.id,
 		).toBe('evidence-asus');
 	});
@@ -701,6 +901,7 @@ describe('result view helpers', () => {
 				no_strong_buy: true,
 				no_strong_buy_reason: 'The best-matching listing is blocked by seller checks.',
 				final_rationale: null,
+				mode_results: [], runner_up_product_ids: [],
 			},
 		});
 
@@ -801,7 +1002,7 @@ describe('result view helpers', () => {
 		expect(warning?.sources[0]?.id).toBe('source-asus');
 	});
 
-	it('deduplicates warning text while retaining evidence from the bundle, category, and seller checks', () => {
+	it('deduplicates warnings within their product or offer scope and retains optional sources', () => {
 		const view = buildResultView({
 			...baseResult,
 			recommendation_bundle: {
@@ -828,18 +1029,126 @@ describe('result view helpers', () => {
 		}))).toEqual([
 			{
 				text: 'Check return coverage.',
-				claims: ['Dell has USB-C support.', 'ASUS is a credible value pick.', 'LG is a credible stretch pick.'],
-				urls: ['https://example.test/dell', 'https://example.test/asus', 'https://example.test/lg'],
+				claims: ['Dell has USB-C support.'],
+				urls: ['https://example.test/dell'],
 			},
 			{
 				text: 'Check delivery costs.', claims: ['Dell has USB-C support.'], urls: ['https://example.test/dell'],
 			},
 			{
-				text: 'Check warranty coverage.',
+				text: 'ASUS ProArt PA278CV: Check return coverage.',
+				claims: ['ASUS is a credible value pick.', 'Dell has USB-C support.'],
+				urls: ['https://example.test/asus', 'https://example.test/dell'],
+			},
+			{
+				text: 'Dell UltraSharp U2724DE — Official: Check return coverage.',
+				claims: ['LG is a credible stretch pick.', 'ASUS is a credible value pick.'],
+				urls: ['https://example.test/lg', 'https://example.test/asus'],
+			},
+			{
+				text: 'Dell UltraSharp U2724DE — Official: Check warranty coverage.',
 				claims: ['LG is a credible stretch pick.', 'ASUS is a credible value pick.'],
 				urls: ['https://example.test/lg', 'https://example.test/asus'],
 			},
 		]);
+	});
+
+	it('preserves advice with no citations, checked listing, known price or final mode', () => {
+		const view = buildResultView({
+			...baseResult, listings: [], trust_assessments: [], source_evidence: [], source_snapshots: [],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				final_product_id: null, final_listing_id: null, runner_up_product_ids: [],
+				evidence_ids: [], source_ids: [],
+				mode_results: [{
+					mode: 'runner_up', product_id: 'product-asus', title: 'For a compact desk',
+					rationale: 'A practical option for this desk.', confidence: { level: 'unknown' },
+					tradeoffs: ['Less workspace than a larger display.'], unknowns: ['Current local stock.'],
+					evidence_ids: [], source_ids: [],
+				}],
+			},
+		});
+		expect(view.recommendedOptions).toHaveLength(1);
+		expect(view.recommendedOptions[0]).toMatchObject({
+			productId: 'product-asus', listingTrust: null, priceLabel: null, evidence: [], sources: [],
+			rationale: 'A practical option for this desk.', tradeoffs: ['Less workspace than a larger display.'],
+			unknowns: ['Current local stock.'],
+		});
+	});
+
+	it.each([
+		{ price: null, label: 'Recommended option', note: null },
+		{ price: { amount: 349, currency: 'PHP' }, label: 'Recommended option', note: null },
+		{ price: { amount: 370, currency: 'USD' }, label: 'Recommended option', note: '$20 above the requested budget of $350.' },
+		{ price: { amount: 349, currency: 'USD' }, label: 'Best within budget', note: null },
+	])('normalizes affordability labels while retaining advice for $note', ({ price, label, note }) => {
+		const view = buildResultView({
+			...baseResult,
+			source_evidence: [], source_snapshots: [], source_results: [],
+			shopping_brief: {
+				schema_version: 1, original_query: 'A monitor around $350.', constraints: [], preferences: [],
+				budget: { amount: { amount: 350, currency: 'USD' }, mode: 'hard_cap' },
+			},
+			listings: baseResult.listings.map((listing) => listing.listing_id === 'listing-asus' ? { ...listing, price } : listing),
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				final_product_id: null, final_listing_id: null, runner_up_product_ids: [],
+				mode_results: [{
+					...baseResult.recommendation_bundle.mode_results[2],
+					rationale: 'A useful option for the requested workspace.', evidence_ids: [], source_ids: [],
+				}],
+			},
+		});
+		expect(view.recommendedOptions.map((option) => option.productId)).toEqual(['product-asus']);
+		expect(view.recommendedOptions[0]).toMatchObject({
+			label, budgetNote: note, rationale: 'A useful option for the requested workspace.',
+			purchaseUrl: 'https://example.test/listing-asus',
+		});
+	});
+
+	it('uses neutral affordability labels without a saved requested budget', () => {
+		const view = buildResultView(baseResult);
+		expect(view.modeViews.find((mode) => mode.mode === 'within_budget')).toMatchObject({
+			label: 'Recommended option', budgetNote: null,
+			rationale: 'Stays inside the stated budget with credible evidence.',
+		});
+	});
+
+	it('keeps a model-selected over-budget offer with its scoped caution and neutral link', () => {
+		const view = buildResultView({
+			...baseResult,
+			trust_assessments: [{
+				...baseResult.trust_assessments[0], level: 'suspicious',
+				red_flags: ['Check the seller identity before paying.'],
+			}],
+			recommendation_bundle: {
+				...baseResult.recommendation_bundle,
+				mode_results: [{
+					...baseResult.recommendation_bundle.mode_results[0], mode: 'stretch_pick',
+					tradeoffs: ['Costs $20 more than the requested budget.'], evidence_ids: [], source_ids: [],
+				}],
+				evidence_ids: [], source_ids: [],
+			},
+		});
+		expect(view.recommendedOptions[0]?.purchaseUrl).toBe('https://example.test/listing-dell');
+		expect(view.recommendedOptions[0]?.tradeoffs).toEqual(['Costs $20 more than the requested budget.']);
+		expect(view.warnings.map((item) => item.text)).toContain('Dell UltraSharp U2724DE — Official: Check the seller identity before paying.');
+	});
+
+	it('retains source snippets below advice without requiring captured quotes', () => {
+		const view = buildResultView({
+			...baseResult, source_snapshots: [], source_evidence: [],
+			source_results: [{
+				source_id: 'search-source', title: 'Product announcement',
+				url: 'https://example.test/announcement?tag=affiliate&color=black', source_type: 'search_result',
+				provider: { provider_name: 'search' }, quality: { level: 'unknown' }, snippet: 'Available announcement details.',
+			}],
+		});
+		expect(view.recommendedOptions.map((item) => item.productId)).toEqual(['product-dell', 'product-lg']);
+		expect(view.sourceViews[0]).toMatchObject({
+			typeLabel: 'Search result', snippet: 'Available announcement details.', evidence: [],
+			url: 'https://example.test/announcement?color=black',
+		});
 	});
 
 	it('neutralizes outbound source links and strips affiliate or tracking parameters', () => {
@@ -907,28 +1216,109 @@ describe('result view helpers', () => {
 		expect(view.sourceViews[0]?.typeLabel).toBe('Video');
 	});
 
-	it('scrubs fixture-only wording from shopper-facing result text', () => {
-		const view = buildResultView({
-			...baseResult,
-			recommendation_bundle: {
-				...baseResult.recommendation_bundle,
-				final_rationale: 'Fixture best pick because the official listing is safer.',
-				warnings: ['Avoid this fixture seller.'],
-				mode_results: [
-					{
-						...baseResult.recommendation_bundle.mode_results[0],
-						title: 'Fixture best overall',
-						rationale: 'Fixture rationale.',
-					},
-				],
+	it('preserves literal fixture words in shopping identities, evidence and authored advice', () => {
+		const result = structuredClone(baseResult);
+		result.products[0].name = 'Pendant light fixture';
+		result.listings[0].title = 'FixtureMaker pendant light fixture';
+		result.listings[0].seller.seller_name = 'FixtureSeller Electronics';
+		result.source_snapshots[0].title = 'FixtureMaker light fixture guide';
+		result.source_evidence[0].claim = 'The light fixture uses a replaceable bulb.';
+		result.source_results = [{
+			source_id: 'source-light-search', title: 'FixtureMaker light fixture review',
+			url: 'https://example.test/light', source_type: 'search_result',
+			snippet: 'This light fixture has two mounting choices.',
+			provider: { provider_name: 'fixture-search' },
+			quality: { level: 'adequate', score: 0.7 },
+		}];
+		result.recommendation_bundle.final_rationale = 'Choose the light fixture for adjustable lighting.  Keep its bulb type in mind.';
+		result.recommendation_bundle.mode_results[0].rationale = 'Choose the light fixture for adjustable lighting.  Keep its bulb type in mind.';
+		result.recommendation_bundle.mode_results[0].tradeoffs = ['The light fixture is larger than the desk lamp.'];
+		result.recommendation_bundle.warnings = ['The light fixture needs a grounded connection.'];
+		result.considered_products = [{
+			status: 'manual', exclusion_reason: null,
+			candidate: {
+				schema_version: 1, candidate_id: 'candidate-light', created_at: '2026-05-31T00:00:00Z',
+				input_text: 'Compare this light fixture with FixtureMaker Mini.',
+				manual_details: { seller: 'FixtureSeller Electronics' },
 			},
+		}];
+		const before = JSON.stringify(result);
+		const view = buildResultView(result);
+		expect(view.finalMode).toMatchObject({
+			productName: 'Pendant light fixture', listingTitle: 'FixtureMaker pendant light fixture',
+			sellerName: 'FixtureSeller Electronics',
+			rationale: 'Choose the light fixture for adjustable lighting.  Keep its bulb type in mind.',
+			tradeoffs: ['The light fixture is larger than the desk lamp.'],
+			purchaseUrl: 'https://example.test/listing-dell',
 		});
+		expect(view.sourceViews[0]).toMatchObject({ title: 'FixtureMaker light fixture guide', url: 'https://example.test/dell' });
+		expect(view.evidenceViews[0]).toMatchObject({ claim: 'The light fixture uses a replaceable bulb.', sourceTitle: 'FixtureMaker light fixture guide', sourceUrl: 'https://example.test/dell' });
+		expect(view.consideredProducts[0]).toMatchObject({ askedFor: 'Compare this light fixture with FixtureMaker Mini.', manualSeller: 'FixtureSeller Electronics' });
+		expect(view.sourceViews.find((source) => source.id === 'source-light-search')).toMatchObject({
+			title: 'FixtureMaker light fixture review', snippet: 'This light fixture has two mounting choices.', url: 'https://example.test/light',
+		});
+		expect(view.whyItWins).toBe('Choose the light fixture for adjustable lighting.  Keep its bulb type in mind.');
+		expect(view.warnings[0]?.text).toBe('The light fixture needs a grounded connection.');
+		expect(JSON.stringify(result)).toBe(before);
+	});
 
-		expect(view.whyItWins).toBe('best pick because the official listing is safer.');
-		expect(view.finalMode?.label).toBe('best overall');
-		expect(view.finalMode?.rationale).toBe('best pick because the official listing is safer.');
-		expect(view.modeViews[0]?.rationale).toBe('rationale.');
-		expect(view.warnings.map((warning) => warning.text)).toEqual(['Avoid this seller.']);
+	it('renders authored advice without aggregating diagnostic warnings or generated buying rituals', () => {
+		const result = structuredClone(baseResult);
+		result.recommendation_bundle.warnings = ['A diagnostic-only absence statement.'];
+		result.recommendation_bundle.mode_results[0].unknowns = ['Another diagnostic-only absence statement.'];
+		result.recommendation_bundle.mode_results[0].tradeoffs = ['Costs $20 more for a better adjustable stand.'];
+		result.source_snapshots[0].extraction_status = 'partial';
+		result.source_evidence[0].confidence = { level: 'low', score: 0.2 };
+		result.source_evidence[0].claim = 'Conflicting published measurements remain in the source record.';
+		const view = buildResultView(result);
+		const output = render(RecommendationResult, { props: {
+			result: view, selectedMode: view.finalMode, question: 'Which monitor?',
+			onSelectMode: () => {}, onStartOver: () => {}, onCheckListing: () => {}, onSaveManual: () => {}, allowCorrections: false,
+		} }).body;
+		expect(output).toContain('Dell UltraSharp U2724DE');
+		expect(output).toContain('Best blend of features and seller safety.');
+		expect(output).toContain('Costs $20 more for a better adjustable stand.');
+		expect(output).not.toContain('A diagnostic-only absence statement.');
+		expect(output).not.toContain('Another diagnostic-only absence statement.');
+		expect(output).not.toContain('What to watch');
+		expect(output).not.toContain('Some sources disagree');
+		expect(output).not.toContain('Some source details are uncertain.');
+		expect(output).not.toContain('Some pages could not be fully read.');
+		expect(output).not.toContain('confidence');
+		expect(output).not.toContain('Check the current price');
+		expect(output).not.toContain('Check the seller, warranty');
+		expect(view.warnings[0]?.text).toBe('A diagnostic-only absence statement.');
+		expect(view.finalMode?.confidence).toBe('high 84%');
+		expect(view.hasWeakEvidence).toBe(true);
+		expect(view.hasConflictingEvidence).toBe(true);
+		expect(view.hasPartialSources).toBe(true);
+	});
+
+	it('renders source facts and video disclosures without diagnostic confidence and process metrics', () => {
+		const result = structuredClone(baseResult);
+		result.source_evidence[0].video = {
+			video_id: 'video-light', url: 'https://www.youtube.com/watch?v=video-light',
+			channel_name: 'FixtureMaker Reviews', transcript_availability: 'available',
+			sponsorship_disclosed: true, affiliate_links_disclosed: true,
+			affiliate_bias_risk: { level: 'medium', score: 0.62 },
+		};
+		result.source_evidence[0].timestamp_references = [{ start_seconds: 75, end_seconds: 91 }];
+		const view = buildResultView(result);
+		const output = render(EvidenceDetails, { props: { evidence: [view.evidenceViews[0]], sources: [view.sourceViews[0]] } }).body;
+		expect(output).toContain('Dell has USB-C support.');
+		expect(output).toContain('Dell source');
+		expect(output).toContain('https://example.test/dell');
+		expect(output).toContain('1:15-1:31');
+		expect(output).toContain('Channel: FixtureMaker Reviews');
+		expect(output).toContain('Sponsorship disclosed');
+		expect(output).toContain('Affiliate links disclosed by source');
+		expect(output).not.toContain('confidence:');
+		expect(output).not.toContain('quality:');
+		expect(output).not.toContain('captured');
+		expect(output).not.toContain('Transcript:');
+		expect(output).not.toContain('Bias risk:');
+		expect(view.evidenceViews[0]?.metadata).toContain('Bias risk: medium 62%');
+		expect(view.evidenceViews[0]?.confidence).toBe('high 86%');
 	});
 
 	it('renders a verified owner pick from persisted citations without exposing the handoff', () => {

@@ -13,6 +13,10 @@ from app.agents import (
     ShoppingGuideAgentInput,
 )
 from app.agents.live_guide import MockShoppingGuideModelRunner
+from app.agents.live_guardrails import (
+    LiveShoppingScopeGuardrail,
+    MockShoppingGuardrailModelRunner,
+)
 from app.core.settings import Settings
 from app.schemas.guided_intake import (
     AnalysisStartAvailability,
@@ -28,6 +32,9 @@ from app.schemas.guided_intake import (
     ProgressDisplayStatus,
     RegionSetupStatus,
     RegionSetupSubmission,
+    ShoppingGuardrailDecision,
+    ShoppingGuardrailReason,
+    ShoppingGuardrailResult,
 )
 from app.schemas.intake import (
     BudgetConstraint,
@@ -89,6 +96,25 @@ def _settings(**overrides: object) -> Settings:
         environment="test",
         **overrides,
     )
+
+
+@pytest.fixture(autouse=True)
+def mocked_scope_classifier(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> MockShoppingGuardrailModelRunner | None:
+    if request.node.get_closest_marker("live_provider") is not None:
+        return None
+    runner = MockShoppingGuardrailModelRunner(
+        output=ShoppingGuardrailResult(decision=ShoppingGuardrailDecision.ALLOWED)
+    )
+    monkeypatch.setattr(
+        "app.agents.live_guide.LiveShoppingScopeGuardrail",
+        lambda *, settings: LiveShoppingScopeGuardrail(
+            settings=settings, model_runner=runner
+        ),
+    )
+    return runner
 
 
 def _monitor_query() -> str:
@@ -258,7 +284,9 @@ async def test_live_guide_keeps_region_setup_separate_from_main_question() -> No
 
 
 @pytest.mark.asyncio
-async def test_live_guide_handles_already_considered_product_names_without_links() -> None:
+async def test_live_guide_handles_already_considered_product_names_without_links() -> (
+    None
+):
     agent = LiveShoppingGuideAgent(
         settings=_settings(),
         model_runner=MockShoppingGuideModelRunner(),
@@ -420,7 +448,7 @@ async def test_live_guide_falls_back_on_invalid_model_output() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_guide_falls_back_on_recommendation_like_output() -> None:
+async def test_live_guide_keeps_valid_question_without_keyword_veto() -> None:
     runner = RecordingGuideRunner(
         output=GuidedIntakeState(
             status=GuidedIntakeStatus.COLLECTING,
@@ -438,8 +466,38 @@ async def test_live_guide_falls_back_on_recommendation_like_output() -> None:
 
     assert result.status == GuidedIntakeStatus.COLLECTING
     assert result.current_question is not None
-    assert "recommend" not in result.current_question.text.casefold()
-    assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
+    assert result.current_question.text == (
+        "I recommend Sony first. What budget should we stay near?"
+    )
+    assert runner.calls == 1
+    assert agent.workbench_activity[0]["status"] == "model_guide_completed"
+
+
+@pytest.mark.asyncio
+async def test_live_guide_stops_on_explicit_mocked_classifier_block(
+    mocked_scope_classifier: MockShoppingGuardrailModelRunner | None,
+) -> None:
+    assert mocked_scope_classifier is not None
+    mocked_scope_classifier.output = ShoppingGuardrailResult(
+        decision=ShoppingGuardrailDecision.BLOCKED,
+        reason=ShoppingGuardrailReason.UNSAFE_PRODUCT,
+        message="This request is outside ordinary shopping help.",
+    )
+    runner = RecordingGuideRunner()
+    intake = RecordingIntakeAgent()
+    agent = LiveShoppingGuideAgent(
+        settings=_settings(), model_runner=runner, intake_agent=intake
+    )
+
+    result = await agent.run(_guide_input("A request for the classifier to review"))
+
+    assert result.status == GuidedIntakeStatus.BLOCKED
+    assert result.guardrail == mocked_scope_classifier.output
+    assert result.current_question is None
+    assert mocked_scope_classifier.calls == 1
+    assert runner.calls == 0
+    assert intake.calls == 0
+    assert agent.workbench_activity[0]["status"] == "input_guardrail_blocked"
 
 
 @pytest.mark.asyncio

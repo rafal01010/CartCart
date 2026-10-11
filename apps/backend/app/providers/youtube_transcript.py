@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import html
 import importlib.metadata
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -30,6 +32,7 @@ from app.schemas.search_sources import (
 YTDLP_VERSION = "2026.6.9"
 YTDLP_EJS_VERSION = "0.8.0"
 MINIMUM_DENO_VERSION = (2, 3, 0)
+_RESOURCE_POLL_SECONDS = 0.01
 
 _YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _VTT_TIMESTAMP_PATTERN = re.compile(
@@ -63,6 +66,7 @@ class YtDlpCommandRunner(Protocol):
         cwd: Path,
         timeout_seconds: float,
         output_limit_bytes: int,
+        temp_storage_limit_bytes: int,
     ) -> YtDlpCommandResult:
         """Run one fixed yt-dlp command in an isolated working directory."""
 
@@ -75,6 +79,10 @@ class YtDlpCommandOutputLimit(RuntimeError):
     """Raised when yt-dlp emits more process output than CartCart permits."""
 
 
+class YtDlpCommandStorageLimit(RuntimeError):
+    """Raised when the running command exceeds its temporary-storage budget."""
+
+
 @dataclass(frozen=True)
 class SubprocessYtDlpCommandRunner:
     async def run(
@@ -84,36 +92,62 @@ class SubprocessYtDlpCommandRunner:
         cwd: Path,
         timeout_seconds: float,
         output_limit_bytes: int,
+        temp_storage_limit_bytes: int,
     ) -> YtDlpCommandResult:
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=cwd,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        launch = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *command,
+                cwd=cwd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
         )
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                asyncio.gather(
-                    _read_stream(process.stdout, output_limit_bytes),
-                    _read_stream(process.stderr, output_limit_bytes),
-                ),
-                timeout=timeout_seconds,
-            )
+            process = await asyncio.shield(launch)
+        except asyncio.CancelledError:
+            while not launch.done():
+                try:
+                    await asyncio.shield(launch)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            try:
+                process = launch.result()
+            except Exception:
+                raise asyncio.CancelledError from None
+            await _terminate_and_reap(process, ())
+            raise
+
+        stdout = asyncio.create_task(_read_stream(process.stdout, output_limit_bytes))
+        stderr = asyncio.create_task(_read_stream(process.stderr, output_limit_bytes))
+        exited = asyncio.create_task(process.wait())
+        tasks = (stdout, stderr, exited)
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                while True:
+                    if _directory_size(cwd) > temp_storage_limit_bytes:
+                        raise YtDlpCommandStorageLimit
+                    for task in tasks:
+                        if task.done():
+                            task.result()
+                    if all(task.done() for task in tasks):
+                        break
+                    await asyncio.wait(
+                        tasks,
+                        timeout=_RESOURCE_POLL_SECONDS,
+                        return_when=asyncio.FIRST_EXCEPTION,
+                    )
+            stdout_bytes, stderr_bytes = stdout.result(), stderr.result()
             if len(stdout_bytes) + len(stderr_bytes) > output_limit_bytes:
                 raise YtDlpCommandOutputLimit
-            returncode = await asyncio.wait_for(
-                process.wait(),
-                timeout=max(1.0, timeout_seconds / 10),
-            )
+            returncode = exited.result()
         except TimeoutError as exc:
-            process.kill()
-            await process.wait()
             raise YtDlpCommandTimeout from exc
-        except YtDlpCommandOutputLimit:
-            process.kill()
-            await process.wait()
-            raise
+        finally:
+            await _terminate_and_reap(process, tasks)
 
         return YtDlpCommandResult(
             returncode=returncode,
@@ -207,6 +241,7 @@ class YtDlpTranscriptProvider:
                         cwd=temp_dir,
                         timeout_seconds=self.timeout_seconds,
                         output_limit_bytes=self.output_limit_bytes,
+                        temp_storage_limit_bytes=self.temp_storage_limit_bytes,
                     )
                 except YtDlpCommandTimeout:
                     return _gap_result(
@@ -221,6 +256,13 @@ class YtDlpTranscriptProvider:
                         video,
                         availability=TranscriptAvailability.NOT_CHECKED,
                         note="YouTube transcript retrieval exceeded the process output limit.",
+                    )
+                except YtDlpCommandStorageLimit:
+                    return _gap_result(
+                        self.capabilities,
+                        video,
+                        availability=TranscriptAvailability.NOT_CHECKED,
+                        note="YouTube transcript retrieval exceeded the temporary storage limit.",
                     )
                 except OSError:
                     return _gap_result(
@@ -552,6 +594,41 @@ async def _read_stream(
     return b"".join(chunks)
 
 
+async def _terminate_and_reap(
+    process: asyncio.subprocess.Process,
+    tasks: tuple[asyncio.Task[bytes] | asyncio.Task[int], ...],
+) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        elif process.returncode is None:
+            process.kill()
+    except ProcessLookupError:
+        pass
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+
+    async def finish() -> None:
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                while await stream.read(4096):
+                    pass
+        await process.wait()
+
+    cleanup = asyncio.create_task(finish())
+    cancelled = False
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            cancelled = True
+    cleanup.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 def _requested_languages(
     options: TranscriptProviderOptions | None,
     defaults: tuple[str, ...],
@@ -612,8 +689,11 @@ def _language_from_vtt_filename(path: Path, video_id: str) -> str | None:
 def _directory_size(directory: Path) -> int:
     size = 0
     for path in directory.rglob("*"):
-        if path.is_file() and not path.is_symlink():
-            size += path.stat().st_size
+        try:
+            if path.is_file() and not path.is_symlink():
+                size += path.stat().st_size
+        except FileNotFoundError:
+            continue
     return size
 
 

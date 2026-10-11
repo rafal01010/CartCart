@@ -1,5 +1,19 @@
 # CartCart UX Information Architecture
 
+## Concise advice, Task 219
+
+The result leads with direct reasons and concise relative tradeoffs. It retains supported budget/value explanations, product limitations that change the choice and neutral links. Cards no longer add confidence scores, Worth checking lists or generic price, stock and seller-check rituals. Diagnostic warnings do not become a What to watch section. Source details retain names, claims, links, timestamps and useful disclosures without confidence or process-quality scores.
+
+Product names, seller names, user input, source titles and evidence claims remain literal, including light fixture and FixtureSeller Electronics. Controlled fixture writers avoid deliberately generated developer labels. Saved authored reasons and tradeoffs are not rewritten; older wording can remain in historical results. Future generated wording is validated only in Task 221. Task 220 owns history, duplicate comparison, refinement and top restart changes. Live validation deferred to Task 221.
+
+## Primary choices and optional runners-up, Task 218
+
+The result shows up to three authored primary choices in the main card grid. Three cards appear side by side at desktop widths of 1024 pixels and above; narrow screens stack them. Up to two optional runners-up appear once in a separate, quieter section after the primary cards. Each group retains its product reasons, useful tradeoffs, supported budget notes and neutral available links. One or two primary choices and no runners are valid.
+
+The owning model prefers useful company/provider variety while respecting exclusive preferences. Counts and brands are not quotas, and a family/size variant can remain primary when the shopper's needs warrant it. Display group membership comes from saved authored IDs rather than mode labels or hiding extra cards. Historical saved answers keep their distinct final/runner membership through a read projection.
+
+Task 219 removes generated diagnostic and checking copy. Task 220 owns the remaining history, duplicate comparison, refinement and restart changes. These controls remain pending Task 220. Offline saved-data browser checks establish grouping and layout only; live validation is deferred to Task 221.
+
 Status: Implemented guided shopping flow and UX guidance
 Last updated: 2026-10-02
 

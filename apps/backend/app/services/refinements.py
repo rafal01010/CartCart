@@ -50,36 +50,22 @@ class RefinementService:
         prior_run_id = prior_result.result_version.run_id
         prior_run = await self._run_repository.get(prior_run_id)
         prior_plan = await self._refinement_repository.get_plan_for_run(prior_run_id)
-        research_run_id = await self._refinement_repository.research_run_for(prior_run_id)
+        research_run_id = await self._refinement_repository.research_run_for(
+            prior_run_id
+        )
         products = await self._product_repository.list_canonical_products_for_run(
             research_run_id
         )
-        listings = await self._product_repository.list_product_listings_for_run(
-            research_run_id
-        )
-        shortlist = await self._product_repository.list_shortlist_memberships(
-            research_run_id
-        )
-        evidence = await self._search_source_repository.list_source_evidence(
-            research_run_id
-        )
-        # A product name alone, or an unverified manual entry, is not reusable evidence.
-        product_ids = {product.product_id for product in products}
-        listing_ids = {listing.listing_id for listing in listings}
-        candidate_ids = {item.candidate_id for item in shortlist}
-        has_candidate_evidence = (
+        has_saved_candidates = (
             prior_run is not None
             and (
-                (prior_plan is not None and session.current_brief == prior_plan.target_brief)
+                (
+                    prior_plan is not None
+                    and session.current_brief == prior_plan.target_brief
+                )
                 or (prior_plan is None and session.updated_at <= prior_run.created_at)
             )
             and bool(products)
-            and any(
-                item.target.product_id in product_ids
-                or item.target.listing_id in listing_ids
-                or item.target.candidate_id in candidate_ids
-                for item in evidence
-            )
         )
 
         run = await self._run_repository.create(session_id)
@@ -93,7 +79,7 @@ class RefinementService:
             refinement=stored_refinement,
             prior_result=prior_result,
             base_brief=session.current_brief,
-            has_candidate_evidence=has_candidate_evidence,
+            has_saved_candidates=has_saved_candidates,
         )
         stored_plan = await self._refinement_repository.save_plan(plan)
         return stored_refinement, run, stored_plan

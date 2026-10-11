@@ -588,6 +588,8 @@ export interface RecommendationModeResult {
 	listing_id?: EntityId | null;
 	title: string;
 	rationale: string;
+	tradeoffs?: string[];
+	unknowns?: string[];
 	confidence: Confidence;
 	evidence_ids: EntityId[];
 	source_ids: EntityId[];
@@ -615,6 +617,7 @@ export interface RecommendationBundle {
 	no_strong_buy: boolean;
 	no_strong_buy_reason?: string | null;
 	final_rationale?: string | null;
+	primary_product_ids?: EntityId[] | null;
 	runner_up_product_ids: EntityId[];
 	mode_results: RecommendationModeResult[];
 	comparison_matrix: ComparisonMatrix;
@@ -626,6 +629,7 @@ export interface RecommendationBundle {
 
 export interface SessionResultsResponse {
 	result_version: ResultVersionResponse;
+	shopping_brief?: ShoppingBrief | null;
 	trust_assessments: ListingTrustAssessment[];
 	category_analyses: CategoryAnalysis[];
 	agent_records: JsonObject[];
@@ -637,7 +641,12 @@ export interface SessionResultsResponse {
 	considered_products: ConsideredProductOutcome[];
 	source_snapshots: SourceSnapshot[];
 	source_evidence: SourceEvidence[];
+	source_results?: SearchSourceResult[];
 }
+
+export type SearchSourceResult = Pick<SourceSnapshot, 'source_id' | 'url' | 'title' | 'source_type' | 'provider' | 'quality'> & {
+	snippet?: string | null;
+};
 
 export interface DecisionHistoryEntry {
 	result_version_id: CandidateId;

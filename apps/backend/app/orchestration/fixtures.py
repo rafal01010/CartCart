@@ -168,8 +168,8 @@ def build_monitor_fixture_run_output(
             source_id=snapshot.source_id,
             query=query,
             url=snapshot.url,
-            title=snapshot.title or "Fixture monitor source",
-            snippet="Fixture monitor-shopping source.",
+            title=snapshot.title or "Monitor source",
+            snippet="Monitor-shopping source.",
             source_type=snapshot.source_type,
             provider=snapshot.provider,
             quality=snapshot.quality,
@@ -342,7 +342,7 @@ def build_monitor_fixture_run_output(
             (asus_listing.listing_id,),
             "Good value runner-up with strong creator-monitor evidence.",
             strengths=("Good value.", "Color-focused ProArt positioning."),
-            weaknesses=("Less flexible hub evidence than the Dell fixture pick.",),
+            weaknesses=("Less hub flexibility than the Dell.",),
             evidence=(evidence_by_claim["ASUS PA278CV is a credible value runner-up."],),
         ),
         _analysis(
@@ -631,7 +631,7 @@ def _recommendation(
                 listing_id=dell_official.listing_id,
                 scores={"fit": 0.9, "value": 0.78, "seller_trust": 0.95},
                 evidence_ids=(dell_evidence.evidence_id,),
-                summary="Best overall monitor fixture pick.",
+                summary="A useful monitor for coding and movies.",
             ),
             ComparisonRow(
                 product_id=asus.product_id,
@@ -657,12 +657,12 @@ def _recommendation(
         ),
     )
     return RecommendationBundle(
+        primary_product_ids=(dell.product_id,),
         final_product_id=dell.product_id,
         final_listing_id=dell_official.listing_id,
         final_rationale=(
-            "Dell UltraSharp U2724DE is the fixture best pick because it balances "
-            "monitor fit, USB-C convenience, evidence quality, and a trustworthy "
-            "official listing."
+            "Choose Dell UltraSharp U2724DE for its USB-C hub and adjustable stand. "
+            "ASUS PA278CV costs less; LG 27UP850 offers sharper 4K detail."
         ),
         runner_up_product_ids=(asus.product_id, lg.product_id),
         mode_results=(
@@ -671,7 +671,7 @@ def _recommendation(
                 product_id=dell.product_id,
                 listing_id=dell_official.listing_id,
                 title="Best overall",
-                rationale="Best blend of features, evidence, and seller safety.",
+                rationale="Its USB-C hub and adjustable stand make it convenient for a laptop desk.",
                 confidence=_confidence(0.84),
                 evidence_ids=(dell_evidence.evidence_id,),
                 source_ids=dell.source_ids,
@@ -681,7 +681,7 @@ def _recommendation(
                 product_id=asus.product_id,
                 listing_id=asus_listing.listing_id,
                 title="Best value",
-                rationale="Good monitor fundamentals at a lower fixture price.",
+                rationale="Good monitor fundamentals at a lower price than the Dell.",
                 confidence=_confidence(0.78),
                 evidence_ids=(asus_evidence.evidence_id,),
                 source_ids=asus.source_ids,
@@ -691,7 +691,7 @@ def _recommendation(
                 product_id=asus.product_id,
                 listing_id=asus_listing.listing_id,
                 title="Best within budget",
-                rationale="Best fixture option that stays within the stated budget.",
+                rationale="The lower-cost option that fits the stated budget.",
                 confidence=_confidence(0.78),
                 evidence_ids=(asus_evidence.evidence_id,),
                 source_ids=asus.source_ids,
@@ -737,7 +737,7 @@ def _recommendation(
         ),
         warnings=(
             "Avoid the suspicious marketplace duplicate even though it names the same Dell model.",
-            "Do not buy the user-added ViewPro listing from the fixture seller.",
+            "The user-added ViewPro listing has suspicious seller signals.",
         ),
         evidence_ids=(
             dell_evidence.evidence_id,

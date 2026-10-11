@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError
 
-from app.providers.contracts import SearchProviderOptions, SourcePolicyRule
+from app.providers.contracts import SearchProviderOptions
 from app.schemas.search_sources import (
     ProviderMetadata,
     SearchQuery,
@@ -112,12 +112,6 @@ class TavilySearchProvider:
             "include_images": False,
             "include_usage": True,
         }
-        include_domains = _policy_domains(options.source_policy.allow)
-        exclude_domains = _policy_domains(options.source_policy.avoid)
-        if include_domains:
-            payload["include_domains"] = include_domains
-        if exclude_domains:
-            payload["exclude_domains"] = exclude_domains
         return payload
 
     async def _post(self, payload: dict[str, Any]) -> httpx.Response:
@@ -134,9 +128,7 @@ class TavilySearchProvider:
                     timeout=self._timeout_seconds,
                 )
             else:
-                async with httpx.AsyncClient(
-                    timeout=self._timeout_seconds
-                ) as client:
+                async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
                     response = await client.post(
                         TAVILY_SEARCH_URL,
                         json=payload,
@@ -150,16 +142,6 @@ class TavilySearchProvider:
         except httpx.RequestError as exc:
             raise TavilySearchError("Tavily search request failed.") from exc
         return response
-
-
-def _policy_domains(rules: tuple[SourcePolicyRule, ...]) -> list[str]:
-    return list(
-        dict.fromkeys(
-            rule.domain.strip().lower().removeprefix(".")
-            for rule in rules
-            if rule.domain is not None
-        )
-    )
 
 
 def _truncate(value: str, max_length: int) -> str:

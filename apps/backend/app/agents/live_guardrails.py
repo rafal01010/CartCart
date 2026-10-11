@@ -24,10 +24,7 @@ from app.schemas.guided_intake import (
     ShoppingGuardrailDecision,
     ShoppingGuardrailResult,
 )
-from app.services.shopping_guardrails import (
-    evaluate_shopping_guardrail,
-    safe_guardrail_failure_result,
-)
+from app.core.errors import ApplicationError
 
 
 class ShoppingGuardrailModelRunner(Protocol):
@@ -100,17 +97,6 @@ class LiveShoppingScopeGuardrail:
         self,
         input_data: ShoppingScopeGuardrailInput,
     ) -> ShoppingGuardrailResult:
-        deterministic_result = evaluate_shopping_guardrail(
-            input_data.user_input,
-            prior_answers=input_data.prior_answers,
-        )
-        if deterministic_result.decision == ShoppingGuardrailDecision.BLOCKED:
-            self._set_activity(
-                "not_started_deterministic_block",
-                output=deterministic_result,
-            )
-            return deterministic_result
-
         configuration = build_openai_agent_run_configuration(
             self.settings,
             agent_name="ShoppingScopeGuardrail",
@@ -131,20 +117,22 @@ class LiveShoppingScopeGuardrail:
             result = _coerce_guardrail_result(
                 guardrail_result.output.output_info,
             )
-        except TimeoutError:
-            result = safe_guardrail_failure_result()
-            self._set_activity("timeout_blocked", output=result)
-            return result
-        except (ValidationError, ValueError, TypeError):
-            result = safe_guardrail_failure_result()
-            self._set_activity("schema_invalid_blocked", output=result)
-            return result
         except ContextBudgetExceeded:
             raise
-        except Exception:
-            result = safe_guardrail_failure_result()
-            self._set_activity("error_blocked", output=result)
-            return result
+        except (TimeoutError, ValidationError, ValueError, TypeError) as exc:
+            raise ApplicationError(
+                "shopping_guardrail_unavailable",
+                "The request check could not finish. Please try again.",
+                status_code=503,
+                details={"retryable": True},
+            ) from exc
+        except Exception as exc:
+            raise ApplicationError(
+                "shopping_guardrail_unavailable",
+                "The request check could not finish. Please try again.",
+                status_code=503,
+                details={"retryable": True},
+            ) from exc
 
         self._set_activity(
             "model_guardrail_completed",

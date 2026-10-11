@@ -27,10 +27,7 @@ _ANALYSIS = (
     RefinementArtifact.CATEGORY_ANALYSIS,
     RefinementArtifact.COMPARISON,
 )
-_DECISION = (
-    RefinementArtifact.RECOMMENDATION,
-    RefinementArtifact.VERIFICATION,
-)
+_DECISION = (RefinementArtifact.RECOMMENDATION,)
 
 
 def build_recompute_plan(
@@ -40,7 +37,7 @@ def build_recompute_plan(
     refinement: RefinementRequest,
     prior_result: SavedResultBundle,
     base_brief: ShoppingBrief,
-    has_candidate_evidence: bool,
+    has_saved_candidates: bool,
 ) -> RecomputePlan:
     target_brief = base_brief.model_copy(
         update={
@@ -104,7 +101,7 @@ def build_recompute_plan(
         or region_changed
         or currency_changed
         or preference_changed
-        or (budget_changed and not has_candidate_evidence)
+        or (budget_changed and not has_saved_candidates)
     ):
         stages = (
             RecomputeStage.SEARCH,
@@ -119,15 +116,17 @@ def build_recompute_plan(
         elif preference_changed:
             reason = "The new requirement may need facts missing from saved research."
         else:
-            reason = (
-                "Prior candidate evidence is missing or no longer valid for this brief."
-            )
+            reason = "Saved candidates are unavailable or belong to a different brief."
     elif budget_changed:
         stages = (RecomputeStage.ANALYSIS, RecomputeStage.RESULT_MODE)
-        reason = "The budget changes fit and ranking, while saved candidate evidence remains usable."
+        reason = (
+            "The budget changes fit and ranking, while saved candidates remain usable."
+        )
     else:
         stages = (RecomputeStage.RESULT_MODE,)
-        reason = "Only the requested result mode changes; saved comparison evidence remains usable."
+        reason = (
+            "Only the requested result mode changes; saved comparison remains usable."
+        )
 
     research_invalid = RecomputeStage.SEARCH in stages
     analysis_invalid = RecomputeStage.ANALYSIS in stages
@@ -156,7 +155,7 @@ def build_recompute_plan(
                 reason=(
                     reason
                     if research_invalid
-                    else "Prior run evidence may be reused after ID validation."
+                    else "Saved candidates and any available research may be reused."
                 ),
             )
             for artifact in _RESEARCH
@@ -181,7 +180,7 @@ def build_recompute_plan(
             ArtifactDecision(
                 artifact=artifact,
                 disposition=ArtifactDisposition.INVALIDATED,
-                reason="A new decision and independent verification are required for every refinement.",
+                reason="The recommendation reflects the updated shopper preferences.",
             )
             for artifact in _DECISION
         ),

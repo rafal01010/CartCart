@@ -253,7 +253,9 @@ async def test_live_technology_domain_sends_non_technology_to_generic_fallback()
 
     assert runner.calls == 0
     assert result.category == "office chair"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     assert agent.workbench_activity[0]["status"] == "generic_fallback_non_technology"
     assert agent.workbench_activity[0]["input"]["declared_route"]["agent_path"] == [
         "GenericProductAnalystAgent"
@@ -302,7 +304,9 @@ async def test_live_technology_domain_falls_back_on_timeout() -> None:
 
     assert runner.calls == 1
     assert result.category == "keyboard"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     assert agent.workbench_activity[0]["status"] == "timeout_generic_fallback"
 
 
@@ -315,7 +319,9 @@ async def test_live_technology_domain_falls_back_on_model_error() -> None:
 
     assert runner.calls == 1
     assert result.category == "keyboard"
-    assert result.weaknesses
+    assert result.strengths == ()
+    assert result.weaknesses == ()
+    assert result.confidence.rationale
     assert agent.workbench_activity[0]["status"] == "error_generic_fallback"
 
 

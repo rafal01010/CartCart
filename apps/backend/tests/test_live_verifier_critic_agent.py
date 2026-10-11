@@ -10,6 +10,7 @@ from app.agents import (
     VerificationAgentInput,
     VerificationReport,
 )
+from app.agents.context_management import ContextBudgetExceeded
 from app.core.settings import Settings
 from app.schemas.analysis import (
     CategoryAnalysis,
@@ -75,59 +76,6 @@ def _settings(**overrides: object) -> Settings:
         environment="test",
         **overrides,
     )
-
-
-@pytest.mark.asyncio
-async def test_live_verifier_approves_source_backed_regular_person_output() -> None:
-    input_data = _verification_input()
-    runner = RecordingVerifierRunner(
-        output=VerificationReport(
-            approved=True,
-            recommendation_bundle=input_data.recommendation_bundle,
-            notes=("Looks source-backed.",),
-        )
-    )
-    agent = LiveVerifierCriticAgent(settings=_settings(), model_runner=runner)
-
-    result = await agent.run(input_data)
-
-    assert runner.calls == 1
-    assert runner.observed_tool_count == 0
-    assert result.approved is True
-    assert result.blocking_issues == ()
-    assert agent.workbench_activity[0]["status"] == "model_verifier_critic_completed"
-
-
-@pytest.mark.asyncio
-async def test_live_verifier_mock_blocks_hard_budget_violation() -> None:
-    input_data = _verification_input(
-        budget_mode=BudgetMode.HARD_CAP,
-        budget_amount="100",
-        listing_price="249.99",
-    )
-    runner = MockVerifierCriticModelRunner()
-    agent = LiveVerifierCriticAgent(settings=_settings(), model_runner=runner)
-
-    result = await agent.run(input_data)
-
-    assert runner.calls == 1
-    assert result.approved is False
-    assert any("hard budget" in issue for issue in result.blocking_issues)
-    assert agent.workbench_activity[0]["status"] == "output_guardrail_blocked"
-
-
-@pytest.mark.asyncio
-async def test_live_verifier_blocks_internal_process_copy() -> None:
-    input_data = _verification_input(
-        final_rationale="The agent selected this using the provider trace."
-    )
-    runner = MockVerifierCriticModelRunner()
-    agent = LiveVerifierCriticAgent(settings=_settings(), model_runner=runner)
-
-    result = await agent.run(input_data)
-
-    assert result.approved is False
-    assert any("internal process" in issue for issue in result.blocking_issues)
 
 
 def _verification_input(
@@ -281,21 +229,62 @@ def _confidence() -> Confidence:
 
 
 @pytest.mark.asyncio
-async def test_derived_analysis_cannot_establish_an_absent_source_fact() -> None:
-    input_data = _verification_input(
-        final_rationale="Fixture monitor has a 5000mAh battery."
-    )
-    analysis = input_data.category_analyses[0].model_copy(
+async def test_optional_editorial_pass_preserves_uncited_budgeted_advice() -> None:
+    request = _verification_input(budget_mode=BudgetMode.HARD_CAP, budget_amount="100")
+    request = request.model_copy(
         update={
-            "strengths": ("Fixture monitor has a 5000mAh battery.",),
+            "recommendation_bundle": request.recommendation_bundle.model_copy(
+                update={
+                    "evidence_ids": (),
+                    "mode_results": (),
+                    "final_rationale": "Consider this model. Confirm warranty before buying.",
+                }
+            )
         }
     )
-    input_data = input_data.model_copy(update={"category_analyses": (analysis,)})
-    result = await LiveVerifierCriticAgent(
-        settings=_settings(), model_runner=MockVerifierCriticModelRunner()
-    ).run(input_data)
-    assert result.approved is False
-    assert (
-        "final rationale includes a factual claim not backed by its evidence."
-        in result.blocking_issues
+    runner = RecordingVerifierRunner(
+        output={
+            "approved": False,
+            "blocking_issues": ["Optional editorial suggestion."],
+        }
     )
+    agent = LiveVerifierCriticAgent(settings=_settings(), model_runner=runner)
+    result = await agent.run(request)
+    assert result.approved is True
+    assert result.recommendation_bundle == request.recommendation_bundle
+    assert result.blocking_issues == ()
+    assert result.notes == ("Optional editorial suggestion.",)
+    assert runner.observed_tool_count == 0
+
+
+@pytest.mark.asyncio
+async def test_optional_editorial_failure_preserves_original_advice() -> None:
+    request = _verification_input()
+    agent = LiveVerifierCriticAgent(
+        settings=_settings(),
+        model_runner=MockVerifierCriticModelRunner(error=RuntimeError("unavailable")),
+    )
+    result = await agent.run(request)
+    assert result.approved is True
+    assert result.recommendation_bundle == request.recommendation_bundle
+    assert agent.workbench_activity[0]["status"] == "optional_editorial_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_optional_editorial_context_limit_preserves_advice_without_another_call() -> (
+    None
+):
+    request = _verification_input()
+    runner = MockVerifierCriticModelRunner(
+        error=ContextBudgetExceeded("configured limit")
+    )
+    agent = LiveVerifierCriticAgent(settings=_settings(), model_runner=runner)
+    result = await agent.run(request)
+    assert runner.calls == 1
+    assert result.approved is True
+    assert result.recommendation_bundle == request.recommendation_bundle
+    assert result.blocking_issues == ()
+    assert result.notes == (
+        "Optional wording review stopped at the configured context limit. The original advice is preserved.",
+    )
+    assert agent.workbench_activity[0]["status"] == "optional_editorial_budget_limited"

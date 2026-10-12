@@ -1,5 +1,13 @@
 # CartCart Evaluation
 
+## Task 220 offline page and prerequisite acceptance
+
+Task 220 uses saved phone, chair and budget results plus explicitly local response controls. Desktop/mobile checks cover one answer, retained primary/runner groups and source links, absent duplicate/history/refinement/listing-add/empty panels, and a visible keyboard-operable top restart. Local request observation covers read-only reload and restart without initiating live work.
+
+Task 163 controls hold creation, final-answer, region, skip and reanswer successes/errors across Home. They preserve fresh prompts and newer pending requests, prevent sessionless processing, and retain ordinary intake and automatic analysis behavior using intercepted responses. Task 203 uses the real guided API with temporary SQLite to inspect exact first-question model hints, unchanged query, provenance, existing research inputs, comparison/standalone names, generic/budget/preference negatives, links and reanswer cleanup.
+
+Only cheap focused controls and scoped launch/syntax/frontend checks are used. New model quality, real provider calls, fresh saved journeys and real reload/run-count acceptance remain unmeasured. Live validation deferred to Task 221. See [the implementation handoff](TASK_220_IMPLEMENTATION_HANDOFF.md) for actual commands, outcomes and limitations.
+
 ## Task 219 offline copy acceptance
 
 Task 219 uses local prompt/constructor inspection, narrow launch lint and syntax checks, scoped frontend checks and Task 157 literal-text projection/component controls. Existing saved phone, chair and budget passages establish the before state. Intercepted browser data verifies removal of generated confidence, process and buying-check copy while preserving useful authored tradeoffs and source links. No broad synthetic suite, eval, build or model/provider call is authorized.

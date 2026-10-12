@@ -459,6 +459,7 @@ class GuidedIntakeService:
             for name in volunteered_names(
                 text,
                 considered_answer=question_id == CONSIDERED_PRODUCTS_QUESTION_ID,
+                initial_question=question_id == FIRST_QUESTION_ID,
             ):
                 key = ("name", name.casefold())
                 desired.setdefault(key, set()).add(question_id)

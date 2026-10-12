@@ -1272,8 +1272,7 @@ describe('result view helpers', () => {
 		result.source_evidence[0].claim = 'Conflicting published measurements remain in the source record.';
 		const view = buildResultView(result);
 		const output = render(RecommendationResult, { props: {
-			result: view, selectedMode: view.finalMode, question: 'Which monitor?',
-			onSelectMode: () => {}, onStartOver: () => {}, onCheckListing: () => {}, onSaveManual: () => {}, allowCorrections: false,
+			result: view, onStartOver: () => {},
 		} }).body;
 		expect(output).toContain('Dell UltraSharp U2724DE');
 		expect(output).toContain('Best blend of features and seller safety.');
@@ -1292,6 +1291,88 @@ describe('result view helpers', () => {
 		expect(view.hasWeakEvidence).toBe(true);
 		expect(view.hasConflictingEvidence).toBe(true);
 		expect(view.hasPartialSources).toBe(true);
+	});
+
+	it('renders one result with a top restart and no legacy shopper panels', () => {
+		const view = buildResultView(baseResult);
+		const output = render(RecommendationResult, { props: { result: view, onStartOver: () => {} } }).body;
+		expect(output).toContain('Ask another question');
+		expect(output.indexOf('Ask another question')).toBeLessThan(output.indexOf('<h1'));
+		expect(output.match(/Ask another question/g)).toHaveLength(1);
+		expect(output).toContain('Dell UltraSharp U2724DE');
+		expect(output).toContain('ASUS ProArt PA278CV');
+		expect(output).toContain('Runners-up');
+		expect(output).toContain('Available sources');
+		for (const text of ['Decision history', 'Products considered', 'Saved comparison', 'Supporting details', 'Seller unknown', 'Price unknown', 'Price unavailable', 'No comparison criteria were saved', 'Refine this decision', 'Have a listing you want checked?', 'Add or correct product details', 'Advice for', 'Prices and availability can change', 'Seller and listing checks']) {
+			expect(output).not.toContain(text);
+		}
+	});
+
+	it('renders an identical single-choice reason once and preserves distinct and multi-choice reasons', () => {
+		const result = structuredClone(baseResult);
+		const reason = 'Choose the adjustable stand for a changing workstation.';
+		result.recommendation_bundle.primary_product_ids = ['product-dell'];
+		result.recommendation_bundle.runner_up_product_ids = [];
+		result.recommendation_bundle.final_rationale = reason;
+		result.recommendation_bundle.mode_results[0].rationale = reason;
+		result.recommendation_bundle.mode_results[0].tradeoffs = ['The larger stand uses more desk space.'];
+		const before = JSON.stringify(result);
+		const identical = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		expect(identical.split(reason)).toHaveLength(2);
+		expect(identical).toContain('The larger stand uses more desk space.');
+		expect(JSON.stringify(result)).toBe(before);
+
+		result.recommendation_bundle.final_rationale = 'This monitor balances the desk setup and picture quality.';
+		const distinct = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		expect(distinct).toContain('This monitor balances the desk setup and picture quality.');
+		expect(distinct).toContain(reason);
+
+		result.recommendation_bundle.final_rationale = reason;
+		result.recommendation_bundle.primary_product_ids = ['product-dell', 'product-lg'];
+		const multiple = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		expect(multiple.split(reason)).toHaveLength(3);
+	});
+
+	it('renders actual offer values and omits absent offer boilerplate', () => {
+		const result = structuredClone(baseResult);
+		result.listings = result.listings.map((listing) => ({ ...listing, price: null, seller: { ...listing.seller, seller_name: '' } }));
+		const output = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		for (const text of ['Price unavailable', 'Price unknown', 'Seller unknown']) expect(output).not.toContain(text);
+		const withOffer = render(RecommendationResult, { props: { result: buildResultView(baseResult), onStartOver: () => {} } }).body;
+		expect(withOffer).toContain('Dell Official');
+		expect(withOffer).toContain('$499 · Dell Official');
+		expect(withOffer).toContain('https://example.test/listing-dell');
+	});
+
+	it('renders source-free advice without empty details shells', () => {
+		const result = structuredClone(baseResult);
+		result.source_snapshots = [];
+		result.source_evidence = [];
+		result.source_results = [];
+		result.trust_assessments = [];
+		result.recommendation_bundle.rejected_items = [];
+		const output = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		expect(output).toContain('Best blend of features and seller safety.');
+		for (const text of ['Available sources', 'Supporting details', 'Listing concerns', 'No sources were preserved', 'No additional listing checks']) expect(output).not.toContain(text);
+	});
+
+	it('renders meaningful adverse listing advice and rejection reasons without a diagnostic shell', () => {
+		const result = structuredClone(baseResult);
+		result.trust_assessments[0].level = 'suspicious';
+		result.trust_assessments[0].summary = 'Avoid this listing because its seller identity was copied.';
+		result.trust_assessments[0].red_flags = ['The payment instructions name a different company.'];
+		result.recommendation_bundle.rejected_items = [{
+			product_id: 'product-asus', listing_id: 'listing-asus', reason_code: 'suspicious_listing',
+			reason: 'A counterfeit power adapter makes this offer unsuitable.', severity: 'blocking',
+			evidence_ids: ['evidence-asus'], source_ids: ['source-asus'],
+		}];
+		const output = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		expect(output).toContain('Avoid this listing because its seller identity was copied.');
+		expect(output).toContain('The payment instructions name a different company.');
+		expect(output).toContain('A counterfeit power adapter makes this offer unsuitable.');
+		expect(output).toContain('https://example.test/asus');
+		expect(output).not.toContain('Supporting details');
+		expect(output).not.toContain('high 82%');
 	});
 
 	it('renders source facts and video disclosures without diagnostic confidence and process metrics', () => {

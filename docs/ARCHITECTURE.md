@@ -1,10 +1,18 @@
 # CartCart Architecture
 
+## Final page and abandoned intake ownership, Task 220
+
+`+page.svelte` retains ownership of intake, session identity, analysis and saved-link recovery. Guided requests use a local discriminated creating/session owner with generation and committed session identity. Response, error and pending cleanup share the freshness rule. Reset invalidates request ownership, clears pending and removes saved URL parameters. Queued automatic analysis checks its captured committed session and generation before scheduling work.
+
+`RecommendationResult.svelte` renders one authoritative answer with distinct primary and optional runner groups. Restart appears before the long advice. Available sources follow the advice. The page removes history/refinement/product-add controls, duplicate comparison and empty diagnostic panels. Real known offer data and useful adverse advice remain. Saved text and neutral links are preserved.
+
+`volunteered_products.py` restricts new suitability-question extraction to the first question. `GuidedIntakeService` synchronizes unverified hints through existing session-local persistence and question provenance. Existing owner/name research receives those candidates. No API/schema/database migration, agent/catalog/provider change or new model stage is needed. Internal immutable versions, diagnostics, research reuse and technical retry remain. Live validation deferred to Task 221.
+
 ## Advice ownership, Task 219
 
 Shared shopper guidance defines direct what-to-buy prose in the owner, Technology/specialist handoffs, saved-research resume, forced completion, retained comparison/category analyzers and optional editorial verifier. It removes intake echoes, confidence narration, missing-source or missing-stock passages and where/how-to-buy rituals. Research targets suitability and meaningful relative differences. Known product age, support, compatibility and launch differences can matter; absent information does not require a warning or a mandatory search.
 
-Existing rationale and tradeoff fields carry shopper advice. Diagnostic fields and factual source records retain their schemas and storage. The result component removes generated confidence, generic warning, unknowns and seller-check copy while preserving authored reasons, tradeoffs, supported budget notes and neutral links. Controlled fixture writers own developer labels; literal shopping and evidence text is never filtered by the word fixture. Task 220 retains ownership of history, duplicate comparison, refinement and restart layout work. Live validation deferred to Task 221.
+Existing rationale and tradeoff fields carry shopper advice. Diagnostic fields and factual source records retain their schemas and storage. The result component removes generated confidence, generic warning, unknowns and seller-check copy while preserving authored reasons, tradeoffs, supported budget notes and neutral links. Controlled fixture writers own developer labels; literal shopping and evidence text is never filtered by the word fixture. Task 220 removes the normal-page history, duplicate comparison and refinement controls and places restart near the top. Live validation deferred to Task 221.
 
 ## Authored choice groups, Task 218
 
@@ -12,7 +20,7 @@ The shopping owner assigns candidate `choice_group` before retaining its decisio
 
 Model and schema boundaries validate counts, unique membership and final-pick consistency. They do not choose brands or impose a budget veto. The owner weighs suitability, adverse information, preferences and explained modest budget stretches; useful company/provider diversity is a preference, with explicit exclusive requests respected. One or two primary choices and zero runners are valid.
 
-Null or absent primary IDs retain historical bundle compatibility. Old checkpoint candidates may omit their group. No new table, saved-record rewrite, agent, route, provider or model stage is added. Task 216 recommendation-by-default and Task 217 source projection remain. Task 219 owns concise advice; Task 220 page simplification remains a separate implementation unit. Live validation is deferred to Task 221.
+Null or absent primary IDs retain historical bundle compatibility. Old checkpoint candidates may omit their group. No new table, saved-record rewrite, agent, route, provider or model stage is added. Task 216 recommendation-by-default and Task 217 source projection remain. Task 219 owns concise advice; Task 220 implements the simplified final page. Live validation is deferred to Task 221.
 
 ## Offline shopper-feedback implementation, Task 217
 
@@ -60,9 +68,9 @@ The normal UI should support:
 - `Skip question` for skippable optional questions.
 - `Skip all and start analysis` once enough information exists.
 - User-safe processing messages.
-- Staged results with a final recommendation, runner-ups, alternate
-  recommendation modes, comparison details, trust notes, warnings, rejected items
-  when meaningful, and inspectable source evidence only when useful.
+- One authoritative final answer with primary choices, optional runners-up,
+  concise meaningful tradeoffs and available sources below the advice.
+- A visible top Ask another question action and explicit technical-failure retry.
 
 MVP is local/no-auth, English-only, desktop-first, and single-user. Mobile should remain usable, but dense desktop workflows take priority.
 

@@ -1,13 +1,10 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
 	import { userFacingErrorMessage } from '$lib/api/user-facing-error.js';
-	import type { CreateUserAddedProductRequest, DecisionHistoryResponse, GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionResultsResponse, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
+	import type { GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionResultsResponse, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import RefinementPrompt from '$lib/refinements/RefinementPrompt.svelte';
-	import DecisionHistory from '$lib/refinements/DecisionHistory.svelte';
-	import { buildRefinementRequestFromPrompt, refinementDraftFromSession, type RefinementPromptDraft, type RefinementPromptKind } from '$lib/refinements/contextual-refinement-prompt.js';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import GuidedQuestion from '$lib/guided/GuidedQuestion.svelte';
 	import PromptSurface from '$lib/guided/PromptSurface.svelte';
@@ -39,18 +36,19 @@
 		type ShopperProgressItem,
 	} from '$lib/run-progress/run-progress.js';
 	import RecommendationResult from '$lib/results/RecommendationResult.svelte';
-	import { buildResultView, selectModeView, type ResultView } from '$lib/results/result-view.js';
+	import { buildResultView, type ResultView } from '$lib/results/result-view.js';
 	import { REGION_OPTIONS, regionByCode } from '$lib/session/session-form.js';
-	import { listingCheckOutcome as resolveListingCheckOutcome, normalizeListingLink, type ListingCheckOutcome } from '$lib/user-products/listing-check.js';
-	import { manualCandidateViews, type ManualCandidateView } from '$lib/user-products/manual-fallback.js';
 
-	type HomeState = 'question' | 'region_setup' | 'guiding' | 'blocked' | 'processing' | 'result' | 'refining';
+	type HomeState = 'question' | 'region_setup' | 'guiding' | 'blocked' | 'processing' | 'result';
 	type RequestedRun = Readonly<{
-		kind: 'analysis' | 'refinement';
 		sessionId: SessionId;
 		runId: RunId;
 		generation: number;
 	}>;
+
+	type GuidedRequestOwner =
+		| Readonly<{ kind: 'creating'; generation: number }>
+		| Readonly<{ kind: 'session'; generation: number; sessionId: SessionId }>;
 
 	const api = createApiClient();
 
@@ -69,26 +67,11 @@
 	let shopperProgress = $state<ShopperProgressItem[]>(createInitialShopperProgress());
 	let resultView = $state<ResultView | null>(null);
 	let currentSession = $state<SessionStateResponse | null>(null);
-	let decisionHistory = $state<DecisionHistoryResponse | null>(null);
 	let displayedVersionId = $state<string | null>(null);
-	let latestVersionId = $state<string | null>(null);
-	let refinementDraft = $state<RefinementPromptDraft | null>(null);
-	let refinementError = $state<string | null>(null);
-	let refinementPending = $state(false);
-	let historyPending = $state(false);
-	let historyError = $state<string | null>(null);
 	let flowGeneration = 0;
 	let activeAnalysisRun: RequestedRun | null = null;
 	let retryableAnalysisRun = $state<RequestedRun | null>(null);
 	let recommendationRetryRunId = $state<RunId | null>(null);
-	let historyLoadSequence = 0;
-	let selectedModeKey = $state<string | null>(null);
-	let activeListingCandidateId = $state<string | null>(null);
-	let listingCheckOutcome = $state<ListingCheckOutcome | null>(null);
-	let listingCheckError = $state<string | null>(null);
-	let manualCandidates = $state<ManualCandidateView[]>([]);
-	let manualError = $state<string | null>(null);
-	let activeManualCandidateId = $state<string | null>(null);
 	let starterIndex = $state(0);
 	let clientReady = $state(false);
 	let starterTimer: ReturnType<typeof setInterval> | null = null;
@@ -105,9 +88,6 @@
 	);
 	const isAtFirstGuidedQuestion = $derived(!guidedState?.navigation.can_go_back);
 	const progressHeadline = $derived(shopperProgressHeadline(shopperProgress));
-	const selectedModeView = $derived(
-		resultView ? selectModeView(resultView, selectedModeKey) : null,
-	);
 	const regionLabel = $derived(
 		currentSession?.current_brief.region
 			? regionByCode(currentSession.current_brief.region.region.country_code).label
@@ -117,8 +97,6 @@
 				? 'Region not set'
 				: 'Set buying region',
 	);
-	const viewingPrevious = $derived(Boolean(displayedVersionId && latestVersionId !== displayedVersionId));
-	const decisionBusy = $derived(isGuidedRequestPending || refinementPending || historyPending);
 
 	onMount(() => {
 		clientReady = true;
@@ -161,7 +139,7 @@
 			return;
 		}
 		const request: RequestedRun = {
-			kind: 'analysis', sessionId: savedSessionId, runId: savedRunId, generation: flowGeneration,
+			sessionId: savedSessionId, runId: savedRunId, generation: flowGeneration,
 		};
 		sessionId = savedSessionId;
 		activeAnalysisRun = request;
@@ -180,7 +158,7 @@
 			pendingQuestion = question;
 			subscribeToAnalysisProgress(request, run);
 		} catch (error) {
-			if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+			if (isCurrentRun(request)) showAnalysisFailure(userFacingErrorMessage(error));
 		} finally {
 			if (request.generation === flowGeneration && request.sessionId === sessionId) isGuidedRequestPending = false;
 		}
@@ -241,36 +219,49 @@
 		homeState = regionReturnState;
 	}
 
-	async function submitRegionPreference(
-		regionSetup: ReturnType<typeof regionSetupSubmissionFromPreference>,
-	) {
-		if (!sessionId || !regionSetup) return;
+	function isCurrentGuidedRequest(owner: GuidedRequestOwner): boolean {
+		return owner.generation === flowGeneration
+			&& (owner.kind === 'creating' || owner.sessionId === sessionId);
+	}
+
+	async function runGuidedRequest<T>({ owner, send, accept }: {
+		owner: GuidedRequestOwner;
+		send: () => Promise<T>;
+		accept: (response: T) => void;
+	}) {
 		isGuidedRequestPending = true;
 		guideError = null;
 		try {
-			applyGuideState(await api.submitGuidedRegionSetup(sessionId, regionSetup));
+			const response = await send();
+			if (isCurrentGuidedRequest(owner)) accept(response);
 		} catch (error) {
-			guideError = userFacingErrorMessage(error);
+			if (isCurrentGuidedRequest(owner)) guideError = userFacingErrorMessage(error);
 		} finally {
-			isGuidedRequestPending = false;
+			if (isCurrentGuidedRequest(owner)) isGuidedRequestPending = false;
 		}
+	}
+
+	async function submitRegionPreference(
+		regionSetup: ReturnType<typeof regionSetupSubmissionFromPreference>,
+	) {
+		if (!sessionId || !regionSetup || isGuidedRequestPending) return;
+		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
+		await runGuidedRequest({
+			owner,
+			send: () => api.submitGuidedRegionSetup(owner.sessionId, regionSetup),
+			accept: (guide) => applyGuideState(guide, owner),
+		});
 	}
 
 	function resetFlow({ preserveQuestion = false }: { preserveQuestion?: boolean } = {}) {
 		flowGeneration += 1;
+		isGuidedRequestPending = false;
 		updateSavedDecisionLocation(null);
 		activeAnalysisRun = null;
 		retryableAnalysisRun = null;
 		recommendationRetryRunId = null;
 		currentSession = null;
-		decisionHistory = null;
 		displayedVersionId = null;
-		latestVersionId = null;
-		refinementDraft = null;
-		refinementError = null;
-		refinementPending = false;
-		historyPending = false;
-		historyError = null;
 		question = preserveQuestion ? submittedQuestion : '';
 		pendingQuestion = preserveQuestion ? submittedQuestion : '';
 		guidedState = null;
@@ -279,13 +270,6 @@
 		answerDraft = { ...EMPTY_GUIDED_DRAFT };
 		guideError = null;
 		resultView = null;
-		selectedModeKey = null;
-		activeListingCandidateId = null;
-		listingCheckOutcome = null;
-		listingCheckError = null;
-		manualCandidates = [];
-		manualError = null;
-		activeManualCandidateId = null;
 		shopperProgress = createInitialShopperProgress();
 		closeRunEventSubscription();
 		homeState = 'question';
@@ -293,24 +277,23 @@
 
 	async function startGuidedFlow(preference: LocalRegionPreference | null = regionPreference) {
 		if (!pendingQuestion || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			const response = await api.createGuidedSession({
-				query: pendingQuestion,
-				region_setup: regionSetupSubmissionFromPreference(preference),
-			});
-			sessionId = response.session_id;
-			answerCache = {};
-			applyGuideState(response.guide);
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
+		const owner = { kind: 'creating', generation: flowGeneration } satisfies GuidedRequestOwner;
+		const request = { query: pendingQuestion, region_setup: regionSetupSubmissionFromPreference(preference) };
+		await runGuidedRequest({
+			owner,
+			send: () => api.createGuidedSession(request),
+			accept: (response) => {
+				sessionId = response.session_id;
+				answerCache = {};
+				applyGuideState(response.guide, {
+					kind: 'session', generation: owner.generation, sessionId: response.session_id,
+				});
+			},
+		});
 	}
 
-	function applyGuideState(nextGuide: GuidedIntakeState) {
+	function applyGuideState(nextGuide: GuidedIntakeState, owner: Extract<GuidedRequestOwner, { kind: 'session' }>) {
+		if (!isCurrentGuidedRequest(owner)) return;
 		guidedState = nextGuide;
 		if (nextGuide.status === 'blocked') {
 			answerDraft = { ...EMPTY_GUIDED_DRAFT };
@@ -326,7 +309,9 @@
 		if (nextGuide.status === 'ready_for_analysis' || nextGuide.status === 'analysis_started') {
 			answerDraft = { ...EMPTY_GUIDED_DRAFT };
 			homeState = 'processing';
-			queueMicrotask(() => void startAnalysis());
+			queueMicrotask(() => {
+				if (isCurrentGuidedRequest(owner)) void startAnalysis();
+			});
 			return;
 		}
 		homeState = 'guiding';
@@ -337,41 +322,32 @@
 		if (!sessionId || !currentGuidedQuestion || !canContinueGuide || isGuidedRequestPending) return;
 		const submission = buildGuidedAnswerSubmission(currentGuidedQuestion, answerDraft);
 		answerCache = { ...answerCache, [currentGuidedQuestion.question_id]: submission.answer };
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			applyGuideState(await api.submitGuidedAnswer(sessionId, submission));
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
+		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
+		await runGuidedRequest({
+			owner,
+			send: () => api.submitGuidedAnswer(owner.sessionId, submission),
+			accept: (guide) => applyGuideState(guide, owner),
+		});
 	}
 
 	async function skipQuestion() {
 		if (!sessionId || !currentGuidedQuestion || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			applyGuideState(await api.skipGuidedQuestion(sessionId));
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
+		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
+		await runGuidedRequest({
+			owner,
+			send: () => api.skipGuidedQuestion(owner.sessionId),
+			accept: (guide) => applyGuideState(guide, owner),
+		});
 	}
 
 	async function skipAll() {
 		if (!sessionId || !guidedState || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			applyGuideState(await api.skipAllGuidedQuestions(sessionId));
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
+		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
+		await runGuidedRequest({
+			owner,
+			send: () => api.skipAllGuidedQuestions(owner.sessionId),
+			accept: (guide) => applyGuideState(guide, owner),
+		});
 	}
 
 	async function goBack() {
@@ -381,17 +357,12 @@
 		}
 		const priorQuestion = guidedState.navigation.reanswerable_questions.at(-1);
 		if (!sessionId || !priorQuestion || isGuidedRequestPending) return;
-		isGuidedRequestPending = true;
-		guideError = null;
-		try {
-			applyGuideState(
-				await api.reanswerGuidedQuestion(sessionId, { question_id: priorQuestion.question_id }),
-			);
-		} catch (error) {
-			guideError = userFacingErrorMessage(error);
-		} finally {
-			isGuidedRequestPending = false;
-		}
+		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
+		await runGuidedRequest({
+			owner,
+			send: () => api.reanswerGuidedQuestion(owner.sessionId, { question_id: priorQuestion.question_id }),
+			accept: (guide) => applyGuideState(guide, owner),
+		});
 	}
 
 	function loadDraftForCurrentQuestion(nextGuide: GuidedIntakeState | null = guidedState) {
@@ -409,9 +380,6 @@
 		isGuidedRequestPending = true;
 		guideError = null;
 		resultView = null;
-		selectedModeKey = null;
-		activeListingCandidateId = null;
-		activeManualCandidateId = null;
 		activeAnalysisRun = null;
 		shopperProgress = createInitialShopperProgress();
 		closeRunEventSubscription();
@@ -419,18 +387,18 @@
 			homeState = 'processing';
 			const run = await api.createRun(activeSessionId);
 			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
+			subscribeToAnalysisProgress({ sessionId: activeSessionId, runId: run.run_id, generation }, run);
 		} catch (error) {
-			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('initial', userFacingErrorMessage(error));
+			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure(userFacingErrorMessage(error));
 		} finally {
 			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
 		}
 	}
 
 	async function retryAnalysis() {
-		if (!sessionId || decisionBusy || viewingPrevious) return;
+		if (!sessionId || isGuidedRequestPending) return;
 		const request = retryableAnalysisRun ?? (recommendationRetryRunId ? {
-			kind: 'analysis', sessionId, runId: recommendationRetryRunId, generation: flowGeneration,
+			sessionId, runId: recommendationRetryRunId, generation: flowGeneration,
 		} satisfies RequestedRun : null);
 		if (!request) {
 			await startAnalysis();
@@ -451,7 +419,7 @@
 			}
 			subscribeToAnalysisProgress(request, run);
 		} catch (error) {
-			if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+			if (isCurrentRun(request)) showAnalysisFailure(userFacingErrorMessage(error));
 		} finally {
 			if (request.generation === flowGeneration && request.sessionId === sessionId) isGuidedRequestPending = false;
 		}
@@ -461,66 +429,6 @@
 		const bundle = results.recommendation_bundle;
 		return bundle.verification_action === 'blocked'
 			? results.result_version.run_id : null;
-	}
-
-	async function checkListing(url: string) {
-		if (!sessionId || decisionBusy || viewingPrevious) return;
-		const activeSessionId = sessionId;
-		const generation = flowGeneration;
-		isGuidedRequestPending = true;
-		listingCheckError = null;
-		activeListingCandidateId = null;
-		activeManualCandidateId = null;
-		activeAnalysisRun = null;
-		manualError = null;
-		closeRunEventSubscription();
-		try {
-			const updated = await api.addUserProduct(activeSessionId, { url });
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			const candidate = updated.user_added_products.find(
-				(item) => normalizeListingLink(item.url ?? '') === url,
-			);
-			if (!candidate) throw new Error('The listing was not saved.');
-			activeListingCandidateId = candidate.candidate_id;
-			listingCheckOutcome = null;
-			shopperProgress = createInitialShopperProgress();
-			homeState = 'processing';
-			const run = await api.createRun(activeSessionId);
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
-		} catch (error) {
-			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('listing', userFacingErrorMessage(error));
-		} finally {
-			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
-		}
-	}
-
-	async function saveManualProduct(request: CreateUserAddedProductRequest) {
-		if (!sessionId || !request.fallback_candidate_id || decisionBusy || viewingPrevious) return;
-		const activeSessionId = sessionId;
-		const generation = flowGeneration;
-		isGuidedRequestPending = true;
-		manualError = null;
-		activeManualCandidateId = null;
-		activeAnalysisRun = null;
-		closeRunEventSubscription();
-		try {
-			await api.addUserProduct(activeSessionId, request);
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			activeManualCandidateId = request.fallback_candidate_id;
-			activeListingCandidateId = null;
-			listingCheckOutcome = null;
-			listingCheckError = null;
-			shopperProgress = createInitialShopperProgress();
-			homeState = 'processing';
-			const run = await api.createRun(activeSessionId);
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			subscribeToAnalysisProgress({ kind: 'analysis', sessionId: activeSessionId, runId: run.run_id, generation }, run);
-		} catch (error) {
-			if (generation === flowGeneration && sessionId === activeSessionId) showAnalysisFailure('manual', userFacingErrorMessage(error));
-		} finally {
-			if (generation === flowGeneration && sessionId === activeSessionId) isGuidedRequestPending = false;
-		}
 	}
 
 	function selectChoice(choiceId: string) {
@@ -533,30 +441,13 @@
 
 	function isCurrentRun(request: RequestedRun): boolean {
 		return request.generation === flowGeneration && request.sessionId === sessionId
-			&& (request.kind === 'refinement' || request === activeAnalysisRun);
+			&& request === activeAnalysisRun;
 	}
 
-	function showAnalysisFailure(
-		kind: 'initial' | 'listing' | 'manual' = activeListingCandidateId ? 'listing' : activeManualCandidateId ? 'manual' : 'initial',
-		safeMessage?: string,
-	) {
+	function showAnalysisFailure(safeMessage?: string) {
 		if (activeAnalysisRun) retryableAnalysisRun = activeAnalysisRun;
-		if (kind === 'listing' && resultView) {
-			homeState = 'result';
-			listingCheckError = safeMessage
-				? `Your previous decision is still shown. ${safeMessage}`
-				: 'CartCart could not check that listing. Your previous decision is still shown. Try another link.';
-		} else if (kind === 'manual' && resultView) {
-			homeState = 'result';
-			manualError = safeMessage
-				? `Your previous decision is still shown. ${safeMessage}`
-				: 'CartCart could not finish checking your details. Your previous decision is still shown. Try again.';
-		} else {
-			homeState = 'processing';
-			guideError = safeMessage ?? 'CartCart could not finish checking options. Try again.';
-		}
-		activeListingCandidateId = null;
-		activeManualCandidateId = null;
+		homeState = 'processing';
+		guideError = safeMessage ?? 'CartCart could not finish checking options. Try again.';
 		activeAnalysisRun = null;
 	}
 
@@ -587,7 +478,7 @@
 				}
 				await revealResults(request);
 			} catch (error) {
-				if (isCurrentRun(request)) showAnalysisFailure(undefined, userFacingErrorMessage(error));
+				if (isCurrentRun(request)) showAnalysisFailure(userFacingErrorMessage(error));
 			}
 		};
 		try {
@@ -626,132 +517,18 @@
 			const nextResultView = buildResultView(results);
 			currentSession = loadedSession;
 			displayedVersionId = results.result_version.result_version_id;
-			latestVersionId = displayedVersionId;
-			manualCandidates = manualCandidateViews(loadedSession.user_added_products, results);
-			const listingCandidateId = activeListingCandidateId;
-			const manualCandidateId = activeManualCandidateId;
-			listingCheckError = null;
-			manualError = null;
-			if (listingCandidateId) {
-				const candidate = loadedSession.user_added_products.find(
-					(item) => item.candidate_id === listingCandidateId,
-				);
-				listingCheckOutcome = candidate ? resolveListingCheckOutcome(candidate, results) : null;
-				listingCheckError = listingCheckOutcome ? null : 'CartCart could not confirm that listing. Try another link.';
-			}
 			resultView = nextResultView;
 			recommendationRetryRunId = recommendationRetryId(results);
 			retryableAnalysisRun = null;
-			selectedModeKey = nextResultView.finalMode?.key ?? nextResultView.decisionModes[0]?.key ?? null;
 			guideError = null;
 			homeState = 'result';
 			updateSavedDecisionLocation(request);
-			void loadDecisionHistory();
-			if (listingCandidateId || manualCandidateId) {
-				await tick();
-				if (!isCurrentRun(request)) return false;
-				document.getElementById(listingCandidateId ? 'listing-correction' : 'manual-product-fallback')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			}
-			activeListingCandidateId = null;
-			activeManualCandidateId = null;
-			if (request.kind === 'analysis') activeAnalysisRun = null;
+			activeAnalysisRun = null;
 			return true;
 		} catch (error) {
 			if (!isCurrentRun(request)) return false;
-			if (request.kind === 'analysis') showAnalysisFailure(undefined, userFacingErrorMessage(error));
+			showAnalysisFailure(userFacingErrorMessage(error));
 			return false;
-		}
-	}
-
-	async function loadDecisionHistory() {
-		if (!sessionId) return;
-		const generation = flowGeneration;
-		const sequence = ++historyLoadSequence;
-		try {
-			const history = await api.getDecisionHistory(sessionId);
-			if (generation === flowGeneration && sequence === historyLoadSequence) { decisionHistory = history; historyError = null; }
-		} catch {
-			if (generation === flowGeneration && sequence === historyLoadSequence) historyError = 'CartCart could not load earlier decisions. Try again.';
-		}
-	}
-
-	function openRefinement() {
-		if (decisionBusy || viewingPrevious) return;
-		refinementDraft = null;
-		refinementError = null;
-		homeState = 'refining';
-	}
-
-	async function submitRefinement() {
-		if (!sessionId || !refinementDraft || decisionBusy) return;
-		let request;
-		try { request = buildRefinementRequestFromPrompt(refinementDraft); }
-		catch (error) { refinementError = error instanceof Error ? error.message : 'Check your answer.'; return; }
-		const generation = flowGeneration;
-		const activeSessionId = sessionId;
-		refinementPending = true;
-		refinementError = null;
-		homeState = 'result';
-		let requestedRun: RequestedRun | null = null;
-		let executedRun: ShoppingRunRecord | null = null;
-		try {
-			const planned = await api.createRefinement(activeSessionId, request);
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			if (planned.run.session_id !== activeSessionId) throw new Error('The update belongs to another search.');
-			if (planned.run.status === 'failed' || planned.run.status === 'cancelled') throw new Error('The update did not finish.');
-			requestedRun = { kind: 'refinement', sessionId: activeSessionId, runId: planned.run.run_id, generation };
-			executedRun = await api.executeRefinement(activeSessionId, planned.refinement.refinement_id);
-			if (!isCurrentRun(requestedRun)) return;
-			if (executedRun.session_id !== activeSessionId || executedRun.run_id !== requestedRun.runId || executedRun.status !== 'succeeded') throw new Error('The update did not finish.');
-			if (!await revealResults(requestedRun)) throw new Error('The saved update could not be opened.');
-			await loadDecisionHistory();
-		} catch {
-			if (generation !== flowGeneration || sessionId !== activeSessionId) return;
-			let recovered = false;
-			if (requestedRun && (!executedRun || (executedRun.status === 'succeeded' && executedRun.session_id === requestedRun.sessionId && executedRun.run_id === requestedRun.runId))) {
-				try {
-					const run = await api.getRun(requestedRun.sessionId, requestedRun.runId);
-					if (isCurrentRun(requestedRun) && run.session_id === requestedRun.sessionId && run.run_id === requestedRun.runId && run.status === 'succeeded') {
-						recovered = await revealResults(requestedRun);
-					}
-				} catch { /* Keep the displayed saved decision available. */ }
-			}
-			if (!recovered && generation === flowGeneration && sessionId === activeSessionId) {
-				retryableAnalysisRun = requestedRun;
-				refinementError = 'CartCart could not finish the update. Your previous decision is still available.';
-			}
-		} finally {
-			if (generation === flowGeneration && sessionId === activeSessionId) {
-				if (!refinementError && request.region) {
-					selectedRegionCode = request.region.region.country_code;
-					regionPreference = writeProvidedRegionPreference(window.localStorage, selectedRegionCode);
-				}
-				refinementPending = false;
-			}
-		}
-	}
-
-	async function showDecisionVersion(id: string) {
-		if (!sessionId || decisionBusy) return;
-		const generation = flowGeneration;
-		historyPending = true;
-		historyError = null;
-		try {
-			const results = await api.getResultVersion(sessionId, id);
-			if (generation !== flowGeneration) return;
-			resultView = buildResultView(results);
-			recommendationRetryRunId = recommendationRetryId(results);
-			retryableAnalysisRun = null;
-			selectedModeKey = resultView.finalMode?.key ?? null;
-			displayedVersionId = id;
-			manualCandidates = manualCandidateViews(results.considered_products.map((item) => item.candidate), results);
-			listingCheckOutcome = null;
-			listingCheckError = null;
-			manualError = null;
-		} catch {
-			if (generation === flowGeneration) historyError = 'CartCart could not open that decision. Try again.';
-		} finally {
-			if (generation === flowGeneration) historyPending = false;
 		}
 	}
 
@@ -785,27 +562,17 @@
 			</div>
 		{:else if homeState === 'processing'}
 			<ProcessingState question={submittedQuestion} headline={progressHeadline} progress={shopperProgress} error={guideError} pending={isGuidedRequestPending} onRetry={retryAnalysis} />
-		{:else if homeState === 'refining'}
-			<RefinementPrompt bind:draft={refinementDraft} error={refinementError} onChoose={(kind: RefinementPromptKind) => { refinementDraft = refinementDraftFromSession(kind, currentSession); refinementError = null; }} onSubmit={submitRefinement} onBack={() => { if (refinementDraft) { refinementDraft = null; refinementError = null; } else homeState = 'result'; }} />
 		{:else if homeState === 'result' && resultView}
 			<div class="w-full">
-				<div class="mx-auto mb-6 max-w-[1180px]">
-					{#if recommendationRetryRunId && !viewingPrevious}
-						<div class="mb-5 flex flex-wrap items-center gap-3 border border-border bg-card px-5 py-4">
-							<p class="text-sm leading-6 text-muted-foreground">This saved run stopped before advice was ready. Try again using the information already gathered.</p>
-							<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry recommendation</Button>
-						</div>
-					{/if}
-					{#if refinementPending}<p role="status" class="mb-4 text-sm text-muted-foreground">Updating your decision. You can review the previous result below.</p>{/if}
-					{#if refinementError}<p role="alert" class="mb-4 text-sm text-destructive">{refinementError}</p>{/if}
-					{#if viewingPrevious}<p class="mb-3 text-sm text-muted-foreground">Viewing an earlier decision.</p><Button variant="outline" disabled={decisionBusy} onclick={() => latestVersionId && showDecisionVersion(latestVersionId)}>Return to latest decision</Button>
-					{:else if refinementError && retryableAnalysisRun}<Button variant="outline" disabled={decisionBusy} onclick={retryAnalysis}>Retry update</Button>
-					{:else}<Button variant="outline" disabled={decisionBusy} onclick={openRefinement}>{refinementError ? 'Try refining again' : 'Refine this decision'}</Button>{/if}
-					<DecisionHistory history={decisionHistory} selectedId={displayedVersionId} pending={decisionBusy} error={historyError} onSelect={showDecisionVersion} onReload={loadDecisionHistory} />
-				</div>
 				{#key displayedVersionId}
-					<RecommendationResult result={resultView} selectedMode={selectedModeView} question={submittedQuestion} onSelectMode={(modeKey) => (selectedModeKey = modeKey)} onStartOver={() => resetFlow()} {listingCheckOutcome} {listingCheckError} listingCheckPending={decisionBusy} onCheckListing={checkListing} {manualCandidates} {manualError} onSaveManual={saveManualProduct} allowCorrections={!viewingPrevious} />
+					<RecommendationResult result={resultView} onStartOver={() => resetFlow()} />
 				{/key}
+				{#if recommendationRetryRunId}
+					<div class="mx-auto mt-5 flex max-w-[1180px] flex-wrap items-center gap-3 border border-border bg-card px-5 py-4">
+						<p class="text-sm leading-6 text-muted-foreground">This saved run stopped before advice was ready. Try again using the information already gathered.</p>
+						<Button variant="outline" disabled={isGuidedRequestPending} onclick={retryAnalysis}>Retry recommendation</Button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</section>

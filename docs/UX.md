@@ -4,7 +4,7 @@
 
 The result leads with direct reasons and concise relative tradeoffs. It retains supported budget/value explanations, product limitations that change the choice and neutral links. Cards no longer add confidence scores, Worth checking lists or generic price, stock and seller-check rituals. Diagnostic warnings do not become a What to watch section. Source details retain names, claims, links, timestamps and useful disclosures without confidence or process-quality scores.
 
-Product names, seller names, user input, source titles and evidence claims remain literal, including light fixture and FixtureSeller Electronics. Controlled fixture writers avoid deliberately generated developer labels. Saved authored reasons and tradeoffs are not rewritten; older wording can remain in historical results. Future generated wording is validated only in Task 221. Task 220 owns history, duplicate comparison, refinement and top restart changes. Live validation deferred to Task 221.
+Product names, seller names, user input, source titles and evidence claims remain literal, including light fixture and FixtureSeller Electronics. Controlled fixture writers avoid deliberately generated developer labels. Saved authored reasons and tradeoffs are not rewritten; older wording can remain in historical results. Future generated wording is validated only in Task 221. Task 220 implements the final page and top restart action. Live validation deferred to Task 221.
 
 ## Primary choices and optional runners-up, Task 218
 
@@ -12,7 +12,7 @@ The result shows up to three authored primary choices in the main card grid. Thr
 
 The owning model prefers useful company/provider variety while respecting exclusive preferences. Counts and brands are not quotas, and a family/size variant can remain primary when the shopper's needs warrant it. Display group membership comes from saved authored IDs rather than mode labels or hiding extra cards. Historical saved answers keep their distinct final/runner membership through a read projection.
 
-Task 219 removes generated diagnostic and checking copy. Task 220 owns the remaining history, duplicate comparison, refinement and restart changes. These controls remain pending Task 220. Offline saved-data browser checks establish grouping and layout only; live validation is deferred to Task 221.
+Task 219 removes generated diagnostic and checking copy. Task 220 removes history, duplicate comparison and refinement controls and implements top restart. Offline saved-data browser checks establish grouping and layout only; live validation is deferred to Task 221.
 
 Status: Implemented guided shopping flow and UX guidance
 Last updated: 2026-10-02
@@ -191,157 +191,27 @@ Progress should be minimal during guided intake. Detailed progress, source
 status, and evidence inspection belong after analysis has started and only when
 they help explain the recommendation or a recoverable problem.
 
-## Staged Result Reveal
+## Final result
 
-The shortlist, comparison, recommendation, trust notes, warnings, and source
-details should appear only when useful for the current step.
+The result presents one authoritative answer after intake and processing. Up to three primary choices and up to two optional runners-up retain authored reasons, meaningful tradeoffs, useful budget explanations and neutral links. Counts and brands are not quotas. Available sources follow the advice and remain optional. No candidate or partial research is presented as a completed answer before analysis finishes.
 
-Expected reveal order:
+An explicit Ask another question action appears before the result heading and remains usable on desktop and mobile without scrolling. It supports keyboard focus and activation. Restart clears the displayed flow and saved-link parameters, preserves local region preference and leaves saved backend records intact. Late responses cannot reopen old intake, show old errors or clear a newer request's pending state.
 
-1. First shopping question.
-2. One-time region setup if needed.
-3. Guided follow-up questions until enough information exists.
-4. User-safe processing state.
-5. Final recommendation or no-strong-buy outcome.
-6. Runner-ups, modes, comparison, trust notes, warnings, and source details as
-   supporting surfaces.
+The page removes Decision history, Products considered, Saved comparison, empty Supporting details, missing seller/price/criteria boilerplate, the original-question/price-change footer and post-result refinement/product-entry controls. Known offer values and useful adverse advice may remain. Missing optional fields never erase recommendations. Technical failures keep explicit retry with saved information reuse.
 
-Do not show generated candidates as final recommendations before analysis
-completes. Do not force users into a product table, source drawer, or comparison
-matrix before they need those details.
+## Initial product ideas
 
-## User-Considered Products
+Shoppers may volunteer product names, descriptions and links in the first question or intake answers. The initial prompt can invite product ideas and a budget without requiring either. The bounded first-question repair retains an explicitly named model in ordinary suitability wording, including "Is the ThinkPad X1 Carbon good for travel?". Captured names remain unverified hints with session-local provenance. The original goal stays intact. Existing lookup and matching owns identity resolution.
 
-User-considered products are first-class candidates, but normal intake should
-ask for names or descriptions rather than URLs.
+Generic shopping requests and non-product budget/preference answers do not create invented candidates. Comparison, standalone model, volunteered URL and reanswer-cleanup behavior remains. Intake asks for names/descriptions when useful and never requires links. The normal result does not offer listing checks or manual product correction after completion. Product and listing concerns can influence the advice without routine buying rituals.
 
-Acceptance checklist:
+## Internal history and recovery
 
-- Let users mention considered products in the first question or a follow-up.
-- Ask for product names/descriptions if the app needs clarification.
-- Accept a product link the shopper volunteers in the first question or a
-  follow-up, whether it appears alone or inside a sentence. Preserve the
-  surrounding shopping question and check the linked listing separately.
-- Use CartCart lookup and matching to find candidate listings.
-- Preserve evidence gaps when a product cannot be matched confidently.
-- Let user-considered products win, become runner-up, appear in a recommendation
-  mode, or be rejected/excluded for a meaningful reason.
-- Keep product quality separate from listing or seller trust.
-- Keep neutral outbound links when source/listing details are revealed.
+Immutable result versions, diagnostic history, sources and session/run associations remain saved. Backend history, refinement and user-product APIs remain available internally. They do not appear as shopper controls. Reading or reloading a saved result performs reads and never starts or retries a shopping run. Explicit technical retry retains its existing recovery path.
 
-An optional link correction path can appear after research, but normal guided
-intake should not ask shoppers to find or paste links.
+## Available sources
 
-Guided intake captures HTTP(S) links volunteered in the main question or a
-later answer as listing candidates, and explicit product names as separate
-research hints. A link by itself leads to a short question about the shopper's
-goal. Links do not establish product identity or seller safety. Direct URL
-submission is also available through the product API. On the result screen,
-shoppers can optionally open “Check a listing,” add a full link, and see the
-refreshed decision in the same session. The response distinguishes a checked
-listing, an unreadable page, and an uncertain match. A checked listing still
-shows seller and trust context; an unreadable page offers another-link recovery.
-
-After research, the result screen names shopper-requested products that still
-have no confirmed match. The shopper can then open “Add what you know” for that
-candidate, or correct a product CartCart matched incorrectly. The optional form
-accepts a product name and any known seller, price and currency, availability,
-review, warranty, or specifications. It saves to the same candidate and reruns
-the decision in the same session. The refreshed result labels supplied details
-as the shopper's own and displays missing fields as unknown. Manual details
-never create a verified listing or purchase link. The ordinary guided path
-continues to need only a product name or description.
-
-After the decision, “Products considered” shows each product the shopper asked
-CartCart to check as matched, possibly matched, unresolved, excluded for a
-meaningful reason, or supplied from manual details. The saved comparison lists
-the run's shortlisted products and available criteria. Missing scores, prices,
-and sellers appear as unknown. Shopper-reported details stay labeled as such;
-they do not become verified offers or purchase links. Listing concerns remain
-separate from product fit, including when there is no strong buy.
-
-## Recommendation Surface
-
-The result area should focus on decision support, not raw output volume.
-
-Required result surfaces when available:
-
-- One final best pick or an explicit no-strong-buy outcome.
-- Runner-ups.
-- Recommendation modes from the same analysis pass.
-- Switching between result modes should be a local view change over the stored
-  result bundle. The best-overall summary remains visible and the UI must not
-  imply that another search or analysis run has started.
-- Meaningful comparison details.
-- Seller/listing trust notes.
-- Warnings and red flags.
-- Rejected or avoid items only when there is a meaningful negative reason.
-- Source links and evidence details behind supporting surfaces.
-- When listing trust is linked to a recommended mode, show product fit and
-  listing safety as separate ideas so a good product from a bad listing is not
-  mistaken for a bad product.
-
-No-strong-buy is a valid outcome, not an error. It should say that none of the
-candidates are strong buys, explain what blocked a responsible recommendation,
-and give the user a concrete next step such as checking safer sellers, looking
-for stronger evidence, adjusting budget, or asking for more candidates.
-
-## Refining A Decision
-
-The completed result offers one “Refine this decision” action. It opens a
-prompt asking what to change, with budget, buying region, kind of product, and
-priorities as inline choices. The next screen asks one question about that
-change. Budget accepts an amount with the current currency and an optional
-maximum; region uses the country selector. Back returns to the choices or the
-saved decision without submitting a change.
-
-Submitting creates and executes a saved refinement in the same session. A
-short “Updating your decision” message appears above the previous result,
-which stays readable. Conflicting updates are disabled while work is pending.
-Success opens the new result; a successful region change also updates the
-browser's saved buying region. Failure keeps the previous result and offers
-“Try refining again.” A lost execution response is checked against saved run
-status before showing recovery.
-
-A collapsed “Decision history” panel shows the original question, each
-successful decision's shopping context, and the requested change. Shoppers
-can open old results, including their comparison, sources, and considered
-products, then return to the latest decision. Refinements and product
-corrections are available on the latest result. Failed and pending attempts do
-not appear as completed decisions. History is a view over persisted results;
-it contains no chat transcript, agent names, or processing stages.
-
-## Source And Trust Details
-
-Source evidence should support inspection without becoming the main interface.
-The frontend keeps source inspection collapsed by default. Recommendation
-rationales, warnings/red flags, trust notes, avoid reasons, and source cards
-should each open the evidence snippets and source metadata that support the
-displayed claim, using neutral outbound links and omitting provider/debug
-payloads.
-
-"What to watch" shows the first three distinct saved warnings. When more
-warnings exist, "More warnings" opens the remaining specific cautions in saved
-order. Each warning retains its own evidence control and neutral source links.
-Duplicate warning text appears once with its combined evidence and sources.
-The disclosure supports keyboard use and can be closed again. A result without
-warnings or evidence cautions has no warning section.
-
-Acceptance checklist:
-
-- Open evidence details from result claims, warnings, trust notes, and source
-  references.
-- Show source title, URL, source type, extraction status, and confidence/quality
-  signals when useful.
-- Show evidence gaps and conflicts when they affect the recommendation.
-- Show video transcript availability and timestamps when relevant.
-- Show Reddit/community context as qualitative signal, not product truth.
-- Show Amazon marketplace/listing/seller/fulfillment and regional availability
-  context where available.
-- Show IKEA country/region, official product/store URL, price/currency,
-  availability, and store/delivery context where available.
-- Keep outbound product/source links neutral.
-- Do not show secrets, raw private provider payloads, or full sensitive traces.
+Available sources appear below the advice. Hide the section when no sources exist. Keep literal titles, snippets, claims, neutral links, relevant video timestamps and factual disclosures. Source evidence remains secondary and inspectable. Do not aggregate confidence, diagnostic warnings or missing-source/offer fields into shopper warning panels. Material adverse findings belong in useful advice and available evidence. Saved historical wording is not rewritten. Live validation deferred to Task 221.
 
 ## Empty, Blocked, Loading, And Failure States
 

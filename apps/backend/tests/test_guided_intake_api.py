@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from uuid import UUID
@@ -8,6 +9,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.db.models  # noqa: F401
+from app.agents.contracts import QueryPlannerAgentInput
+from app.agents.live_query_planner import _model_input
 from app.core.settings import Settings
 from app.db.base import Base
 from app.db.session import (
@@ -16,6 +19,9 @@ from app.db.session import (
     get_db_session,
 )
 from app.main import create_app
+from app.schemas.ids import new_id
+from app.schemas.intake import ShoppingBrief
+from app.schemas.products import UserAddedProduct
 
 
 async def _create_tables(settings: Settings) -> None:
@@ -32,6 +38,14 @@ def guided_api_client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         database_path=tmp_path / "guided-intake-api.sqlite3",
+        agent_workflow_mode="fixture",
+        search_provider_enabled=False,
+        extraction_provider_enabled=False,
+        video_search_provider_enabled=False,
+        transcript_provider_enabled=False,
+        amazon_product_intelligence_provider_enabled=False,
+        ikea_store_intelligence_provider_enabled=False,
+        telemetry_enabled=False,
     )
     asyncio.run(_create_tables(settings))
 
@@ -244,6 +258,105 @@ def test_first_question_comparison_tracks_models_without_generic_category(
         "Sony WH-1000XM5",
         "Bose QC Ultra",
     }
+
+
+@pytest.mark.parametrize(
+    ("query", "name"),
+    (
+        ("Is the ThinkPad X1 Carbon good for travel?", "ThinkPad X1 Carbon"),
+        ("Would a Dell XPS 13 suit me for travel?", "Dell XPS 13"),
+    ),
+)
+def test_first_question_assessment_retains_unverified_named_research_hint(
+    guided_api_client: TestClient, query: str, name: str
+) -> None:
+    created = _create_guided_session(guided_api_client, query)
+    saved = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()
+    assert saved["current_brief"]["original_query"] == query
+    assert len(saved["user_added_products"]) == 1
+    candidate = saved["user_added_products"][0]
+    assert candidate["input_text"] == name
+    assert candidate["intake_source_question_ids"] == ["first-question"]
+    assert candidate["research_attempted"] is False
+    assert candidate["product"] is None
+    assert candidate["listing"] is None
+    assert candidate["possible_product_ids"] == []
+
+    research_request = QueryPlannerAgentInput(
+        run_id=new_id(),
+        brief=ShoppingBrief.model_validate(saved["current_brief"]),
+        user_added_products=(
+            UserAddedProduct.model_validate(
+                {
+                    key: value
+                    for key, value in candidate.items()
+                    if key != "manual_evidence_status"
+                }
+            ),
+        ),
+    )
+    hint = json.loads(_model_input(research_request))["user_added_products"][0]
+    assert hint == {
+        "candidate_id": candidate["candidate_id"],
+        "input_text": name,
+        "product_name": None,
+        "has_url": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "query",
+    (
+        "Which laptop should I buy for travel?",
+        "Is a laptop good for travel?",
+        "Is long battery life good for travel?",
+        "Would a laptop suit me for travel?",
+        "Would long battery life suit me for travel?",
+        "Is the Philippines good for travel?",
+    ),
+)
+def test_first_question_assessment_does_not_invent_nonproduct_candidates(
+    guided_api_client: TestClient, query: str
+) -> None:
+    created = _create_guided_session(guided_api_client, query)
+    saved = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()
+    assert saved["current_brief"]["original_query"] == query
+    assert saved["user_added_products"] == []
+
+
+@pytest.mark.parametrize(
+    "budget_text", ("Coding and movies", "Is the Dell XPS 13 good for travel?")
+)
+def test_assessment_capture_preserves_initial_url_and_nonproduct_budget_answer(
+    guided_api_client: TestClient, budget_text: str,
+) -> None:
+    query = (
+        "Is the ThinkPad X1 Carbon good for travel? "
+        "https://shop.example/items/x1?utm_source=share"
+    )
+    created = _create_guided_session(guided_api_client, query)
+    session_id = created["session_id"]
+    answered = guided_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "budget",
+            "answer": {"answer_type": "natural_language", "text": budget_text},
+        },
+    )
+    assert answered.status_code == 200
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert saved["original_input"]["query"] == query
+    assert saved["current_brief"]["original_query"] == (
+        "Is the ThinkPad X1 Carbon good for travel?"
+    )
+    assert len(saved["user_added_products"]) == 2
+    assert {item["input_text"] for item in saved["user_added_products"]} == {
+        "ThinkPad X1 Carbon",
+        None,
+    }
+    assert [item["url"] for item in saved["user_added_products"] if item["url"]] == [
+        "https://shop.example/items/x1?utm_source=share"
+    ]
 
 
 def test_standalone_product_name_is_tracked_without_mistaking_budget_for_product(

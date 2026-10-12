@@ -20,6 +20,10 @@ _NAME_PATTERNS = (
     ),
     re.compile(r"\b(?:should I buy|want to buy|what about)\s+(.+)", re.I),
 )
+_INITIAL_ASSESSMENT_PATTERNS = (
+    re.compile(r"^is\s+(.+?)\s+good(?:\s+for\s+.+)?$", re.I),
+    re.compile(r"^would\s+(.+?)\s+suit me(?:\s+for\s+.+)?$", re.I),
+)
 _GENERIC = frozenset(
     {
         "a laptop",
@@ -68,7 +72,9 @@ def is_link_only(text: str) -> bool:
     )
 
 
-def volunteered_names(text: str, *, considered_answer: bool = False) -> tuple[str, ...]:
+def volunteered_names(
+    text: str, *, considered_answer: bool = False, initial_question: bool = False
+) -> tuple[str, ...]:
     plain = text_without_urls(text).strip(" .,;:!?")
     if not plain:
         return ()
@@ -92,6 +98,12 @@ def volunteered_names(text: str, *, considered_answer: bool = False) -> tuple[st
             )
             else ()
         )
+    if initial_question:
+        for pattern in _INITIAL_ASSESSMENT_PATTERNS:
+            match = pattern.fullmatch(plain)
+            if match is not None:
+                plain = match.group(1)
+                break
     for pattern in _NAME_PATTERNS:
         match = pattern.search(plain)
         if match is None:

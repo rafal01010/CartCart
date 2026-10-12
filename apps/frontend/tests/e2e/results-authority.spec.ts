@@ -45,7 +45,7 @@ for (const variant of ['no modes', 'alternate only', 'product only', 'no strong 
 		await page.getByLabel('Shopping question').fill('Which monitor should I buy for coding?');
 		await page.getByRole('button', { name: 'Send question', exact: true }).click();
 		await page.getByRole('button', { name: 'Skip all', exact: true }).click();
-		await expect(page.getByRole('button', { name: 'Refine this decision', exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Ask another question', exact: true })).toBeVisible();
 		if (!saved) throw new Error('The saved fixture result was not loaded.');
 		const options = page.getByRole('region', { name: 'Recommended options', exact: true });
 		if (variant === 'no strong buy') {

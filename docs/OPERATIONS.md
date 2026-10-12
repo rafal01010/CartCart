@@ -1,5 +1,13 @@
 # CartCart Operations
 
+## Task 220 offline page implementation
+
+The shopper page displays one answer and a top Ask another question action. It no longer requests history or exposes refinement, listing checks or manual product addition after completion. Those backend APIs and saved records remain available internally. Reloading a matching saved result reads session/run/result data. Restart abandons local display and clears the saved link without deleting backend records or starting work.
+
+No environment changes, provider/model calls or new model stages are required. Configured models, reasoning, providers and context/spending limits remain. Prepared caption enablement is configuration only. The optional verifier retains its authorized 180-second timeout. Separate planning/discovery/extraction/deduplication/source-manager/category-analysis stages and mandatory verification remain omitted from the normal owner workflow.
+
+Verification uses narrowly scoped lint/syntax/frontend checks, isolated temporary SQLite API controls and intercepted browser data. Every browser API request is fulfilled locally and external page traffic is denied. No broad synthetic pytest/eval/build suite establishes acceptance. Live validation deferred to Task 221. Final Task 221 requires a separate explicit resumption; the live hold remains active.
+
 ## Task 219 implementation boundary
 
 Task 219 changes shopper prompt and copy ownership without a new schema, database migration or dependency. Environment configuration, models, reasoning, providers and context/spending limits remain unchanged. Task 217 caption configuration remains prepared only; enabling it does not authorize retrieval. The optional verifier retains its authorized 180-second timeout and remains absent from normal, refinement and retry workflows.

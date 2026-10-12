@@ -27,7 +27,7 @@ async function openResult(page: Page, testInfo: TestInfo, revise: (result: Sessi
 	await page.getByLabel('Shopping question').fill('Which monitor should I buy for coding?');
 	await page.getByRole('button', { name: 'Send question', exact: true }).click();
 	await page.getByRole('button', { name: 'Skip all', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Refine this decision', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ask another question', exact: true })).toBeVisible();
 }
 
 for (const count of [0, 1, 4]) {

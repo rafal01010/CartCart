@@ -1,5 +1,9 @@
 # Frontend Replacement Note
 
+## Task 220 final page
+
+The current route shows one final answer with separate primary and optional runner groups, then available sources. Ask another question appears before the long advice. Normal history, duplicate comparison, refinement, listing/manual addition, empty supporting panels and query/price footer are removed. Shared backend APIs, saved versions and technical retry remain. A local guided-request owner prevents late success, errors and pending cleanup from changing a restarted flow. Live validation deferred to Task 221.
+
 Status: Guided shopping flow rebuild complete
 Last updated: 2026-10-07
 
@@ -100,7 +104,7 @@ reinforces the old all-in-one workspace:
 | --- | --- | --- |
 | Session form state | `src/lib/session/session-form.ts` and tests | Split into first-question submission, local region setup, and guided answer helpers. Do not keep visible budget/region/preference fields on the homepage. |
 | User-considered product prompt state | `src/lib/user-products/contextual-product-prompt.ts` and tests | Normal flow now accepts product names/descriptions. URL support should become advanced/corrective later, not a first-screen control. |
-| Contextual refinement prompt state | `src/lib/refinements/contextual-refinement-prompt.ts` and tests | Budget, region, category, and preference changes are one-prompt contextual edits, not a permanent refinement form. |
+| Contextual refinement prompt state | `src/lib/refinements/contextual-refinement-prompt.ts` and tests | Retained internal component and API helpers. Task 220 removes normal shopper refinement controls. |
 | Workspace notices | `src/lib/workspace-states/workspace-states.ts` and tests | Replace with guided empty, blocked, region setup, current-question, ready, processing, and result states. |
 | Card primitive | `src/lib/components/ui/card/*` | Restyled for the dark foundation. Avoid card-heavy page sections and nested cards. Use cards only for repeated result/source items or focused tools. |
 | E2E smoke path | `tests/e2e/guided-flow-smoke.spec.ts` | Covers the complete prompt-first fixture flow, responsive behavior, keyboard focus, guardrails, progress, recommendation details, and source disclosure. |
@@ -207,19 +211,19 @@ initial candidates are:
 - `ProcessingState.svelte`
 - `RecommendationResult.svelte`
 
-The result view treats the bundle's final product and exact listing references
-as the saved decision. Optional modes provide local alternative views and never
-replace that decision by default. The saved final decision remains selectable
-when only alternate modes are present. A product-only final decision has no
-purchase link or attached seller offer.
+The result view presents the saved authored primary choices and optional
+runners-up as one answer. Mode records retain per-product explanations and
+optional offer associations internally. The normal page has no mode selector.
+Historical mode data supports the read projection without rewriting saved
+records. A product-only decision has no invented purchase offer.
 
-Supporting details resolve saved runner-up product references even without mode
+The main advice resolves saved runner-up product references even without mode
 records. Comparison summaries and category fit summaries retain their saved
 evidence links. Only saved modes or unambiguous comparison rows supply runner-up
 purchase offers; shortlist inventory alone cannot attach a listing, price,
 seller, or purchase link. Rowless runner-ups retain their product analysis and
 evidence as product-only recommendations. Ambiguous offers stay product-only.
-Unavailable explanations or confidence appear as gaps. The result view does not invent scores, citations,
+Missing optional offer/confidence fields remain internal and produce no empty shopper panel. The result view does not invent scores, citations,
 or alternative reasons.
 
 ## Focused Checks For Replacement Tasks

@@ -72,23 +72,17 @@ test('covers the simplified guided fixture flow from prompt to recommendation de
 	await expect(
 		page.getByRole('heading', { level: 2, name: 'Dell UltraSharp U2724DE' }),
 	).toBeVisible();
-	await expect(page.getByRole('link', { name: 'View listing' })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'View listing' }).first()).toBeVisible();
 	await expect(page.getByText('Dell Official', { exact: true })).toBeVisible();
-	await page.getByRole('tab', { name: 'Best value' }).click();
-	await expect(
-		page.getByRole('heading', { level: 2, name: 'ASUS ProArt Display PA278CV' }),
-	).toBeVisible();
 	await expect(
 		page.getByRole('button', {
 			name: /Change budget|Correct category|Start checking options/,
 		}),
 	).toHaveCount(0);
 	await expect(page.getByText('Sources checked')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Supporting details' }).click();
-	await expect(page.getByText('Seller and listing checks')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Avoid' })).toBeVisible();
-	await page.getByRole('button', { name: 'Source details' }).click();
-	await expect(page.getByText('Sources checked')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Supporting details' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Available sources' }).click();
+	await expect(page.getByRole('heading', { name: 'Available sources' })).toBeVisible();
 	await page.getByRole('button', { name: /Buying region: Philippines/ }).click();
 	await expect(page.getByRole('heading', { name: 'Where will you be shopping?' })).toBeVisible();
 	await expectOldWorkspaceToBeGone(page);
@@ -126,7 +120,7 @@ test('captures volunteered links in the main question and guided answer', async 
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await expect(page.getByRole('heading', { name: 'What budget should we stay near?' })).toBeVisible();
 	await page.getByRole('button', { name: 'Skip all' }).click();
-	await expect(page.getByRole('button', { name: 'Check a listing', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ask another question', exact: true })).toBeVisible();
 	session = await (await page.request.get(`${linked.apiOrigin}/api/sessions/${linked.sessionId}`)).json();
 	expect(session.user_added_products[0].research_attempted).toBe(true);
 
@@ -136,7 +130,7 @@ test('captures volunteered links in the main question and guided answer', async 
 	expect(session.user_added_products.filter((item: { url: string | null }) => item.url).length).toBe(1);
 	expect(session.user_added_products.filter((item: { input_text: string | null }) => item.input_text).length).toBe(2);
 	await page.getByRole('button', { name: 'Skip all' }).click();
-	await expect(page.getByRole('button', { name: 'Check a listing', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ask another question', exact: true })).toBeVisible();
 	session = await (await page.request.get(`${sentence.apiOrigin}/api/sessions/${sentence.sessionId}`)).json();
 	expect(session.user_added_products.find((item: { url: string | null }) => item.url)?.research_attempted).toBe(true);
 	await page.goto('/');
@@ -145,84 +139,9 @@ test('captures volunteered links in the main question and guided answer', async 
 	await expect(page.getByRole('heading', { name: 'Are there any products you want CartCart to check?' })).toBeVisible();
 	await page.getByLabel('Your answer').fill('Check https://shop.example/items/x1');
 	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('button', { name: 'Check a listing', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ask another question', exact: true })).toBeVisible();
 	session = await (await page.request.get(`${answered.apiOrigin}/api/sessions/${answered.sessionId}`)).json();
 	expect(session.user_added_products.some((item: { url: string | null; research_attempted: boolean }) => item.url === 'https://shop.example/items/x1' && item.research_attempted)).toBe(true);
-});
-
-test('checks an optional listing after a result and recovers from an unreadable page', async ({ page }) => {
-	await page.addInitScript(
-		({ key }) => window.localStorage.setItem(key, JSON.stringify({ status: 'refused' })),
-		{ key: REGION_STORAGE_KEY },
-	);
-	await page.goto('/');
-	const { apiOrigin, sessionId } = await startQuestion(page, 'Which monitor should I buy for coding?');
-	await page.getByRole('button', { name: 'Skip all' }).click();
-	await expect(page.getByRole('button', { name: 'Check a listing', exact: true })).toBeVisible();
-	const prior = await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}/results`)).json();
-	await expect(page.getByLabel('Listing link')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Check a listing', exact: true }).click();
-	await page.getByLabel('Listing link').fill('https://shop.example/items/unreadable-monitor');
-	await page.getByRole('button', { name: 'Check this listing' }).click();
-	await expect(page.getByText('This link could not be checked')).toBeVisible();
-	const refreshed = await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}/results`)).json();
-	expect(refreshed.result_version.run_id).not.toBe(prior.result_version.run_id);
-	const session = await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}`)).json();
-	expect(session.user_added_products.some((item: { url: string | null; research_attempted: boolean }) => item.url === 'https://shop.example/items/unreadable-monitor' && item.research_attempted)).toBe(true);
-	await page.getByRole('button', { name: 'Try another link' }).click();
-	await expect(page.getByLabel('Listing link')).toBeVisible();
-	await page.getByRole('button', { name: 'Add what you know' }).click();
-	await page.getByLabel('Product name').fill('Monitor from local shop');
-	await page.getByRole('button', { name: 'Save and check again' }).click();
-	await expect(page.getByText('Monitor from local shop', { exact: true }).first()).toBeVisible();
-	const manual = (await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}`)).json()).user_added_products;
-	const supplied = manual.find((item: { product?: { name: string } }) => item.product?.name === 'Monitor from local shop');
-	expect(supplied.manual_fallback_reason).toBe('retrieval_unavailable');
-	expect(supplied.manual_evidence_status.source).toBe('unknown');
-});
-
-test('adds manual details after unresolved research and corrects the product in the same session', async ({ page }) => {
-	await page.addInitScript(
-		({ key }) => window.localStorage.setItem(key, JSON.stringify({ status: 'refused' })),
-		{ key: REGION_STORAGE_KEY },
-	);
-	await page.goto('/');
-	const { apiOrigin, sessionId } = await startQuestion(page, 'Which compact kettle should I buy?');
-	await page.getByRole('button', { name: 'Skip', exact: true }).click();
-	await expect(page.getByRole('heading', { name: 'Are there any products you want CartCart to check?' })).toBeVisible();
-	await page.getByLabel('Your answer').fill('Acme Mini Kettle');
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await expect(page.getByRole('heading', { name: 'Add or correct product details' })).toBeVisible();
-	await expect(page.getByText('We could not confirm a product match from the available research.')).toBeVisible();
-	const before = await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}/results`)).json();
-	await page.getByRole('button', { name: 'Add what you know' }).click();
-	await page.getByLabel('Seller, if known').fill('Local shop');
-	await page.getByLabel('Price, if known').fill('49');
-	await page.getByLabel('Currency').fill('USD');
-	await page.getByLabel('Warranty, if known').fill('Shop says one year');
-	await page.getByRole('button', { name: 'Save and check again' }).click();
-	await expect(page.getByText('Details supplied by you. Product, seller, and purchase terms are not independently verified.')).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Saved comparison' })).toBeVisible();
-	const manualComparison = page.getByRole('region', { name: 'Products considered' }).getByRole('article').filter({ hasText: 'Acme Mini Kettle' }).last();
-	await expect(manualComparison.getByText('No verified listing')).toBeVisible();
-	await expect(manualComparison.getByRole('link')).toHaveCount(0);
-	await expect(page.locator('#manual-product-fallback').getByText('Seller:')).toBeVisible();
-	await expect(page.getByText('Unknown', { exact: true }).first()).toBeVisible();
-	const after = await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}/results`)).json();
-	expect(after.result_version.run_id).not.toBe(before.result_version.run_id);
-	let candidates = (await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}`)).json()).user_added_products;
-	expect(candidates).toHaveLength(1);
-	expect(candidates[0].manual_evidence_status.seller).toBe('user_reported');
-	expect(candidates[0].listing).toBeNull();
-
-	await page.getByRole('button', { name: 'Wrong product? Correct it' }).click();
-	await page.getByLabel('Product name').fill('Acme Mini Kettle Plus');
-	await page.getByRole('button', { name: 'Save and check again' }).click();
-	await expect(page.getByText('Acme Mini Kettle Plus', { exact: true }).first()).toBeVisible();
-	candidates = (await (await page.request.get(`${apiOrigin}/api/sessions/${sessionId}`)).json()).user_added_products;
-	expect(candidates).toHaveLength(1);
-	expect(candidates[0].product.name).toBe('Acme Mini Kettle Plus');
-	expect(candidates[0].manual_fallback_reason).toBe('user_correction');
 });
 
 test('normal product-name intake has no manual form before research', async ({ page }) => {
@@ -238,46 +157,6 @@ test('normal product-name intake has no manual form before research', async ({ p
 	await expect(page.getByRole('heading', { name: 'Are there any products you want CartCart to check?' })).toBeVisible();
 	await page.getByLabel('Your answer').fill('Acme Mini Kettle');
 	await expect(page.getByLabel('Product name')).toHaveCount(0);
-});
-
-test('shows matched, possible, unresolved, and manual products beside saved comparison gaps', async ({ page }) => {
-	await page.addInitScript(
-		({ key }) => window.localStorage.setItem(key, JSON.stringify({ status: 'refused' })),
-		{ key: REGION_STORAGE_KEY },
-	);
-	await page.goto('/');
-	const { sessionId } = await startQuestion(page, 'Which monitor should I buy for coding?');
-	await page.route(`**/api/sessions/${sessionId}/results`, async (route) => {
-		const response = await route.fetch();
-		const result = await response.json();
-		const [matched, alternative] = result.products;
-		const listing = result.listings.find((item: { product_id: string }) => item.product_id === matched.product_id);
-		const manualProduct = { schema_version: 1, product_id: 'manual-only-product', name: 'Local monitor', source_ids: [], listing_ids: [] };
-		result.products.push(manualProduct);
-		result.shortlist.push({ candidate_id: 'manual-only', product_id: manualProduct.product_id, listing_id: null, position: 99 });
-		result.comparison_matrix.rows.push({ product_id: manualProduct.product_id, listing_id: null, scores: {}, evidence_ids: [], summary: 'Details need independent checking.' });
-		const candidate = (candidate_id: string, input_text: string) => ({ schema_version: 1, candidate_id, input_text, research_attempted: true, created_at: '2026-05-31T00:00:00Z' });
-		result.considered_products = [
-			{ candidate: { ...candidate('matched', 'The Dell monitor'), product: matched, listing }, status: 'confirmed', exclusion_reason: null },
-			{ candidate: { ...candidate('possible', 'A ProArt display'), possible_product_ids: [matched.product_id, alternative.product_id] }, status: 'possible', exclusion_reason: null },
-			{ candidate: candidate('unresolved', 'Unknown display'), status: 'unresolved', exclusion_reason: null },
-			{ candidate: { ...candidate('manual-only', 'Local monitor'), product: manualProduct, manual_fallback_reason: 'retrieval_insufficient', manual_details: { seller: 'Neighborhood shop' } }, status: 'manual', exclusion_reason: null },
-		];
-		await route.fulfill({ response, json: result });
-	});
-	await page.getByRole('button', { name: 'Skip all' }).click();
-	const considered = page.getByRole('region', { name: 'Products considered' });
-	await expect(considered.getByText('The Dell monitor')).toBeVisible();
-	await expect(considered.getByText('Matched', { exact: true })).toBeVisible();
-	await expect(considered.getByText('A ProArt display')).toBeVisible();
-	await expect(considered.getByText('Possible match')).toBeVisible();
-	await expect(considered.getByText('Unknown display')).toBeVisible();
-	await expect(considered.getByText('Unresolved')).toBeVisible();
-	await expect(considered.getByText('Neighborhood shop (reported by you)', { exact: false })).toBeVisible();
-	const manualComparison = considered.getByRole('article').filter({ hasText: 'Local monitor' }).last();
-	await expect(manualComparison.getByText('No verified listing')).toBeVisible();
-	await expect(manualComparison.getByText('Unknown', { exact: true }).first()).toBeVisible();
-	await expect(manualComparison.getByRole('link')).toHaveCount(0);
 });
 
 test('captures considered products by name and never asks for product links', async ({ page }) => {

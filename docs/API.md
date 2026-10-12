@@ -1,5 +1,13 @@
 # CartCart API
 
+## One final shopper result, Task 220
+
+The normal page reads the saved session, requested run and matching result. Reloading a saved link performs reads without creating or retrying a run. History, version, refinement and user-product endpoints remain available internally; their contracts and immutable records are unchanged. The normal page does not request decision history, expose post-result refinement, or add/check products after completion.
+
+Volunteered names/descriptions and links belong to initial intake. The bounded first-question capture recognizes an explicitly named model in an ordinary suitability question such as "Is the ThinkPad X1 Carbon good for travel?". It stores a session-local unverified name hint with first-question provenance and preserves the original query. Existing name research owns identity resolution. Generic requests and non-product budget/preference answers do not gain invented candidates.
+
+Guided creation, answer, region, skip and reanswer responses belong to their issuing flow. Home or Ask another question abandons the display immediately. Late success, error and pending cleanup cannot change the new flow. Automatic analysis uses the accepted session and generation. Technical failure retry remains explicit and reuses the existing run/research path. Live validation deferred to Task 221.
+
 ## Shopper advice and diagnostic fields, Task 219
 
 The response contract is unchanged. Overall and per-choice `rationale` and `tradeoffs` carry concise advice about what to buy. Supported prices and useful budget/value explanations can inform that advice, including explained modest stretches. `confidence`, `unknowns`, analysis cautions, trust records and bundle warnings remain available for internal diagnostics and saved-record compatibility. The normal result does not aggregate them into generic checking or warning sections.

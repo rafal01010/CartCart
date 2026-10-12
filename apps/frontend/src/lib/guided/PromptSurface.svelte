@@ -69,6 +69,7 @@
 				<ArrowUp class="size-4.5" />
 			</Button>
 		</div>
+		<p class="mt-4 text-center text-sm leading-6 text-muted-foreground">Include any products you have in mind and your budget, if you have one.</p>
 		{#if error}
 			<p class="mt-4 text-center text-sm text-destructive" role="alert">{error}</p>
 		{/if}

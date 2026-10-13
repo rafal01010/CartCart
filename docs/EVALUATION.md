@@ -1634,3 +1634,7 @@ Oppo/Xiaomi and recognized brand-mismatch cases were added to source-policy test
 definitions but were not executed in this unit. Only narrow launch checks ran.
 See `docs/TASK_215_RESTART.md` for exact run and artifact IDs. A fresh empty or
 blocked result does not pass acceptance.
+
+### Task 221 final live verification
+
+The final unit uses shared real guided-browser journeys, matching API/SQLite records, desktop/mobile output, actual research and transcript provenance, usage and effective configuration. It does not repeat completed offline implementation suites. Narrow repairs are checked with the actual saved recovery replay, one noisy source-selection test, repeated bounded attributed-note/caution checks, and four regional-budget/category API controls. Fixtures, historical successes and metadata-only videos do not establish final acceptance. Exact outcomes and remaining criteria are recorded in the Task 221 handoff.

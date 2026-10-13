@@ -135,7 +135,7 @@ from app.schemas.ids import (
     new_id,
 )
 from app.schemas.confidence import Confidence, ConfidenceLevel
-from app.schemas.intake import CreateSessionRequest, ShoppingBrief
+from app.schemas.intake import CreateSessionRequest, FieldSource, ShoppingBrief
 from app.schemas.products import (
     MANUAL_UNVERIFIED_SUMMARY,
     CanonicalProduct,
@@ -1313,6 +1313,21 @@ class ShoppingRunOrchestrator:
                     context.active_brief = ShoppingBrief.model_validate(
                         saved_input["brief"]
                     )
+                    inferred_intake = next(
+                        (
+                            item["output"]
+                            for record in reversed(records)
+                            if record.stage == RunStage.INTAKE
+                            for item in record.tool_activity
+                            if item.get("status") == "model_intake_completed"
+                        ),
+                        None,
+                    )
+                    if inferred_intake is not None:
+                        context.active_brief = _merge_live_intake_brief(
+                            context.active_brief,
+                            ShoppingBrief.model_validate(inferred_intake),
+                        )
                 else:
                     for record in reversed(records):
                         if record.stage != RunStage.INTAKE:
@@ -3196,14 +3211,64 @@ class ShoppingRunOrchestrator:
             and item.get("status") == "completed"
         )
         provenance = {"result_author": draft.owner_agent_name, "handoff_chain": chain}
+        route_owner = draft.owner_agent_name
+        recoveries = tuple(
+            (index, item)
+            for index, item in enumerate(activity)
+            if item.get("tool_name") == "owner_recovery"
+            and item.get("status") == "completed"
+        )
+        if recoveries:
+            if len(recoveries) != 1:
+                raise ValueError("Owner recovery provenance is ambiguous.")
+            recovery_index, recovery = recoveries[0]
+            last_transfer_index = max(
+                (
+                    index
+                    for index, item in enumerate(activity[:recovery_index])
+                    if item.get("tool_name") == "sdk_handoff"
+                    and item.get("status") == "completed"
+                ),
+                default=-1,
+            )
+            specialist = recovery.get("input", {}).get("failed_specialist")
+            output = recovery.get("output", {})
+            first_edge = "GeneralShoppingAgent -> TechnologyDomainAnalystAgent"
+            if (
+                draft.owner_agent_name != "TechnologyDomainAnalystAgent"
+                or output.get("last_agent") != draft.owner_agent_name
+                or output.get("sdk_handoff") is not False
+                or specialist not in self._agent_catalog.require(
+                    "TechnologyDomainAnalystAgent"
+                ).target_handoff_agent_names
+                or any(
+                    item.get("tool_name") == "sdk_handoff"
+                    and item.get("status") == "completed"
+                    for item in activity[recovery_index + 1:]
+                )
+            ):
+                raise ValueError("Owner recovery did not match the final author.")
+            if chain == (first_edge, f"TechnologyDomainAnalystAgent -> {specialist}"):
+                route_owner = specialist
+            elif chain == (first_edge,) and any(
+                item.get("tool_name") == "sdk_handoff"
+                and item.get("status") == "failed"
+                and item.get("input", {}).get("source_agent") == "TechnologyDomainAnalystAgent"
+                and item.get("input", {}).get("target_agent") == specialist
+                and index > last_transfer_index
+                for index, item in enumerate(activity[:recovery_index])
+            ):
+                route_owner = "TechnologyDomainAnalystAgent"
+            else:
+                raise ValueError("Owner recovery did not match the recorded transfer.")
         expected_chain = (
             ()
-            if draft.owner_agent_name == "GeneralShoppingAgent"
+            if route_owner == "GeneralShoppingAgent"
             else ("GeneralShoppingAgent -> TechnologyDomainAnalystAgent",)
-            if draft.owner_agent_name == "TechnologyDomainAnalystAgent"
+            if route_owner == "TechnologyDomainAnalystAgent"
             else (
                 "GeneralShoppingAgent -> TechnologyDomainAnalystAgent",
-                f"TechnologyDomainAnalystAgent -> {draft.owner_agent_name}",
+                f"TechnologyDomainAnalystAgent -> {route_owner}",
             )
         )
         if chain != expected_chain or draft.owner_agent_name not in {
@@ -3719,7 +3784,7 @@ def _orchestrator_error(
     return ErrorEnvelope(
         error=ErrorBody(
             code="orchestrator_stage_failed",
-            message=str(error) or error.__class__.__name__,
+            message=(str(error) or error.__class__.__name__)[:1000],
             request_id=trace_id,
             details={"stage": stage.value},
         )
@@ -3730,10 +3795,15 @@ def _merge_live_intake_brief(
     current: ShoppingBrief,
     inferred: ShoppingBrief,
 ) -> ShoppingBrief:
+    category_owner = (
+        inferred
+        if current.category_source == FieldSource.INFERRED and inferred.category
+        else current
+    )
     return current.model_copy(
         update={
-            "category": current.category or inferred.category,
-            "category_source": current.category_source or inferred.category_source,
+            "category": category_owner.category or inferred.category,
+            "category_source": category_owner.category_source or inferred.category_source,
             "region": current.region or inferred.region,
             "budget": current.budget or inferred.budget,
             "constraints": current.constraints or inferred.constraints,

@@ -734,3 +734,7 @@ Basic phone research favors dated official announcements and product pages,
 including relevant Apple, Samsung, Oppo and Xiaomi options. Reviews are optional.
 Company claims, publication dates and release dates remain distinguishable.
 Broad categories and generic fallback remain available.
+
+## Task 221 intake and provenance compatibility
+
+Agent identities, SDK permissions, catalog mapping and source fallback remain unchanged. Guided word matching no longer classifies headphones as phones. The live intake model may correct an earlier inferred category while explicit user category stays authoritative. Supported audio still uses General -> Technology -> EarphonesHeadphones ownership, and phone uses General -> Technology -> Smartphone. A validated parent recovery may author a result while both completed SDK transfers remain factual saved provenance. Research/history and prose repairs add no model stage or public result schema.

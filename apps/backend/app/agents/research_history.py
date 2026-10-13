@@ -319,10 +319,28 @@ class ResearchHistory:
         }
         quotes: list[dict[str, Any]] = []
         source_notes: list[dict[str, Any]] = []
+        model_notes: list[dict[str, Any]] = []
         excerpt_limit = max(120, min(700, characters // 6))
+
+        for handle, original in reversed(tuple(self.views.items())):
+            facts = (original.state or {}).get("facts", ())
+            for fact in facts:
+                note = {"view_id": handle, "facts_are_model_notes": True, "fact": fact}
+                if note not in model_notes:
+                    model_notes.append(note)
 
         def collect(value: Any) -> None:
             if isinstance(value, dict):
+                for note in value.get("model_notes", ()):
+                    if isinstance(note, dict) and note not in model_notes:
+                        model_notes.append(note)
+                if isinstance(value.get("view_id"), str):
+                    facts = value.get("facts", value.get("retained", {}).get("facts", ()))
+                    for fact in facts:
+                        if isinstance(fact, str):
+                            note = {"view_id": value["view_id"], "facts_are_model_notes": True, "fact": fact}
+                            if note not in model_notes:
+                                model_notes.append(note)
                 for field, kind in (
                     ("source_excerpt", value.get("kind", "source_note")),
                     ("text", "page_excerpt"),
@@ -390,6 +408,7 @@ class ResearchHistory:
         )
         for key, rows in (
             ("recorded_quotes", reversed(quotes)),
+            ("model_notes", model_notes),
             ("cautions", support.get("cautions", [])),
             (
                 "source_notes",
@@ -405,7 +424,11 @@ class ResearchHistory:
                 if len(retained) >= 12:
                     break
                 retained.append(row)
-                if len(json.dumps(result, ensure_ascii=False)) > characters:
+                if (
+                    len(json.dumps(result, ensure_ascii=False)) > characters
+                    or key == "model_notes"
+                    and len(json.dumps(retained, ensure_ascii=False)) > characters // 3
+                ):
                     retained.pop()
         return result
 

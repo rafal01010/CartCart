@@ -215,7 +215,20 @@ class ResearchSelection:
             )
             reason = "resolves_open_evidence_need"
             status = "selected"
-            if equivalent is not None and any(
+            model_terms = {
+                term for term in query_terms
+                if any(character.isdigit() for character in term)
+                and not (term.isdigit() and len(term) == 4)
+            }
+            page_terms = terms(lead.title + " " + urlsplit(url).path)
+            generic_support = (
+                bool(re.search(r"/(?:support|help)/", urlsplit(url).path, re.IGNORECASE))
+                and bool(model_terms)
+                and not bool(page_terms & model_terms)
+            )
+            if relevance == 0 or generic_support:
+                status, reason = "deferred", "no_buyer_or_need_match"
+            elif equivalent is not None and any(
                 equivalent_url(str(previous.url)) == url
                 and not _new_information(lead, previous)
                 for previous in prior

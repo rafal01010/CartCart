@@ -1354,3 +1354,9 @@ rejection, not a timeout or token failure. Local services remain available, and
 no research worker is active. The matching saved sources and owner checkpoint
 are retained for a later saved-decision retry after authorization. See
 `docs/TASK_215_RESTART.md` for the exact state.
+
+### Task 221 local acceptance repairs
+
+Final Task 221 was explicitly resumed on 2026-10-14. Use the configured managed local services and browser. The process holder must remain alive during journeys in the execution environment; a completed detached launcher can lose its children. The initial sandbox launch required approved local-process execution. Normal research, result retry and saved load still use configured services.
+
+Internal owner records now preserve the actual SDK failure message and available failed hosted-call summaries even when a parent recovery succeeds. Treat older truncation or hosted-token attribution as inference when its original exception/raw activity was discarded. No configuration, model, reasoning, provider, output/context/spending limit or verifier timeout was changed by these repairs. Approved yt-dlp caption preparation from Task 217 remains effective. No fixture fallback is permitted as live evidence.

@@ -96,9 +96,9 @@ def test_noisy_batch_selects_lower_rank_independent_and_contrary_sources() -> No
         "Aster lamp PH",
         "Aster lamp import",
         "Aster lamp independent review",
-        "Car insurance",
     ]
-    assert plan.decisions[leads[0].source_id].status == "selected"
+    assert plan.decisions[leads[0].source_id].status == "deferred"
+    assert plan.decisions[leads[0].source_id].reason == "no_buyer_or_need_match"
     assert (
         plan.decisions[leads[4].source_id].reason == "material_caution_or_contrary_lead"
     )

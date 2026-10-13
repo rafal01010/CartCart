@@ -703,3 +703,7 @@ disabled. They do not rerun intake or provider searches.
 Same-run retry accepts an interrupted decision/verification or the latest saved
 blocked verification result. Approved results are not retryable through this
 endpoint. The original request and brief must remain unchanged.
+
+### Task 221 repair compatibility
+
+Public endpoints and result schemas are unchanged. Existing `result_author` can identify a successful Technology recovery while `handoff_chain` retains both actual SDK transfers. Internal saved activity must contain a matching completed recovery receipt. Guided initial intake recognizes explicit selected-region money codes and bounded category words. Saved results and historical text remain immutable; retries append their actual activity and result version.

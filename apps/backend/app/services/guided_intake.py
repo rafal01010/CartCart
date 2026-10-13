@@ -363,7 +363,8 @@ class GuidedIntakeService:
                         _answer_text(answer) or ""
                         for answer in fixture.answers.values()
                     ),
-                )
+                ),
+                currency=(fixture.region_setup.region.currency if fixture.region_setup and fixture.region_setup.region else None),
             )
             is not None
             or has_unconstrained_budget(_shopping_goal(fixture))
@@ -539,7 +540,7 @@ class GuidedIntakeService:
         return ShoppingBrief(
             original_query=query,
             region=_region_preference_from_setup(fixture.region_setup),
-            budget=_budget_from_texts((query, *answer_texts)),
+            budget=_budget_from_texts((query, *answer_texts), currency=(fixture.region_setup.region.currency if fixture.region_setup and fixture.region_setup.region else None)),
             constraints=constraints,
             preferences=preferences,
             **_category_fields(query),
@@ -669,8 +670,9 @@ def _category_fields(query: str) -> dict[str, str]:
         "headphone": "headphones",
         "earbud": "earbuds",
     }
-    for keyword, category in categories.items():
-        if keyword in normalized:
+    for keyword in sorted(categories, key=len, reverse=True):
+        category = categories[keyword]
+        if re.search(rf"\b{re.escape(keyword)}s?\b", normalized):
             return {
                 "category": category,
                 "category_source": FieldSource.INFERRED,
@@ -702,18 +704,19 @@ def _answer_text(answer: GuidedAnswer | None) -> str | None:
     return None
 
 
-def _budget_from_texts(texts: tuple[str, ...]) -> BudgetConstraint | None:
+def _budget_from_texts(texts: tuple[str, ...], *, currency: str | None = None) -> BudgetConstraint | None:
+    codes = "|".join(re.escape(code) for code in sorted({"USD", *([currency] if currency else [])}))
     for text in texts:
         match = re.search(
-            r"(?:\$|usd\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+            rf"(?:\$|\b(?P<currency>{codes})\s*)\s*(?P<amount>[0-9][0-9,]*(?:\.[0-9]{{1,2}})?)",
             text,
             re.I,
         )
         if match is None:
             continue
-        amount = Decimal(match.group(1).replace(",", ""))
+        amount = Decimal(match.group("amount").replace(",", ""))
         return BudgetConstraint(
-            amount=Money(amount=amount, currency="USD"),
+            amount=Money(amount=amount, currency=match.group("currency") or "USD"),
             mode=BudgetMode.PREFERRED,
         )
     return None

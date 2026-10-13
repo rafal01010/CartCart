@@ -97,6 +97,32 @@ def test_phone_with_unconstrained_budget_does_not_ask_budget_again(
     )
 
 
+@pytest.mark.parametrize(
+    ("country", "currency", "amount"),
+    [("PH", "PHP", "20,000"), ("JP", "JPY", "30,000"), ("US", "USD", "300")],
+)
+def test_initial_regional_headphone_budget_keeps_audio_category(
+    guided_api_client: TestClient, country: str, currency: str, amount: str
+) -> None:
+    query = f"I need noise-cancelling headphones for long flights, my budget is {currency} {amount}."
+    response = guided_api_client.post(
+        "/api/sessions/guided",
+        json={"query": query, "region_setup": {"status": "provided", "region": {"country_code": country, "currency": currency}}},
+    )
+    assert response.status_code == 201
+    created = response.json()
+    assert created["guide"]["current_question"]["question_id"] == "considered-products"
+    ready = guided_api_client.post(f"/api/sessions/{created['session_id']}/guide/skip-all")
+    assert ready.status_code == 200
+    brief = ready.json()["ready_brief"]
+    assert brief["category"] == "headphones"
+    assert brief["original_query"] == query
+    assert brief["budget"]["amount"] == {"amount": amount.replace(",", ""), "currency": currency}
+    assert brief["budget"]["mode"] == "preferred"
+    saved = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()
+    assert saved["current_brief"] == brief
+
+
 def test_create_guided_session_starts_from_single_question_and_loads_state(
     guided_api_client: TestClient,
 ) -> None:

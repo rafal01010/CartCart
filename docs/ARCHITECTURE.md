@@ -994,3 +994,11 @@ the saved bundle and supplied context, has no tools and cannot change the owner'
 choices or block advice. Its observations are editorial notes. The configured
 model/profile and authorized 180-second timeout remain available. Ordinary run,
 refinement and retry orchestration omit the verifier.
+
+### Final P0 research and intake repairs
+
+Task 221 preserves factual SDK handoffs separately from a validated parent-recovery author. Result materialization requires the matching completed recovery receipt rather than shortening the recorded route. Existing result author, handoff chain and saved activity carry this provenance; no public schema is added.
+
+Research checkpoints retain attributed model interpretation notes within the existing character bound, alongside source excerpts and material cautions. Native discovery and focused page reads are preferred before hosted fallback. Relevance selection defers unrelated leads, preserving originals and explicit owner fetch overrides. Advice remains model-authored plain prose with sources projected separately.
+
+Guided category matching uses words and plurals. The configured intake model may correct a prior inferred category; explicit user category remains authoritative. Initial money capture accepts the selected region's explicit currency code and USD. Saved retry can apply recorded intake output without repeating the model intake call. Models, providers, context limits and the optional 180-second verifier remain unchanged.

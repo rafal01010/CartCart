@@ -89,6 +89,7 @@ OWNER_DECISION_GUIDANCE = (
     "Explain each primary choice's distinct benefit and concise comparative tradeoff. If selecting a winner, select only a primary choice. "
     "Use candidate rationale and tradeoff fields for shopper advice. Unknowns and warnings retain internal diagnostics only. A decisive winner and mode selections are optional. "
     "Use the overall rationale for the recommendation. Where product age matters, explain known released generation, age or support differences from available dates. A confirmed upcoming launch may inform a useful tradeoff. "
+    "Keep this JSON compact. Omit unnecessary mode selections, warnings, unknowns and evidence-gap narratives; use empty optional collections when they add no useful decision information. "
     "Write advice as plain prose. Put optional source associations in their fields; source links are shown below the advice. "
     "Search snippets, fetched pages and saved specialist context can inform your judgment without recorded quotes. "
     "Citations and reviews are optional. Associate real supplied evidence_ids or source_ids when useful. "
@@ -110,13 +111,13 @@ class GeneralCandidateSelection(CartCartBaseModel):
     choice_group: RecommendationChoiceGroup
     evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple, max_length=8)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple, max_length=8)
-    rationale: str | None = Field(default=None, max_length=1500)
-    tradeoff: str | None = Field(default=None, max_length=1000)
+    rationale: str | None = Field(default=None, max_length=1500, description="One concise benefit sentence in plain prose. No input narration, links or citation markers.")
+    tradeoff: str | None = Field(default=None, max_length=1000, description="One useful comparative limitation in plain prose. No links, citation markers or generic missing-data warnings.")
     unknowns: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
 
 
 class GeneralModelOutput(CartCartBaseModel):
-    rationale: str = Field(min_length=1, max_length=1500)
+    rationale: str = Field(min_length=1, max_length=1500, description="Direct what-to-buy advice in two or three short plain sentences. Name choices and tradeoffs, without input echoes, links or citation markers.")
     category: str = Field(min_length=1, max_length=200)
     specialist_helpful: bool = False
     candidates: tuple[GeneralCandidateSelection, ...] = Field(default_factory=tuple, max_length=5)
@@ -393,9 +394,21 @@ class LiveGeneralShoppingAgent:
             )
         tools.set_brief(input_data.brief)
         quotes = await tools.restore_recorded_quotes(activity)
-        output, result = await self._decide_recorded(
-            input_data, owner_agent_name, quotes
-        )
+        self._activity = tuple(item for item in activity if item.get("tool_name") != "context_call")
+        try:
+            output, result = await self._decide_recorded(
+                input_data, owner_agent_name, quotes
+            )
+        except Exception as exc:
+            self._activity += (
+                {
+                    "tool_name": "general_owner_resume",
+                    "status": "failed",
+                    "input": {"agent": owner_agent_name, "research_enabled": False},
+                    "output": {"error_type": type(exc).__name__, "error_message": str(exc)[:2000]},
+                },
+            )
+            raise RuntimeError("The saved shopping advice could not finish. Your gathered information is saved. Try again.") from exc
         draft = await self._validated_draft(input_data, output, tools, ())
         usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
         self._activity = (
@@ -970,6 +983,8 @@ class LiveGeneralShoppingAgent:
         gap: str | None = None
         failure_type: str | None = None
         failure_code: str | None = None
+        failure_message: str | None = None
+        failure_hosted_calls: tuple[dict[str, Any], ...] = ()
         raw_result: Any = None
         completion_stage = "owner_sdk"
         failed_run_usage: Any = None
@@ -1235,6 +1250,7 @@ class LiveGeneralShoppingAgent:
         except (Exception, asyncio.TimeoutError) as exc:
             budget_failure = context_budget_failure(exc)
             failure_type = type(budget_failure or exc).__name__
+            failure_message = str(budget_failure or exc)[:2000]
             failure_code = (
                 "context_budget_exceeded"
                 if budget_failure is not None
@@ -1251,6 +1267,15 @@ class LiveGeneralShoppingAgent:
             )
             gap = f"Shopping research could not finish ({type(exc).__name__})."
             error_data = getattr(exc, "run_data", None)
+            failure_hosted_calls = tuple(
+                {
+                    "call_id": call.call_id,
+                    "action": call.action,
+                    "status": call.status,
+                    "source_urls": list(call.source_urls),
+                }
+                for call in read_hosted_web_search_activity(error_data).calls
+            )
             error_usage = getattr(
                 getattr(error_data, "context_wrapper", None), "usage", None
             )
@@ -1511,8 +1536,10 @@ class LiveGeneralShoppingAgent:
                     ],
                     "gap": gap,
                     "failure_type": failure_type,
-                    "failure_stage": completion_stage if gap is not None else None,
+                    "failure_stage": completion_stage if failure_type is not None else None,
                     "failure_code": failure_code,
+                    "error_message": failure_message,
+                    "failed_hosted_calls": list(failure_hosted_calls),
                     "rejected_handoff": rejected_handoff,
                     "model": configuration.model,
                     "last_agent": draft.owner_agent_name,

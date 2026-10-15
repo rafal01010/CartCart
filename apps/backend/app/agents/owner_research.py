@@ -11,7 +11,11 @@ from typing import Any, Callable
 from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agents.context_management import context_budget_failure, source_bundle_context
+from app.agents.context_management import (
+    active_budget,
+    context_budget_failure,
+    source_bundle_context,
+)
 from app.agents.source_spans import source_span
 from app.agents.research_history import (
     bounded_cautions,
@@ -748,7 +752,23 @@ class OwnerResearchContext:
             except Exception as exc:
                 budget_failure = context_budget_failure(exc)
                 if budget_failure is not None:
-                    raise budget_failure from exc
+                    budget = active_budget()
+                    if budget is not None and budget.exhausted:
+                        raise budget_failure from exc
+                    self._record(
+                        "consult_source_intelligence",
+                        "technical_funding_gap",
+                        capability=capability.value,
+                        retryable=True,
+                    )
+                    return {
+                        "status": "gap",
+                        "retryable": True,
+                        "technical_funding_failure": True,
+                        "gap": "Optional source consultation could not complete within funded capacity. "
+                        "This does not establish caption or provider unavailability. "
+                        "Finish buying advice from existing supported facts; omitted source material remains unreviewed.",
+                    }
                 self._record(
                     "consult_source_intelligence",
                     "failed",

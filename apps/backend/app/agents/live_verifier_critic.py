@@ -7,7 +7,12 @@ from typing import Any, Protocol
 from agents import Agent, FunctionTool, ModelSettings, RunConfig
 from agents.agent_output import AgentOutputSchema
 
-from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
+from app.agents.token_policy import scaled_tokens
+from app.agents.context_management import (
+    BoundedRunner,
+    ContextBudgetExceeded,
+    managed_verification_context,
+)
 from app.agents.contracts import VerificationAgentInput, VerificationReport
 from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.model_input_projection import (
@@ -93,6 +98,7 @@ class LiveVerifierCriticAgent:
         default=(), init=False, repr=False
     )
 
+    @managed_verification_context
     async def run(self, input_data: VerificationAgentInput) -> VerificationReport:
         configuration = build_openai_agent_run_configuration(
             self.settings,
@@ -102,7 +108,9 @@ class LiveVerifierCriticAgent:
         agent = _build_verifier_critic_agent(configuration.model)
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
-            model_settings=ModelSettings(max_tokens=1500, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=scaled_tokens(1500), include_usage=True
+            ),
             tracing_disabled=not configuration.tracing_enabled,
             trace_include_sensitive_data=configuration.trace_include_sensitive_data,
             workflow_name=configuration.trace_workflow_name,
@@ -171,7 +179,9 @@ def _build_verifier_critic_agent(
     return Agent(
         name="CartCartVerifierCriticAgent",
         model=model,
-        model_settings=ModelSettings(max_tokens=1500, include_usage=True),
+        model_settings=ModelSettings(
+            max_tokens=scaled_tokens(1500), include_usage=True
+        ),
         instructions=(
             "Offer optional editorial assistance for the supplied shopping advice. "
             "Keep the owning model's selected products, listings and recommendation modes. "

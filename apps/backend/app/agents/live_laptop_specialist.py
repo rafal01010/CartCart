@@ -7,6 +7,7 @@ from typing import Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.token_policy import scaled_tokens
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.catalog import (
     AgentCatalog,
@@ -112,7 +113,7 @@ class LiveLaptopSpecialistAgent:
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
             model_settings=ModelSettings(
-                max_tokens=1200,
+                max_tokens=scaled_tokens(1200),
                 include_usage=True,
             ),
             tracing_disabled=not configuration.tracing_enabled,
@@ -213,7 +214,7 @@ def _build_laptop_specialist_agent(model: str) -> Agent[Any]:
         name="CartCartLaptopSpecialistAgent",
         model=model,
         model_settings=ModelSettings(
-            max_tokens=1200,
+            max_tokens=scaled_tokens(1200),
             include_usage=True,
         ),
         instructions=(

@@ -666,10 +666,12 @@ and deferred source handles. `fetch_source` accepts optional `need_id`;
 quotes and actual transported text determine citation eligibility. A selected
 lead or rewritten context is not independent evidence.
 
-Insufficient support after automatic shortening retains an explicit research
-limitation, missing checks and reviewed evidence in the existing no-pick result.
-It still requires independent verification and a matching saved result version.
-Genuine budget exhaustion and irreducible contracts use the failed-run path.
+Useful supported advice after automatic shortening uses the ordinary authored
+recommendation and immutable result-version path. Source omissions remain
+explicitly unreviewed in internal context. Optional source funding failures
+remain retryable source gaps and do not erase useful owner recommendations.
+Genuine inability to fund a valid completion and irreducible contracts use the
+failed-run path. Verification remains optional.
 
 Task 214 adds safe internal diagnostics for `failure_stage`, active owner output
 allowance, final transport reservation and blocking condition. Hosted search

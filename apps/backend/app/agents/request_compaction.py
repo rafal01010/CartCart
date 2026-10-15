@@ -10,6 +10,7 @@ from app.agents.context_metrics import measure
 from app.agents.research_history import (
     ResearchHistory,
     bounded_cautions,
+    complete_excerpt,
     native_item_key,
 )
 
@@ -223,7 +224,11 @@ def restore_source_views(
         collect(payload)
         if not spans:
             continue
-        source_id = spans[0].get("source_id", spans[0].get("snapshot_id"))
+        source_id = next(
+            str(spans[0][key])
+            for key in ("source_id", "snapshot_id")
+            if key in spans[0]
+        )
         url = urls.get(source_id, "")
         domain = (urlsplit(url).hostname or source_id).removeprefix("www.")
         if domain in domains or domain in (excluded_domains or set()):
@@ -331,13 +336,13 @@ def _completed_response_batches(
         call_groups[-1].append((call_id, index))
         group_end = max(group_end, outputs.get(call_id, len(items)))
     batches = []
-    for group in call_groups:
+    for call_group in call_groups:
         if any(
             call_id not in outputs or outputs[call_id] <= index
-            for call_id, index in group
+            for call_id, index in call_group
         ):
             continue
-        start = group[0][1]
+        start = call_group[0][1]
         while start > 0:
             preceding = items[start - 1]
             if preceding.get("type") == "function_call_output" or preceding.get(
@@ -348,10 +353,10 @@ def _completed_response_batches(
         batches.append(
             CompletedResponseBatch(
                 start,
-                max(outputs[call_id] for call_id, _ in group) + 1,
+                max(outputs[call_id] for call_id, _ in call_group) + 1,
                 tuple(
                     CompletedExchange(call_id, index, outputs[call_id])
-                    for call_id, index in group
+                    for call_id, index in call_group
                 ),
             )
         )
@@ -585,7 +590,11 @@ class CompactionPlan:
             if item is not None:
                 passages = selections.get(item.field_id, [])
                 return "\n".join(
-                    dict.fromkeys(text for text in [child[:limit], *passages] if text)
+                    dict.fromkeys(
+                        text
+                        for text in [complete_excerpt(child, limit), *passages]
+                        if text
+                    )
                 )
             if isinstance(child, dict):
                 result = {
@@ -643,7 +652,7 @@ class CompactionPlan:
             assistant_fields = [
                 field for field in self.fields if field.path[:2] == (index, "content")
             ]
-            if item.get("role") == "assistant" and assistant_fields:
+            if item.get("role") == "assistant" and assistant_fields and not isinstance(self.payload[index].get("content"), dict):
                 notice = json.dumps(
                     {
                         "derived_context": True,
@@ -703,6 +712,8 @@ _PROTECTED = {
     "owner_scope",
     "ownership",
     "objective",
+    "saved_source_notes",
+    "source_notes",
 }
 
 
@@ -746,6 +757,16 @@ def plan_compaction(
                 handle = registered.get("_research_view", {}).get("view_id")
                 if handle:
                     plan.handles[index] = handle
+                if isinstance(text, str):
+                    try:
+                        structured = json.loads(text)
+                    except ValueError:
+                        structured = None
+                    if isinstance(structured, dict):
+                        item[key] = structured
+                        continue
+                    if isinstance(structured, list):
+                        continue
                 if isinstance(text, str) and len(text) > 500:
                     plan.fields.append(
                         ContextField(len(plan.fields), text, (index, key))
@@ -758,6 +779,12 @@ def plan_compaction(
                             and isinstance(block.get("text"), str)
                             and len(block["text"]) > 500
                         ):
+                            try:
+                                json.loads(block["text"])
+                            except ValueError:
+                                pass
+                            else:
+                                continue
                             plan.fields.append(
                                 ContextField(
                                     len(plan.fields),
@@ -795,6 +822,7 @@ def plan_compaction(
         ):
             return
         if isinstance(value, dict):
+            protected = protected or "segment_id" in value or "quote" in value
             for key, child in value.items():
                 scan(
                     child,
@@ -825,6 +853,12 @@ def plan_compaction(
             and len(value) > 500
             and path not in {field.path for field in plan.fields}
         ):
+            try:
+                structured = json.loads(value)
+            except ValueError:
+                structured = None
+            if isinstance(structured, (dict, list)):
+                return
             plan.fields.append(ContextField(len(plan.fields), value, path))
 
     scan(payload)
@@ -863,9 +897,10 @@ def plan_compaction(
                 start = sentence_start + (
                     1 if item.original[sentence_start] == "\n" else 2
                 )
-            plan.required_spans.append(
-                ContextSpan(item.field_id, start, min(len(item.original), start + 400))
-            )
+            ending = re.search(r"[.!?](?:\s|$)|\n", item.original[match.end() :])
+            end = match.end() + ending.end() if ending else len(item.original)
+            if end - start <= 400:
+                plan.required_spans.append(ContextSpan(item.field_id, start, end))
     return plan
 
 

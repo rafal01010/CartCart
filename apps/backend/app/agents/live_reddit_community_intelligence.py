@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.token_policy import scaled_tokens
 from app.agents.context_management import (
     BoundedRunner, ContextBudgetExceeded, context_budget_failure,
 )
@@ -223,7 +224,7 @@ class RedditCommunityIntelligenceAgent:
             name="RedditCommunityIntelligenceAgent",
             model=config.model,
             model_settings=ModelSettings(
-                max_tokens=3000, include_usage=True, tool_choice="auto"
+                max_tokens=scaled_tokens(3000), include_usage=True, tool_choice="auto"
             ),
             instructions=(
                 "You are a community-evidence specialist, not a product-fact authority or purchase recommender. "

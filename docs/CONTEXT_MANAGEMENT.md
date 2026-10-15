@@ -8,7 +8,13 @@ Advice and source associations are independent. Recommendation evidence IDs, sou
 
 The normal, refinement and saved-retry workflows do not invoke a mandatory verifier. The active owner remains General -> Technology -> the appropriate specialist for supported technology, including Smartphone. `VerifierCriticAgent` remains an explicit optional tool-free editorial workbench capability. It cannot block or replace the owner's buying judgment. Its configured model/profile and authorized 180-second override remain available when explicitly invoked. Request refusal uses the installed OpenAI Agents SDK input guardrail, with no application phrase tripwires. Classifier timeout or invalid output is a retryable technical error.
 
-Task 216 Phase 1 is implementation only. Live calls, retries and reruns remain on hold. Only scoped launch lint, syntax and frontend checks are permitted. Tasks 216, 214, 215 and 100A remain unfinished until the revised live acceptance passes. Historical policies and recorded tests below are superseded wherever they require citations, exact provenance, source counts, mandatory verification, seller exclusions or hard budget vetoes. See [Task 216](TASK_216.md) and [restart handoff](TASK_216_RESTART.md).
+Tasks 216, 214, 215 and 100A passed their revised live checkpoint. Tasks 217-220
+are implementation-complete. Task 222 repairs shared funding offline before
+remaining Task 221 live acceptance. No live work starts from an implementation
+invocation. Historical policies below are superseded wherever they require
+citations, exact provenance, source counts, mandatory verification, seller
+exclusions or hard budget vetoes. See [Task 216](TASK_216.md),
+[Task 222](TASK_222.md) and [the saved live handoff](TASK_221_IMPLEMENTATION_HANDOFF.md).
 
 
 Task 100B passed its offline acceptance gate on 2026-10-04 after completing
@@ -197,21 +203,29 @@ are rejected to prevent bypasses. Shopping uses non-streaming runs.
 
 | Bound | Default |
 | --- | --- |
-| Known input per model request | 19,000 estimated tokens, including instructions and schemas |
-| Output per request | Lower of role limit and 5,000 tokens |
-| Whole shopping pipeline | 150,000 cumulative tokens |
-| Owner plus nested sources and recovery | Existing 90,000-token ceiling |
-| Source manager plus nested specialists | Existing 30,000-token ceiling |
-| Reserved final comparison | 24,000 tokens |
-| Reserved verification | 24,000 tokens |
-| Hosted search uncertainty per enabled request | 8,000 tokens |
+| Known input per model request | 25,334 estimated tokens, including instructions and schemas |
+| Output per request | Lower of role limit and 6,667 tokens |
+| One orchestration attempt | 200,000 cumulative tokens |
+| Owner plus nested sources and recovery | Starting allocation of 120,000 tokens |
+| Source manager plus nested specialists | Starting allocation of 40,000 tokens |
+| Eligible comparison completion | Configured 32,000-token nontransferable allocation |
+| Requested optional verification | Configured 32,000-token nontransferable allocation |
+| Hosted search uncertainty per eligible request | 10,667 tokens |
 
-The whole-pipeline bound also covers stages outside the existing owner ceiling.
-It does not enlarge the 90,000-token owner allowance. Known-input estimates add
-25% plus 256 tokens for tokenizer/wrapper uncertainty; output and hosted reserves
-are additional. These defaults are conservative offline assumptions, not a
-calibrated guarantee about hosted-tool internals or a model's context window.
-Each final-step reserve funds the maximum known input plus output bound.
+The attempt bound also covers model stages outside the owner. Nested counters
+are overlapping views of the same charges, not added token pools. Starting
+owner/source allocations can expand by the exact admitted shortfall from
+uncommitted ancestor capacity. Every enclosing scope must fund the request and
+active completion promises. Transfers change funded ceilings without resetting
+spent or reserved balances. The main ceiling never expands.
+
+Known-input estimates start with UTF-8 bytes divided by three, then add 25%
+and 256 tokens. After a response without executed hosted search, observed input
+usage can increase the attempt's multiplier, bounded at 2.0, with 10% headroom.
+The multiplier never decreases. Actual executed hosted expansion is recorded
+separately because its hidden input cannot be measured locally. Output and
+hosted reservations are additional. These are conservative planning bounds,
+not guarantees about provider tokenization or a model's context window.
 Reducible oversized inputs receive automatic derived views. Irreducible exact
 contracts fail explicitly rather than truncating buyer constraints.
 
@@ -227,12 +241,29 @@ backstop remain necessary. Completion checks use the settled ledger interval
 when transport events exist. Injected runners without events use owner SDK
 usage plus source consultation aggregates once; child activity is diagnostic.
 
-Before research consumes downstream reservations, the adapter closes tools and
-handoffs and requests bounded final advice from available information. If the
+Before research is admitted, the adapter prepares and funds a purpose-specific
+completion request. Its checkpoint contains actual retained input, instructions,
+output allowance and a bounded retained-return input allowance. The next
+completion is compacted against that funded input ceiling under funding
+pressure. Ample uncommitted funds can secure a refreshed larger completion.
+Raw tool results may
+be much larger; complete useful records and cautions survive in the retained
+return while omitted originals remain unreviewed and retrievable. Suspended
+owner and source-manager completions stay protected during specialist work.
+If research cannot also fund completion, the adapter closes tools and handoffs.
+Sources finish metadata, interpreted speech and accurate gaps. Structured stages
+finish their own contracts. Shopping owners finish concise advice. If the
 call cannot be funded or fit, it raises `ContextBudgetExceeded`. The run fails
 technically with saved research. Missing citations, warranty, trust or price
 cannot substitute an empty buying judgment for a failed final model call.
-Configured owner/source ceilings and usage accounting remain unchanged.
+An optional cleanup failure uses deterministic saved-original checkpoints.
+Useful saved source notes survive that fallback. Cleanup never adds a paid
+summarizer, research round or automatic retry. All changes to tools, handoffs,
+instructions or input trigger a fresh full-request estimate. Unknown, failed
+and cancelled calls keep their complete reservations. Abandoned actor holds
+are released without refunding those charges. Paid valid final responses after
+actual overage still reach ordinary validation/persistence; further calls are
+blocked by exhausted ledgers. See [Task 222 handoff](TASK_222_IMPLEMENTATION_HANDOFF.md).
 
 Persisted `context_call` activity separates estimated inputs from actual input
 and output usage, before/after sizes, instruction/schema overhead, source/evidence
@@ -259,7 +290,19 @@ test/cache directories on exit. Canonical evidence and useful diagnostics follow
 
 ## Verification
 
-Run the Task 100B gate from the repository root:
+Task 222 uses the focused offline control command from the repository root:
+
+```bash
+scripts/local/verify-task222.sh
+```
+
+It exercises one shared funding/cleanup boundary matrix, actual nested source
+SDK tools, useful reduced-context SQLite/API saved completion and safe effective
+configuration inspection. It makes no external calls. Real captions and final
+browser acceptance remain in Task 221. The older Task 100B gate below is
+historical and is not a Task 222 requirement.
+
+The Task 100B gate was run from the repository root:
 
 ```bash
 scripts/local/verify-context.sh
@@ -463,8 +506,8 @@ are unreviewed and do not establish listing or warranty safety.
 
 Fitting starts at 75 percent of the affordable request and targets 60 percent
 where reducible content permits it. It measures final instructions, tool and
-output schemas, the active role's output allowance, remaining ledgers and both
-downstream reserves. Emergency fitting retires more complete history. A funded
+output schemas, the active role's output allowance, remaining ledgers and
+eligible completion promises. Emergency fitting retires more complete history. A funded
 capture phase keeps existing-source reads and parallel exact-quote recording
 before output-only completion. Diagnostics identify the phase, active output
 cap, reservation, remaining balances and exact blocking condition.

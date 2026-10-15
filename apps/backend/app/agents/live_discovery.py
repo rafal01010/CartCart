@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 from agents import Agent, ModelSettings, RunConfig, WebSearchTool, Tool
 from pydantic import Field, ValidationError
 
+from app.agents.token_policy import scaled_tokens
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import (
     DiscoveryAgentInput,
@@ -180,7 +181,7 @@ class LiveDiscoveryAgent:
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
             model_settings=ModelSettings(
-                max_tokens=4000,
+                max_tokens=scaled_tokens(4000),
                 include_usage=True,
                 tool_choice="auto",
             ),
@@ -376,7 +377,7 @@ def _build_discovery_agent(
         name="CartCartDiscoveryAgent",
         model=model,
         model_settings=ModelSettings(
-            max_tokens=4000,
+            max_tokens=scaled_tokens(4000),
             include_usage=True,
             tool_choice="auto",
         ),

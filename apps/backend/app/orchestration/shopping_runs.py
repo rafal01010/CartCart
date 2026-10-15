@@ -1426,6 +1426,21 @@ class ShoppingRunOrchestrator:
         started_at = utc_now()
         set_context_stage(definition.stage.value)
         budget = active_budget()
+        if budget is not None:
+            if (
+                self._agent_workflow_mode == AgentWorkflowMode.LIVE
+                and definition.stage == RunStage.CATEGORY_ANALYSIS
+                and context.refinement_plan is not None
+                and context.general_owner_draft is None
+                and self._comparison_decision_agent is not None
+            ):
+                budget.eligible_stages |= frozenset(
+                    {RunStage.COMPARISON_DECISION.value}
+                )
+            if definition.stage == RunStage.COMPARISON_DECISION:
+                budget.eligible_stages -= frozenset(
+                    {RunStage.COMPARISON_DECISION.value}
+                )
         context_start = len(budget.events) if budget else 0
         try:
             if definition.stage == RunStage.INTAKE:

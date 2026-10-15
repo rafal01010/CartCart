@@ -7,6 +7,7 @@ from typing import Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import ValidationError
 
+from app.agents.token_policy import scaled_tokens
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.catalog import (
     AgentCatalog,
@@ -98,7 +99,7 @@ class LiveCategoryRouterAgent:
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
             model_settings=ModelSettings(
-                max_tokens=500,
+                max_tokens=scaled_tokens(500),
                 include_usage=True,
             ),
             tracing_disabled=not configuration.tracing_enabled,
@@ -175,7 +176,7 @@ def _build_category_router_agent(model: str) -> Agent[Any]:
         name="CartCartCategoryRouterAgent",
         model=model,
         model_settings=ModelSettings(
-            max_tokens=500,
+            max_tokens=scaled_tokens(500),
             include_usage=True,
         ),
         instructions=(

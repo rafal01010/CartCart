@@ -101,6 +101,20 @@ def _strings(value: Any) -> Iterator[str]:
             yield from _strings(item)
 
 
+def complete_excerpt(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    passages = re.split(r"(?<=[.!?])\s+|\n", text)
+    retained = []
+    size = 0
+    for passage in passages:
+        if not passage or len(passage) + size > limit:
+            continue
+        retained.append(passage)
+        size += len(passage) + 1
+    return "\n".join(retained)
+
+
 def _support_state(payload: Any) -> dict[str, Any]:
     identities: dict[str, list[str]] = {}
     cautions: list[str] = []
@@ -302,6 +316,13 @@ class ResearchHistory:
                 except ValueError:
                     return value
             if isinstance(value, dict):
+                if value.get("type") in {"input_text", "output_text"} and isinstance(value.get("text"), str):
+                    try:
+                        text_payload = json.loads(value["text"])
+                    except ValueError:
+                        text_payload = None
+                    if isinstance(text_payload, (dict, list)):
+                        return {**value, "text": decode(text_payload)}
                 return {name: decode(child, name) for name, child in value.items()}
             if isinstance(value, list):
                 return [decode(child) for child in value]
@@ -320,6 +341,7 @@ class ResearchHistory:
         quotes: list[dict[str, Any]] = []
         source_notes: list[dict[str, Any]] = []
         model_notes: list[dict[str, Any]] = []
+        source_records: list[dict[str, Any]] = []
         excerpt_limit = max(120, min(700, characters // 6))
 
         for handle, original in reversed(tuple(self.views.items())):
@@ -329,8 +351,45 @@ class ResearchHistory:
                 if note not in model_notes:
                     model_notes.append(note)
 
-        def collect(value: Any) -> None:
+        def collect(value: Any, parent_ids: dict[str, Any] | None = None) -> None:
             if isinstance(value, dict):
+                identities = {
+                    **(parent_ids or {}),
+                    **{
+                        key: value[key]
+                        for key in (
+                            "video_id",
+                            "source_id",
+                            "snapshot_id",
+                            "segment_id",
+                            "transcript_segment_id",
+                            "content_sha256",
+                            "provider_source_type",
+                            "language",
+                            "url",
+                        )
+                        if value.get(key) is not None
+                    },
+                }
+                if isinstance(value.get("text"), str) and (
+                    value.get("segment_id") or value.get("start_seconds") is not None
+                ):
+                    record = {
+                        **identities,
+                        **{
+                            key: value[key]
+                            for key in (
+                                "text",
+                                "start_seconds",
+                                "end_seconds",
+                                "provenance",
+                                "language",
+                            )
+                            if key in value
+                        },
+                    }
+                    if record not in source_records:
+                        source_records.append(record)
                 for note in value.get("model_notes", ()):
                     if isinstance(note, dict) and note not in model_notes:
                         model_notes.append(note)
@@ -353,7 +412,9 @@ class ResearchHistory:
                         value.get(key) for key in ("source_id", "snapshot_id", "url")
                     ):
                         continue
-                    text = " ".join(text.split())
+                    excerpt = complete_excerpt(text, excerpt_limit)
+                    if not excerpt:
+                        continue
                     note = {
                         **{
                             key: value[key]
@@ -367,7 +428,7 @@ class ResearchHistory:
                             if value.get(key) is not None
                         },
                         "kind": kind,
-                        "source_excerpt": text[:excerpt_limit],
+                        "source_excerpt": excerpt,
                         "truncated": bool(
                             value.get("truncated")
                             or value.get("text_truncated")
@@ -389,10 +450,10 @@ class ResearchHistory:
                         }
                     )
                 for child in value.values():
-                    collect(child)
+                    collect(child, identities)
             elif isinstance(value, list):
                 for child in value:
-                    collect(child)
+                    collect(child, parent_ids)
 
         collect(decoded)
         identities = [
@@ -410,6 +471,7 @@ class ResearchHistory:
             ("recorded_quotes", reversed(quotes)),
             ("model_notes", model_notes),
             ("cautions", support.get("cautions", [])),
+            ("source_records", source_records),
             (
                 "source_notes",
                 sorted(source_notes, key=lambda note: note["kind"] != "page_excerpt"),

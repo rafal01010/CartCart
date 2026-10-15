@@ -8,7 +8,12 @@ from typing import Any, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from agents.agent_output import AgentOutputSchema
 
-from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
+from app.agents.token_policy import scaled_tokens
+from app.agents.context_management import (
+    BoundedRunner,
+    ContextBudgetExceeded,
+    managed_decision_context,
+)
 from app.agents.contracts import ComparisonDecisionAgentInput
 from app.agents.model_input_projection import (
     evidence_model_fields,
@@ -115,6 +120,7 @@ class LiveComparisonDecisionAgent:
         repr=False,
     )
 
+    @managed_decision_context
     async def run(
         self, input_data: ComparisonDecisionAgentInput
     ) -> RecommendationBundle:
@@ -127,7 +133,7 @@ class LiveComparisonDecisionAgent:
         apply_openai_agent_run_profile(agent, configuration)
         run_config = RunConfig(
             model_settings=ModelSettings(
-                max_tokens=1700,
+                max_tokens=scaled_tokens(1700),
                 include_usage=True,
             ),
             tracing_disabled=not configuration.tracing_enabled,
@@ -245,7 +251,7 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
         name="CartCartComparisonDecisionAgent",
         model=model,
         model_settings=ModelSettings(
-            max_tokens=1700,
+            max_tokens=scaled_tokens(1700),
             include_usage=True,
         ),
         instructions=(

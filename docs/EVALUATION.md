@@ -1,5 +1,27 @@
 # CartCart Evaluation
 
+## Task 222 offline funding and reduced-context acceptance
+
+Task 222 uses one focused shared transport matrix, local real-SDK nested source
+tools, safe effective-configuration inspection and normal owner SQLite/API
+saved-result controls. `scripts/local/verify-task222.sh` reruns these controls
+and narrow affected Ruff, syntax and typing checks. No historical suite,
+scored eval, build, external provider, live model or caption call is included.
+
+The before control reproduces the captured source closure at 22,341 remaining
+source tokens. After controls cover all retained purposes and output contracts,
+exact ancestor transfers, concurrent source promises, inactive stage release,
+native fallback when hosted search cannot fit, genuine exhaustion and honest
+known/unknown/failed/cancelled settlement. Context-pressure controls require
+whole relevant speech, timestamps, source identifiers, facts, cautions, buyer
+constraints, valid SDK/JSON structure and explicit unreviewed omissions.
+Reduced context must produce useful authored advice and matching immutable
+SQLite/API versions, including failed optional cleanup and source funding gaps.
+Paid valid final output after actual overage is saved while further admission
+is blocked. [The handoff](TASK_222_IMPLEMENTATION_HANDOFF.md) records actual
+commands and artifacts. Local speech is labeled as a control, never live proof.
+Real public captions and final shared browser acceptance remain in Task 221.
+
 ## Task 220 offline page and prerequisite acceptance
 
 Task 220 uses saved phone, chair and budget results plus explicitly local response controls. Desktop/mobile checks cover one answer, retained primary/runner groups and source links, absent duplicate/history/refinement/listing-add/empty panels, and a visible keyboard-operable top restart. Local request observation covers read-only reload and restart without initiating live work.

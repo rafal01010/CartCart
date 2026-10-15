@@ -723,16 +723,17 @@ handoff. Invalid targets, mismatched context, failed transfers, or budget
 errors retain diagnostics; unrecovered technical failures fail the shopping run.
 The acyclic graph is limited to two hops, the configured General owner turn
 budget plus at most two Technology recovery turns within the same configured
-General timeout, and a 90,000-token owner/source ceiling enforced before calls and
-checked on completion, including nested source-agent usage. Technology has a
-1,800-token per-turn output cap and specialists have a 1,500-token cap. Every
+General timeout, and a 120,000-token owner/source starting allocation. Funded
+transfers remain inside the 200,000-token attempt and protect useful completion,
+including nested source-agent usage. Technology has a
+2,400-token per-turn output cap and normal owner specialists have a 2,000-token cap. Every
 owner can use role-scoped hosted/provider search, same-run evidence lookup,
 recorded-source/product comparison, deterministic listing-risk checks, and
 one bounded source-manager consultation. The manager accepts a persisted run
 product or a candidate grounded in an owner-recorded exact page quote; source
 specialists stay nested tools. `GeneralShoppingAgent` runs after scoped intake in the opt-in live
 shopping API and in the isolated workbench. It uses a `strong` profile, up to
-the configured initial turn budget, 2,500 output tokens per turn, bounded provider search/fetch/quote
+the configured initial turn budget, 3,334 output tokens per turn, bounded provider search/fetch/quote
 tools, optional hosted search,
 and run-scoped citation persistence. The last SDK owner's draft is persisted
 after operational parsing without mandatory verifier review; the bundle records author,
@@ -1199,13 +1200,15 @@ ignored `data/artifacts/context`; the script removes its repository-local test
 and cache scratch on exit.
 
 [CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md) documents the measured costs,
-field matrix and uncertainty. Defaults bound estimated known input at 19,000
-tokens and whole-pipeline cumulative usage at 150,000. The existing 90,000-token
-owner/source and 30,000-token source-manager allowances remain. Comparison and
-verification each reserve 24,000 tokens, enough for maximum bounded input and
-output. Completion backstops use the settled transport ledger rather than
+field matrix and uncertainty. Task 222 bounds estimated input at 25,334 tokens
+and each orchestration attempt at 200,000. Owner/source starting allocations are
+120,000 and 40,000. Exact funded transfers may expand those ceilings while
+protecting active completion requests within the same main ledger. Eligible
+comparison and requested optional verification have 32,000-token allocations;
+inactive stages reserve nothing. Completion backstops use the settled transport ledger rather than
 overlapping source aggregate and child activity totals. Hosted search reserves
-an additional estimated 8,000 tokens per enabled request. Returned actual usage
+an additional estimated 10,667 tokens per eligible request. Unaffordable hosted
+search can be removed while affordable native tools remain. Returned actual usage
 settles each model call once; unknown/failed/cancelled usage consumes its entire
 reservation. These are offline assumptions pending separately authorized live
 calibration, not exact hosted-tool or tokenizer measurements.
@@ -1213,8 +1216,9 @@ calibration, not exact hosted-tool or tokenizer measurements.
 `context_call` stage activity records sizes, schema/instruction overhead,
 estimated versus actual tokens and finalization/blocking status without raw
 shopper/source text or exception bodies. Budget exhaustion is a technical run
-failure; it must not become a no-strong-buy result. Recovery cannot spend past
-its original allowance. Context preparation creates no runtime working files;
+failure; it must not become a no-strong-buy result. Recovery uses admitted funded
+capacity. An already paid valid final response can reach ordinary persistence
+after actual overage, but exhausted ledgers prohibit further calls. Context preparation creates no runtime working files;
 full original support follows the existing durable evidence retention policy.
 Task 100A remains open and Task 101 is unstarted.
 

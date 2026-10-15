@@ -25,6 +25,7 @@ from agents.tool_context import ToolContext
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agents.token_policy import OWNER_START_TOKENS, scaled_tokens
 from app.agents.research_history import (
     bounded_cautions,
 )
@@ -35,6 +36,7 @@ from app.agents.context_management import (
     context_events,
     active_budget,
     managed_owner_context,
+    funded_scope_limit,
 )
 from app.agents.contracts import (
     GeneralShoppingAgentInput,
@@ -534,9 +536,7 @@ class LiveGeneralShoppingAgent:
             model=configuration.model,
             instructions=(
                 "Resume the shopping decision from the supplied saved research and buyer preferences. "
-                "Research is closed. "
-                + OWNER_DECISION_GUIDANCE
-                + " "
+                "Research is closed. " + OWNER_DECISION_GUIDANCE + " "
                 "Sources, citations, reviews, purchase details and exact quotations are optional. "
                 "Treat source reputation, trust assessments and caution previews as advisory context. "
                 "Weigh strong actual adverse findings and their scope; missing information is not adverse evidence. "
@@ -547,7 +547,9 @@ class LiveGeneralShoppingAgent:
                 "Only use supplied IDs when associating optional sources. Use today's date for known product age."
             ),
             output_type=GeneralModelOutput,
-            model_settings=ModelSettings(max_tokens=1500, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=scaled_tokens(1500), include_usage=True
+            ),
         )
         apply_openai_agent_run_profile(agent, configuration)
         result = await asyncio.wait_for(
@@ -776,7 +778,9 @@ class LiveGeneralShoppingAgent:
                 output_type=GeneralModelOutput,
                 tools=specialist_sdk_tools,
                 model_settings=ModelSettings(
-                    max_tokens=1500, include_usage=True, tool_choice="auto"
+                    max_tokens=scaled_tokens(1500),
+                    include_usage=True,
+                    tool_choice="auto",
                 ),
                 handoffs=[],
                 hooks=_OwnerHandoffHooks(observed_handoffs),
@@ -882,7 +886,7 @@ class LiveGeneralShoppingAgent:
             output_type=GeneralModelOutput,
             tools=technology_sdk_tools,
             model_settings=ModelSettings(
-                max_tokens=1800, include_usage=True, tool_choice="auto"
+                max_tokens=scaled_tokens(1800), include_usage=True, tool_choice="auto"
             ),
             handoffs=specialist_handoffs
             if configuration.mode == OpenAIAgentRuntimeMode.LIVE
@@ -955,7 +959,7 @@ class LiveGeneralShoppingAgent:
             output_type=GeneralModelOutput,
             tools=sdk_tools,
             model_settings=ModelSettings(
-                max_tokens=2500, include_usage=True, tool_choice="auto"
+                max_tokens=scaled_tokens(2500), include_usage=True, tool_choice="auto"
             ),
             handoffs=[
                 handoff(
@@ -1097,7 +1101,9 @@ class LiveGeneralShoppingAgent:
             sdk_usage = getattr(
                 getattr(raw_result, "context_wrapper", None), "usage", None
             )
-            if owner_tokens(getattr(sdk_usage, "total_tokens", 0) or 0) > 90000:
+            if not context_events(context_start) and owner_tokens(
+                getattr(sdk_usage, "total_tokens", 0) or 0
+            ) > funded_scope_limit("owner", OWNER_START_TOKENS):
                 raise ContextBudgetExceeded("Owner run exceeded its token budget.")
             completion_stage = "output_validation"
             model_output = GeneralModelOutput.model_validate(
@@ -1397,7 +1403,7 @@ class LiveGeneralShoppingAgent:
                 and raw_result is None
                 and remaining_seconds > 0
                 and owner_tokens(getattr(failed_run_usage, "total_tokens", 0) or 0)
-                < 90000
+                < funded_scope_limit("owner", OWNER_START_TOKENS)
                 and budget_failure is None
             ):
                 recovery_agent = technology_agent.clone(
@@ -1434,12 +1440,12 @@ class LiveGeneralShoppingAgent:
                     recovery_usage = getattr(
                         getattr(recovery_result, "context_wrapper", None), "usage", None
                     )
-                    if (
+                    if not context_events(context_start) and (
                         owner_tokens(
                             (getattr(failed_run_usage, "total_tokens", 0) or 0)
                             + (getattr(recovery_usage, "total_tokens", 0) or 0)
                         )
-                        > 90000
+                        > funded_scope_limit("owner", OWNER_START_TOKENS)
                     ):
                         raise ContextBudgetExceeded(
                             "Technology recovery exceeded its token budget."
@@ -1497,7 +1503,9 @@ class LiveGeneralShoppingAgent:
             for field in ("input_tokens", "output_tokens", "total_tokens")
         }
         nested_source_tokens = source_tokens()
-        if owner_tokens(combined_usage["total_tokens"] or 0) > 90000:
+        if not context_events(context_start) and owner_tokens(
+            combined_usage["total_tokens"] or 0
+        ) > funded_scope_limit("owner", OWNER_START_TOKENS):
             gap = "Shopping research exceeded its combined owner/source token budget."
             failure_type = "ContextBudgetExceeded"
             failure_code = "context_budget_exceeded"
@@ -1536,7 +1544,9 @@ class LiveGeneralShoppingAgent:
                     ],
                     "gap": gap,
                     "failure_type": failure_type,
-                    "failure_stage": completion_stage if failure_type is not None else None,
+                    "failure_stage": completion_stage
+                    if failure_type is not None
+                    else None,
                     "failure_code": failure_code,
                     "error_message": failure_message,
                     "failed_hosted_calls": list(failure_hosted_calls),
@@ -1551,7 +1561,7 @@ class LiveGeneralShoppingAgent:
                         else configuration.model
                     ),
                     "max_turns": configuration.max_turns,
-                    "max_output_tokens_per_turn": 2500,
+                    "max_output_tokens_per_turn": scaled_tokens(2500),
                     "active_owner_max_output_tokens": (
                         specialist_agents[
                             draft.owner_agent_name

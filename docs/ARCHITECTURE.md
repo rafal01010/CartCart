@@ -411,8 +411,12 @@ source call projects exact typed state and can retire explicitly processed
 bodies into exact useful facts, bounded caution/gap state and canonical lookup
 references. New and unprocessed text stays visible. Omitted passages remain
 unreviewed, and SDK call pairs stay intact. Extraction reads one initial page and defers other assigned IDs. Comparison consumes available saved research. Optional editorial assistance uses supplied context without source rereads or per-claim revalidation. Shared
-pre-call reservations preserve decision/verification room; the existing owner
-and source ceilings remain. Budget failures stop the shopping run explicitly.
+pre-call reservations protect executable completion requests for the active
+owner and suspended source callers. Owner/source starting allocations can
+receive bounded transfers within the 200,000-token attempt. Only eligible
+comparison or requested optional verification holds its configured allocation.
+Optional source funding gaps preserve useful owner completion; genuine inability
+to complete remains a retryable technical failure.
 No extra model summarizer or temporary evidence store is introduced.
 
 Recommended stages:

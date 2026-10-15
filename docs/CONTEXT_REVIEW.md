@@ -1,5 +1,12 @@
 # Context retention review
 
+This 2026-10-08 audit is historical. Task 222 replaces its token limits and
+generic finishing floors with funded purpose-specific completion and bounded
+ancestor transfers. [Current context policy](CONTEXT_MANAGEMENT.md#limits-and-accounting)
+and [the implementation handoff](TASK_222_IMPLEMENTATION_HANDOFF.md) describe
+the effective configuration and focused offline proof. Task 221 live acceptance
+remains incomplete.
+
 Reviewed on 2026-10-08. This is an audit of current behavior and planned repairs,
 not evidence that Task 211 or live acceptance has passed. No live model/provider
 calls ran. The implementation remains at the existing 16,000 estimated-input

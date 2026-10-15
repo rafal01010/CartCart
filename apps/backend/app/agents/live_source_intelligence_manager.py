@@ -10,6 +10,7 @@ from typing import Any, Callable, Protocol
 from agents import Agent, MaxTurnsExceeded, ModelSettings, RunConfig
 from pydantic import Field
 
+from app.agents.token_policy import SOURCE_START_TOKENS, scaled_tokens
 from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
@@ -17,6 +18,7 @@ from app.agents.context_management import (
     active_budget,
     context_events,
     managed_source_context,
+    funded_scope_limit,
     source_bundle_context,
 )
 from app.agents.contracts import (
@@ -90,7 +92,7 @@ _NAMES = {
     SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: "AmazonProductIntelligenceAgent",
     SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: "IKEAStoreIntelligenceAgent",
 }
-_MAX_MANAGER_USAGE_TOKENS = 30_000
+_MAX_MANAGER_USAGE_TOKENS = SOURCE_START_TOKENS
 _MAX_PARENT_TURNS = 15
 _MAX_SPECIALIST_TURNS = 12
 _MAX_PARENT_SECONDS = 90
@@ -377,7 +379,7 @@ class SourceIntelligenceManagerAgent:
                     is_enabled=lambda context, _agent, cap=capability: (
                         cap not in attempted
                         and getattr(context.usage, "total_tokens", 0)
-                        < _MAX_MANAGER_USAGE_TOKENS
+                        < funded_scope_limit("source", SOURCE_START_TOKENS)
                     ),
                     max_turns=min(nested_config.max_turns, _MAX_SPECIALIST_TURNS),
                     failure_error_function=None,
@@ -387,7 +389,9 @@ class SourceIntelligenceManagerAgent:
         parent = Agent(
             name="SourceIntelligenceManagerAgent",
             model=config.model,
-            model_settings=ModelSettings(max_tokens=1500, include_usage=True),
+            model_settings=ModelSettings(
+                max_tokens=scaled_tokens(1500), include_usage=True
+            ),
             instructions=(
                 "You organize optional shopping-source evidence after products have been deduplicated. "
                 "Choose only relevant source specialists from the supplied tools; each may be called at most once. "
@@ -429,7 +433,10 @@ class SourceIntelligenceManagerAgent:
                                 "parent_turns": min(
                                     config.max_turns, _MAX_PARENT_TURNS
                                 ),
-                                "shared_usage_tokens": _MAX_MANAGER_USAGE_TOKENS,
+                                "starting_usage_tokens": _MAX_MANAGER_USAGE_TOKENS,
+                                "funded_usage_tokens": funded_scope_limit(
+                                    "source", SOURCE_START_TOKENS
+                                ),
                             },
                         },
                         sort_keys=True,
@@ -445,7 +452,9 @@ class SourceIntelligenceManagerAgent:
                 if budget is not None and context_events(context_start)
                 else getattr(usage, "total_tokens", 0) or 0
             )
-            if total_tokens > _MAX_MANAGER_USAGE_TOKENS:
+            if not context_events(context_start) and total_tokens > funded_scope_limit(
+                "source", SOURCE_START_TOKENS
+            ):
                 raise ContextBudgetExceeded("Source manager exceeded its token budget.")
             decision = SourceManagerDecision.model_validate(
                 getattr(raw, "final_output", raw)

@@ -31,6 +31,13 @@ from openai.types.responses.response_prompt_param import ResponsePromptParam
 from pydantic import BaseModel
 
 from app.agents.context_metrics import input_breakdown, measure
+from app.agents.token_policy import (
+    CompletionPurpose,
+    OWNER_START_TOKENS,
+    SOURCE_START_TOKENS,
+    completion_purpose,
+    scaled_tokens,
+)
 from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
 from app.agents.research_history import (
     active_history,
@@ -71,12 +78,26 @@ def context_budget_failure(error: BaseException) -> ContextBudgetExceeded | None
 
 @dataclass(frozen=True)
 class ContextLimits:
-    input_tokens: int = 19_000
-    total_tokens: int = 150_000
-    decision_reserve: int = 24_000
-    verification_reserve: int = 24_000
-    hosted_reserve: int = 8_000
-    output_tokens: int = 5_000
+    input_tokens: int = scaled_tokens(19_000)
+    total_tokens: int = scaled_tokens(150_000)
+    decision_reserve: int = scaled_tokens(24_000)
+    verification_reserve: int = scaled_tokens(24_000)
+    hosted_reserve: int = scaled_tokens(8_000)
+    output_tokens: int = scaled_tokens(5_000)
+
+
+@dataclass
+class CompletionCheckpoint:
+    agent: str
+    instructions: str
+    input: Any
+    reservation_tokens: int
+    output_tokens: int
+    retained_return_input_tokens: int
+
+    @property
+    def next_input_ceiling(self) -> int:
+        return self.reservation_tokens - self.output_tokens + self.retained_return_input_tokens
 
 
 @dataclass
@@ -87,13 +108,24 @@ class ContextBudget:
     exhausted: bool = False
     events: list[dict[str, Any]] = field(default_factory=list)
     call_owners: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    scope: str = "main"
+    transferable: bool = True
+    completion_plans: dict[str, int] = field(default_factory=dict)
+    completion_checkpoints: dict[str, CompletionCheckpoint] = field(
+        default_factory=dict
+    )
+    eligible_stages: frozenset[str] = frozenset()
+    input_headroom_ratio: float = 1.25
+
+    @property
+    def remaining(self) -> int:
+        return self.limits.total_tokens - self.spent - self.reserved
 
     def reserve(self, estimated: int, *, agent: str) -> int:
         if (
             self.exhausted
             or self.spent + self.reserved + estimated > self.limits.total_tokens
         ):
-            self.exhausted = True
             raise ContextBudgetExceeded(
                 "Shared shopping token budget cannot safely fund another call."
             )
@@ -150,6 +182,13 @@ def active_budget() -> ContextBudget | None:
     return _budget.get()
 
 
+def funded_scope_limit(scope: str, starting: int) -> int:
+    for ledger in reversed(_allowances.get()):
+        if getattr(ledger, "scope", None) == scope:
+            return ledger.limits.total_tokens
+    return starting
+
+
 def context_events(start: int) -> tuple[dict[str, Any], ...]:
     current = _budget.get()
     return tuple(current.events[start:]) if current else ()
@@ -175,22 +214,49 @@ def managed_context(function: Callable[P, Awaitable[R]]) -> Callable[P, Awaitabl
 def managed_source_context(
     function: Callable[P, Awaitable[R]],
 ) -> Callable[P, Awaitable[R]]:
-    return _managed_allowance(function, 30_000)
+    return _managed_allowance(function, SOURCE_START_TOKENS, "source")
 
 
 def managed_owner_context(
     function: Callable[P, Awaitable[R]],
 ) -> Callable[P, Awaitable[R]]:
-    return _managed_allowance(function, 90_000)
+    return _managed_allowance(function, OWNER_START_TOKENS, "owner")
+
+
+def managed_decision_context(
+    function: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    return _managed_allowance(
+        function, ContextLimits().decision_reserve, "decision", transferable=False
+    )
+
+
+def managed_verification_context(
+    function: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    return _managed_allowance(
+        function,
+        ContextLimits().verification_reserve,
+        "verification",
+        transferable=False,
+    )
 
 
 def _managed_allowance(
-    function: Callable[P, Awaitable[R]], total: int
+    function: Callable[P, Awaitable[R]],
+    total: int,
+    scope: str,
+    *,
+    transferable: bool = True,
 ) -> Callable[P, Awaitable[R]]:
     @wraps(function)
     async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         with context_scope():
-            allowance = ContextBudget(limits=ContextLimits(total_tokens=total))
+            allowance = ContextBudget(
+                limits=ContextLimits(total_tokens=total),
+                scope=scope,
+                transferable=transferable,
+            )
             token = _allowances.set((*_allowances.get(), allowance))
             try:
                 return await function(*args, **kwargs)
@@ -451,6 +517,36 @@ def _schema_payload(
     }
 
 
+def completion_instructions(
+    instructions: str | None, purpose: CompletionPurpose
+) -> str:
+    guidance = (
+        "Finish the source evidence output from retrieved metadata, relevant speech and interpreted notes. "
+        "Preserve video/source/segment identifiers, timestamps, provenance and material cautions. "
+        "Distinguish retrieval never attempted due to funding from provider unavailability. "
+        "Return accurate gaps for omitted unreviewed material. Do not give buying advice."
+        if purpose == CompletionPurpose.SOURCE
+        else "Finish the source consultation summary from validated returned bundles. Explain unattempted "
+        "sources honestly. Technical funding gaps are retryable and do not establish provider unavailability."
+        if purpose == CompletionPurpose.SOURCE_MANAGER
+        else "Finish the requested structured output from retained reviewed information. Preserve constraints, "
+        "facts, uncertainties and provenance. Do not change the responsibility of this stage."
+        if purpose == CompletionPurpose.STRUCTURED
+        else "Finish from saved facts, snippets, source notes and buyer preferences. Recommend by default "
+        "with concise reasons and tradeoffs. Sources and reviews are optional. Missing quotations, seller "
+        "details or prices alone do not exclude a product. " + SHOPPER_ADVICE_GUIDANCE
+    )
+    return (
+        (instructions or "")
+        + "\nFurther research is closed. "
+        + guidance
+        + (
+            " Do not invent facts, prices, links or quotations. Omitted material remains unreviewed. "
+            "A technical inability to finish is a retryable failure, not a buying judgment."
+        )
+    )
+
+
 class BudgetedModel(Model):
     def __init__(self, model: Model, budget: ContextBudget, model_name: str | None):
         self.model = model
@@ -476,14 +572,15 @@ class BudgetedModel(Model):
         history = active_history()
         if history is None:
             return prepared, {"status": "unavailable"}
-        hard_target = max(0, int((affordable_input - 256) / 1.25) - fixed)
+        ratio = self.budget.input_headroom_ratio
+        hard_target = max(0, int((affordable_input - 256) / ratio) - fixed)
         preserve_fields = preserve_stage_fields(f"{_stage.get()} {_agent.get()}")
         essential = measure(essential_input(prepared, preserve_fields))[
             "estimated_tokens"
         ]
         target = min(
             hard_target,
-            max(essential, int((affordable_input * 0.60 - 256) / 1.25) - fixed),
+            max(essential, int((affordable_input * 0.60 - 256) / ratio) - fixed),
         )
         working = prepared
         handle = None
@@ -597,103 +694,324 @@ class BudgetedModel(Model):
         output_limit = min(
             model_settings.max_tokens or limits.output_tokens, limits.output_tokens
         )
-        reserve = 0 if "Verifier" in agent else limits.verification_reserve
-        if "Comparison" not in agent and "Verifier" not in agent:
-            reserve += limits.decision_reserve
-        remaining = limits.total_tokens - self.budget.spent - self.budget.reserved
         allowances = _allowances.get()
-        source_remaining = min(
-            (a.limits.total_tokens - a.spent - a.reserved for a in allowances),
-            default=remaining,
+        ledgers = (self.budget, *allowances)
+        holder = ledgers[-1]
+        purpose = completion_purpose(
+            agent, output_schema.json_schema().get("title") if output_schema else None
         )
+        plan_key = (
+            purpose.value
+            if purpose == CompletionPurpose.OWNER
+            else purpose.value + ":" + agent
+        )
+        reserve = sum(
+            value
+            for name, value in (
+                ("comparison_decision", limits.decision_reserve),
+                ("verification", limits.verification_reserve),
+            )
+            if name in self.budget.eligible_stages and name != stage
+        )
+        remaining = self.budget.remaining
         parts: dict[str, dict[str, int]] = {}
+        compaction: dict[str, Any] | None = None
+        compaction_steps: list[dict[str, Any]] = []
+        ratio = self.budget.input_headroom_ratio
+
+        def request_parts(
+            instructions: str | None,
+            value: Any,
+            eligible_tools: list[Tool],
+            eligible_handoffs: list[Handoff],
+        ) -> tuple[int, dict[str, dict[str, int]]]:
+            components = {
+                "instructions": measure(instructions or ""),
+                "schemas": measure(
+                    _schema_payload(eligible_tools, output_schema, eligible_handoffs)
+                ),
+                "input": measure(value),
+            }
+            return ceil(
+                sum(part["estimated_tokens"] for part in components.values()) * ratio
+            ) + 256, components
+
+        def protected(index: int, own_completion: int = 0) -> int:
+            return (
+                (reserve if index == 0 else 0)
+                + own_completion
+                + sum(
+                    tokens
+                    for ledger in ledgers[index:]
+                    for key, tokens in ledger.completion_plans.items()
+                    if not (ledger is holder and key == plan_key)
+                )
+            )
+
+        def available_input(hosted_tokens: int = 0, own_completion: int = 0) -> int:
+            return max(
+                0,
+                min(
+                    limits.input_tokens,
+                    *(
+                        ledger.remaining
+                        - protected(index, own_completion)
+                        - output_limit
+                        - hosted_tokens
+                        for index, ledger in enumerate(ledgers)
+                        if index == 0 or not ledger.transferable
+                    ),
+                ),
+            )
+
+        def can_fund(request: int, own_completion: int = 0) -> bool:
+            return all(
+                not ledger.exhausted
+                and (
+                    ledger.transferable
+                    and index > 0
+                    or request + protected(index, own_completion) <= ledger.remaining
+                )
+                for index, ledger in enumerate(ledgers)
+            )
+
+        async def clean(
+            value: Any, components: dict[str, dict[str, int]], affordable: int
+        ) -> Any:
+            nonlocal compaction
+            original_size = measure(value)["estimated_tokens"]
+            fixed = (
+                components["instructions"]["estimated_tokens"]
+                + components["schemas"]["estimated_tokens"]
+            )
+            try:
+                value, compaction = await self._shorten(
+                    value, fixed, affordable, before
+                )
+            except Exception as exc:
+                history = active_history()
+                compaction = {
+                    "status": "optional_cleanup_failed",
+                    "error_type": type(exc).__name__,
+                    "paid_selector_enabled": False,
+                }
+                if history is not None:
+                    target = max(0, int((affordable - 256) / ratio) - fixed)
+                    value = bound_original_views(
+                        value, history, target, preserve_stage_fields(stage)
+                    )
+                    compaction["fallback"] = "saved_original_checkpoint"
+                    compaction["omitted_material_unreviewed"] = (
+                        measure(value)["estimated_tokens"] < original_size
+                    )
+            compaction_steps.append(dict(compaction))
+            return value
+
+        previous_checkpoint = holder.completion_checkpoints.get(plan_key)
+        checkpoint_recovery = False
+        closure_instructions = completion_instructions(system_instructions, purpose)
+        closure_input = prepared
+        closure_estimate, closure_parts = request_parts(
+            closure_instructions, closure_input, [], []
+        )
+        closure_affordable = available_input()
+        if previous_checkpoint is not None and previous_checkpoint.agent == agent and plan_key in holder.completion_plans and not can_fund(closure_estimate + output_limit):
+            closure_affordable = min(closure_affordable, previous_checkpoint.next_input_ceiling)
+        if closure_estimate > closure_affordable * 0.75:
+            closure_input = await clean(
+                closure_input, closure_parts, closure_affordable
+            )
+            closure_estimate, closure_parts = request_parts(
+                closure_instructions, closure_input, [], []
+            )
+        closure_reservation = closure_estimate + output_limit
+        retained_return_input_tokens = min(
+            output_limit, max(0, limits.input_tokens - closure_estimate)
+        )
+        completion_tokens = closure_reservation + retained_return_input_tokens
+        if (
+            (closure_estimate > closure_affordable or not can_fund(closure_reservation))
+            and previous_checkpoint is not None
+            and previous_checkpoint.agent == agent
+            and previous_checkpoint.output_tokens == output_limit
+            and essential_input(previous_checkpoint.input) == essential_input(prepared)
+        ):
+            history = active_history()
+            if history is not None:
+                handle = history.archive("completion_return", before)
+                candidate = previous_checkpoint.input
+                if isinstance(candidate, str):
+                    candidate = [{"role": "user", "content": candidate}]
+                candidate = [
+                    *candidate,
+                    {
+                        "role": "assistant",
+                        "content": json.dumps(
+                            history.checkpoint(handle, characters=6000),
+                            ensure_ascii=False,
+                        ),
+                    },
+                ]
+                candidate_estimate, candidate_parts = request_parts(
+                    closure_instructions, candidate, [], []
+                )
+                if candidate_estimate > closure_affordable:
+                    candidate = await clean(
+                        candidate, candidate_parts, closure_affordable
+                    )
+                    candidate_estimate, candidate_parts = request_parts(
+                        closure_instructions, candidate, [], []
+                    )
+                if candidate_estimate <= closure_affordable and can_fund(
+                    candidate_estimate + output_limit
+                ):
+                    closure_input, closure_estimate, closure_parts = (
+                        candidate,
+                        candidate_estimate,
+                        candidate_parts,
+                    )
+                    closure_reservation = closure_estimate + output_limit
+                    completion_tokens = closure_reservation
+                    retained_return_input_tokens = 0
+                    checkpoint_recovery = True
+                    compaction = {
+                        "status": "funded_completion_checkpoint",
+                        "archive_view_id": handle,
+                        "omitted_material_unreviewed": True,
+                        "paid_selector_enabled": False,
+                    }
 
         def allocation() -> tuple[int, int, int]:
-            parts.update(
-                instructions=measure(system_instructions or ""),
-                schemas=measure(_schema_payload(tools, output_schema, handoffs)),
-                input=measure(prepared),
+            estimated, components = request_parts(
+                system_instructions, prepared, tools, handoffs
             )
-            estimated = (
-                ceil(sum(part["estimated_tokens"] for part in parts.values()) * 1.25)
-                + 256
-            )
+            parts.clear()
+            parts.update(components)
             hosted_tokens = (
                 limits.hosted_reserve
                 if any(tool.name == "web_search" for tool in tools)
                 else 0
             )
-            affordable = min(
-                limits.input_tokens,
-                remaining - reserve - output_limit - hosted_tokens,
-                source_remaining - output_limit - hosted_tokens,
+            affordable = available_input(
+                hosted_tokens, completion_tokens if tools or handoffs else 0
             )
             return estimated, hosted_tokens, max(0, affordable)
 
         estimate, hosted, affordable_input = allocation()
-        compaction: dict[str, Any] | None = None
         if estimate > affordable_input * 0.75:
-            fixed = (
-                parts["instructions"]["estimated_tokens"]
-                + parts["schemas"]["estimated_tokens"]
-            )
-            prepared, compaction = await self._shorten(
-                prepared, fixed, affordable_input, before
+            prepared = await clean(prepared, parts, affordable_input)
+            estimate, hosted, affordable_input = allocation()
+        hosted_disabled = False
+        if hosted and (
+            estimate > affordable_input
+            or not can_fund(estimate + output_limit + hosted, completion_tokens)
+        ):
+            tools = [tool for tool in tools if tool.name != "web_search"]
+            hosted_disabled = True
+            model_settings = replace(
+                model_settings, tool_choice="auto" if tools or handoffs else None
             )
             estimate, hosted, affordable_input = allocation()
-        recovery_margin = 12_000
+            if estimate > affordable_input * 0.75:
+                prepared = await clean(prepared, parts, affordable_input)
+                estimate, hosted, affordable_input = allocation()
         spending_finalizing = bool(tools or handoffs) and (
-            remaining < reserve + 24_000
-            or source_remaining < 24_000
-            or remaining < estimate + output_limit + hosted + reserve + recovery_margin
-            or source_remaining < estimate + output_limit + hosted + recovery_margin
+            closure_estimate > closure_affordable
+            or not can_fund(closure_reservation)
+            or not can_fund(estimate + output_limit + hosted, completion_tokens)
         )
-        context_pressure_finalizing = estimate > affordable_input
+        context_pressure_finalizing = estimate > affordable_input or checkpoint_recovery
         finalizing = spending_finalizing or context_pressure_finalizing
         phase = "complete" if finalizing else "research"
         if finalizing:
             tools = []
             handoffs = []
-            system_instructions = (system_instructions or "") + (
-                "\nFurther research is closed. Finish from available saved snippets, pages, "
-                "source notes and buyer preferences. Recommend by default with concise reasons, "
-                "tradeoffs. Keep unknowns and diagnostic warnings in internal fields. Sources and reviews are optional. Weigh actual "
-                "adverse findings with their scope. Missing quotations, seller details or prices "
-                "do not alone exclude a product. Do not invent current facts, prices, links or "
-                "quotations. Source notes may paraphrase originals. "
-                "A technical inability to finish is a retryable failure, not a buying judgment."
-                + " " + SHOPPER_ADVICE_GUIDANCE
-            )
+            system_instructions = closure_instructions
+            prepared = closure_input
             model_settings = replace(
                 model_settings, tool_choice=None, parallel_tool_calls=False
             )
             estimate, hosted, affordable_input = allocation()
-            fixed = (
-                parts["instructions"]["estimated_tokens"]
-                + parts["schemas"]["estimated_tokens"]
-            )
-            prepared, compaction = await self._shorten(
-                prepared, fixed, affordable_input, before
-            )
+            prepared = await clean(prepared, parts, affordable_input)
             estimate, hosted, affordable_input = allocation()
         requested_reservation = estimate + output_limit + hosted
+        holding = completion_tokens if tools or handoffs else 0
+        transfers = []
         block_reason = (
             "input_limit"
             if estimate > limits.input_tokens
-            else "shared_downstream_reserve"
-            if requested_reservation + reserve > remaining
-            else "owner_allowance"
-            if requested_reservation > source_remaining
-            else "exhausted_allowance"
-            if any(a.exhausted for a in allowances)
+            else "completion_funding"
+            if not can_fund(requested_reservation, holding)
             else None
         )
+        if block_reason is None:
+            for index, ledger in enumerate(ledgers[1:], 1):
+                needed = requested_reservation + protected(index, holding)
+                if needed > ledger.remaining:
+                    old = ledger.limits.total_tokens
+                    new = ledger.spent + ledger.reserved + needed
+                    ledger.limits = replace(ledger.limits, total_tokens=new)
+                    transfers.append(
+                        {
+                            "scope": ledger.scope,
+                            "tokens": new - old,
+                            "before": old,
+                            "after": new,
+                            "main_limit": limits.total_tokens,
+                        }
+                    )
+            if holding:
+                holder.completion_plans[plan_key] = holding
+                holder.completion_checkpoints[plan_key] = CompletionCheckpoint(
+                    agent,
+                    closure_instructions,
+                    closure_input,
+                    closure_reservation,
+                    output_limit,
+                    retained_return_input_tokens,
+                )
+        source_remaining = min(
+            (ledger.remaining for ledger in ledgers), default=remaining
+        )
+        if compaction is not None:
+            compaction = {
+                **compaction,
+                "omitted_material_unreviewed": bool(
+                    compaction.get("omitted_material_unreviewed")
+                )
+                or any(
+                    step.get("omitted_material_unreviewed") for step in compaction_steps
+                ),
+                "steps": compaction_steps,
+            }
         event: dict[str, Any] = {
             "tool_name": "context_call",
             "status": "prepared",
             "input": {"agent": agent, "stage": stage},
             "output": {
                 "model": self.model_name,
+                "completion_purpose": purpose.value,
+                "completion_request_tokens": closure_reservation,
+                "completion_retained_return_input_tokens": retained_return_input_tokens,
+                "completion_input_ceiling": closure_estimate + retained_return_input_tokens,
+                "completion_hold_tokens": holding,
+                "protected_completion_tokens": protected(0, holding),
+                "allocation_transfers": transfers,
+                "scopes": [
+                    {
+                        "scope": ledger.scope,
+                        "funded_tokens": ledger.limits.total_tokens,
+                        "spent_tokens": ledger.spent,
+                        "reserved_tokens": ledger.reserved,
+                        "remaining_tokens": ledger.remaining,
+                        "completion_plans": dict(ledger.completion_plans),
+                        "transferable": ledger.transferable,
+                    }
+                    for ledger in ledgers
+                ],
+                "hosted_search_disabled": hosted_disabled,
+                "input_headroom_ratio": ratio,
+                "hosted_expansion_reservation": hosted,
                 "components": parts,
                 "before_input": _before_size.get() or measure(before),
                 "after_input": measure(prepared),
@@ -727,6 +1045,7 @@ class BudgetedModel(Model):
         self.budget.events.append(event)
         if block_reason is not None:
             event["status"] = "blocked"
+            holder.completion_plans.pop(plan_key, None)
             raise ContextBudgetExceeded(
                 f"Model transport cannot fit safely: {block_reason}. "
                 f"Input {estimate}, output {output_limit}, reservation {requested_reservation}, "
@@ -737,16 +1056,29 @@ class BudgetedModel(Model):
         for allowance in allowances:
             allowance.reserve(reservation, agent=agent)
 
-        def settle(actual: int | None) -> None:
+        def settle(actual: int | None, *, paid_completion: bool = False) -> None:
             error = None
+            exceeded = []
             for ledger in (self.budget, *allowances):
                 try:
                     ledger.settle(reservation, actual)
                 except ContextBudgetExceeded as exc:
                     error = exc
+                    exceeded.append(ledger.scope)
+            event["output"].update(
+                charged_tokens=actual if actual is not None else reservation,
+                shared_spent_tokens=self.budget.spent,
+                exceeded_scopes=exceeded,
+            )
             if error is not None:
-                event["status"] = "blocked_actual_usage"
-                raise error
+                event["status"] = (
+                    "completed_actual_overage"
+                    if paid_completion
+                    else "blocked_actual_usage"
+                )
+                if not paid_completion:
+                    holder.completion_plans.pop(plan_key, None)
+                    raise error
 
         try:
             history = active_history()
@@ -770,6 +1102,7 @@ class BudgetedModel(Model):
                 if type(exc).__name__ == "CancelledError"
                 else "failed_reserved"
             )
+            holder.completion_plans.pop(plan_key, None)
             settle(None)
             raise
         usage = response.usage
@@ -781,7 +1114,37 @@ class BudgetedModel(Model):
             actual_output_tokens=usage.output_tokens if actual is not None else None,
         )
         event["status"] = "completed" if actual is not None else "completed_estimated"
-        settle(actual)
+        paid_completion = (
+            bool(response.output)
+            and all(
+                getattr(item, "type", "") != "function_call" for item in response.output
+            )
+            and any(
+                getattr(item, "type", "") == "message"
+                and getattr(item, "status", "") == "completed"
+                for item in response.output
+            )
+        )
+        settle(actual, paid_completion=paid_completion)
+        base = sum(part["estimated_tokens"] for part in parts.values())
+        if actual is not None and base:
+            event["output"]["actual_to_base_input_ratio"] = usage.input_tokens / base
+            event["output"]["actual_input_over_estimate"] = (
+                usage.input_tokens > estimate
+            )
+            event["output"]["actual_input_over_bound"] = (
+                usage.input_tokens > limits.input_tokens
+            )
+            hosted_executed = any(
+                getattr(item, "type", "") == "web_search_call"
+                for item in response.output
+            )
+            if not hosted_executed:
+                self.budget.input_headroom_ratio = min(
+                    2.0, max(ratio, usage.input_tokens / base * 1.1)
+                )
+            else:
+                event["output"]["hosted_input_expansion_unmeasured"] = True
         event["output"]["shared_spent_tokens"] = self.budget.spent
         disallowed = {
             getattr(item, "name", None)
@@ -789,13 +1152,18 @@ class BudgetedModel(Model):
             if getattr(item, "type", "") == "function_call"
         }
         enabled = {tool.name for tool in tools} | {item.tool_name for item in handoffs}
-        if disallowed - enabled and (finalizing or exhausted):
+        unadmitted_hosted = any(getattr(item, "type", "") == "web_search_call" for item in response.output) and "web_search" not in enabled
+        if disallowed - enabled or unadmitted_hosted:
             event["status"] = "blocked_closed_research"
+            holder.completion_plans.pop(plan_key, None)
             raise ContextBudgetExceeded(
                 "The model requested research after its spending or tool budget closed."
             )
         if history is not None:
             history.record_response(response.output)
+        if not disallowed:
+            holder.completion_plans.pop(plan_key, None)
+            holder.completion_checkpoints.pop(plan_key, None)
         for response_item in response.output:
             if isinstance(response_item, ResponseFunctionToolCall):
                 self.budget.call_owners[

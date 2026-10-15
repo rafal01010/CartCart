@@ -7,6 +7,7 @@ from typing import Any, Callable, Literal, Protocol
 from agents import Agent, ModelSettings, RunConfig
 from pydantic import Field, ValidationError
 
+from app.agents.token_policy import scaled_tokens
 from app.agents.context_management import BoundedRunner, ContextBudgetExceeded
 from app.agents.contracts import SellerListingTrustAgentInput
 from app.agents.hosted_web_search import build_hosted_web_search_tool
@@ -307,7 +308,7 @@ def _build_seller_listing_trust_agent(
         name="CartCartSellerListingTrustAgent",
         model=model,
         model_settings=ModelSettings(
-            max_tokens=800,
+            max_tokens=scaled_tokens(800),
             include_usage=True,
             tool_choice="auto",
         ),

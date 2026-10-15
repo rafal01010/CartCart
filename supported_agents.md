@@ -1,5 +1,24 @@
 # CartCart Supported Agents And Source Capabilities
 
+## Funded completion, Task 222
+
+All retained model paths use the approved 4/3 token scaling. General, Technology
+and terminal owner handoffs share one starting 120,000-token allocation. A source
+manager and its supported YouTube, Reddit, Amazon and IKEA specialists share a
+starting 40,000-token allocation inside the same 200,000-token attempt. Bounded
+transfers secure actual requests and active completion paths. Inactive stages
+hold no allocation, and unaffordable hosted search can leave native tools eligible.
+
+Completion follows the output contract. Normal owners give concise buying
+advice. Source specialists return metadata, interpreted speech, provenance and
+accurate gaps. Standalone `CategoryAnalysis` agents finish structured analysis.
+An optional source funding gap is retryable and does not establish provider or
+caption unavailability. Useful owner work can still finish through the normal
+saved-result path. No agent hierarchy, source capability, provider selection or
+routing fallback changed. [The context policy](docs/CONTEXT_MANAGEMENT.md#limits-and-accounting)
+defines funding and accounting; [the handoff](docs/TASK_222_IMPLEMENTATION_HANDOFF.md)
+lists every retained consumer and focused control. Task 221 remains incomplete.
+
 ## Shopper prose ownership, Task 219
 
 The General shopping owner, its Technology/specialist handoffs, retained category/comparison agents and optional editorial verifier share concise what-to-buy guidance. Reasons, meaningful relative tradeoffs, budget/value explanations and major product limitations belong in advice. Confidence, evidence gaps and process cautions remain internal. Routine seller, availability, checkout and launch-absence work is not part of the normal question.

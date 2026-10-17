@@ -1,0 +1,11 @@
+{
+  "purpose": "Offline lifecycle acceptance references. Local controls are not live caption proof.",
+  "cases": [
+    {"name": "empty-failed-bundle", "expected": "technical_failure", "control": "test_task223_owner_flow.py::test_local_empty_truthy_bundle_is_never_cached_success"},
+    {"name": "caption-cancelled", "expected": "interrupted", "control": "test_task223_owner_flow.py::test_local_caption_cancellation_records_start_and_durable_consumption"},
+    {"name": "accepted-partial", "expected": "partial", "control": "test_task223_source_lifecycle.py::test_local_partial_accepted_evidence_survives_parent_failure"},
+    {"name": "real-provider-gap-shape", "expected": "provider_gap", "control": "test_task223_source_lifecycle.py::test_local_provider_gap_is_not_no_attempt_or_success"},
+    {"name": "durable-reuse", "expected": "succeeded", "control": "test_task223_source_lifecycle.py::test_local_failed_sdk_keeps_captions_and_resumes_without_fetch"},
+    {"name": "normal-owner-speech-sqlite-api", "expected": "succeeded", "control": "test_task223_owner_flow.py::test_local_real_sdk_speech_reaches_normal_owner_sqlite_api_and_readonly_reload"}
+  ]
+}

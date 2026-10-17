@@ -347,6 +347,7 @@ class ShoppingRunContext:
     owner_evidence: tuple[SourceEvidence, ...] = ()
     owner_activity: tuple[dict[str, Any], ...] = ()
     saved_owner_name: str | None = None
+    source_retry: dict[str, Any] | None = None
     active_stage: RunStage | None = None
     refinement_plan: RecomputePlan | None = None
     prior_recommendation: RecommendationBundle | None = None
@@ -1240,6 +1241,7 @@ class ShoppingRunOrchestrator:
         original_input: CreateSessionRequest | None = None,
         refinement_plan: RecomputePlan | None = None,
         reused_artifacts: ReusedRefinementArtifacts | None = None,
+        source_retry: dict[str, Any] | None = None,
     ) -> ShoppingRunContext:
         run = await self._persistence_hooks.load_run(run_id)
         if run is None:
@@ -1251,6 +1253,7 @@ class ShoppingRunOrchestrator:
             active_brief=brief,
             original_input=original_input,
             active_stage=RunStage.GENERAL_OWNER,
+            source_retry=source_retry,
         )
         try:
             if self._agent_workflow_mode != AgentWorkflowMode.LIVE:
@@ -1361,7 +1364,8 @@ class ShoppingRunOrchestrator:
                     checkpoint.get("output", {}).get("draft") if checkpoint else None
                 )
                 if (
-                    saved_draft is not None
+                    source_retry is None
+                    and saved_draft is not None
                     and saved_draft.get("outcome") != "insufficient_evidence"
                 ):
                     context.general_owner_draft = (
@@ -1622,6 +1626,7 @@ class ShoppingRunOrchestrator:
                         input_data,
                         owner_agent_name=context.saved_owner_name,
                         activity=context.owner_activity,
+                        **({"source_retry": context.source_retry} if context.source_retry is not None else {}),
                     )
                     context.owner_activity = _agent_tool_activity(
                         self._general_shopping_agent

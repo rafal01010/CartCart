@@ -1,5 +1,25 @@
 # CartCart Architecture
 
+## Bounded final output, Task 224
+
+The shared model transport validates structured final output before returning it to the SDK. A cutoff, missing final message or invalid owner JSON cannot become a buying judgment. Owner completion recovery retains the current owner, model, reasoning and useful research. It closes research tools and handoffs, shares all current attempt ledgers and can execute at most once within the existing funding and timeout bounds. It never resets spent usage or substitutes an older success.
+
+Saved-owner decision output has a targeted 6,667-token cap instead of 2,000. The captured retry exhausted 2,000 tokens inside its second candidate. Other role caps and all root allocations remain unchanged. The final model still authors product selection, primary membership and advice.
+
+Transcript focus is literal. An available transcript with no matching phrase returns `focus_miss`, its availability and retry cursor. The model can read a useful single keyword or omit focus using the same completed transcript. Every read outcome records its original bounded request and consumes the existing counters. Only validated interpreted speech is accepted evidence.
+
+
+## Source lifecycle and durable video recovery, Task 223
+
+The optional source manager returns `SourceConsultationOutcome` with `no_attempt`, `interrupted`, `technical_failure`, `provider_gap`, `partial` or `succeeded`. The owner consumes that outcome rather than testing whether a bundle tuple is nonempty. Empty gap bundles never establish success or enter the completed-consultation cache. Accepted evidence survives later failure as partial evidence. Diagnostics retain actual exception classes and bounded safe phase/detail text. Shopper advice does not render execution diagnostics.
+
+Video tools checkpoint completed search results, identity metadata, approved raw captions, observed spans, retrieval lifecycle and consumed counters. Validated interpreted bundles remain separate from raw retrieval. Atomic files live under `artifacts/source-consultations/<run>/<compatibility hash>.json`. Request, region, source policy, configured providers and caption bounds determine compatibility. A source retry reuses compatible completed work and preserves provider-operation limits. It does not invent the contents of historical activity-only records.
+
+`retry_source=true` explicitly requests one focused video consultation during saved-owner resumption. It starts a new bounded orchestration attempt under the existing accounting policy. Prior actual usage and unknown/incomplete usage remain separately recorded. Default retries remain decision-only. Result GETs never retrieve sources. The normal owner receives whole accepted speech units with source/video/segment IDs, timestamps, URL, content hash and cautions. Optional source links appear below advice. Metadata remains distinct from caption support.
+
+Migration `0005` adds an immutable result projection manifest. New saved versions freeze sources, products, membership and associated records. An explicit source retry freezes any legacy version projection before writing new source work. Existing recommendation and version rows remain unchanged. Legacy GETs without a manifest keep their previous read-only fallback.
+
+
 ## Final page and abandoned intake ownership, Task 220
 
 `+page.svelte` retains ownership of intake, session identity, analysis and saved-link recovery. Guided requests use a local discriminated creating/session owner with generation and committed session identity. Response, error and pending cleanup share the freshness rule. Reset invalidates request ownership, clears pending and removes saved URL parameters. Queued automatic analysis checks its captured committed session and generation before scheduling work.

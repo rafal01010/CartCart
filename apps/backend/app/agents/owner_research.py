@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, Callable
+from uuid import UUID, uuid5
 
 from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -17,6 +18,7 @@ from app.agents.context_management import (
     source_bundle_context,
 )
 from app.agents.source_spans import source_span
+from app.agents.source_consultation import SourceConsultationOutcome, safe_failure
 from app.agents.research_history import (
     bounded_cautions,
     material_cautions,
@@ -27,6 +29,7 @@ from app.schemas.analysis import ListingTrustAssessment
 from app.agents.live_source_intelligence_manager import (
     SourceIntelligenceManagerAgent,
     SourceManagerInput,
+    SourceManagerResult,
 )
 from app.agents.research_tools import (
     _neutral_url,
@@ -52,6 +55,7 @@ from app.schemas.search_sources import (
     SourceSnapshot,
     SourceType,
     VideoReviewEvidenceBundle,
+    VideoTranscriptSupport,
 )
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.services.listing_trust import assess_listing_trust, price_plausibility_contexts
@@ -566,6 +570,7 @@ class OwnerResearchContext:
         product_id: str | None = None,
         product_name: str | None = None,
         evidence_id: str | None = None,
+        expected_reuse_key: str | None = None,
     ) -> dict[str, Any]:
         async with self.research_state.lock:
             return await self._consult_source(
@@ -573,6 +578,7 @@ class OwnerResearchContext:
                 product_id=product_id,
                 product_name=product_name,
                 evidence_id=evidence_id,
+                expected_reuse_key=expected_reuse_key,
             )
 
     async def _consult_source(
@@ -582,6 +588,7 @@ class OwnerResearchContext:
         product_id: str | None = None,
         product_name: str | None = None,
         evidence_id: str | None = None,
+        expected_reuse_key: str | None = None,
     ) -> dict[str, Any]:
         from app.schemas.ids import ProductId
 
@@ -684,6 +691,11 @@ class OwnerResearchContext:
                     name=(product_name or "").strip()[:200],
                     category=self.brief.category,
                 )
+            if parsed is None:
+                product = product.model_copy(update={"product_id": uuid5(
+                    UUID(str(self.run_id)),
+                    json.dumps({"name": product.name, "category": product.category, "source_ids": [str(v) for v in product.source_ids]}, sort_keys=True),
+                )})
             snapshots = tuple(
                 item
                 for item in all_snapshots
@@ -720,6 +732,8 @@ class OwnerResearchContext:
                     sort_keys=True,
                 ).encode()
             ).hexdigest()
+            if expected_reuse_key is not None and cache_key != expected_reuse_key:
+                raise ValueError("Source retry request or policy changed; saved work was not reissued.")
             cached = self.research_state.completed_consultations.get(cache_key)
             if cached is not None:
                 self._record(
@@ -747,6 +761,12 @@ class OwnerResearchContext:
                         query_hints=(product.name,),
                         region_code=self.region_code,
                         allowed_capabilities=(capability,),
+                        reuse_key=cache_key,
+                        owner_request={
+                            "candidate_name": product.name,
+                            "consult_product_id": str(parsed) if parsed is not None else None,
+                            "consult_evidence_id": str(parsed_evidence) if parsed_evidence is not None else None,
+                        },
                     )
                 )
             except Exception as exc:
@@ -755,29 +775,14 @@ class OwnerResearchContext:
                     budget = active_budget()
                     if budget is not None and budget.exhausted:
                         raise budget_failure from exc
-                    self._record(
-                        "consult_source_intelligence",
-                        "technical_funding_gap",
-                        capability=capability.value,
-                        retryable=True,
-                    )
-                    return {
-                        "status": "gap",
-                        "retryable": True,
-                        "technical_funding_failure": True,
-                        "gap": "Optional source consultation could not complete within funded capacity. "
-                        "This does not establish caption or provider unavailability. "
-                        "Finish buying advice from existing supported facts; omitted source material remains unreviewed.",
-                    }
-                self._record(
-                    "consult_source_intelligence",
-                    "failed",
-                    error_type=type(exc).__name__,
+                diagnostic = safe_failure(exc, phase="owner_source_receipt")
+                result = SourceManagerResult(
+                    outcome=SourceConsultationOutcome(
+                        status="technical_failure", failure_type=diagnostic["error_type"],
+                        diagnostic=diagnostic["safe_detail"], diagnostics=(diagnostic,),
+                    ),
+                    notes=("Optional source consultation failed technically. This does not establish provider or caption unavailability.",),
                 )
-                return {
-                    "status": "gap",
-                    "gap": "Source specialist failed; its claims were not accepted.",
-                }
         bundles = {
             SourceIntelligenceCapability.VIDEO_REVIEW: result.video_bundles,
             SourceIntelligenceCapability.COMMUNITY_DISCUSSION: result.community_bundles,
@@ -789,11 +794,17 @@ class OwnerResearchContext:
         self.activity.extend(result.activity)
         self._record(
             "consult_source_intelligence",
-            "succeeded" if bundles else "gap",
+            result.outcome.status,
             capability=capability.value,
             product_id=str(product.product_id),
             model=result.model_name,
             total_tokens=result.total_tokens,
+            outcome=result.outcome.model_dump(mode="json"),
+            reuse_key=cache_key,
+            candidate_name=product.name,
+            consult_product_id=str(parsed) if parsed is not None else None,
+            consult_evidence_id=str(parsed_evidence) if parsed_evidence is not None else None,
+            prior_usage=list(result.prior_usage),
         )
         payload: list[dict[str, Any]] = []
         deferred_bundle_ids: list[str] = []
@@ -822,7 +833,7 @@ class OwnerResearchContext:
                     _bounded_owner_bundle(
                         source_bundle_context(item),
                         fingerprint,
-                        max_chars=5000,
+                        max_chars=9000 if isinstance(item, VideoReviewEvidenceBundle) else 5000,
                         caution_details=_original_cautions(
                             original, scope="original_bundle"
                         ),
@@ -838,6 +849,9 @@ class OwnerResearchContext:
             "region_code": self.region_code,
             "bundles": bundle_references,
             "notes": list(result.notes),
+            "outcome": result.outcome.model_dump(mode="json"),
+            "reuse_key": cache_key,
+            "prior_usage": list(result.prior_usage),
         }
         original_text = json.dumps(
             original_consultation, ensure_ascii=False, separators=(",", ":")
@@ -853,7 +867,11 @@ class OwnerResearchContext:
             original_consultation,
         )
         response = {
-            "status": "succeeded" if bundles else "gap",
+            "status": result.outcome.status,
+            "outcome": result.outcome.model_dump(mode="json"),
+            "retryable": result.outcome.status in {"technical_failure", "interrupted", "partial"},
+            "reuse_key": cache_key,
+            "prior_usage": list(result.prior_usage),
             "capability": capability.value,
             "consultation_id": consultation_id,
             "consultation_sha256": consultation_hash,
@@ -864,7 +882,7 @@ class OwnerResearchContext:
             "deferred_bundle_count": len(deferred_bundle_ids),
             "unreviewed_content": bool(deferred_bundle_ids)
             or any(item.get("unreviewed_content") for item in payload),
-            "gap": "Source bundles and consultation notes are available context. Sources and quotes are optional. Every bundle/version remains retrievable by consultation_id.",
+            "gap": "Source outcome is authoritative. A technical failure, interrupted read or no attempt does not establish provider or caption inaccessibility. Completed useful work is retained for an explicit focused retry. Sources and quotes are optional. Every bundle/version remains retrievable by consultation_id.",
         }
         response.update(
             _original_cautions(
@@ -875,7 +893,7 @@ class OwnerResearchContext:
             "unreviewed_cautions", False
         )
         _cap_consultation_response(response)
-        if bundles:
+        if result.outcome.status == "succeeded":
             self.research_state.completed_consultations[cache_key] = response
         return response
 
@@ -937,6 +955,20 @@ class OwnerResearchContext:
                                 source_quality=evidence.source_quality,
                                 timestamp_references=evidence.timestamp_references,
                                 video=video_by_id[evidence.video_id],
+                                metadata_only=evidence.metadata_only,
+                                transcript_segment_ids=evidence.transcript_segment_ids,
+                                transcript_support=tuple(
+                                    VideoTranscriptSupport(
+                                        segment_id=segment.segment_id,
+                                        video_id=segment.video_id,
+                                        start_seconds=segment.start_seconds,
+                                        end_seconds=segment.end_seconds,
+                                        text=segment.text,
+                                        content_sha256=sha256((segment.text or "").encode()).hexdigest(),
+                                    )
+                                    for segment in bundle.transcript_segments
+                                    if segment.segment_id in evidence.transcript_segment_ids and segment.text
+                                ),
                             ),
                         )
             if self.shared_session is None:
@@ -1041,6 +1073,8 @@ def _bounded_owner_bundle(
             }
         else:
             caution_details = _original_cautions(payload, scope="original_bundle")
+    if payload.get("transcript_segments"):
+        return _whole_video_context(payload, fingerprint, max_chars=max_chars, caution_details=caution_details)
     complete = {**payload, "content_sha256": fingerprint, **caution_details}
     if len(json.dumps(complete, ensure_ascii=False)) <= max_chars:
         return complete
@@ -1088,6 +1122,45 @@ def _bounded_owner_bundle(
         "reload_tool": "read_source_bundle",
         "gap": "The full bundle and remaining claims/cautions require bounded rereads before use.",
     }
+
+
+def _whole_video_context(
+    payload: dict[str, Any], fingerprint: str, *, max_chars: int,
+    caution_details: dict[str, Any],
+) -> dict[str, Any]:
+    segments = {
+        s["segment_id"]: {
+            **s, "content_sha256": sha256((s.get("text") or "").encode()).hexdigest(),
+            "url": next((v["url"] for v in payload.get("videos", []) if v["video_id"] == s["video_id"]), None),
+            "source_id": next((e["source_id"] for e in payload.get("evidence", []) if e["video_id"] == s["video_id"]), None),
+        }
+        for s in payload["transcript_segments"]
+    }
+    result: dict[str, Any] = {
+        "bundle_id": payload["bundle_id"], "content_sha256": fingerprint,
+        "evidence": [], "transcript_segments": [], "videos": [], "source_references": [],
+        **caution_details,
+    }
+    for evidence in sorted(payload.get("evidence", []), key=lambda e: e.get("metadata_only", False)):
+        ids = evidence.get("transcript_segment_ids", [])
+        proposed = {
+            **result,
+            "evidence": [*result["evidence"], evidence],
+            "transcript_segments": list({s["segment_id"]: s for s in [*result["transcript_segments"], *(segments[i] for i in ids if i in segments)]}.values()),
+            "videos": [{key: v[key] for key in ("video_id", "url", "title", "channel_id", "channel_name", "transcript_availability") if key in v} for v in payload.get("videos", []) if v["video_id"] in {e["video_id"] for e in [*result["evidence"], evidence]}],
+            "source_references": [r for r in payload.get("source_references", []) if r["source_id"] in {e["source_id"] for e in [*result["evidence"], evidence]}],
+        }
+        if len(json.dumps(proposed, ensure_ascii=False)) <= max_chars:
+            result = proposed
+    included = {e["evidence_id"] for e in result["evidence"]}
+    result.update(
+        deferred_evidence_ids=[e["evidence_id"] for e in payload.get("evidence", []) if e["evidence_id"] not in included],
+        unreviewed_content=bool(payload.get("unreviewed_content")) or len(included) < len(payload.get("evidence", [])),
+        reload_tool="read_source_bundle",
+        video_descriptions_deferred=any(v.get("description") for v in payload.get("videos", [])),
+    )
+    result["unreviewed_content"] = result["unreviewed_content"] or result["video_descriptions_deferred"]
+    return result
 
 
 def _cap_consultation_response(

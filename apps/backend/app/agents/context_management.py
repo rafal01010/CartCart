@@ -18,9 +18,12 @@ from typing import Any, ParamSpec, TypeVar
 
 from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.agent_output import AgentOutputSchemaBase
+from agents.exceptions import ModelBehaviorError
 from agents.handoffs import Handoff
 from agents.items import ModelResponse, TResponseInputItem, TResponseStreamEvent
 from agents.models.interface import Model, ModelProvider, ModelTracing
+from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+from agents.models.openai_responses import OpenAIResponsesModel
 from agents.retry import ModelRetryAdvice, ModelRetryAdviceRequest
 from agents.run_config import CallModelData, ModelInputData
 from agents.tool import FunctionTool, Tool
@@ -63,6 +66,10 @@ CONTEXT_RESEARCH_LIMITATION = (
 
 class ContextBudgetExceeded(RuntimeError):
     """A safe continuation is impossible; this is not a buying judgment."""
+
+
+class FinalOutputFailure(ModelBehaviorError):
+    """The model did not complete a valid final contract within bounded recovery."""
 
 
 def context_budget_failure(error: BaseException) -> ContextBudgetExceeded | None:
@@ -114,6 +121,7 @@ class ContextBudget:
     completion_checkpoints: dict[str, CompletionCheckpoint] = field(
         default_factory=dict
     )
+    final_output_recoveries: set[str] = field(default_factory=set)
     eligible_stages: frozenset[str] = frozenset()
     input_headroom_ratio: float = 1.25
 
@@ -154,6 +162,16 @@ _before_size: ContextVar[dict[str, int] | None] = ContextVar(
 _allowances: ContextVar[tuple[ContextBudget, ...]] = ContextVar(
     "shopping_context_allowances", default=()
 )
+_response_envelope: ContextVar[Any] = ContextVar("shopping_response_envelope", default=None)
+_recovering_final_output: ContextVar[bool] = ContextVar("shopping_recovering_final_output", default=False)
+
+
+class EnvelopeResponsesModel(OpenAIResponsesModel):
+    async def _fetch_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = await super()._fetch_response(*args, **kwargs)
+        # The SDK drops envelope status when constructing ModelResponse.
+        _response_envelope.set(response)
+        return response
 
 
 @contextmanager
@@ -921,7 +939,7 @@ class BudgetedModel(Model):
             or not can_fund(estimate + output_limit + hosted, completion_tokens)
         )
         context_pressure_finalizing = estimate > affordable_input or checkpoint_recovery
-        finalizing = spending_finalizing or context_pressure_finalizing
+        finalizing = spending_finalizing or context_pressure_finalizing or _recovering_final_output.get()
         phase = "complete" if finalizing else "research"
         if finalizing:
             tools = []
@@ -1080,6 +1098,7 @@ class BudgetedModel(Model):
                     holder.completion_plans.pop(plan_key, None)
                     raise error
 
+        envelope_token = _response_envelope.set(None)
         try:
             history = active_history()
             if history is not None:
@@ -1096,6 +1115,7 @@ class BudgetedModel(Model):
                 conversation_id=None,
                 prompt=prompt,
             )
+            envelope = _response_envelope.get()
         except BaseException as exc:
             event["status"] = (
                 "cancelled_reserved"
@@ -1105,6 +1125,8 @@ class BudgetedModel(Model):
             holder.completion_plans.pop(plan_key, None)
             settle(None)
             raise
+        finally:
+            _response_envelope.reset(envelope_token)
         usage = response.usage
         actual = (
             usage.total_tokens or usage.input_tokens + usage.output_tokens
@@ -1112,10 +1134,32 @@ class BudgetedModel(Model):
         event["output"].update(
             actual_input_tokens=usage.input_tokens if actual is not None else None,
             actual_output_tokens=usage.output_tokens if actual is not None else None,
+            actual_total_tokens=actual,
+            response_status=getattr(envelope, "status", None),
+            incomplete_reason=getattr(getattr(envelope, "incomplete_details", None), "reason", None),
+            reasoning_tokens=getattr(
+                getattr(getattr(envelope, "usage", None), "output_tokens_details", None),
+                "reasoning_tokens", None,
+            ),
         )
+        output_failure = None
+        message_items = [item for item in response.output if getattr(item, "type", "") == "message"]
+        function_calls = [item for item in response.output if getattr(item, "type", "") == "function_call"]
+        if (envelope is not None and getattr(envelope, "status", None) != "completed") or any(getattr(item, "status", None) not in {None, "completed"} for item in response.output):
+            output_failure = FinalOutputFailure("The model response did not complete; no partial output was accepted.")
+        elif output_schema is not None and not output_schema.is_plain_text() and not function_calls:
+            text = "".join(
+                content.text for item in message_items for content in item.content
+                if getattr(content, "type", "") == "output_text"
+            )
+            try:
+                output_schema.validate_json(text)
+            except ModelBehaviorError as exc:
+                output_failure = FinalOutputFailure(str(exc))
         event["status"] = "completed" if actual is not None else "completed_estimated"
         paid_completion = (
-            bool(response.output)
+            output_failure is None
+            and bool(response.output)
             and all(
                 getattr(item, "type", "") != "function_call" for item in response.output
             )
@@ -1146,6 +1190,41 @@ class BudgetedModel(Model):
             else:
                 event["output"]["hosted_input_expansion_unmeasured"] = True
         event["output"]["shared_spent_tokens"] = self.budget.spent
+        if output_failure is not None:
+            event["status"] = "rejected_final_output"
+            event["output"]["final_output_error"] = str(output_failure)[:2000]
+            recovery_key = purpose.value
+            if (
+                purpose != CompletionPurpose.OWNER
+                or output_schema is None
+                or output_schema.json_schema().get("title") != "GeneralModelOutput"
+                or recovery_key in holder.final_output_recoveries
+                or any(ledger.exhausted for ledger in ledgers)
+            ):
+                raise output_failure
+            holder.final_output_recoveries.add(recovery_key)
+            event["output"]["final_output_recovery"] = "one_tool_free_completion"
+            recovery_input = [{"role": "user", "content": prepared}] if isinstance(prepared, str) else list(prepared)
+            recovery_input.append({
+                "role": "user",
+                "content": "The previous final response was incomplete or invalid and was rejected. Return the complete requested final JSON contract. Research is closed. Reuse the retained research and preferences. Keep all useful primary choices and optional runners based on your judgment. Use compact advice and empty optional fields when appropriate. Do not emit tool arguments or invent missing facts.",
+            })
+            recovery_token = _recovering_final_output.set(True)
+            try:
+                recovered = await self.get_response(
+                    closure_instructions, recovery_input,
+                    replace(model_settings, tool_choice=None, parallel_tool_calls=False),
+                    [], output_schema, [], tracing,
+                    previous_response_id=None, conversation_id=None, prompt=prompt,
+                )
+                recovered.usage.add(usage)
+                return recovered
+            except ContextBudgetExceeded:
+                raise
+            except Exception as exc:
+                raise FinalOutputFailure("The bounded owner completion failed; no partial advice was accepted.") from exc
+            finally:
+                _recovering_final_output.reset(recovery_token)
         disallowed = {
             getattr(item, "name", None)
             for item in response.output
@@ -1188,8 +1267,17 @@ class BudgetedProvider(ModelProvider):
         self.provider, self.budget = provider, budget
 
     def get_model(self, model_name: str | None) -> Model:
+        model = self.provider.get_model(model_name)
+        if isinstance(model, OpenAIChatCompletionsModel) or (
+            isinstance(model, OpenAIResponsesModel) and type(model) is not OpenAIResponsesModel
+        ):
+            raise ContextBudgetExceeded("This OpenAI transport does not preserve response completion status safely.")
+        if type(model) is OpenAIResponsesModel:
+            model = EnvelopeResponsesModel(
+                model.model, model._get_client(), model_is_explicit=model._model_is_explicit
+            )
         return BudgetedModel(
-            self.provider.get_model(model_name), self.budget, model_name
+            model, self.budget, model_name
         )
 
 

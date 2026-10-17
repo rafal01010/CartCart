@@ -1,0 +1,19 @@
+{
+  "purpose": "Exact rejected output strings frozen from saved Task 221 failures. They are not accepted shopping facts.",
+  "cases": [
+    {
+      "attempt": 1,
+      "artifact_path": "data/artifacts/task221/resume-20261016/phone-attempt1-inspection.json",
+      "artifact_sha256": "62bb606b40db54f71556ee99c87539d8e71e37d7f5bcea0ca9347186c1570edd",
+      "output_sha256": "6f1af89a699122996af69e9dea396be7881be61ecf1c8c76a3bc8e547aad4f9d",
+      "output_text": "{\"view_id\":\"e5f86b395d0e:c9c5ac1addc61b04944c\",\"start_char\":0,\"focus\":null} in analysis? tool available only if attached, yes."
+    },
+    {
+      "attempt": 2,
+      "artifact_path": "data/artifacts/task221/resume-20261016/phone-attempt2-inspection.json",
+      "artifact_sha256": "1c026d424d9282e6acc223bd04e1974e19a98e9e21e0626ce19cba7edcac3d3f",
+      "output_sha256": "5abcce8846452bfbd8048d6fde540a98372616263237dbffcac56042f55cbcb3",
+      "output_text": "{\n  \"rationale\": \"I\u2019d choose the iPhone 18 Pro Max for its variable-aperture camera, Apple\u2019s reported recent edge in video quality, and a larger listed battery capacity than the S26 Ultra. Choose the Samsung Galaxy S26 Ultra instead for its more versatile long-range zoom and sharper QHD display; battery capacity figures don\u2019t establish real-world runtime.\",\n  \"category\": \"phone\",\n  \"specialist_helpful\": false,\n  \"candidates\": [\n    {\n      \"name\": \"Apple iPhone 18 Pro Max\",\n      \"choice_group\": \"primary\",\n      \"evidence_ids\": [],\n      \"source_ids\": [\n        \"2f16ebd0-bc47-445e-8b43-ba2139125987\",\n        \"e146cc62-6d71-4aee-bac3-92dd1ae0edfb\"\n      ],\n      \"rationale\": \"This 2026 flagship pairs a variable-aperture 48MP main camera with a 5,391mAh listed battery, and a comparison source notes Apple\u2019s recent video-quality edge.\",\n      \"tradeoff\": \"The S26 Ultra offers more long-range zoom options and a higher-resolution display; the larger listed battery capacity alone doesn\u2019t guarantee longer runtime.\",\n      \"unknowns\": []\n    },\n    {\n      \"name\": \"Samsung Galaxy S26 Ultra\",\n      \"choice_group\": \"runner_up\",\n      \"evidence_ids\": [],\n      \"source_ids\": [\n        \"c8e57809-3a17-49c4-9779-2181eaf0a781\",\n        \"e146cc62-6d71-4aee-bac3-92dd1ae0edfb\"\n      ],\n      \"rationale\": \"Its 3x and 5x telephoto cameras give you a more flexible zoom range, alongside a 6.9-inch QHD+ display.\",\n      \"tradeoff\": \"The iPhone has the reported video-quality advantage and a larger listed battery capacity, though capacity figures don\u2019t settle actual endurance.\",\n      \"unknowns\": []\n   "
+    }
+  ]
+}

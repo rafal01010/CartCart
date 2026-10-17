@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, model_validator
 
@@ -112,6 +113,8 @@ class AgentCatalogEntry(VersionedSchema):
         default=None, min_length=1, max_length=200
     )
     fixture_fallback: FixtureFallback | None = None
+    source_lifecycle_contract: Literal["SourceConsultationOutcome"] | None = None
+    durable_video_progress: bool = False
     superseded_by: str | None = Field(default=None, min_length=1, max_length=200)
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT
 
@@ -343,6 +346,8 @@ def _entry(
     agent_as_tool_available: bool = False,
     provider_service_name: str | None = None,
     fixture_fallback: FixtureFallback | None = None,
+    source_lifecycle_contract: Literal["SourceConsultationOutcome"] | None = None,
+    durable_video_progress: bool = False,
     superseded_by: str | None = None,
     run_profile: AgentRunProfileName = AgentRunProfileName.DEFAULT,
 ) -> AgentCatalogEntry:
@@ -379,7 +384,7 @@ def _entry(
         target_research_decisions=target_research_decisions,
         planned_tool_boundaries=(
             *planned_tool_boundaries,
-            *(("BoundedEvidenceContext",) if agent_name in _BOUNDED_SDK_AGENTS else ()),
+            *(("BoundedEvidenceContext", "ValidatedFinalOutput") if agent_name in _BOUNDED_SDK_AGENTS else ()),
         ),
         approved_sdk_tools=approved_sdk_tools,
         planned_sdk_tools=planned_sdk_tools,
@@ -389,6 +394,8 @@ def _entry(
         agent_as_tool_available=agent_as_tool_available,
         provider_service_name=provider_service_name,
         fixture_fallback=fixture_fallback,
+        source_lifecycle_contract=source_lifecycle_contract,
+        durable_video_progress=durable_video_progress,
         superseded_by=superseded_by,
         run_profile=run_profile,
     )
@@ -816,6 +823,8 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "SourceIntelligenceManagerAgent": _entry(
         "SourceIntelligenceManagerAgent",
+        source_lifecycle_contract="SourceConsultationOutcome",
+        durable_video_progress=True,
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.ORCHESTRATOR,
         invocation_mode=InvocationMode.TYPED_STEP,
@@ -831,6 +840,8 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "YouTubeReviewIntelligenceAgent": _entry(
         "YouTubeReviewIntelligenceAgent",
+        source_lifecycle_contract="SourceConsultationOutcome",
+        durable_video_progress=True,
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
@@ -856,6 +867,7 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "RedditCommunityIntelligenceAgent": _entry(
         "RedditCommunityIntelligenceAgent",
+        source_lifecycle_contract="SourceConsultationOutcome",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
@@ -880,6 +892,7 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "AmazonProductIntelligenceAgent": _entry(
         "AmazonProductIntelligenceAgent",
+        source_lifecycle_contract="SourceConsultationOutcome",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,
@@ -905,6 +918,7 @@ _DEFAULT_AGENT_ENTRIES = {
     ),
     "IKEAStoreIntelligenceAgent": _entry(
         "IKEAStoreIntelligenceAgent",
+        source_lifecycle_contract="SourceConsultationOutcome",
         status=AgentStatus.REQUIRED_MVP,
         kind=AgentKind.SOURCE_INTELLIGENCE,
         invocation_mode=InvocationMode.REUSABLE_SOURCE_TOOL,

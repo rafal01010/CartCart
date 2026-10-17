@@ -1,5 +1,25 @@
 # CartCart API
 
+## Final output and literal transcript focus, Task 224
+
+Incomplete or invalid new owner output remains a retryable technical failure unless one affordable completion succeeds inside the same attempt. Automatic completion shares spent usage and retained research, closes research tools and handoffs, and executes at most once. Public result readiness and immutable version rules are unchanged. A failed new attempt never exposes an older success as its answer.
+
+The internal caption read tool returns `focus_miss` when captions are available but the requested literal focus is absent. It retains availability, total segment count and the requested retry cursor. Useful single keywords or an unfiltered read reuse the same saved transcript. This differs from a real provider gap or technical failure. No public HTTP request schema changes.
+
+
+## Focused source recovery and caption proof, Task 223
+
+`POST /api/sessions/{session_id}/runs/{run_id}/retry?retry_source=true` explicitly resumes one unfinished compatible video consultation, then asks the saved normal owner to finish advice from retained research and the returned source evidence. It requires run/session ownership, an unchanged original request, an available compatible checkpoint and a terminal run. Nonvideo and refinement checkpoints are rejected. The run is claimed atomically before work begins. The response remains `ShoppingRunRecord`. A new immutable result version records successful updated advice. Earlier versions retain their content under the existing result-readiness rules. A running or failed retry does not expose an old success as its new answer.
+
+This opt-in starts a new bounded orchestration attempt, as existing explicit retries do. It preserves recorded prior usage and consumed video search, caption and span-read limits. It does not refill provider limits or repeat completed retrieval. Absent `retry_source`, saved decision retry remains retrieval-free. Ordinary result GET and version GET remain read-only and start no model/provider calls. Old activity counts without a durable source checkpoint cannot authorize reconstruction of lost search results.
+
+Internal source receipts and persisted activity carry the explicit outcome `no_attempt`, `interrupted`, `technical_failure`, `provider_gap`, `partial` or `succeeded`, safe diagnostics, a compatibility key and prior-attempt usage. Technical failure is retryable context and does not establish inaccessible captions. A truthy empty gap bundle does not establish success. These fields are internal execution context, not buying advice.
+
+`SourceEvidence` adds optional `metadata_only`, `transcript_segment_ids` and `transcript_support`. Each support entry retains `segment_id`, `video_id`, `start_seconds`, optional `end_seconds`, exact `text` and its UTF-8 SHA-256 `content_sha256`. Support IDs must match cited IDs and the video identity. Metadata-only evidence cannot carry speech support. Existing records default to no new proof. Titles, descriptions, search snippets and caption availability alone are not transcript proof.
+
+Migration `0005` adds `result_source_projections`. Newly saved versions retain their source, product, membership and record projection. Explicit source retry inserts an immutable manifest for legacy versions before new writes. GET never creates a manifest or rewrites saved records.
+
+
 ## One final shopper result, Task 220
 
 The normal page reads the saved session, requested run and matching result. Reloading a saved link performs reads without creating or retrying a run. History, version, refinement and user-product endpoints remain available internally; their contracts and immutable records are unchanged. The normal page does not request decision history, expose post-result refinement, or add/check products after completion.

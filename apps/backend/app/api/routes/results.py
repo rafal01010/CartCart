@@ -170,31 +170,30 @@ async def _load_response(
     plan = await RefinementRepository(db_session).get_plan_for_run(
         saved_result.result_version.run_id
     )
-    artifact_run_id = await RefinementRepository(db_session).research_run_for(
-        saved_result.result_version.run_id
-    )
-    source_repository = SearchSourceRepository(db_session)
-    source_snapshots = await source_repository.list_source_snapshots(
-        artifact_run_id,
-    )
-    source_results = await source_repository.list_search_results(artifact_run_id)
-    source_evidence = await source_repository.list_source_evidence(
-        artifact_run_id,
-    )
-    product_repository = ProductRepository(db_session)
-    products = await product_repository.list_canonical_products_for_run(
-        artifact_run_id,
-    )
-    listings = await product_repository.list_product_listings_for_run(
-        artifact_run_id,
-    )
-    shortlist = await product_repository.list_shortlist_memberships(
-        artifact_run_id,
-    )
-    considered_products = await product_repository.list_user_added_products_for_run(
-        session_id,
-        artifact_run_id,
-    )
+    projection = saved_result.source_projection
+    if projection is not None:
+        source_snapshots = projection.source_snapshots
+        source_results = projection.source_results
+        source_evidence = projection.source_evidence
+        products = projection.products
+        listings = projection.listings
+        shortlist = projection.shortlist
+        considered_products = projection.considered_products
+    else:
+        artifact_run_id = await RefinementRepository(db_session).research_run_for(
+            saved_result.result_version.run_id
+        )
+        source_repository = SearchSourceRepository(db_session)
+        source_snapshots = await source_repository.list_source_snapshots(artifact_run_id)
+        source_results = await source_repository.list_search_results(artifact_run_id)
+        source_evidence = await source_repository.list_source_evidence(artifact_run_id)
+        product_repository = ProductRepository(db_session)
+        products = await product_repository.list_canonical_products_for_run(artifact_run_id)
+        listings = await product_repository.list_product_listings_for_run(artifact_run_id)
+        shortlist = await product_repository.list_shortlist_memberships(artifact_run_id)
+        considered_products = await product_repository.list_user_added_products_for_run(
+            session_id, artifact_run_id,
+        )
 
     shopping_brief = plan.target_brief if plan else None
     if shopping_brief is None:

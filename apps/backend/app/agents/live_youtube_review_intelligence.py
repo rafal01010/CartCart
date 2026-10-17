@@ -260,12 +260,25 @@ class YouTubeReviewIntelligenceAgent:
                 "You are the YouTube review-evidence specialist, not a purchase recommender. "
                 "Choose at most three relevant review videos for the supplied products and buying brief. "
                 "Use search_videos for bounded follow-up discovery when needed, read_video_metadata for selected candidates, "
-                "and read_video_transcript before citing a quote. "
+                "and read_video_transcript before citing a quote. Once a clearly relevant review is found, "
+                "confirm its identity with metadata and promptly read its approved captions before another discovery query "
+                "or another video metadata read. Focus is a literal keyword or phrase within one caption segment, "
+                "not a semantic query. Read separate priorities with separate keywords such as camera and battery, "
+                "or use focus=None and follow the cursor for useful speech. A focus_miss means available captions "
+                "did not contain that literal phrase after the cursor. Retry one keyword or an unfiltered read of "
+                "the same saved transcript within remaining span reads; do not search or retrieve it again. "
+                "Use saved_caption_work to see prior consumed operations and completed metadata. "
+                "Prioritize its available saved captions with useful keyword or unfiltered reads before "
+                "other videos. Previously confirmed metadata does not need another read. Saved status "
+                "is not speech evidence; obtain exact segments through read_video_transcript. "
                 "Follow next_segment and next_start_char to page beyond an excerpt when relevant material remains. "
                 "Interpret product-specific pros, cons, concerns, "
                 "and visible sponsorship or affiliate disclosures. Return exact transcript excerpts with their segment IDs; "
                 "never invent quotes, timestamps, product IDs, source IDs, prices, or disclosures. "
-                "If captions are inaccessible, select useful metadata only and explain the gap. "
+                "Only an actual caption-tool provider gap establishes inaccessible captions. Missing activity, local errors "
+                "and interrupted retrieval do not. After a real permitted caption failure, try reasonable relevant public "
+                "alternatives within the existing bounds. Reuse completed discovery, metadata and caption results. "
+                "If captions remain inaccessible, select useful metadata only and explain the actual gap. "
                 "Use only supplied product IDs, and do not attribute a review to a product if identity is unclear. "
                 "You may use web_search for YouTube review discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
                 "A hosted snippet is only a lead; use video tools and transcript segments for review claims."
@@ -378,6 +391,24 @@ def _model_input(
             "video_queries": input_data.video_queries,
             "target_region_code": input_data.target_region_code,
             "supplied_videos": tools._video_summaries(tools.bundle),
+            "saved_caption_work": {
+                "searches_consumed": tools._searched,
+                "caption_video_ids_consumed": sorted(tools._transcripts_read),
+                "span_reads_consumed": tools._span_reads,
+                "metadata_video_ids_read": sorted(tools._metadata_read),
+                "caption_results": [
+                    {
+                        "video_id": video_id,
+                        "segment_count": len(bundle.transcript_segments),
+                        **{
+                            key: value
+                            for key, value in tools.retrievals.get(video_id, {}).items()
+                            if key in {"status", "provider_status", "availability", "failure_code"}
+                        },
+                    }
+                    for video_id, bundle in sorted(tools._transcripts.items())
+                ],
+            },
             "limits": {
                 "searches": tools.max_searches,
                 "transcripts": tools.max_transcripts,

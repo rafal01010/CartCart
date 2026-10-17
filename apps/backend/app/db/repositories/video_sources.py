@@ -94,7 +94,12 @@ class VideoReviewRepository:
             )
 
         for segment in bundle.transcript_segments:
-            await self.add_transcript_segment(run_id, segment)
+            existing = await self._session.get(VideoTranscriptSegmentRecord, str(segment.segment_id))
+            if existing is not None:
+                if existing.run_id != str(run_id) or existing.to_schema() != segment:
+                    raise ValueError("Retained transcript segment conflicts with its saved version.")
+            else:
+                await self.add_transcript_segment(run_id, segment)
 
         bundle_record = VideoReviewEvidenceBundleRecord.from_schema(
             run_id=run_id,
@@ -104,6 +109,11 @@ class VideoReviewRepository:
         await self._session.flush()
 
         for evidence in bundle.evidence:
+            existing_evidence = await self._session.get(VideoReviewEvidenceRecord, str(evidence.evidence_id))
+            if existing_evidence is not None:
+                if existing_evidence.run_id != str(run_id) or existing_evidence.to_schema() != evidence:
+                    raise ValueError("Retained video evidence conflicts with its saved version.")
+                continue
             evidence_record = VideoReviewEvidenceRecord.from_schema(
                 run_id=run_id,
                 bundle_id=bundle.bundle_id,

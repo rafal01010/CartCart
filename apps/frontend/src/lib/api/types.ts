@@ -520,6 +520,18 @@ export interface SourceEvidence {
 	source_quality: SourceQuality;
 	timestamp_references?: TimestampReference[];
 	video?: VideoSource | null;
+	metadata_only?: boolean;
+	transcript_segment_ids?: EntityId[];
+	transcript_support?: VideoTranscriptSupport[];
+}
+
+export interface VideoTranscriptSupport {
+	segment_id: EntityId;
+	video_id: string;
+	start_seconds: number;
+	end_seconds?: number | null;
+	text: string;
+	content_sha256: string;
 }
 
 export interface ListingTrustAssessment {

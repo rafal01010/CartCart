@@ -11,6 +11,7 @@ from app.db.models.results import (
     ComparisonMatrixRecord,
     ListingTrustAssessmentRecord,
     RecommendationBundleRecord,
+    ResultSourceProjectionRecord,
     ResultVersionRecord,
 )
 from app.db.models.runs import (
@@ -68,6 +69,7 @@ __all__ = [
     "RecommendationBundleRecord",
     "ReusableSourceEvidenceGapRecord",
     "ResultVersionRecord",
+    "ResultSourceProjectionRecord",
     "SearchPlanRecord",
     "SearchResultRecord",
     "ShoppingRunRecordModel",

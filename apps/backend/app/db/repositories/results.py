@@ -10,9 +10,13 @@ from app.db.models.results import (
     ComparisonMatrixRecord,
     ListingTrustAssessmentRecord,
     RecommendationBundleRecord,
+    ResultSourceProjectionRecord,
     ResultVersionRecord,
 )
 from app.db.models.runs import ShoppingRunRecordModel
+from app.db.repositories.products import CandidateShortlistMembership, ProductRepository
+from app.db.repositories.refinements import RefinementRepository
+from app.db.repositories.search_sources import SearchSourceRepository
 from app.schemas.analysis import (
     CategoryAnalysis,
     ComparisonMatrix,
@@ -20,8 +24,11 @@ from app.schemas.analysis import (
     RecommendationBundle,
 )
 from app.schemas.ids import CandidateId, RunId, SessionId, new_id
+from app.schemas.base import CartCartBaseModel
+from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
 from app.schemas.runs import AgentRunRecord
 from app.schemas.runs import RunStatus
+from app.schemas.search_sources import SearchResult, SourceEvidence, SourceSnapshot
 from app.schemas.timestamps import utc_now
 
 
@@ -34,6 +41,19 @@ class ResultVersion:
     comparison_matrix_id: CandidateId
 
 
+class ResultSourceProjection(CartCartBaseModel):
+    source_results: tuple[SearchResult, ...]
+    source_snapshots: tuple[SourceSnapshot, ...]
+    source_evidence: tuple[SourceEvidence, ...]
+    products: tuple[CanonicalProduct, ...]
+    listings: tuple[ProductListing, ...]
+    shortlist: tuple[CandidateShortlistMembership, ...]
+    considered_products: tuple[UserAddedProduct, ...]
+    trust_assessments: tuple[ListingTrustAssessment, ...]
+    category_analyses: tuple[CategoryAnalysis, ...]
+    agent_records: tuple[AgentRunRecord, ...]
+
+
 @dataclass(frozen=True)
 class SavedResultBundle:
     result_version: ResultVersion
@@ -42,6 +62,7 @@ class SavedResultBundle:
     agent_records: tuple[AgentRunRecord, ...]
     comparison_matrix: ComparisonMatrix
     recommendation_bundle: RecommendationBundle
+    source_projection: ResultSourceProjection | None = None
 
 
 class ResultRepository:
@@ -216,13 +237,68 @@ class ResultRepository:
             )
         )
         await self._session.flush()
+        projection = await self._capture_source_projection(run_id)
+        self._session.add(ResultSourceProjectionRecord(
+            result_version_id=str(result_version.result_version_id),
+            payload=projection.model_dump(mode="json", exclude_computed_fields=True),
+        ))
+        await self._session.flush()
         return SavedResultBundle(
             result_version=result_version,
-            trust_assessments=trust_assessments,
-            category_analyses=category_analyses,
-            agent_records=agent_records,
+            trust_assessments=projection.trust_assessments,
+            category_analyses=projection.category_analyses,
+            agent_records=projection.agent_records,
             comparison_matrix=recommendation_bundle.comparison_matrix,
             recommendation_bundle=stored_bundle,
+            source_projection=projection,
+        )
+
+    async def freeze_legacy_projection(
+        self, result_version_id: CandidateId,
+    ) -> ResultSourceProjection:
+        record = await self._session.get(ResultSourceProjectionRecord, str(result_version_id))
+        if record is not None:
+            return ResultSourceProjection.model_validate(record.payload)
+        version = await self._session.get(ResultVersionRecord, str(result_version_id))
+        if version is None:
+            raise ValueError("cannot freeze an unknown result version.")
+        projection = await self._capture_source_projection(UUID(version.run_id))
+        self._session.add(ResultSourceProjectionRecord(
+            result_version_id=str(result_version_id),
+            payload=projection.model_dump(mode="json", exclude_computed_fields=True),
+        ))
+        await self._session.flush()
+        return projection
+
+    async def freeze_run_projections(self, run_id: RunId) -> None:
+        statement = (
+            select(ResultVersionRecord.result_version_id)
+            .where(ResultVersionRecord.run_id == str(run_id))
+            .order_by(ResultVersionRecord.version)
+        )
+        for version_id in (await self._session.scalars(statement)).all():
+            await self.freeze_legacy_projection(UUID(version_id))
+
+    async def _capture_source_projection(self, run_id: RunId) -> ResultSourceProjection:
+        run = await self._session.get(ShoppingRunRecordModel, str(run_id))
+        if run is None:
+            raise ValueError("result projection requires its persisted run.")
+        artifact_run_id = await RefinementRepository(self._session).research_run_for(run_id)
+        sources = SearchSourceRepository(self._session)
+        products = ProductRepository(self._session)
+        return ResultSourceProjection(
+            source_results=await sources.list_search_results(artifact_run_id),
+            source_snapshots=await sources.list_source_snapshots(artifact_run_id),
+            source_evidence=await sources.list_source_evidence(artifact_run_id),
+            products=await products.list_canonical_products_for_run(artifact_run_id),
+            listings=await products.list_product_listings_for_run(artifact_run_id),
+            shortlist=await products.list_shortlist_memberships(artifact_run_id),
+            considered_products=await products.list_user_added_products_for_run(
+                UUID(run.session_id), artifact_run_id,
+            ),
+            trust_assessments=await self.list_listing_trust_assessments(run_id),
+            category_analyses=await self.list_category_analyses(run_id),
+            agent_records=await self.list_agent_records(run_id),
         )
 
     async def load_latest_result_bundle(
@@ -320,13 +396,19 @@ class ResultRepository:
         if comparison_matrix is None or recommendation_bundle is None:
             return None
 
+        record = await self._session.get(
+            ResultSourceProjectionRecord, version_record.result_version_id,
+        )
+        projection = ResultSourceProjection.model_validate(record.payload) if record else None
+
         return SavedResultBundle(
             result_version=_to_result_version(version_record),
-            trust_assessments=await self.list_listing_trust_assessments(run_id),
-            category_analyses=await self.list_category_analyses(run_id),
-            agent_records=await self.list_agent_records(run_id),
+            trust_assessments=(projection.trust_assessments if projection else await self.list_listing_trust_assessments(run_id)),
+            category_analyses=(projection.category_analyses if projection else await self.list_category_analyses(run_id)),
+            agent_records=(projection.agent_records if projection else await self.list_agent_records(run_id)),
             comparison_matrix=comparison_matrix,
             recommendation_bundle=recommendation_bundle,
+            source_projection=projection,
         )
 
 

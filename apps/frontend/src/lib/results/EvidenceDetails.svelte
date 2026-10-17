@@ -37,6 +37,14 @@
 									<span>{item.targetLabel}</span>
 								</div>
 								<p class="mt-1 text-sm leading-6 text-foreground">{item.claim}</p>
+								{#each item.captionSupport as support (support.segmentId)}
+									<blockquote class="mt-2 border-l border-border pl-3 text-sm leading-6 text-muted-foreground">
+										<p>{support.text}</p>
+										{#if support.url}
+											<a href={support.url} target="_blank" rel="noreferrer noopener" class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">Watch at {support.label} <ExternalLink class="size-3" /></a>
+										{:else}<p class="mt-1 text-xs">{support.label}</p>{/if}
+									</blockquote>
+								{/each}
 								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 									<span>{item.sourceTitle}</span>
 									{#if item.timestampLabels.length}

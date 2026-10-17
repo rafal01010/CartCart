@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import RecommendationResult from './RecommendationResult.svelte';
 import EvidenceDetails from './EvidenceDetails.svelte';
+import AvailableSources from './AvailableSources.svelte';
 import type { SessionResultsResponse } from '$lib/api/types.js';
 import { buildResultView, neutralOutboundUrl, selectModeView } from './result-view.js';
 
@@ -381,6 +382,96 @@ describe('recommendation grouping', () => {
 	});
 });
 
+describe('Task 223 local projection controls, not live captions', () => {
+	const localVideo = {
+		video_id: 'local-control',
+		url: 'https://www.youtube.com/watch?v=local-control&utm_source=local&affiliate=tracking',
+		title: 'Local control review',
+		channel_name: 'Local control creator',
+		transcript_availability: 'available',
+	};
+
+	it('projects explicit speech provenance into neutral timestamped video sources', () => {
+		const result = structuredClone(baseResult);
+		result.source_snapshots[0] = { ...result.source_snapshots[0], source_type: 'video', video: localVideo };
+		result.source_evidence[0] = {
+			...result.source_evidence[0], video: localVideo, evidence_type: 'video_claim',
+			timestamp_references: [{ start_seconds: 75, end_seconds: 91 }],
+			transcript_segment_ids: ['local-segment'],
+			transcript_support: [{
+				segment_id: 'local-segment', video_id: 'local-control', start_seconds: 75, end_seconds: 91,
+				text: 'Local control speech. The smaller stand leaves more desk space.',
+				content_sha256: 'aed2e34068802a7a874c97baa693d4c04f4e3e58b74c3be6752533bbcf7ef559',
+			}],
+		};
+		const before = JSON.stringify(result);
+		const view = buildResultView(result);
+		expect(view.sourceViews[0]).toMatchObject({
+			title: 'Local control review', url: 'https://www.youtube.com/watch?v=local-control',
+			video: { creatorName: 'Local control creator', basisLabel: 'Caption excerpts available' },
+		});
+		expect(view.evidenceViews[0].captionSupport).toEqual([{
+			segmentId: 'local-segment', videoId: 'local-control', label: '1:15-1:31',
+			text: 'Local control speech. The smaller stand leaves more desk space.',
+			url: 'https://www.youtube.com/watch?v=local-control&t=75s',
+			contentSha256: 'aed2e34068802a7a874c97baa693d4c04f4e3e58b74c3be6752533bbcf7ef559',
+		}]);
+		const output = render(AvailableSources, { props: { sources: view.sourceViews } }).body;
+		for (const text of ['Local control review', 'By Local control creator', 'Watch video', 'Caption excerpts available',
+			'Local control speech. The smaller stand leaves more desk space.', 'Watch at 1:15-1:31']) expect(output).toContain(text);
+		expect(output).toContain('https://www.youtube.com/watch?v=local-control&amp;t=75s');
+		expect(output).not.toContain('utm_source');
+		expect(output).not.toContain('affiliate=');
+		expect(JSON.stringify(result)).toBe(before);
+	});
+
+	it.each(['metadata', 'legacy'] as const)('keeps %s video information distinct from accepted speech', (kind) => {
+		const result = structuredClone(baseResult);
+		result.source_snapshots[0] = { ...result.source_snapshots[0], source_type: 'video', video: localVideo };
+		result.source_evidence[0] = {
+			...result.source_evidence[0], video: localVideo,
+			metadata_only: kind === 'metadata',
+			...(kind === 'legacy' ? { timestamp_references: [{ start_seconds: 75, end_seconds: 91 }] } : {}),
+		};
+		const view = buildResultView(result);
+		const output = render(AvailableSources, { props: { sources: view.sourceViews } }).body;
+		expect(output).toContain('Local control review');
+		expect(output).toContain('Watch video');
+		expect(output).toContain('Video information only');
+		expect(output).not.toContain('Caption excerpts available');
+		expect(output).not.toContain('Watch at');
+		expect(view.evidenceViews[0].captionSupport).toEqual([]);
+	});
+
+	it.each([
+		{ primary: ['product-dell'], runners: [] },
+		{ primary: ['product-dell', 'product-asus'], runners: [] },
+		{ primary: ['product-dell', 'product-asus', 'product-lg'], runners: ['product-four', 'product-five'] },
+		{ primary: [], runners: [] },
+	])('renders literal authored primary $primary and runners $runners in separate groups', ({ primary, runners }) => {
+		const result = structuredClone(baseResult);
+		result.products = [...result.products,
+			{ ...baseResult.products[0], product_id: 'product-four', name: 'Compact alternative' },
+			{ ...baseResult.products[0], product_id: 'product-five', name: 'Larger alternative' },
+		];
+		result.recommendation_bundle.primary_product_ids = primary;
+		result.recommendation_bundle.runner_up_product_ids = runners;
+		result.recommendation_bundle.no_strong_buy = !primary.length;
+		result.recommendation_bundle.no_strong_buy_reason = primary.length ? null : 'No suitable local control choice.';
+		const output = render(RecommendationResult, { props: { result: buildResultView(result), onStartOver: () => {} } }).body;
+		const primarySection = output.match(/<section[^>]+aria-label="Recommended options"[\s\S]*?<\/section>/)?.[0] ?? '';
+		const runnerSection = output.match(/<section[^>]+aria-labelledby="runners-up-title"[\s\S]*?<\/section>/)?.[0] ?? '';
+		expect(primarySection.match(/<h2\b/g) ?? []).toHaveLength(primary.length);
+		expect(runnerSection.match(/<h3\b/g) ?? []).toHaveLength(runners.length);
+		for (const product of result.products) {
+			expect(primarySection.includes(product.name)).toBe(primary.includes(product.product_id));
+			expect(runnerSection.includes(product.name)).toBe(runners.includes(product.product_id));
+		}
+		if (!primary.length) expect(output).toContain('No suitable local control choice.');
+		expect(output.indexOf('Available sources')).toBeGreaterThan(output.indexOf('<h1'));
+	});
+});
+
 describe('result view helpers', () => {
 	it('groups source originals by neutral URL and keeps cited ID aliases', () => {
 		const result = structuredClone(baseResult);
@@ -391,7 +482,6 @@ describe('result view helpers', () => {
 				title: 'Dell discovery',
 				snippet: 'Changed display support detail.',
 				source_type: 'search_result',
-				query: { query: 'monitor', intent: 'discovery' },
 				provider: { raw: { research_selection: { status: 'deferred' } } },
 				quality: { level: 'unknown' },
 			},
@@ -401,7 +491,6 @@ describe('result view helpers', () => {
 				title: 'Unused lead',
 				snippet: 'Redundant original retained in the API.',
 				source_type: 'search_result',
-				query: { query: 'monitor', intent: 'discovery' },
 				provider: { raw: { research_selection: { status: 'deferred' } } },
 				quality: { level: 'unknown' },
 			},
@@ -636,10 +725,11 @@ describe('result view helpers', () => {
 		expect(selectModeView(view, null)?.productId).toBe('product-dell');
 	});
 
-	it('uses final rationale even when the exact best-overall mode has different reasoning', () => {
+	it('keeps overall advice separate from the exact best-overall candidate reason', () => {
 		const view = buildResultView(baseResult);
-		expect(view.finalMode?.rationale).toBe('Best balance of fit and seller trust.');
-		expect(view.decisionModes[0]?.rationale).toBe('Best balance of fit and seller trust.');
+		expect(view.whyItWins).toBe('Best balance of fit and seller trust.');
+		expect(view.finalMode?.rationale).toBe('Best blend of features and seller safety.');
+		expect(view.decisionModes[0]?.rationale).toBe('Best blend of features and seller safety.');
 	});
 
 	it('preserves stored runner-up trust and neutral links without a mode', () => {

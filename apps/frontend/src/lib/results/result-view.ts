@@ -23,6 +23,14 @@ export interface EvidenceView {
 	sourceTitle: string;
 	sourceUrl: string | null;
 	timestampLabels: string[];
+	captionSupport: {
+		segmentId: EntityId;
+		videoId: string;
+		text: string;
+		label: string;
+		url: string | null;
+		contentSha256: string;
+	}[];
 	metadata: string[];
 	disclosures: string[];
 }
@@ -41,6 +49,7 @@ export interface SourceView {
 	capturedLabel: string;
 	evidence: EvidenceView[];
 	snippet?: string | null;
+	video: { creatorName: string | null; basisLabel: string } | null;
 }
 
 export interface ModeView {
@@ -643,10 +652,10 @@ function moneyLabel(amount: string | number, currency: string): string {
 }
 
 function toSourceView(source: SourceSnapshot, evidence: EvidenceView[]): SourceView {
-	const neutralUrl = neutralOutboundUrl(source.url);
+	const neutralUrl = neutralOutboundUrl(source.video?.url ?? source.url);
 	return {
 		id: source.source_id,
-		title: shopperSafeText(source.title || source.url),
+		title: shopperSafeText(source.video?.title || source.title || source.url),
 		url: neutralUrl,
 		displayUrl: displayUrl(neutralUrl ?? source.url),
 		type: source.source_type,
@@ -657,6 +666,11 @@ function toSourceView(source: SourceSnapshot, evidence: EvidenceView[]): SourceV
 		extractionStatus: extractionStatusLabel(source.extraction_status),
 		capturedLabel: dateLabel(source.captured_at),
 		evidence,
+		video: source.video ? {
+			creatorName: shopperSafeOptionalText(source.video.channel_name ?? null),
+			basisLabel: evidence.some((item) => item.captionSupport.length)
+				? 'Caption excerpts available' : 'Video information only',
+		} : null,
 	};
 }
 
@@ -676,6 +690,7 @@ function toSearchSourceView(source: SearchSourceResult): SourceView {
 		capturedLabel: 'Date unavailable',
 		snippet: source.snippet ? shopperSafeText(source.snippet) : null,
 		evidence: [],
+		video: null,
 	};
 }
 
@@ -693,6 +708,14 @@ function toEvidenceView(evidence: SourceEvidence, source: SourceSnapshot | Sourc
 		sourceTitle: source?.title ? shopperSafeText(source.title) : 'Source not attached',
 		sourceUrl: typeof sourceUrl === 'string' ? neutralOutboundUrl(sourceUrl) : sourceUrl,
 		timestampLabels: (evidence.timestamp_references ?? []).map(timestampLabel),
+		captionSupport: evidence.metadata_only ? [] : (evidence.transcript_support ?? []).map((support) => ({
+			segmentId: support.segment_id,
+			videoId: support.video_id,
+			text: support.text,
+			label: timestampLabel(support),
+			url: videoTimestampUrl(evidence.video?.url, support.start_seconds),
+			contentSha256: support.content_sha256,
+		})),
 		metadata: evidenceMetadata(evidence),
 		disclosures: evidenceDisclosures(evidence),
 	};
@@ -871,6 +894,15 @@ function timestampLabel(timestamp: {
 	const start = durationLabel(timestamp.start_seconds);
 	const end = typeof timestamp.end_seconds === 'number' ? durationLabel(timestamp.end_seconds) : null;
 	return end ? `${start}-${end}` : start;
+}
+
+function videoTimestampUrl(value: string | null | undefined, startSeconds: number): string | null {
+	const neutral = neutralOutboundUrl(value);
+	if (!neutral) return null;
+	const url = new URL(neutral);
+	if (!['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(url.hostname)) return null;
+	url.searchParams.set('t', `${Math.floor(startSeconds)}s`);
+	return url.toString();
 }
 
 function durationLabel(seconds: number): string {

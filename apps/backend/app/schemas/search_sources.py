@@ -1,4 +1,5 @@
 from enum import StrEnum
+from hashlib import sha256
 from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, Field, model_validator
@@ -581,6 +582,23 @@ class SourceSnapshot(VersionedSchema):
         return self
 
 
+class VideoTranscriptSupport(CartCartBaseModel):
+    segment_id: SourceId
+    video_id: str = Field(min_length=1, max_length=128)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float | None = Field(default=None, ge=0)
+    text: str = Field(min_length=1, max_length=5000)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_support(self) -> "VideoTranscriptSupport":
+        if self.end_seconds is not None and self.end_seconds < self.start_seconds:
+            raise ValueError("end_seconds cannot be earlier than start_seconds.")
+        if self.content_sha256 != sha256(self.text.encode()).hexdigest():
+            raise ValueError("caption support hash must match its exact text.")
+        return self
+
+
 class SourceEvidence(CartCartBaseModel):
     evidence_id: SourceId = Field(default_factory=new_id)
     source_id: SourceId
@@ -591,6 +609,9 @@ class SourceEvidence(CartCartBaseModel):
     source_quality: SourceQuality
     timestamp_references: tuple[TimestampReference, ...] = Field(default_factory=tuple)
     video: VideoSource | None = None
+    metadata_only: bool = False
+    transcript_segment_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
+    transcript_support: tuple[VideoTranscriptSupport, ...] = Field(default_factory=tuple)
 
     @model_validator(mode="after")
     def _video_evidence_requires_video_context(self) -> "SourceEvidence":
@@ -601,10 +622,23 @@ class SourceEvidence(CartCartBaseModel):
             raise ValueError("source metadata evidence target must match source_id.")
         if (
             self.evidence_type == EvidenceType.VIDEO_CLAIM or self.timestamp_references
+            or self.transcript_segment_ids or self.transcript_support
         ) and self.video is None:
             raise ValueError(
                 "video context is required for video or timestamped evidence."
             )
+        if self.metadata_only and (
+            self.timestamp_references or self.transcript_segment_ids or self.transcript_support
+        ):
+            raise ValueError("metadata-only evidence cannot carry caption support.")
+        if self.transcript_support:
+            ids = {item.segment_id for item in self.transcript_support}
+            if len(ids) != len(self.transcript_support) or ids != set(self.transcript_segment_ids):
+                raise ValueError("caption support must match the cited segment IDs exactly.")
+            if self.video is None or any(
+                item.video_id != self.video.video_id for item in self.transcript_support
+            ):
+                raise ValueError("caption support must belong to the evidence video.")
         return self
 
 

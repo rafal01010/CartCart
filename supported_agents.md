@@ -1,5 +1,21 @@
 # CartCart Supported Agents And Source Capabilities
 
+## Validated final output, Task 224
+
+All retained model paths share structured final-output validation. An incomplete response stays a technical failure. A normal or saved shopping owner may make one affordable tools-free completion from retained research within the same attempt and spent ledgers. It keeps the same owner/model/reasoning and model-authored choices. The saved-decision cap alone increases from 2,000 to the existing 6,667 ceiling. No agent, source capability, routing edge or provider fallback is added.
+
+YouTube literal focus misses retain available captions and point to keyword or unfiltered reads of the saved transcript. They never establish a caption-access gap. Whole validated speech and cautions remain required for interpreted evidence.
+
+
+## Task 223 source lifecycle contract
+
+`SourceIntelligenceManagerAgent` owns `SourceConsultationOutcome`. YouTube, Reddit, Amazon and IKEA SDK returns share honest `no_attempt`, `interrupted`, `technical_failure`, `provider_gap`, `partial` and `succeeded` classification. Empty evidence-gap bundles are not successful consultations. Accepted evidence survives later execution failure with safe diagnostics. The runtime catalog declares this contract without changing ownership, providers, profiles or tool allowlists.
+
+Only the video path has durable raw discovery/metadata/caption progress and consumed-operation recovery. Its catalog flag is `durable_video_progress`. Explicit focused source retry is restricted to that capability. Existing other-source provider gaps remain available context, and a technical SDK failure is never converted into provider unavailability. No source consultation, channel or video is mandatory for a shopping journey.
+
+The YouTube specialist promptly confirms identity and attempts approved captions for a relevant discovered review before redundant searches or metadata reads. Real caption gaps can motivate reasonable relevant public alternatives within current bounds. Raw titles, metadata and hosted snippets remain leads. Whole accepted speech with video/source/segment IDs, timestamps, URL and hash reaches the normal owner and optional neutral sources below advice. Source legitimacy, disclosures and substance remain material; production polish alone establishes no credibility.
+
+
 ## Funded completion, Task 222
 
 All retained model paths use the approved 4/3 token scaling. General, Technology

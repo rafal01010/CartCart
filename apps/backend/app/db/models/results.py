@@ -269,3 +269,12 @@ class ResultVersionRecord(Base):
         nullable=False,
     )
     created_at: Mapped[str] = mapped_column(String(35), nullable=False)
+
+
+class ResultSourceProjectionRecord(Base):
+    __tablename__ = "result_source_projections"
+
+    result_version_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("result_versions.result_version_id"), primary_key=True,
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

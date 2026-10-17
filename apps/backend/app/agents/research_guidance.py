@@ -19,6 +19,10 @@ SHOPPER_ADVICE_GUIDANCE = (
     "Do not copy internal cautions into shopper advice or create a generic warning section. "
     "Keep genuinely important product limitations and known age, support or launch differences when they change the choice. "
     "Weigh strong adverse findings when selecting products and offer suitable alternatives where available. "
+    "Before finalizing, consider meaningful alternatives already discovered, including other companies and size variants of a preferred family. "
+    "Choose up to three strongest useful options as primary choices before considering optional runners-up. Two strong useful choices from different companies normally both belong among primary choices. "
+    "Prefer useful company diversity. A weaker same-company family or size variant may be a runner-up when a comparably strong useful option from another company takes a primary slot. Without such an alternative, same-company options may remain primary choices. "
+    "A product's appearance in a source alone does not justify recommending it. Primary choices and runners-up are maxima, not quotas; do not fill unused places or explain routine omissions. "
     "Do not replace missing information with invented positive certainty. "
 )
 

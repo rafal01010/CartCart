@@ -142,7 +142,7 @@ class RunService:
         return await self._run_repository.get(run.run_id)
 
     async def retry_run(
-        self, session_id: SessionId, run_id: RunId
+        self, session_id: SessionId, run_id: RunId, *, retry_source: bool = False
     ) -> ShoppingRunRecord | None:
         run = await self.get_run_status(session_id, run_id)
         if run is None:
@@ -151,6 +151,21 @@ class RunService:
             raise ValueError("Retry requires persisted workflow artifacts.")
         records = await self._result_repository.list_agent_records(run_id)
         saved_result = await self._result_repository.load_latest_result_bundle(run_id)
+        source_retry = None
+        if retry_source:
+            if self._settings is None or run.status not in {RunStatus.SUCCEEDED, RunStatus.FAILED}:
+                raise ApplicationError("source_not_retryable", "No compatible unfinished source consultation is saved.", status_code=409)
+            try:
+                pending = SourceIntelligenceManagerAgent(self._settings).pending_retry_input(run_id)
+                if tuple(cap.value for cap in pending.allowed_capabilities) != ("video_review",):
+                    raise ValueError("Only video consultations have durable provider limits.")
+                source_retry = {
+                    "reuse_key": pending.reuse_key,
+                    "candidate_name": pending.products[0].name,
+                    **(pending.owner_request or {}),
+                }
+            except (ValueError, OSError, KeyError, IndexError) as exc:
+                raise ApplicationError("source_checkpoint_unavailable", "The saved source checkpoint is unavailable or incompatible.", status_code=409) from exc
         blocked_check = (
             run.status == RunStatus.SUCCEEDED
             and saved_result is not None
@@ -159,7 +174,7 @@ class RunService:
                 or saved_result.recommendation_bundle.no_strong_buy
             )
         )
-        if not blocked_check and not (
+        if not retry_source and not blocked_check and not (
             run.status == RunStatus.FAILED
             and run.current_stage
             in {
@@ -266,6 +281,8 @@ class RunService:
                 raise ApplicationError(
                     "live_agents_not_configured", str(exc), status_code=409
                 ) from exc
+        if retry_source and plan is not None:
+            raise ApplicationError("source_not_retryable", "Focused source retry requires the original saved owner request.", status_code=409)
         orchestrator = self._orchestrator()
         claimed = await self._search_source_repository.session.execute(
             update(ShoppingRunRecordModel)
@@ -282,11 +299,13 @@ class RunService:
                 "This saved decision is already being checked again.",
                 status_code=409,
             )
+        if retry_source:
+            await self._result_repository.freeze_run_projections(run_id)
         await self._run_repository.append_event(
             run_id,
             stage=RunStage.COMPARISON_DECISION if blocked_check else run.current_stage,
             status=RunStatus.RUNNING,
-            message="Resuming the saved decision without repeating research.",
+            message=("Explicit focused source retry starts a new bounded orchestration attempt. Prior usage remains recorded; consumed provider limits and completed work are reused." if retry_source else "Resuming the saved decision without repeating research."),
         )
         await self._run_repository.checkpoint()
         try:
@@ -296,6 +315,7 @@ class RunService:
                 original_input=original_input,
                 refinement_plan=plan,
                 reused_artifacts=reused,
+                **({"source_retry": source_retry} if retry_source else {}),
             )
             if plan is not None:
                 await self._session_repository.update_current_brief(

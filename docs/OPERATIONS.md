@@ -1,5 +1,27 @@
 # CartCart Operations
 
+## Task 224 final-output diagnostics
+
+Saved-owner decisions now allow 6,667 output tokens instead of 2,000. The existing per-call ceiling remains 6,667. Main 200,000, owner starting 120,000, source starting 40,000, input 25,334, eligible decision and optional verifier 32,000 each, and hosted 10,667 remain unchanged. Other role caps, configured models, reasoning, providers, timeouts and turn limits stay unchanged.
+
+A bounded automatic owner completion shares the current attempt ledger and retained research. It closes tools and handoffs and does not start a fresh orchestration attempt. Failed or unknown usage keeps its conservative charge. An explicit later retry remains a separate admitted attempt under the existing retry policy. No retry runs on reload or startup.
+
+A literal `focus_miss` means the transcript exists. Inspect the recorded request, availability and cursor, then use a relevant keyword or unfiltered read within the existing consumed span allowance. Do not retrieve completed captions again or diagnose public-caption inaccessibility from a phrase miss.
+
+
+## Task 223 source recovery
+
+Apply migration `0005` with the normal backend migration procedure before launching the updated app. The migration adds one version-projection table and does not rewrite saved source or recommendation records. Task 223 implementation checks migrate temporary databases only.
+
+Source progress files live under the configured artifact root in `source-consultations/<run>/<compatibility hash>.json`. Keep this directory when restarting or moving a local database. It contains approved source material and bounded safe diagnostics, not credentials. Atomic replacement preserves the last completed checkpoint. Do not delete it to grant more provider calls. A changed request, policy, provider configuration or caption bound must not resume incompatible work.
+
+Use the explicit `retry_source=true` retry option only when a focused video retry is intended. It starts a new main/owner/source attempt under the existing funding policy and records that fact in the run event. It preserves historical usage and consumed search/caption/span operations. A hard crash can leave in-flight usage unknown; a last recorded lower bound is not a zero provider bill. Default result reload and decision retry do not retrieve sources. Source retry does not run automatically on startup.
+
+Task 223 changes no environment settings or token funding rules. The current owner-approved local profile remains Luna/high/120 seconds/15 turns for strong roles, with General at 180 seconds/25 turns and the optional verifier at 180 seconds/15 turns. Fast remains Luna/none/30 seconds/nine turns. The source manager still has its 90-second outer ceiling and 15 parent-turn cap; specialist turns remain at most 12, further bounded by profile. Historical Task 221 Sol evidence remains historical.
+
+The approved caption boundary remains English, 30 seconds, 65,536 output bytes, 5,242,880 temporary bytes and 5,000 segments. Cookies, media downloads, remote EJS, authentication and access bypass remain prohibited. Diagnose technical failures from their actual safe lifecycle record. Only a real provider result can establish a caption gap. Relevant approved public alternatives remain available within the existing limits. Public captions reaching the normal owner remain Task 221 live acceptance.
+
+
 ## Task 220 offline page implementation
 
 The shopper page displays one answer and a top Ask another question action. It no longer requests history or exposes refinement, listing checks or manual product addition after completion. Those backend APIs and saved records remain available internally. Reloading a matching saved result reads session/run/result data. Restart abandons local display and clears the saved link without deleting backend records or starting work.
@@ -1364,3 +1386,6 @@ are retained for a later saved-decision retry after authorization. See
 Final Task 221 was explicitly resumed on 2026-10-14. Use the configured managed local services and browser. The process holder must remain alive during journeys in the execution environment; a completed detached launcher can lose its children. The initial sandbox launch required approved local-process execution. Normal research, result retry and saved load still use configured services.
 
 Internal owner records now preserve the actual SDK failure message and available failed hosted-call summaries even when a parent recovery succeeds. Treat older truncation or hosted-token attribution as inference when its original exception/raw activity was discarded. No configuration, model, reasoning, provider, output/context/spending limit or verifier timeout was changed by these repairs. Approved yt-dlp caption preparation from Task 217 remains effective. No fixture fallback is permitted as live evidence.
+
+
+During the 2026-10-17 Task 221 resumption, the YouTube specialist input now reports saved caption status/counts, metadata-read IDs and consumed search/caption/span operations. Saved status is not interpreted speech; use existing bounded transcript reads and validation. This makes restored work visible without retrieval, counter reset or policy changes. Task 225 separately owns the source-breadth and multi-product consultation repair and is not implemented. See the latest Task 221 handoff for the stopped live state.

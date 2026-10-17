@@ -5,6 +5,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import EvidenceDetails from './EvidenceDetails.svelte';
+	import AvailableSources from './AvailableSources.svelte';
 	import type { ResultView } from './result-view.js';
 
 	let { result, onStartOver }: {
@@ -146,24 +147,6 @@
 	{/if}
 
 	{#if showSourceDetails && result.sourceViews.length}
-		<section id="available-source-details" class="mt-10" aria-labelledby="sources-title">
-			<div class="flex items-end justify-between gap-4">
-				<div><h2 id="sources-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Available sources</h2><p class="mt-1 text-sm text-muted-foreground">Read the pages and search snippets gathered for this decision.</p></div>
-				<p class="font-mono text-xs text-muted-foreground">{result.sourceViews.length} total</p>
-			</div>
-			<div class="mt-4 divide-y divide-border border-y border-border">
-				{#each result.sourceViews as source}
-					<article class="grid gap-4 py-5 sm:grid-cols-[1fr_auto] sm:items-start">
-						<div class="min-w-0">
-							<p class="break-words text-sm font-[510] text-foreground">{source.title}</p>
-							<p class="mt-1 break-all text-xs leading-5 text-muted-foreground">{source.typeLabel} · {source.displayUrl}</p>
-							{#if source.snippet}<p class="mt-3 text-sm leading-6 text-muted-foreground">Search snippet: {source.snippet}</p>{/if}
-							{#if source.evidence.length}<div class="mt-3 max-w-[760px]"><EvidenceDetails evidence={source.evidence} sources={[]} label="Evidence from this source" /></div>{/if}
-						</div>
-						{#if source.url}<Button href={source.url} target="_blank" rel="noreferrer noopener" variant="outline" size="sm">Open source <ExternalLink /></Button>{/if}
-					</article>
-				{/each}
-			</div>
-		</section>
+		<AvailableSources sources={result.sourceViews} />
 	{/if}
 </div>

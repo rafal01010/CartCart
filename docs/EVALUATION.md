@@ -1,5 +1,23 @@
 # CartCart Evaluation
 
+## Bounded final output and saved caption focus, Task 224
+
+Run `scripts/local/verify-task224.sh` for the affected offline checks only. It uses the backend locked environment, Ruff and Python syntax, the Task 224 finalization and caption controls, a retained-cap audit and nonsecret effective-configuration parity. It does not run Task 222 or Task 223 gates, broad suites, frontend builds or paid calls.
+
+Actual OpenAI Responses and Agents SDK parsing run through a local HTTP transport. Captured tool-shaped invalid text and EOF output reproduce the saved failures. Controls distinguish a top-level incomplete envelope from JSON validity and keep local reasoning-token detail separate from unavailable historical live detail. Recovery checks require the same attempt ledgers, bounded closure and exact model-authored grouping through normal and saved SQLite/API paths.
+
+Saved-caption controls replay both actual approved transcripts and their consumed counters without provider calls. Literal `camera battery` misses remain distinct from absent captions, technical errors and provider gaps. Keyword and unfiltered reads retain whole validated speech with identifiers, timestamps, URL, hash and cautions. Raw captions alone cannot satisfy claim validation. These controls prove offline behavior, not Task 221 live acceptance.
+
+
+## Task 223 narrow offline source acceptance
+
+Run `scripts/local/verify-task223.sh` for the affected local SDK/tool/SQLite/API/routing/projection controls and launch lint/syntax checks. This gate does not rerun Task 222's 70 controls. It makes no paid or public-provider calls. Frontend checks are scoped to the affected result projection, Svelte validation and the intercepted Task 223 browser case.
+
+`app/evals/fixtures/task223_source_lifecycle.json` maps the changed lifecycle expectations to executable focused controls. `tests/fixtures/providers/task223_caption_outcomes.json` labels local no-caption, restricted and technical-failure provider shapes. They distinguish actual provider gaps from no attempt, interruption, technical failure, accepted partial evidence and success. Other supported source capabilities share the outcome boundary without gaining video retry semantics.
+
+The local real-SDK control delivers labeled local speech to the normal owner, saves matching provenance and advice, retries completed caption work without another fetch, and verifies immutable version/API reload. Separate literal grouping controls retain authored primary and runner membership, including fewer choices and zero runners. The source browser control proves neutral video links, creator/title, timestamped support and metadata distinction at phone width. None of these controls establishes real public-caption access or Task 221 live/mobile acceptance.
+
+
 ## Task 222 offline funding and reduced-context acceptance
 
 Task 222 uses one focused shared transport matrix, local real-SDK nested source

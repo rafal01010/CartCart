@@ -54,8 +54,9 @@ async def retry_run(
     run_id: RunId,
     db_session: DbSession,
     request: Request,
+    retry_source: bool = False,
 ) -> ShoppingRunRecord:
-    run = await _run_service(db_session, request).retry_run(session_id, run_id)
+    run = await _run_service(db_session, request).retry_run(session_id, run_id, retry_source=retry_source)
     if run is None:
         raise _run_not_found(session_id, run_id)
     await db_session.commit()

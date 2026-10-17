@@ -1,0 +1,50 @@
+{
+  "purpose": "Focused offline acceptance references. Local responses prove mechanics, not model quality or Task221 live caption acceptance.",
+  "cases": [
+    {
+      "name": "captured-invalid-json",
+      "expected": "ModelBehaviorError",
+      "control": "test_task224_finalization.py::test_captured_failures_reproduce_in_actual_sdk"
+    },
+    {
+      "name": "incomplete-envelope-and-message",
+      "expected": "bounded_same_attempt_completion",
+      "control": "test_task224_finalization.py::test_actual_responses_reject_partial_and_recover_once_on_same_ledger"
+    },
+    {
+      "name": "recovery-failure-and-funding",
+      "expected": "technical_failure",
+      "control": "test_task224_finalization.py::test_failed_completion_is_technical_bounded_and_preserves_spent"
+    },
+    {
+      "name": "valid-at-output-cap",
+      "expected": "one_completed_call",
+      "control": "test_task224_finalization.py::test_complete_valid_contract_at_exact_cap_is_not_retried"
+    },
+    {
+      "name": "normal-saved-speech-and-groups",
+      "expected": "immutable_sqlite_api_projection",
+      "control": "test_task224_finalization.py::test_owner_completion_uses_saved_speech_and_preserves_groups_in_sqlite_api"
+    },
+    {
+      "name": "failed-owner-usage",
+      "expected": "known_or_explicitly_unknown_transport_usage",
+      "control": "test_task224_finalization.py::test_failed_owner_reports_consumed_transport_usage_without_fallback"
+    },
+    {
+      "name": "literal-focus-miss",
+      "expected": "available_saved_captions",
+      "control": "test_task224_caption_focus.py::test_saved_literal_miss_preserves_captions_exact_request_and_consumed_counters"
+    },
+    {
+      "name": "raw-caption-negative-control",
+      "expected": "claim_validation_failure",
+      "control": "test_task224_caption_focus.py::test_raw_saved_captions_without_observed_speech_still_fail_claim_validation"
+    },
+    {
+      "name": "caption-provider-boundaries",
+      "expected": "distinct_gap_failure_cancellation",
+      "control": "test_task224_caption_focus.py::test_local_provider_boundaries_keep_gap_failure_and_cancelled_read_activity"
+    }
+  ]
+}

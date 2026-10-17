@@ -1,5 +1,14 @@
 # Context management
 
+## Final-output validation and recovery, Task 224
+
+The Responses adapter preserves the provider response status that the installed Agents SDK omits from `ModelResponse`. Transport rejects incomplete final output before SDK validation or result persistence. Schema validation still rejects truncated or malformed JSON. Reaching an output cap alone does not invalidate a completed response.
+
+One tools-free owner completion may reuse the prepared research and buyer constraints. It keeps the current model and reasoning, all enclosing ledgers, spent usage and existing timeout. It reserves and settles another actual call under existing funding policy. A failed or unaffordable completion remains a technical failure. It cannot start a fresh owner ledger, reopen research, reuse an old success or trigger another Technology recovery.
+
+Saved-owner decision output alone increases from 2,000 to 6,667 under the owner's targeted authorization. Every other role cap and the 6,667 global ceiling remain unchanged. Main 200,000, owner starting 120,000 and source starting 40,000 remain unchanged. The retained-cap audit reuses Task 222's 44 construction sites.
+
+
 ## Current recommendation policy, Task 216
 
 Ordinary shopping gathers information where available and passes it with buyer preferences to the owning LLM. The model recommends by default and weighs strong adverse information. Missing sources, reviews, prices, stock, warranty or support details are unknowns, not reasons for automatic rejection. Source quality, comparison and seller scores are advisory. Official stores need no mandatory background check. Budgets inform the model, including explained slightly over-budget alternatives. Unlimited budget remains distinct from missing budget.

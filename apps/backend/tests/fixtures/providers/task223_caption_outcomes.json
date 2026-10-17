@@ -1,0 +1,8 @@
+{
+  "purpose": "Local contract controls only. These are not recorded public captions.",
+  "cases": [
+    {"availability": "unavailable", "expected_retrieval": "provider_gap", "expected_consultation": "provider_gap"},
+    {"availability": "restricted", "expected_retrieval": "provider_gap", "expected_consultation": "provider_gap"},
+    {"availability": "not_checked", "failure_type": "YtDlpCommandTimeout", "expected_retrieval": "technical_failure", "expected_consultation": "technical_failure"}
+  ]
+}

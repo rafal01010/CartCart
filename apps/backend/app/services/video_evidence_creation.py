@@ -8,7 +8,7 @@ from app.providers.contracts import (
     TranscriptProviderOptions,
     TranscriptProviderResult,
 )
-from typing import Literal
+from typing import Callable, Literal
 
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence
@@ -52,6 +52,9 @@ class YouTubeTranscriptIngestor:
         bundle: VideoReviewEvidenceBundle,
         provider: TranscriptProvider,
         options: TranscriptProviderOptions | None = None,
+        *,
+        raise_on_failure: bool = False,
+        on_result: Callable[[TranscriptProviderResult], None] | None = None,
     ) -> VideoReviewEvidenceBundle:
         capabilities = provider.capabilities
         if not capabilities.enabled:
@@ -79,7 +82,11 @@ class YouTubeTranscriptIngestor:
             try:
                 result = await provider.fetch_transcript(video, options)
                 _validate_provider_result(video, result)
+                if on_result is not None:
+                    on_result(result)
             except Exception:
+                if raise_on_failure:
+                    raise
                 videos.append(
                     video.model_copy(
                         update={

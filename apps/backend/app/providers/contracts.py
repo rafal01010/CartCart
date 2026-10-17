@@ -189,6 +189,8 @@ class VideoSearchProviderResult(CartCartBaseModel):
 
 
 class TranscriptProviderResult(CartCartBaseModel):
+    failure_type: str | None = Field(default=None, max_length=120)
+    failure_code: str | None = Field(default=None, max_length=120)
     status: ProviderRunStatus
     capabilities: ProviderCapabilityFlags
     video: VideoSource

@@ -243,33 +243,37 @@ class YtDlpTranscriptProvider:
                         output_limit_bytes=self.output_limit_bytes,
                         temp_storage_limit_bytes=self.temp_storage_limit_bytes,
                     )
-                except YtDlpCommandTimeout:
+                except YtDlpCommandTimeout as exc:
                     return _gap_result(
                         self.capabilities,
                         video,
                         availability=TranscriptAvailability.NOT_CHECKED,
                         note="YouTube transcript retrieval timed out.",
+                        failure_type=type(exc).__name__,
                     )
-                except YtDlpCommandOutputLimit:
+                except YtDlpCommandOutputLimit as exc:
                     return _gap_result(
                         self.capabilities,
                         video,
                         availability=TranscriptAvailability.NOT_CHECKED,
                         note="YouTube transcript retrieval exceeded the process output limit.",
+                        failure_type=type(exc).__name__,
                     )
-                except YtDlpCommandStorageLimit:
+                except YtDlpCommandStorageLimit as exc:
                     return _gap_result(
                         self.capabilities,
                         video,
                         availability=TranscriptAvailability.NOT_CHECKED,
                         note="YouTube transcript retrieval exceeded the temporary storage limit.",
+                        failure_type=type(exc).__name__,
                     )
-                except OSError:
+                except OSError as exc:
                     return _gap_result(
                         self.capabilities,
                         video,
                         availability=TranscriptAvailability.NOT_CHECKED,
                         note="The YouTube transcript subprocess could not be started.",
+                        failure_type=type(exc).__name__,
                     )
 
                 if _directory_size(temp_dir) > self.temp_storage_limit_bytes:
@@ -298,12 +302,13 @@ class YtDlpTranscriptProvider:
                             language=language,
                             max_segments=self.max_segments,
                         )
-                    except (OSError, UnicodeError, ValueError):
+                    except (OSError, UnicodeError, ValueError) as exc:
                         return _gap_result(
                             self.capabilities,
                             video,
                             availability=TranscriptAvailability.NOT_CHECKED,
                             note="The retrieved YouTube caption track was invalid.",
+                            failure_type=type(exc).__name__,
                         )
                     if segments:
                         updated_video = video.model_copy(
@@ -762,6 +767,7 @@ def _result_for_failure(
             video,
             availability=TranscriptAvailability.NOT_CHECKED,
             note="YouTube rate-limited public caption retrieval.",
+            failure_code=failure,
         )
     if failure == "challenge_failed":
         return _gap_result(
@@ -769,12 +775,14 @@ def _result_for_failure(
             video,
             availability=TranscriptAvailability.NOT_CHECKED,
             note="YouTube caption retrieval failed during the public access challenge.",
+            failure_code=failure,
         )
     return _gap_result(
         capabilities,
         video,
         availability=TranscriptAvailability.NOT_CHECKED,
         note="Public YouTube captions could not be retrieved.",
+        failure_code=failure,
     )
 
 
@@ -785,8 +793,12 @@ def _gap_result(
     availability: TranscriptAvailability,
     note: str,
     status: ProviderRunStatus = ProviderRunStatus.UNAVAILABLE,
+    failure_type: str | None = None,
+    failure_code: str | None = None,
 ) -> TranscriptProviderResult:
     return TranscriptProviderResult(
+        failure_type=failure_type,
+        failure_code=failure_code,
         status=status,
         capabilities=capabilities,
         video=video.model_copy(update={"transcript_availability": availability}),

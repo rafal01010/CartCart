@@ -32,11 +32,13 @@ from app.agents.research_history import (
 from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
+    FinalOutputFailure,
     context_budget_failure,
     context_events,
     active_budget,
     managed_owner_context,
     funded_scope_limit,
+    source_bundle_context,
 )
 from app.agents.contracts import (
     GeneralShoppingAgentInput,
@@ -63,6 +65,7 @@ from app.agents.owner_research import (
     OwnerResearchContext,
     OwnerResearchState,
     assess_run_listings,
+    _bounded_owner_bundle,
 )
 from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
 from app.agents.research_tools import (
@@ -74,10 +77,12 @@ from app.core.settings import Settings
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
+from app.db.repositories.video_sources import VideoReviewRepository
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import SourceId
 from app.schemas.regions import RegionCode
+from app.schemas.search_sources import SourceIntelligenceCapability
 from app.services.shopping_intent import RESEARCH_QUERY_GUIDANCE, research_context
 
 
@@ -85,7 +90,8 @@ OWNER_DECISION_GUIDANCE = (
     "Recommend by default from available research and buyer preferences. "
     "Author one to three useful primary choices and zero to two optional runners-up, marking each candidate's choice_group as primary or runner_up. "
     "These are maxima, not quotas. One or two primary choices and no runners-up are valid. "
-    "Prefer different companies or providers when useful alternatives exist. Same-company family or size variants usually belong among runners-up; other useful companies can be runners-up too. "
+    "Choose up to three strongest useful options as primary choices before considering optional runners-up. Two strong useful choices from different companies normally both belong among primary choices. "
+    "Prefer useful diversity across companies or providers. A weaker same-company family or size variant may be a runner-up when a comparably strong useful option from another company takes a primary slot. Without such an alternative, same-company options may remain primary choices. "
     "Do not force diversity through poor matches, reject a useful product solely for its company, or invent products. "
     "Named companies are preferences unless the buyer explicitly requests exclusivity; an exclusive request may have multiple primary choices from that company. "
     "Explain each primary choice's distinct benefit and concise comparative tradeoff. If selecting a winner, select only a primary choice. "
@@ -106,6 +112,26 @@ OWNER_DECISION_GUIDANCE = (
     "offer useful alternatives when possible. "
     + SHOPPER_ADVICE_GUIDANCE
 )
+
+SAVED_OWNER_OUTPUT_TOKENS = scaled_tokens(5000)
+
+
+def _transport_owner_usage(
+    events: tuple[dict[str, Any], ...], owners: set[str]
+) -> dict[str, int | None] | None:
+    calls = [
+        item["output"] for item in events
+        if item.get("input", {}).get("agent") in owners
+        and item.get("output", {}).get("charged_tokens") is not None
+    ]
+    if not calls:
+        return None
+    return {
+        key: sum(call["actual_" + key] for call in calls)
+        if all(call.get("actual_" + key) is not None for call in calls)
+        else None
+        for key in ("input_tokens", "output_tokens", "total_tokens")
+    }
 
 
 class GeneralCandidateSelection(CartCartBaseModel):
@@ -376,8 +402,11 @@ class LiveGeneralShoppingAgent:
         *,
         owner_agent_name: str,
         activity: tuple[dict[str, Any], ...],
+        source_retry: dict[str, Any] | None = None,
     ) -> GeneralShoppingDecisionDraft:
-        """Finish a saved decision from available research without new retrieval."""
+        """Finish saved advice, optionally resuming an explicitly requested source consultation."""
+        budget = active_budget()
+        context_start = len(budget.events) if budget else 0
         region_code = (
             input_data.brief.region.region.country_code
             if input_data.brief.region is not None
@@ -397,9 +426,35 @@ class LiveGeneralShoppingAgent:
         tools.set_brief(input_data.brief)
         quotes = await tools.restore_recorded_quotes(activity)
         self._activity = tuple(item for item in activity if item.get("tool_name") != "context_call")
+        source_receipt = None
+        source_activity: tuple[dict[str, Any], ...] = ()
         try:
+            if source_retry is not None:
+                if self.source_intelligence_manager is None:
+                    raise ValueError("Focused source retry requires the configured source manager.")
+                saved = self.source_intelligence_manager.load_retry_input(input_data.run_id, source_retry["reuse_key"])
+                if saved.allowed_capabilities != (SourceIntelligenceCapability.VIDEO_REVIEW,):
+                    raise ValueError("Focused durable retry supports video reviews only.")
+                if saved.brief != input_data.brief:
+                    raise ValueError("Source retry brief changed.")
+                helpers = OwnerResearchContext(
+                    agent_name=owner_agent_name, run_id=input_data.run_id,
+                    brief=input_data.brief, region_code=region_code,
+                    session_factory=self.session_factory, shared_session=self.shared_session,
+                    source_manager=self.source_intelligence_manager,
+                    source_policy=tools.source_policy,
+                    allowed_quote_ids=lambda: frozenset(SourceId(q["evidence_id"]) for q in quotes),
+                )
+                source_receipt = await helpers.consult_source(
+                    saved.allowed_capabilities[0], product_name=source_retry["candidate_name"],
+                    product_id=source_retry.get("consult_product_id"),
+                    evidence_id=source_retry.get("consult_evidence_id"),
+                    expected_reuse_key=source_retry["reuse_key"],
+                )
+                source_activity = tuple(helpers.activity)
+                self._activity += source_activity
             output, result = await self._decide_recorded(
-                input_data, owner_agent_name, quotes
+                input_data, owner_agent_name, quotes, source_receipt=source_receipt
             )
         except Exception as exc:
             self._activity += (
@@ -407,7 +462,10 @@ class LiveGeneralShoppingAgent:
                     "tool_name": "general_owner_resume",
                     "status": "failed",
                     "input": {"agent": owner_agent_name, "research_enabled": False},
-                    "output": {"error_type": type(exc).__name__, "error_message": str(exc)[:2000]},
+                    "output": {
+                        "error_type": type(exc).__name__, "error_message": str(exc)[:2000],
+                        "usage": _transport_owner_usage(context_events(context_start), {owner_agent_name}),
+                    },
                 },
             )
             raise RuntimeError("The saved shopping advice could not finish. Your gathered information is saved. Try again.") from exc
@@ -415,6 +473,7 @@ class LiveGeneralShoppingAgent:
         usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
         self._activity = (
             *(item for item in activity if item.get("tool_name") != "context_call"),
+            *source_activity,
             {
                 "tool_name": "general_owner",
                 "status": draft.outcome.value,
@@ -422,6 +481,7 @@ class LiveGeneralShoppingAgent:
                 "output": {
                     "restored_quote_count": len(quotes),
                     "research_reused": True,
+                    "max_output_tokens_per_turn": SAVED_OWNER_OUTPUT_TOKENS,
                     "selected_candidate_name": draft.selected_candidate_name,
                     "last_agent": owner_agent_name,
                     "last_agent_model": getattr(
@@ -444,6 +504,7 @@ class LiveGeneralShoppingAgent:
         quotes: tuple[dict[str, Any], ...],
         *,
         prior_gaps: tuple[str, ...] = (),
+        source_receipt: dict[str, Any] | None = None,
     ) -> tuple[GeneralModelOutput, Any]:
         configuration = build_openai_agent_run_configuration(
             self.settings,
@@ -459,6 +520,26 @@ class LiveGeneralShoppingAgent:
             }
             saved_sources = []
             repository = SearchSourceRepository(session)
+            accepted_video_sources = {
+                str(item.source_id)
+                for item in await repository.list_source_evidence(input_data.run_id)
+                if item.transcript_support and not item.metadata_only
+            }
+            saved_video_bundles = []
+            saved_bundle_ids = set()
+            for source_id in sorted(accepted_video_sources):
+                snapshot = snapshots.get(source_id)
+                bundle_id = snapshot.provider.raw.get("bundle_id") if snapshot and snapshot.video else None
+                if not bundle_id or bundle_id in saved_bundle_ids:
+                    continue
+                bundle = await VideoReviewRepository(session).get_video_review_bundle_for_run(
+                    input_data.run_id, SourceId(bundle_id)
+                )
+                if bundle is not None:
+                    saved_bundle_ids.add(bundle_id)
+                    saved_video_bundles.append(_bounded_owner_bundle(
+                        source_bundle_context(bundle), "saved accepted video evidence", max_chars=9000
+                    ))
             for source in (await repository.list_search_results(input_data.run_id))[:8]:
                 snapshot = await repository.get_snapshot_for_search_result(
                     input_data.run_id, source.source_id
@@ -548,7 +629,7 @@ class LiveGeneralShoppingAgent:
             ),
             output_type=GeneralModelOutput,
             model_settings=ModelSettings(
-                max_tokens=scaled_tokens(1500), include_usage=True
+                max_tokens=SAVED_OWNER_OUTPUT_TOKENS, include_usage=True
             ),
         )
         apply_openai_agent_run_profile(agent, configuration)
@@ -567,11 +648,13 @@ class LiveGeneralShoppingAgent:
                         .isoformat(),
                         "saved_source_notes": saved_quotes,
                         "saved_sources": saved_sources,
+                        "saved_video_bundles": saved_video_bundles,
                         "saved_products": [
                             item.model_dump(mode="json") for item in products[:8]
                         ],
                         "listing_cautions": listing_cautions,
                         "prior_evidence_gaps": prior_gaps,
+                        "source_consultation": source_receipt,
                     }
                 ),
                 run_config=RunConfig(
@@ -1405,6 +1488,7 @@ class LiveGeneralShoppingAgent:
                 and owner_tokens(getattr(failed_run_usage, "total_tokens", 0) or 0)
                 < funded_scope_limit("owner", OWNER_START_TOKENS)
                 and budget_failure is None
+                and not isinstance(exc, FinalOutputFailure)
             ):
                 recovery_agent = technology_agent.clone(
                     handoffs=[],
@@ -1502,6 +1586,9 @@ class LiveGeneralShoppingAgent:
             else None
             for field in ("input_tokens", "output_tokens", "total_tokens")
         }
+        combined_usage = _transport_owner_usage(
+            context_events(context_start), {agent.name, technology_agent.name, *specialist_agents}
+        ) or combined_usage
         nested_source_tokens = source_tokens()
         if not context_events(context_start) and owner_tokens(
             combined_usage["total_tokens"] or 0
@@ -1574,7 +1661,7 @@ class LiveGeneralShoppingAgent:
                     "usage": {
                         **combined_usage,
                     },
-                    "usage_complete": True,
+                    "usage_complete": all(value is not None for value in combined_usage.values()),
                     "nested_source_tokens": nested_source_tokens,
                     "accounted_owner_tokens": owner_tokens(
                         combined_usage["total_tokens"] or 0
@@ -1632,6 +1719,13 @@ class LiveGeneralShoppingAgent:
                     ),
                     None,
                 )
+                if item is not None and snapshot is not None and snapshot.video is not None and item.transcript_support and _safe_public_result_url(str(snapshot.url)):
+                    references.append(GeneralShoppingEvidence(
+                        source_id=snapshot.source_id, snapshot_id=snapshot.source_id,
+                        evidence_id=item.evidence_id, url=snapshot.url,
+                        source_type=snapshot.source_type, quote=item.claim,
+                    ))
+                    continue
                 if (
                     item is None
                     or snapshot is None
@@ -1657,6 +1751,14 @@ class LiveGeneralShoppingAgent:
                 )
             for source_id in choice.source_ids:
                 source = sources.get(source_id)
+                video_snapshot = snapshots.get(source_id)
+                if source is None and video_snapshot is not None and video_snapshot.video is not None and _safe_public_result_url(str(video_snapshot.url)):
+                    if not any(reference.source_id == source_id for reference in references):
+                        references.append(GeneralShoppingEvidence(
+                            source_id=source_id, snapshot_id=source_id,
+                            url=video_snapshot.url, source_type=video_snapshot.source_type,
+                        ))
+                    continue
                 if (
                     source is None
                     or not _safe_public_result_url(str(source.url))

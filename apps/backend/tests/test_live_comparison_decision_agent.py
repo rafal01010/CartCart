@@ -21,6 +21,7 @@ def comparison_input() -> ComparisonDecisionAgentInput:
     listing = ProductListing(
         product_id=product.product_id,
         title="Compact kettle",
+        source_ids=(new_id(),),
         url="https://shop.example/kettle",
         seller=SellerProfile(seller_name="Example store"),
         price=Money(amount="105", currency="USD"),

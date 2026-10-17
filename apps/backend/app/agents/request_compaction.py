@@ -23,7 +23,7 @@ def stage_payload(text: str) -> dict[str, Any] | None:
     return (
         payload
         if isinstance(payload, dict)
-        and ({"brief", "recommendation_bundle"} & payload.keys())
+        and ({"brief", "recommendation_bundle", "decision_sources"} & payload.keys())
         else None
     )
 
@@ -714,6 +714,7 @@ _PROTECTED = {
     "objective",
     "saved_source_notes",
     "source_notes",
+    "decision_sources",
 }
 
 

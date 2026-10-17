@@ -1678,3 +1678,9 @@ blocked result does not pass acceptance.
 ### Task 221 final live verification
 
 The final unit uses shared real guided-browser journeys, matching API/SQLite records, desktop/mobile output, actual research and transcript provenance, usage and effective configuration. It does not repeat completed offline implementation suites. Narrow repairs are checked with the actual saved recovery replay, one noisy source-selection test, repeated bounded attributed-note/caution checks, and four regional-budget/category API controls. Fixtures, historical successes and metadata-only videos do not establish final acceptance. Exact outcomes and remaining criteria are recorded in the Task 221 handoff.
+
+### Task 225 focused offline cases
+
+The Task 225 gate replays actual saved source/checkpoint data and uses narrow SDK, SQLite/API and selected-source browser controls. It covers buyer-led broad phones, explicit exclusivity, a soft preference, non-tech and unclear-category requests; repeated product coverage, overlapping comparisons, a broad guide, useful independent perspectives, contrary evidence and exact accepted speech; more than fifteen compact useful sources; and full-request measurements through compaction and saved/funded completion.
+
+The provider/eval reference fixtures record these cases without paid calls. Meaningful coverage requires attributable substantive support, not a title mention or source tally. Literal retained/deferred membership, attribution after another tool turn, immutable prior results, raw archives, shared video consumption and exact provenance are the assertions. The retained comparison control sends twenty useful sources and a late broad guide through the actual offline SDK under compaction. These offline controls do not pass Task 221 live source quality or Task 226 final option-set behavior.

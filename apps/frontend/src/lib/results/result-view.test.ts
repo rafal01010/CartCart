@@ -1542,3 +1542,47 @@ describe('result view helpers', () => {
 		expect(JSON.stringify(view)).not.toContain('GeneralShoppingAgent');
 	});
 });
+
+describe('Task 225 selected decision sources', () => {
+	it('shows the transported selection in its order while preserving the raw archive', () => {
+		const selected: SessionResultsResponse = {
+			...baseResult,
+			decision_sources: {
+				projection_id: 'local-selection', selected_source_ids: ['source-lg', 'source-dell'],
+				deferred_source_ids: ['source-asus'], candidate_coverage: [], measurements: {},
+				sources: [{
+					source_id: 'source-lg', equivalent_source_ids: [], url: 'https://example.test/lg', title: 'Useful comparison',
+					content_kind: 'page', excerpts: ['The wider screen helps compare documents side by side.'],
+					candidate_names: [], buying_questions: [], evidence_ids: [], transcript_support: [], material_cautions: [],
+					content_sha256: 'a'.repeat(64), unreviewed_content: true,
+				}],
+			},
+		};
+		const original = JSON.stringify(selected);
+		const view = buildResultView(selected);
+		expect(view.sourceViews.map((source) => source.id)).toEqual(['source-lg', 'source-dell']);
+		const html = render(AvailableSources, { props: { sources: view.sourceViews } }).body;
+		expect(html).toContain('Page excerpts');
+		expect(html).toContain('The wider screen helps compare documents side by side.');
+		expect(JSON.stringify(selected)).toBe(original);
+		expect(buildResultView(baseResult).sourceViews.map((source) => source.id)).toEqual(['source-dell', 'source-asus', 'source-lg']);
+	});
+
+	it('permits more than fifteen useful selected sources without a display ceiling', () => {
+		const snapshots = Array.from({ length: 19 }, (_, index) => ({
+			...baseResult.source_snapshots[0], source_id: `useful-${index}`, url: `https://example.test/useful-${index}`,
+		}));
+		const view = buildResultView({ ...baseResult, source_snapshots: snapshots, source_evidence: [], decision_sources: {
+			projection_id: 'nineteen-useful', selected_source_ids: snapshots.map((source) => source.source_id),
+			deferred_source_ids: [], candidate_coverage: [], sources: [], measurements: {},
+		} });
+		expect(view.sourceViews.map((source) => source.id)).toEqual(snapshots.map((source) => source.source_id));
+	});
+
+	it('keeps an empty transported selection empty rather than promoting archived leads', () => {
+		expect(buildResultView({ ...baseResult, decision_sources: {
+			projection_id: 'empty', selected_source_ids: [], deferred_source_ids: ['source-dell', 'source-asus', 'source-lg'],
+			candidate_coverage: [], sources: [], measurements: {},
+		} }).sourceViews).toEqual([]);
+	});
+});

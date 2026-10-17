@@ -26,6 +26,7 @@ from app.schemas.runs import AgentRunRecord, RunStatus
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProduct
 from app.schemas.search_sources import SearchResult, SourceEvidence, SourceSnapshot
+from app.schemas.decision_sources import SourceDecisionProjection
 
 
 router = APIRouter(prefix="/api/sessions/{session_id}/results", tags=["results"])
@@ -72,6 +73,7 @@ class SessionResultsResponse(CartCartBaseModel):
     source_evidence: tuple[SourceEvidence, ...]
     source_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
     shopping_brief: ShoppingBrief | None = None
+    decision_sources: SourceDecisionProjection | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DecisionHistoryEntry(CartCartBaseModel):
@@ -282,6 +284,7 @@ def _to_response(
         source_evidence=source_evidence,
         source_results=source_results,
         shopping_brief=shopping_brief,
+        decision_sources=saved_result.source_projection.decision_sources if saved_result.source_projection else None,
     )
 
 

@@ -26,9 +26,7 @@ from pydantic import Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.token_policy import OWNER_START_TOKENS, scaled_tokens
-from app.agents.research_history import (
-    bounded_cautions,
-)
+from app.agents.decision_sources import select_decision_sources, source_packets
 from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
@@ -38,7 +36,6 @@ from app.agents.context_management import (
     active_budget,
     managed_owner_context,
     funded_scope_limit,
-    source_bundle_context,
 )
 from app.agents.contracts import (
     GeneralShoppingAgentInput,
@@ -65,7 +62,6 @@ from app.agents.owner_research import (
     OwnerResearchContext,
     OwnerResearchState,
     assess_run_listings,
-    _bounded_owner_bundle,
 )
 from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
 from app.agents.research_tools import (
@@ -77,7 +73,6 @@ from app.core.settings import Settings
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
-from app.db.repositories.video_sources import VideoReviewRepository
 from app.providers.contracts import SourceAllowAvoidPolicy
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import SourceId
@@ -495,6 +490,7 @@ class LiveGeneralShoppingAgent:
                 },
             },
         )
+        self._activity += tuple(item for item in context_events(context_start) if item.get("tool_name") == "decision_source_selection")
         return draft.model_copy(update={"owner_agent_name": owner_agent_name})
 
     async def _decide_recorded(
@@ -518,50 +514,9 @@ class LiveGeneralShoppingAgent:
                     input_data.run_id
                 )
             }
-            saved_sources = []
             repository = SearchSourceRepository(session)
-            accepted_video_sources = {
-                str(item.source_id)
-                for item in await repository.list_source_evidence(input_data.run_id)
-                if item.transcript_support and not item.metadata_only
-            }
-            saved_video_bundles = []
-            saved_bundle_ids = set()
-            for source_id in sorted(accepted_video_sources):
-                snapshot = snapshots.get(source_id)
-                bundle_id = snapshot.provider.raw.get("bundle_id") if snapshot and snapshot.video else None
-                if not bundle_id or bundle_id in saved_bundle_ids:
-                    continue
-                bundle = await VideoReviewRepository(session).get_video_review_bundle_for_run(
-                    input_data.run_id, SourceId(bundle_id)
-                )
-                if bundle is not None:
-                    saved_bundle_ids.add(bundle_id)
-                    saved_video_bundles.append(_bounded_owner_bundle(
-                        source_bundle_context(bundle), "saved accepted video evidence", max_chars=9000
-                    ))
-            for source in (await repository.list_search_results(input_data.run_id))[:8]:
-                snapshot = await repository.get_snapshot_for_search_result(
-                    input_data.run_id, source.source_id
-                )
-                content = snapshot.extracted_content if snapshot else None
-                saved_sources.append(
-                    {
-                        "source_id": str(source.source_id),
-                        "url": str(source.url),
-                        "title": source.title,
-                        "snippet": (source.snippet or "")[:1000],
-                        "snippet_is_search_context": True,
-                        "page_text": content.text[:2000] if content else None,
-                        "page_text_truncated": bool(
-                            content and len(content.text) > 2000
-                        ),
-                        "source_quality": source.quality.model_dump(mode="json"),
-                        **bounded_cautions(
-                            content.text if content else source.snippet or ""
-                        ),
-                    }
-                )
+            source_results = await repository.list_search_results(input_data.run_id)
+            source_evidence = await repository.list_source_evidence(input_data.run_id)
             product_repo = ProductRepository(session)
             products = await product_repo.list_canonical_products_for_run(
                 input_data.run_id
@@ -569,28 +524,16 @@ class LiveGeneralShoppingAgent:
             listings = await product_repo.list_product_listings_for_run(
                 input_data.run_id
             )
+            decision_sources = select_decision_sources(
+                input_data.brief,
+                source_packets(input_data.brief, source_results, tuple(snapshots.values()), source_evidence, products),
+            )
             trust = assess_run_listings(
                 products,
                 listings,
                 await ResultRepository(session).list_listing_trust_assessments(
                     input_data.run_id
                 ),
-            )
-        saved_quotes = []
-        for quote in quotes:
-            snapshot = snapshots.get(quote["snapshot_id"])
-            content = snapshot.extracted_content if snapshot else None
-            saved_quotes.append(
-                {
-                    **{key: value for key, value in quote.items() if key != "quote"},
-                    "source_note": quote.get("source_note", quote.get("quote", "")),
-                    "title": snapshot.title if snapshot else quote.get("title"),
-                    "published_date": content.published_date if content else None,
-                    "source_cautions": {
-                        **bounded_cautions(content.text if content else ""),
-                        "unreviewed_content": True,
-                    },
-                }
             )
         listing_cautions = [
             {
@@ -646,11 +589,9 @@ class LiveGeneralShoppingAgent:
                         "current_utc_date": datetime.now(timezone.utc)
                         .date()
                         .isoformat(),
-                        "saved_source_notes": saved_quotes,
-                        "saved_sources": saved_sources,
-                        "saved_video_bundles": saved_video_bundles,
+                        "decision_sources": decision_sources.model_dump(mode="json"),
                         "saved_products": [
-                            item.model_dump(mode="json") for item in products[:8]
+                            item.model_dump(mode="json") for item in products
                         ],
                         "listing_cautions": listing_cautions,
                         "prior_evidence_gaps": prior_gaps,
@@ -1672,6 +1613,7 @@ class LiveGeneralShoppingAgent:
                 },
             },
         )
+        self._activity += tuple(item for item in context_events(context_start) if item.get("tool_name") == "decision_source_selection")
         return draft
 
     async def _validated_draft(

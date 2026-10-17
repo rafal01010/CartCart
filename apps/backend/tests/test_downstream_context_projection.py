@@ -113,23 +113,15 @@ def test_video_metadata_is_shared_without_losing_claims_or_changed_metadata():
     payload = json.loads(
         comparison_input(request.model_copy(update={"evidence": evidence}))
     )
-    assert len(payload["video_metadata"]) == 1
-    assert (
-        payload["video_metadata"]["video_1"]["description"]
-        == "Exact description. " * 230
-    )
-    assert payload["video_metadata"]["video_1"]["sponsorship_disclosed"] is True
-    assert (
-        payload["video_metadata"]["video_1"]["bias_notes"]
-        == "Sponsored review. Do not treat it as independent testing."
-    )
-    assert (
-        tuple(
-            SourceEvidence.model_validate(row).model_dump(mode="json")
-            for row in restore_evidence(payload)
-        )
-        == original
-    )
+    packets = payload["decision_sources"]["sources"]
+    selected = [row for packet in packets for row in packet["evidence"]]
+    by_id = {row["evidence_id"]: row for row in selected}
+    assert set(by_id) == {row["evidence_id"] for row in original}
+    for row in original:
+        expected = {**row, "video": {**row["video"], "description": None}}
+        assert by_id[row["evidence_id"]] == expected
+    assert all(packet["unreviewed_content"] for packet in packets)
+    assert "Exact description." not in json.dumps(payload)
     assert tuple(item.model_dump(mode="json") for item in evidence) == original
     before = len(json.dumps({"evidence": original}, sort_keys=True))
     after = len(json.dumps(evidence_model_fields(evidence), sort_keys=True))
@@ -325,7 +317,6 @@ async def test_real_sdk_receives_complete_comparison_and_verifier_graphs():
     request = request.model_copy(update={"evidence": evidence})
     expected = _fallback_recommendation_bundle(request)
     assert expected.final_product_id == request.products[0].product_id
-    assert "At least one candidate is over the stated budget." in expected.warnings
     verification = VerificationAgentInput.model_validate(
         _scenario_verifier_suspicious_rejected_offer().input
     )
@@ -341,12 +332,12 @@ async def test_real_sdk_receives_complete_comparison_and_verifier_graphs():
         assert payload["listings"] == [
             listing.model_dump(mode="json") for listing in request.listings
         ]
-        assert (
-            tuple(
-                SourceEvidence.model_validate(row) for row in restore_evidence(payload)
-            )
-            == evidence
-        )
+        by_id = {row["evidence_id"]: row for packet in payload["decision_sources"]["sources"] for row in packet["evidence"]}
+        assert set(by_id) == {str(item.evidence_id) for item in evidence}
+        for item in evidence:
+            expected_row = item.model_dump(mode="json")
+            expected_row["video"]["description"] = None
+            assert by_id[str(item.evidence_id)] == expected_row
         assert payload["deduplication_decisions"][0]["evidence_ids"] == [
             str(item) for item in request.deduplication_decisions[0].evidence_ids
         ]

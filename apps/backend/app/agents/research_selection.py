@@ -83,6 +83,15 @@ class ResearchSelection:
     support_sites: dict[SearchIntent, set[str]] = field(default_factory=dict)
     unreviewed_cautions: dict[SourceId, tuple[str, ...]] = field(default_factory=dict)
     quotes: dict[SourceId, list[str]] = field(default_factory=dict)
+    candidate_coverage: dict[str, dict[str, set[str]]] = field(default_factory=dict)
+
+    def record_candidate_support(self, names: tuple[str, ...], question: str, finding: str) -> None:
+        for name in names:
+            self.candidate_coverage.setdefault(name, {}).setdefault(question, set()).add(finding)
+
+    def coverage_summary(self) -> dict[str, dict[str, list[str]]]:
+        return {name: {question: sorted(findings) for question, findings in questions.items()}
+            for name, questions in self.candidate_coverage.items()}
 
     @property
     def covered(self) -> bool:

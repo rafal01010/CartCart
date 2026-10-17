@@ -639,6 +639,38 @@ export interface RecommendationBundle {
 	source_ids: EntityId[];
 }
 
+export interface DecisionSourcePacket {
+	source_id: EntityId;
+	equivalent_source_ids: EntityId[];
+	url: string;
+	title: string;
+	content_kind: 'page' | 'accepted_speech' | 'source_note' | 'search_lead' | 'metadata_only';
+	coverage_notes?: { candidate_names: string[]; buying_question: string; finding: string; quote: string; evidence_id: EntityId; perspective: string | null }[];
+	findings?: string[];
+	perspective?: string | null;
+	excerpts: string[];
+	source_notes?: string[];
+	candidate_names: string[];
+	buying_questions: string[];
+	evidence_ids: EntityId[];
+	evidence?: SourceEvidence[];
+	source_quality?: SourceSnapshot['quality'] | null;
+	original_content_size?: Record<string, number>;
+	transcript_support: NonNullable<SourceEvidence['transcript_support']>;
+	material_cautions: string[];
+	content_sha256: string;
+	unreviewed_content: boolean;
+}
+
+export interface SourceDecisionProjection {
+	projection_id: string;
+	selected_source_ids: EntityId[];
+	deferred_source_ids: EntityId[];
+	candidate_coverage: { candidate_name: string; source_ids: EntityId[]; buying_questions: string[]; support_kind: 'page' | 'accepted_speech' | 'source_note' }[];
+	sources: DecisionSourcePacket[];
+	measurements: Record<string, number | string | boolean | Record<string, number>>;
+}
+
 export interface SessionResultsResponse {
 	result_version: ResultVersionResponse;
 	shopping_brief?: ShoppingBrief | null;
@@ -654,6 +686,7 @@ export interface SessionResultsResponse {
 	source_snapshots: SourceSnapshot[];
 	source_evidence: SourceEvidence[];
 	source_results?: SearchSourceResult[];
+	decision_sources?: SourceDecisionProjection | null;
 }
 
 export type SearchSourceResult = Pick<SourceSnapshot, 'source_id' | 'url' | 'title' | 'source_type' | 'provider' | 'quality'> & {

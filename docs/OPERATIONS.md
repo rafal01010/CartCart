@@ -1389,3 +1389,9 @@ Internal owner records now preserve the actual SDK failure message and available
 
 
 During the 2026-10-17 Task 221 resumption, the YouTube specialist input now reports saved caption status/counts, metadata-read IDs and consumed search/caption/span operations. Saved status is not interpreted speech; use existing bounded transcript reads and validation. This makes restored work visible without retrieval, counter reset or policy changes. Task 225 separately owns the source-breadth and multi-product consultation repair and is not implemented. See the latest Task 221 handoff for the stopped live state.
+
+### Task 225 offline verification
+
+Run `bash scripts/local/verify-task225.sh` from the repository root. Backend commands use `uv` from `apps/backend`, locked offline resolution and a temporary writable cache. The gate uses copied saved Task 221 records, temporary SQLite, rejecting providers, offline SDK controls and intercepted local browser requests. It does not run Tasks 222, 223 or 224 gates or call research/model providers.
+
+The shared video checkpoint keeps consumed provider operations across candidate requests. Importing older compatible progress does not overwrite the original checkpoint. A default saved decision remains retrieval-free. Explicit focused retries retain their prior operation/usage history. No new source-count, per-product or token cap is introduced. Production records and current configuration are compared with the captured baseline.

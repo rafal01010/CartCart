@@ -34,6 +34,7 @@ from openai.types.responses.response_prompt_param import ResponsePromptParam
 from pydantic import BaseModel
 
 from app.agents.context_metrics import input_breakdown, measure
+from app.agents.decision_sources import fit_owner_projection, input_projection, project_owner_sources, source_size
 from app.agents.token_policy import (
     CompletionPurpose,
     OWNER_START_TOKENS,
@@ -270,7 +271,9 @@ def _managed_allowance(
     @wraps(function)
     async def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         with context_scope():
-            allowance = ContextBudget(
+            input_data = args[1] if len(args) > 1 else kwargs.get("input_data")
+            shared = getattr(input_data, "source_allowance", None) if scope == "source" else None
+            allowance = shared or ContextBudget(
                 limits=ContextLimits(total_tokens=total),
                 scope=scope,
                 transferable=transferable,
@@ -630,6 +633,7 @@ class BudgetedModel(Model):
                 shortened = bound_original_views(
                     shortened, history, hard_target, preserve_fields
                 )
+        shortened = fit_owner_projection(shortened, hard_target)
         changed = (
             measure(shortened)["estimated_tokens"]
             < measure(prepared)["estimated_tokens"]
@@ -718,6 +722,11 @@ class BudgetedModel(Model):
         purpose = completion_purpose(
             agent, output_schema.json_schema().get("title") if output_schema else None
         )
+        source_input_before = prepared
+        source_request_before = {"model": self.model_name, "model_settings": str(model_settings), "instructions": system_instructions, "input": prepared, "schemas": _schema_payload(tools, output_schema, handoffs), "prompt": prompt}
+        if purpose == CompletionPurpose.OWNER:
+            prepared, _ = project_owner_sources(prepared)
+        source_input_selected = prepared
         plan_key = (
             purpose.value
             if purpose == CompletionPurpose.OWNER
@@ -1098,11 +1107,28 @@ class BudgetedModel(Model):
                     holder.completion_plans.pop(plan_key, None)
                     raise error
 
+        selection_event = None
         envelope_token = _response_envelope.set(None)
         try:
             history = active_history()
             if history is not None:
                 history.record_transport(prepared, originals=before)
+            projection = input_projection(prepared)
+            if projection is not None and purpose == CompletionPurpose.OWNER:
+                projection = projection.model_copy(update={"measurements": {
+                    **projection.measurements,
+                    "input_before_selection": source_size(source_input_before),
+                    "input_after_selection": source_size(source_input_selected),
+                    "input_after_compaction": source_size(prepared),
+                    "complete_request_before_selection": source_size(source_request_before),
+                    "complete_request_after_selection": source_size({**source_request_before, "input": source_input_selected}),
+                    "measurement_level": "model_interface_serialized_local_estimate",
+                    "complete_request": source_size({"model": self.model_name, "model_settings": str(model_settings), "prompt": prompt, "previous_response_id": None, "conversation_id": None, "instructions": system_instructions, "input": prepared,
+                        "schemas": _schema_payload(tools, output_schema, handoffs)}),
+                }})
+                selection_event = {"tool_name": "decision_source_selection", "status": "prepared",
+                    "input": {"agent": agent, "stage": stage}, "output": projection.model_dump(mode="json")}
+                self.budget.events.append(selection_event)
             response = await self.model.get_response(
                 system_instructions,
                 prepared,
@@ -1115,6 +1141,8 @@ class BudgetedModel(Model):
                 conversation_id=None,
                 prompt=prompt,
             )
+            if selection_event is not None:
+                selection_event["status"] = "transported"
             envelope = _response_envelope.get()
         except BaseException as exc:
             event["status"] = (

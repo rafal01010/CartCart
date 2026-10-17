@@ -18,6 +18,7 @@ from app.agents.source_consultation import (
 )
 from app.agents.context_management import (
     BoundedRunner,
+    ContextBudget,
     ContextBudgetExceeded,
     context_budget_failure,
     active_budget,
@@ -75,6 +76,7 @@ from app.providers import (
     TranscriptProvider,
     VideoSearchProvider,
 )
+from app.providers.contracts import SourceAllowAvoidPolicy
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import RunId
 from app.schemas.intake import ShoppingBrief
@@ -153,10 +155,13 @@ class SourceManagerInput:
     allowed_capabilities: tuple[SourceIntelligenceCapability, ...]
     reuse_key: str | None = None
     owner_request: dict[str, str | None] | None = None
+    source_allowance: ContextBudget | None = None
+    source_policy_key: str | None = None
 
 
 @dataclass(frozen=True)
 class SourceManagerResult:
+    candidate_names_by_product_id: dict[str, str] = field(default_factory=dict)
     outcome: SourceConsultationOutcome = field(
         default_factory=SourceConsultationOutcome
     )
@@ -215,11 +220,29 @@ class SourceIntelligenceManagerAgent:
                 self.settings.resolved_artifact_dir,
                 str(input_data.run_id),
                 self._compatibility(input_data),
+                namespace="source-consultation-requests",
             )
             if input_data.reuse_key is not None
             else None
         )
         saved = checkpoint.load() if checkpoint is not None else None
+        if saved is None and checkpoint is not None:
+            saved = SourceConsultationCheckpoint(
+                self.settings.resolved_artifact_dir, str(input_data.run_id),
+                self._compatibility(input_data),
+            ).load()
+        video_progress = None
+        progress_saved = None
+        if SourceIntelligenceCapability.VIDEO_REVIEW in input_data.allowed_capabilities:
+            compatibility = self._compatibility(input_data)
+            video_progress = SourceConsultationCheckpoint(
+                self.settings.resolved_artifact_dir, str(input_data.run_id),
+                {key: value for key, value in compatibility.items() if key in {
+                    "brief", "region", "providers", "caption_bounds"
+                }} | {"capability": "video_review", "source_policy": input_data.source_policy_key or json.dumps(SourceAllowAvoidPolicy().model_dump(mode="json"), sort_keys=True)},
+                namespace="source-progress",
+            )
+            progress_saved = video_progress.load() or self._legacy_video_progress(input_data)
         bundle_models = {
             SourceIntelligenceCapability.VIDEO_REVIEW: VideoReviewEvidenceBundle,
             SourceIntelligenceCapability.COMMUNITY_DISCUSSION: CommunityDiscussionEvidenceBundle,
@@ -235,9 +258,21 @@ class SourceIntelligenceManagerAgent:
         validated = {
             cap for cap, bundle in captured.items() if self._substantive(bundle)
         }
+        if saved is not None and "completed_request_capabilities" in saved:
+            validated.intersection_update(SourceIntelligenceCapability(value) for value in saved["completed_request_capabilities"])
+        if progress_saved:
+            if saved and not self._preserves_video_work(progress_saved, saved):
+                raise ValueError("Shared video progress conflicts with retained request evidence.")
+            retained_video = progress_saved.get("validated_bundles", {}).get("video_review")
+            if retained_video is not None:
+                captured[SourceIntelligenceCapability.VIDEO_REVIEW] = VideoReviewEvidenceBundle.model_validate(retained_video)
         accepted = set(captured)
-        prior_usage = tuple((saved or {}).get("attempt_usage", ()))
-        prior_diagnostics = tuple((saved or {}).get("diagnostics", ()))
+        prior_usage = tuple((progress_saved or saved or {}).get("attempt_usage", ()))
+        prior_diagnostics = tuple((progress_saved or saved or {}).get("diagnostics", ()))
+        candidate_names = dict((progress_saved or saved or {}).get("candidate_names_by_product_id", {}))
+        for value in ((progress_saved or {}).get("input", {}), (saved or {}).get("input", {})):
+            candidate_names.update({row["product_id"]: row["name"] for row in value.get("products", [])})
+        candidate_names.update({str(product.product_id): product.name for product in input_data.products})
         diagnostics: list[dict[str, str]] = []
         outcome = SourceConsultationOutcome()
         attempt_finalized = False
@@ -266,9 +301,9 @@ class SourceIntelligenceManagerAgent:
                 self._substantive(bundle) for bundle in captured.values()
             ):
                 saved_outcome = outcome.model_copy(update={"status": "partial"})
-            checkpoint.save(
-                {
+            payload = {
                     "input": self._saved_input(input_data),
+                    "candidate_names_by_product_id": candidate_names,
                     "outcome": saved_outcome.model_dump(mode="json"),
                     "notes": list(notes),
                     "attempted_capabilities": sorted(
@@ -280,8 +315,10 @@ class SourceIntelligenceManagerAgent:
                         for cap, bundle in captured.items()
                         if cap in accepted
                     },
+                    "completed_request_capabilities": sorted(cap.value for cap in validated),
                     "tool_states": {
                         **(saved or {}).get("tool_states", {}),
+                        **(progress_saved or {}).get("tool_states", {}),
                         **{
                             cap.value: state.dump_state()
                             for cap, state in source_states.items()
@@ -324,7 +361,9 @@ class SourceIntelligenceManagerAgent:
                     ],
                     "accounting": "Each explicitly admitted invocation uses its ordinary attempt budget. Saved provider operations remain consumed.",
                 }
-            )
+            checkpoint.save(payload)
+            if video_progress is not None:
+                video_progress.save(payload)
 
         tools = []
         for capability in input_data.allowed_capabilities:
@@ -336,7 +375,7 @@ class SourceIntelligenceManagerAgent:
             )
             nested_models[capability] = nested_config.model
             source_states[capability] = source_tools
-            saved_state = (saved or {}).get("tool_states", {}).get(capability.value)
+            saved_state = (progress_saved or saved or {}).get("tool_states", {}).get(capability.value)
             if saved_state is not None and callable(
                 getattr(source_tools, "restore_state", None)
             ):
@@ -409,9 +448,21 @@ class SourceIntelligenceManagerAgent:
                     )
                     activity.extend(hosted_activity)
                     output = self._validate(cap, supplied, state, output_model)
+                    request_substantive = self._substantive(output)
+                    if cap == SourceIntelligenceCapability.VIDEO_REVIEW and cap in captured:
+                        previous = captured[cap]
+                        evidence = {item.evidence_id: item for item in (*previous.evidence, *output.evidence)}
+                        sources = {item.source_id: item for item in (*previous.source_references, *output.source_references)}
+                        videos = {item.video_id: item for item in (*previous.videos, *output.videos)}
+                        segments = {item.segment_id: item for item in (*previous.transcript_segments, *output.transcript_segments)}
+                        output = VideoReviewEvidenceBundle(
+                            videos=tuple(videos.values()), source_references=tuple(sources.values()),
+                            transcript_segments=tuple(segments.values()), evidence=tuple(evidence.values()),
+                            transcript_gap_notes=tuple(dict.fromkeys((*previous.transcript_gap_notes, *output.transcript_gap_notes))),
+                        )
                     captured[cap] = output
                     accepted.add(cap)
-                    if self._substantive(output):
+                    if request_substantive:
                         validated.add(cap)
                     save_progress()
                     status = "validated"
@@ -438,11 +489,11 @@ class SourceIntelligenceManagerAgent:
                                 "output": safe_failure(exc, phase="specialist_output"),
                             }
                         )
-                    captured[cap] = self._retained_or_gap(
-                        cap,
-                        state,
-                        "Nested agent output failed validation or source retrieval.",
-                    )
+                    if cap not in captured or not self._substantive(captured[cap]):
+                        captured[cap] = self._retained_or_gap(
+                            cap, state,
+                            "Nested agent output failed validation or source retrieval.",
+                        )
                     save_progress()
                     failures.append(
                         f"{cap.value}: specialist evidence unavailable or invalid."
@@ -717,13 +768,13 @@ class SourceIntelligenceManagerAgent:
                                 source_states[cap].workbench_activity, _NAMES[cap]
                             )
                         )
-                    captured[cap] = self._retained_or_gap(
-                        cap,
-                        source_states[cap],
-                        "Specialist model or provider failed."
-                        if cap in attempted
-                        else "Source manager failed before delegating this source.",
-                    )
+                    if cap not in captured or not self._substantive(captured[cap]):
+                        captured[cap] = self._retained_or_gap(
+                            cap, source_states[cap],
+                            "Specialist model or provider failed."
+                            if cap in attempted
+                            else "Source manager failed before delegating this source.",
+                        )
         if reused_completion:
             notes.append("Completed from retained validated evidence without repeating source retrieval or SDK work.")
         outcome = (
@@ -737,6 +788,9 @@ class SourceIntelligenceManagerAgent:
                 activity_offsets=activity_offsets,
             )
         )
+        if not reused_completion and captured and not set(input_data.allowed_capabilities).issubset(validated):
+            if any(self._substantive(bundle) for bundle in captured.values()):
+                outcome = outcome.model_copy(update={"status": "partial"})
         activity.insert(
             0,
             {
@@ -787,6 +841,7 @@ class SourceIntelligenceManagerAgent:
         attempt_finalized = True
         save_progress()
         return SourceManagerResult(
+            candidate_names_by_product_id=candidate_names,
             outcome=outcome,
             prior_usage=prior_usage,
             video_bundles=tuple(
@@ -918,6 +973,81 @@ class SourceIntelligenceManagerAgent:
             },
         }
 
+    def _legacy_video_progress(self, data: SourceManagerInput) -> dict[str, Any] | None:
+        directory = self.settings.resolved_artifact_dir / "source-consultations" / str(data.run_id)
+        if directory.exists() and data.source_policy_key not in {
+            None, json.dumps(SourceAllowAvoidPolicy().model_dump(mode="json"), sort_keys=True)
+        }:
+            raise ValueError("Historical video progress has no recorded source policy and cannot be reset under a different policy.")
+        compatible = []
+        current = self._compatibility(data)
+        for path in directory.glob("*.json"):
+            value = json.loads(path.read_text())
+            payload = value.get("input", {})
+            if payload.get("brief") != current["brief"] or payload.get("region_code") != data.region_code:
+                continue
+            reuse_key = payload.get("reuse_key")
+            if not reuse_key or "video_review" not in value.get("tool_states", {}):
+                continue
+            try:
+                original = self.load_retry_input(data.run_id, reuse_key)
+            except ValueError:
+                continue
+            expected = SourceConsultationCheckpoint(
+                self.settings.resolved_artifact_dir, str(data.run_id), self._compatibility(original)
+            )
+            if expected.path != path:
+                continue
+            compatible.append(value)
+        if not compatible:
+            return None
+        def dominates(candidate: dict[str, Any], previous: dict[str, Any]) -> bool:
+            state = candidate["tool_states"]["video_review"]
+            old = previous["tool_states"]["video_review"]
+            return (
+                state["searched"] >= old["searched"]
+                and state["span_reads"] >= old["span_reads"]
+                and set(state["transcripts_read"]) >= set(old["transcripts_read"])
+                and set(state.get("search_results", {})) >= set(old.get("search_results", {}))
+                and all(entry in candidate.get("attempt_usage", []) for entry in previous.get("attempt_usage", []))
+                and self._preserves_video_work(candidate, previous)
+            )
+        for value in reversed(compatible):
+            if all(dominates(value, previous) for previous in compatible):
+                return value
+        raise ValueError("Saved video histories cannot be safely combined without replenishing consumed work.")
+
+    @staticmethod
+    def _preserves_video_work(current: dict[str, Any], previous: dict[str, Any]) -> bool:
+        state = current.get("tool_states", {}).get("video_review", {})
+        old = previous.get("tool_states", {}).get("video_review", {})
+        for key in ("transcripts", "search_results"):
+            if any(state.get(key, {}).get(identity) != value for identity, value in old.get(key, {}).items()):
+                return False
+        for key in ("bundles", "activity"):
+            if any(value not in state.get(key, []) for value in old.get(key, [])):
+                return False
+        if not set(state.get("metadata_read", [])) >= set(old.get("metadata_read", [])):
+            return False
+        for identity, spans in old.get("observed_spans", {}).items():
+            if any(span not in state.get("observed_spans", {}).get(identity, []) for span in spans):
+                return False
+        for identity, retrieval in old.get("retrievals", {}).items():
+            retained = state.get("retrievals", {}).get(identity, {})
+            if retrieval.get("status") not in {"started", "interrupted"} and retrieval != retained:
+                return False
+            if any(retained.get(key) != retrieval[key] for key in ("source_id", "video_id", "url") if key in retrieval):
+                return False
+        if any(value not in current.get("diagnostics", []) for value in previous.get("diagnostics", [])):
+            return False
+        bundle = current.get("validated_bundles", {}).get("video_review", {})
+        original = previous.get("validated_bundles", {}).get("video_review", {})
+        return all(
+            value in bundle.get(key, [])
+            for key in ("evidence", "transcript_segments", "source_references")
+            for value in original.get(key, [])
+        )
+
     @staticmethod
     def _saved_input(data: SourceManagerInput) -> dict[str, Any]:
         return {
@@ -933,14 +1063,14 @@ class SourceIntelligenceManagerAgent:
             "allowed_capabilities": [cap.value for cap in data.allowed_capabilities],
             "reuse_key": data.reuse_key,
             "owner_request": data.owner_request,
+            "source_policy_key": data.source_policy_key,
         }
 
     def load_retry_input(self, run_id: RunId, reuse_key: str) -> SourceManagerInput:
-        directory = (
-            self.settings.resolved_artifact_dir / "source-consultations" / str(run_id)
-        )
+        paths = [path for namespace in ("source-consultations", "source-consultation-requests")
+                 for path in (self.settings.resolved_artifact_dir / namespace / str(run_id)).glob("*.json")]
         for path in sorted(
-            directory.glob("*.json"),
+            paths,
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         ):
@@ -972,11 +1102,13 @@ class SourceIntelligenceManagerAgent:
                 ),
                 reuse_key=reuse_key,
                 owner_request=payload.get("owner_request"),
+                source_policy_key=payload.get("source_policy_key"),
             )
             expected = SourceConsultationCheckpoint(
                 self.settings.resolved_artifact_dir,
                 str(run_id),
                 self._compatibility(data),
+                namespace=path.parent.parent.name,
             )
             if expected.path != path:
                 continue
@@ -987,11 +1119,10 @@ class SourceIntelligenceManagerAgent:
         )
 
     def pending_retry_input(self, run_id: RunId) -> SourceManagerInput:
-        directory = (
-            self.settings.resolved_artifact_dir / "source-consultations" / str(run_id)
-        )
+        paths = [path for namespace in ("source-consultations", "source-consultation-requests")
+                 for path in (self.settings.resolved_artifact_dir / namespace / str(run_id)).glob("*.json")]
         for path in sorted(
-            directory.glob("*.json"),
+            paths,
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         ):

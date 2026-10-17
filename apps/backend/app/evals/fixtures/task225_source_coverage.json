@@ -1,0 +1,76 @@
+{
+  "purpose": "Focused offline references. Local SDK mechanics do not prove live model quality or pass Task221.",
+  "task": 225,
+  "cases": [
+    {
+      "name": "adaptive-needs-and-preferences",
+      "expected": "new_attributed_candidates_survive_actual_sdk_input",
+      "control": "test_task225_decision_sources.py::test_effective_owner_sdk_discovers_without_seed_list_and_retains_new_coverage"
+    },
+    {
+      "name": "useful-variety-over-count",
+      "expected": "overlapping_support_independent_perspectives_and_more_than_fifteen_sources",
+      "control": "test_task225_decision_sources.py::test_selects_meaningful_overlapping_coverage_and_distinct_perspectives_without_count_ceiling"
+    },
+    {
+      "name": "actual-saved-speech",
+      "expected": "exact_claim_targets_segments_and_source_receipt",
+      "control": "test_task225_decision_sources.py::test_actual_saved_archive_reaches_sdk_http_request_with_exact_speech_and_receipt"
+    },
+    {
+      "name": "incidental-name-negative",
+      "expected": "invalid_candidate_annotation",
+      "control": "test_task225_decision_sources.py::test_candidate_annotations_reject_title_only_incidental_and_unobserved_identity"
+    },
+    {
+      "name": "shared-consumed-video-work",
+      "expected": "no_refetch_or_allowance_refill",
+      "control": "test_task225_shared_video.py::test_two_candidates_import_consumed_real_work_without_refetch_or_old_writes"
+    },
+    {
+      "name": "comparative-speech",
+      "expected": "two_exact_targets_one_source",
+      "control": "test_task225_shared_video.py::test_comparative_exact_claims_bind_two_products_to_one_source_and_caption_body"
+    },
+    {
+      "name": "immutable-selected-projection",
+      "expected": "raw_archive_and_older_sqlite_api_versions_exact",
+      "control": "test_task225_projection.py::test_saved_phone_selection_freezes_exactly_and_legacy_api_stays_exact"
+    },
+    {
+      "name": "catalog-routes",
+      "expected": "existing_generic_and_specialist_fallback",
+      "control": "test_task225_catalog.py::test_selected_source_and_shared_video_contracts_keep_existing_routes"
+    },
+    {
+      "name": "retained-comparison-with-late-guide",
+      "expected": "twenty_useful_sources_and_exact_speech_survive_compaction",
+      "control": "test_task225_decision_sources.py::test_retained_comparison_sdk_uses_late_guide_and_more_than_fifteen_sources"
+    },
+    {
+      "name": "multi-turn-attribution",
+      "expected": "candidate_question_notes_survive_tool_retirement",
+      "control": "test_task225_history.py::test_owner_keeps_exact_candidate_notes_after_another_native_search"
+    },
+    {
+      "name": "source-sdk-shared-allowance",
+      "expected": "shared_spending_and_exact_consumed_progress",
+      "control": "test_task225_history.py::test_source_manager_sdk_candidates_share_spending_and_retained_progress"
+    },
+    {
+      "name": "source-text-boundary",
+      "expected": "page_json_cannot_become_accepted_speech",
+      "control": "test_task225_history.py::test_json_inside_page_text_cannot_become_accepted_speech"
+    },
+    {
+      "name": "honest-video-leads",
+      "expected": "unreviewed_video_is_metadata_on_normal_and_saved_paths",
+      "control": "test_task225_history.py::test_unreviewed_video_search_leads_are_metadata_on_saved_and_normal_paths"
+    }
+  ],
+  "provider_fixtures": [
+    "tests/fixtures/providers/task225_saved_caption_checkpoint.json"
+  ],
+  "browser_control": "apps/frontend/tests/e2e/task225-local-selection.spec.ts",
+  "new_source_or_token_limits": false
+}

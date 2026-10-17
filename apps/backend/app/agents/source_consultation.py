@@ -41,12 +41,15 @@ def safe_failure(exc: BaseException, *, phase: str) -> dict[str, str]:
 
 
 class SourceConsultationCheckpoint:
-    def __init__(self, root: Path, run_id: str, compatibility: dict[str, Any]) -> None:
+    def __init__(
+        self, root: Path, run_id: str, compatibility: dict[str, Any],
+        *, namespace: str = "source-consultations",
+    ) -> None:
         self.run_id = run_id
         self.fingerprint = sha256(
             json.dumps(compatibility, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
-        self.path = root / "source-consultations" / run_id / f"{self.fingerprint}.json"
+        self.path = root / namespace / run_id / f"{self.fingerprint}.json"
 
     def load(self) -> dict[str, Any] | None:
         if not self.path.exists():

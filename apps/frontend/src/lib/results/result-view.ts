@@ -49,6 +49,7 @@ export interface SourceView {
 	capturedLabel: string;
 	evidence: EvidenceView[];
 	snippet?: string | null;
+	decisionContent?: { label: string; excerpts: string[] };
 	video: { creatorName: string | null; basisLabel: string } | null;
 }
 
@@ -218,7 +219,8 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 			? raw.research_selection : null;
 		const status = typeof metadata === 'object' && metadata !== null && 'status' in metadata
 			? metadata.status : null;
-		return !['deferred', 'rejected'].includes(typeof status === 'string' ? status : '')
+		return (result.decision_sources?.selected_source_ids.includes(source.source_id) ?? false)
+			|| !['deferred', 'rejected'].includes(typeof status === 'string' ? status : '')
 			|| referencedSourceIds.has(source.source_id)
 			|| snapshotUrls.has(sourceIdentity({ id: source.source_id, url: source.url }));
 	}).map(toSearchSourceView)];
@@ -293,7 +295,7 @@ export function buildResultView(result: SessionResultsResponse): ResultView {
 			.map((item) =>
 				toRejectedView(item, productById, listingById, evidenceById, sourceById, sourceViewById),
 			),
-		sourceViews,
+		sourceViews: selectedDecisionSources(result.decision_sources, rawSourceViews, sourceViews),
 		evidenceViews,
 		hasWeakEvidence: evidenceViews.some((item) => /low|unknown/i.test(item.confidence)),
 		hasConflictingEvidence: result.source_evidence.some((item) =>
@@ -972,6 +974,29 @@ function dedupeSources(sources: SourceView[]): SourceView[] {
 		} : source);
 	}
 	return [...grouped.values()];
+}
+
+function selectedDecisionSources(
+	selection: SessionResultsResponse['decision_sources'],
+	rawSources: SourceView[],
+	combinedSources: SourceView[],
+): SourceView[] {
+	if (!selection) return combinedSources;
+	const byId = new Map(rawSources.map((source) => [source.id, source]));
+	const byIdentity = new Map(combinedSources.map((source) => [sourceIdentity(source), source]));
+	return dedupeSources(selection.selected_source_ids.flatMap((id) => {
+		const source = byId.get(id);
+		const combined = source ? byIdentity.get(sourceIdentity(source)) : undefined;
+		if (!combined) return [];
+		const packet = selection.sources.find((item) => item.source_id === id);
+		return [{ ...combined, ...(packet && packet.content_kind !== 'accepted_speech' ? {
+			decisionContent: {
+				label: packet.content_kind === 'page' ? 'Page excerpts' : packet.content_kind === 'source_note' ? 'Source notes' : packet.content_kind === 'metadata_only' ? 'Video information only' : 'Search snippet',
+				excerpts: packet.excerpts,
+			},
+			snippet: null,
+		} : {}) }];
+	}));
 }
 
 function sourceIdentity(source: Pick<SourceView, 'id' | 'url'>): string {

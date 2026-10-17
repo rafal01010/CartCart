@@ -557,3 +557,9 @@ with tools disabled and do not repeat source research or verification. Missing
 quotes, offsets or hashes cannot prevent saved-context reuse. Operational run,
 request and source identity still apply. Failed final calls remain technical
 failures, with prior immutable result versions available.
+
+### Task 225 selected source coverage
+
+The owner selects attributed source packets before final request preparation. Saved decisions and retained comparison final inputs no longer use the first provider/URL-ordered search records. Retired tool receipts recover their archived attribution when preparing later turns, without restoring duplicate source bodies to the request. Candidate coverage can include discovered products before recommendation persistence. Comparative sources retain one body and exact product/claim bindings. The selector prioritizes unresolved candidate/question coverage, useful independent perspectives and material disagreement without an equal-coverage quota.
+
+The selected projection survives existing context compaction and tools-free funded completion. Source originals stay in the archive, and omitted material remains explicitly unreviewed. Selection receipts report unique source and meaningful candidate coverage plus source-content and complete-request local size measurements. The local UTF-8 estimator is separate from reported actual provider usage. Source count alone establishes neither context consumption nor breadth.

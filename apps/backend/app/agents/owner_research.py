@@ -13,10 +13,13 @@ from agents import FunctionTool, function_tool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.context_management import (
+    ContextBudget,
+    ContextLimits,
     active_budget,
     context_budget_failure,
     source_bundle_context,
 )
+from app.agents.token_policy import SOURCE_START_TOKENS
 from app.agents.source_spans import source_span
 from app.agents.source_consultation import SourceConsultationOutcome, safe_failure
 from app.agents.research_history import (
@@ -85,6 +88,12 @@ def assess_run_listings(
 
 @dataclass
 class OwnerResearchState:
+    candidate_names_by_product_id: dict[str, str] = field(default_factory=dict)
+    attempted_consultations: set[str] = field(default_factory=set)
+    source_allowance: ContextBudget = field(default_factory=lambda: ContextBudget(
+        limits=ContextLimits(total_tokens=SOURCE_START_TOKENS),
+        scope="source", transferable=True,
+    ))
     completed_consultations: dict[str, dict[str, Any]] = field(default_factory=dict)
     bundles: dict[str, tuple[RunId, str, dict[str, Any]]] = field(default_factory=dict)
     bundle_versions: dict[tuple[str, str], tuple[RunId, dict[str, Any]]] = field(
@@ -696,6 +705,7 @@ class OwnerResearchContext:
                     UUID(str(self.run_id)),
                     json.dumps({"name": product.name, "category": product.category, "source_ids": [str(v) for v in product.source_ids]}, sort_keys=True),
                 )})
+            self.research_state.candidate_names_by_product_id[str(product.product_id)] = product.name
             snapshots = tuple(
                 item
                 for item in all_snapshots
@@ -742,12 +752,15 @@ class OwnerResearchContext:
                     capability=capability.value,
                 )
                 return cached
-            if self._source_count >= 1:
+            if cache_key in self.research_state.attempted_consultations:
+                return {"status": "budget_exhausted", "gap": "This source request was already attempted. Reuse its saved work; an explicit retry is required."}
+            if self._source_count >= 1 and capability != SourceIntelligenceCapability.VIDEO_REVIEW:
                 return {
                     "status": "budget_exhausted",
                     "gap": "Source-agent limit reached.",
                 }
             self._source_count += 1
+            self.research_state.attempted_consultations.add(cache_key)
             try:
                 result = await self.source_manager.run(
                     SourceManagerInput(
@@ -767,6 +780,8 @@ class OwnerResearchContext:
                             "consult_product_id": str(parsed) if parsed is not None else None,
                             "consult_evidence_id": str(parsed_evidence) if parsed_evidence is not None else None,
                         },
+                        source_allowance=self.research_state.source_allowance,
+                        source_policy_key=json.dumps(self.source_policy.model_dump(mode="json"), sort_keys=True),
                     )
                 )
             except Exception as exc:
@@ -789,6 +804,7 @@ class OwnerResearchContext:
             SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW: result.amazon_bundles,
             SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE: result.ikea_bundles,
         }[capability]
+        self.research_state.candidate_names_by_product_id.update(result.candidate_names_by_product_id)
         if capability == SourceIntelligenceCapability.VIDEO_REVIEW:
             await self._persist_video_bundles(result.video_bundles)
         self.activity.extend(result.activity)
@@ -809,7 +825,20 @@ class OwnerResearchContext:
         payload: list[dict[str, Any]] = []
         deferred_bundle_ids: list[str] = []
         bundle_references: list[dict[str, str]] = []
-        for item in bundles:
+        covered_targets: set[str] = set()
+        remaining_bundles = list(bundles)
+        ordered_bundles = []
+        while remaining_bundles:
+            item = max(remaining_bundles, key=lambda bundle: len({
+                str(evidence.target.product_id or evidence.target.candidate_id)
+                for evidence in bundle.evidence
+                if evidence.target.product_id or evidence.target.candidate_id
+            } - covered_targets))
+            remaining_bundles.remove(item)
+            ordered_bundles.append(item)
+            covered_targets.update(str(evidence.target.product_id or evidence.target.candidate_id)
+                                   for evidence in item.evidence if evidence.target.product_id or evidence.target.candidate_id)
+        for item in ordered_bundles:
             original = item.model_dump(mode="json")
             bundle_id = str(original["bundle_id"])
             original_text = json.dumps(
@@ -877,6 +906,7 @@ class OwnerResearchContext:
             "consultation_sha256": consultation_hash,
             "reload_tool": "read_source_bundle",
             "bundles": payload,
+            "candidate_names_by_product_id": dict(self.research_state.candidate_names_by_product_id),
             "notes": list(result.notes),
             "deferred_bundle_ids": deferred_bundle_ids[:8],
             "deferred_bundle_count": len(deferred_bundle_ids),
@@ -1141,26 +1171,47 @@ def _whole_video_context(
         "evidence": [], "transcript_segments": [], "videos": [], "source_references": [],
         **caution_details,
     }
-    for evidence in sorted(payload.get("evidence", []), key=lambda e: e.get("metadata_only", False)):
+    def complete(candidate: dict[str, Any]) -> dict[str, Any]:
+        included = {e["evidence_id"] for e in candidate["evidence"]}
+        descriptions_deferred = any(v.get("description") for v in payload.get("videos", []))
+        return {
+            **candidate,
+            "deferred_evidence_ids": [e["evidence_id"] for e in payload.get("evidence", []) if e["evidence_id"] not in included],
+            "unreviewed_content": bool(payload.get("unreviewed_content")) or len(included) < len(payload.get("evidence", [])) or descriptions_deferred,
+            "reload_tool": "read_source_bundle",
+            "video_descriptions_deferred": descriptions_deferred,
+        }
+    remaining = list(payload.get("evidence", []))
+    covered_targets: set[str] = set()
+    covered_videos: set[str] = set()
+    while remaining:
+        def priority(evidence: dict[str, Any]) -> tuple[bool, bool, bool, bool]:
+            target = evidence.get("target", {})
+            candidate = target.get("product_id") or target.get("candidate_id")
+            return (
+                not evidence.get("metadata_only", False),
+                bool(candidate and candidate not in covered_targets),
+                evidence.get("signal_kind") in {"con", "concern"},
+                evidence.get("video_id") not in covered_videos,
+            )
+        evidence = max(remaining, key=priority)
+        remaining.remove(evidence)
         ids = evidence.get("transcript_segment_ids", [])
         proposed = {
             **result,
             "evidence": [*result["evidence"], evidence],
             "transcript_segments": list({s["segment_id"]: s for s in [*result["transcript_segments"], *(segments[i] for i in ids if i in segments)]}.values()),
-            "videos": [{key: v[key] for key in ("video_id", "url", "title", "channel_id", "channel_name", "transcript_availability") if key in v} for v in payload.get("videos", []) if v["video_id"] in {e["video_id"] for e in [*result["evidence"], evidence]}],
+            "videos": [{key: v[key] for key in ("video_id", "url", "title", "channel_id", "channel_name", "transcript_availability", "sponsorship_disclosed", "affiliate_links_disclosed", "affiliate_bias_risk", "bias_notes") if key in v} for v in payload.get("videos", []) if v["video_id"] in {e["video_id"] for e in [*result["evidence"], evidence]}],
             "source_references": [r for r in payload.get("source_references", []) if r["source_id"] in {e["source_id"] for e in [*result["evidence"], evidence]}],
         }
-        if len(json.dumps(proposed, ensure_ascii=False)) <= max_chars:
+        if len(json.dumps(complete(proposed), ensure_ascii=False)) <= max_chars:
             result = proposed
-    included = {e["evidence_id"] for e in result["evidence"]}
-    result.update(
-        deferred_evidence_ids=[e["evidence_id"] for e in payload.get("evidence", []) if e["evidence_id"] not in included],
-        unreviewed_content=bool(payload.get("unreviewed_content")) or len(included) < len(payload.get("evidence", [])),
-        reload_tool="read_source_bundle",
-        video_descriptions_deferred=any(v.get("description") for v in payload.get("videos", [])),
-    )
-    result["unreviewed_content"] = result["unreviewed_content"] or result["video_descriptions_deferred"]
-    return result
+            target = evidence.get("target", {})
+            candidate = target.get("product_id") or target.get("candidate_id")
+            if candidate:
+                covered_targets.add(candidate)
+            covered_videos.add(evidence.get("video_id"))
+    return complete(result)
 
 
 def _cap_consultation_response(

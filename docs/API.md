@@ -729,3 +729,11 @@ endpoint. The original request and brief must remain unchanged.
 ### Task 221 repair compatibility
 
 Public endpoints and result schemas are unchanged. Existing `result_author` can identify a successful Technology recovery while `handoff_chain` retains both actual SDK transfers. Internal saved activity must contain a matching completed recovery receipt. Guided initial intake recognizes explicit selected-region money codes and bounded category words. Saved results and historical text remain immutable; retries append their actual activity and result version.
+
+### Task 225 selected decision sources
+
+New result projections can include `decision_sources`. It records the exact selected source packets supplied to the owning model, selected and deferred source IDs, attributed candidate/question coverage, and local size measurements. Page excerpts, source notes, discovered leads, metadata-only video information and accepted caption speech remain distinct. A comparative source appears once and can support several candidate bindings.
+
+`source_results`, `source_snapshots` and `source_evidence` remain the complete saved archive. The optional source list below advice uses the frozen selection when present. Older immutable versions omit `decision_sources` and retain their original projection and display behavior. API reads never rerank a saved selection. Neutral source links and exact caption timestamps, segment IDs, text and hashes remain available.
+
+These measurements describe local serialized context size. They do not establish billed provider tokens or model quality. Existing transport usage remains the source of actual input/output usage when reported. No new source-count or token ceiling applies.

@@ -773,3 +773,9 @@ Broad categories and generic fallback remain available.
 ## Task 221 intake and provenance compatibility
 
 Agent identities, SDK permissions, catalog mapping and source fallback remain unchanged. Guided word matching no longer classifies headphones as phones. The live intake model may correct an earlier inferred category while explicit user category stays authoritative. Supported audio still uses General -> Technology -> EarphonesHeadphones ownership, and phone uses General -> Technology -> Smartphone. A validated parent recovery may author a result while both completed SDK transfers remain factual saved provenance. Research/history and prose repairs add no model stage or public result schema.
+
+## Task 225 source coverage
+
+Existing shopping owners and `ComparisonDecisionAgent` use `SourceDecisionProjection` to retain useful attributed candidate/question coverage before final input, saved completion and compaction. Broad discovery follows the buyer's needs and actual results without developer company seeds. Category-first discovery is optional for every product. Repeated coverage does not receive extra candidate breadth credit; useful independent perspectives and contrary findings can still support the same product.
+
+`SourceIntelligenceManagerAgent` and `YouTubeReviewIntelligenceAgent` reuse shared run/capability video progress and the same bounded source allowance across candidate requests. Request-sensitive result caching remains separate. Comparative videos can support exact claims for several products using one source and saved transcript. Metadata and leads do not become accepted speech. Compatible historical checkpoints import read-only. No agent, routing edge, provider fallback, model stage or operational limit is added. Task 226 final-choice prompt changes remain separate.

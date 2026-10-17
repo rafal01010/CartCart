@@ -44,6 +44,7 @@ from app.providers import (
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import ProductId, SourceId
+from app.schemas.products import CanonicalProduct
 from app.schemas.search_sources import (
     EvidenceTarget,
     EvidenceTargetType,
@@ -280,6 +281,10 @@ class YouTubeReviewIntelligenceAgent:
                 "alternatives within the existing bounds. Reuse completed discovery, metadata and caption results. "
                 "If captions remain inaccessible, select useful metadata only and explain the actual gap. "
                 "Use only supplied product IDs, and do not attribute a review to a product if identity is unclear. "
+                "A comparison may support several supplied products with separate exact claims and one reused video. "
+                "Read the nearby caption context that identifies each claim's product. An incidental title mention "
+                "or a distant statement about another product cannot bind the quoted claim. Leave ambiguous speech "
+                "without a product ID. Shared saved work and remaining limits apply across all candidates. "
                 "You may use web_search for YouTube review discovery, or skip it. Put useful exact cited URLs in retained_web_urls. "
                 "A hosted snippet is only a lead; use video tools and transcript segments for review claims."
             ),
@@ -419,6 +424,20 @@ def _model_input(
     )
 
 
+def _named_products(text: str, products: dict[ProductId, CanonicalProduct]) -> set[ProductId]:
+    mentions = [
+        (match.start(), match.end(), product.product_id)
+        for product in products.values()
+        for identity in (product.model, product.name) if identity
+        for match in re.finditer(r"(?<!\w)" + re.escape(identity) + r"(?!\w)", text, re.I)
+    ]
+    return {
+        identity for start, end, identity in mentions
+        if not any(other_start <= start and other_end >= end and other_end - other_start > end - start
+                   for other_start, other_end, other_id in mentions if other_id != identity)
+    }
+
+
 def _validated_bundle(
     input_data: YouTubeReviewIntelligenceAgentInput,
     tools: YouTubeReviewTools,
@@ -492,26 +511,26 @@ def _validated_bundle(
         if item.product_id is not None and item.product_id not in product_ids:
             raise ValueError("Claim cites an unsupplied product.")
         if item.product_id is not None:
-            product = products[item.product_id]
-            video = video_by_id[item.video_id]
+            video_segments = [s for s in available.transcript_segments if s.video_id == item.video_id]
+            position = next(index for index, value in enumerate(video_segments) if value.segment_id == segment.segment_id)
+            context_segments = video_segments[max(0, position - 2):position + 3]
             context = " ".join(
-                (
-                    video.title or "",
-                    video.description or "",
-                    *(
-                        s.text or ""
-                        for s in available.transcript_segments
-                        if s.video_id == item.video_id
-                    ),
-                )
-            ).casefold()
-            identities = (product.model, product.name)
-            if not any(
-                identity and identity.casefold() in context for identity in identities
-            ):
+                span.text for value in context_segments
+                for span in tools.observed_spans.get(str(value.segment_id), ())
+                if span.content_sha256 == sha256((value.text or "").encode()).hexdigest()
+                and (value.text or "")[span.start:span.start + len(span.text)] == span.text
+            )
+            contextual_products = _named_products(context, products)
+            if item.product_id not in contextual_products:
                 raise ValueError(
-                    "Product identity is not visible in selected video material."
+                    "Product identity is not visible in observed claim context."
                 )
+            quoted_products = _named_products(item.quote, products)
+            if (
+                quoted_products and item.product_id not in quoted_products
+                or not quoted_products and contextual_products != {item.product_id}
+            ):
+                raise ValueError("Comparative quote does not identify its claimed product unambiguously.")
         if item.quote not in (segment.text or "") or not any(
             item.quote in span.text
             and span.content_sha256 == sha256((segment.text or "").encode()).hexdigest()

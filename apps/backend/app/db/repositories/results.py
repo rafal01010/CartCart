@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+
+from pydantic import Field
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
@@ -29,6 +31,7 @@ from app.schemas.products import CanonicalProduct, ProductListing, UserAddedProd
 from app.schemas.runs import AgentRunRecord
 from app.schemas.runs import RunStatus
 from app.schemas.search_sources import SearchResult, SourceEvidence, SourceSnapshot
+from app.schemas.decision_sources import SourceDecisionProjection
 from app.schemas.timestamps import utc_now
 
 
@@ -42,6 +45,7 @@ class ResultVersion:
 
 
 class ResultSourceProjection(CartCartBaseModel):
+    decision_sources: SourceDecisionProjection | None = Field(default=None, exclude_if=lambda value: value is None)
     source_results: tuple[SearchResult, ...]
     source_snapshots: tuple[SourceSnapshot, ...]
     source_evidence: tuple[SourceEvidence, ...]
@@ -286,7 +290,16 @@ class ResultRepository:
         artifact_run_id = await RefinementRepository(self._session).research_run_for(run_id)
         sources = SearchSourceRepository(self._session)
         products = ProductRepository(self._session)
+        agent_records = await self.list_agent_records(run_id)
+        selection = next((
+            SourceDecisionProjection.model_validate(activity["output"])
+            for record in reversed(agent_records)
+            for activity in reversed(record.tool_activity)
+            if activity.get("tool_name") == "decision_source_selection"
+            and activity.get("status") == "transported"
+        ), None)
         return ResultSourceProjection(
+            decision_sources=selection,
             source_results=await sources.list_search_results(artifact_run_id),
             source_snapshots=await sources.list_source_snapshots(artifact_run_id),
             source_evidence=await sources.list_source_evidence(artifact_run_id),
@@ -298,7 +311,7 @@ class ResultRepository:
             ),
             trust_assessments=await self.list_listing_trust_assessments(run_id),
             category_analyses=await self.list_category_analyses(run_id),
-            agent_records=await self.list_agent_records(run_id),
+            agent_records=agent_records,
         )
 
     async def load_latest_result_bundle(

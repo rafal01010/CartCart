@@ -13,11 +13,12 @@ from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
     managed_decision_context,
+    active_budget,
+    context_events,
 )
 from app.agents.contracts import ComparisonDecisionAgentInput
+from app.agents.decision_sources import select_decision_sources, source_packets
 from app.agents.model_input_projection import (
-    evidence_model_fields,
-    restore_evidence,
     model_input_json,
     restore_explanations,
 )
@@ -142,6 +143,8 @@ class LiveComparisonDecisionAgent:
             trace_metadata=configuration.trace_metadata,
         )
 
+        budget = active_budget()
+        context_start = len(budget.events) if budget else 0
         model_input = _model_input(input_data)
         self._workbench_activity = (
             {
@@ -181,6 +184,7 @@ class LiveComparisonDecisionAgent:
                 "The shopping recommendation could not finish. Your gathered information is saved. Try again."
             ) from exc
 
+        self._workbench_activity += tuple(event for event in context_events(context_start) if event.get("tool_name") == "decision_source_selection")
         self._set_activity("model_comparison_decision_completed", input_data, bundle)
         return bundle
 
@@ -287,30 +291,10 @@ def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
         {
             "run_id": str(input_data.run_id),
             "brief": input_data.brief.model_dump(mode="json"),
-            "available_source_context": [
-                {
-                    "kind": "search_snippet",
-                    "source_id": str(item.source_id),
-                    "url": str(item.url),
-                    "title": item.title,
-                    "text": (item.snippet or "")[:600],
-                    "quality": item.quality.model_dump(mode="json"),
-                }
-                for item in input_data.source_results[:8]
-            ]
-            + [
-                {
-                    "kind": "fetched_page_excerpt",
-                    "source_id": str(item.source_id),
-                    "url": str(item.url),
-                    "title": item.title,
-                    "text": item.extracted_content.text[:1200]
-                    if item.extracted_content
-                    else "",
-                    "quality": item.quality.model_dump(mode="json"),
-                }
-                for item in input_data.source_snapshots[:6]
-            ],
+            "decision_sources": select_decision_sources(input_data.brief, source_packets(
+                input_data.brief, input_data.source_results, input_data.source_snapshots,
+                input_data.evidence, input_data.products,
+            )).model_dump(mode="json"),
             "advisory_score_references": _ADVISORY_SCORE_REFERENCES,
             "ranked_candidates": [
                 {
@@ -369,7 +353,6 @@ def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
                 decision.model_dump(mode="json")
                 for decision in input_data.deduplication_decisions
             ],
-            **evidence_model_fields(input_data.evidence),
             "user_added_products": [
                 item.model_dump(mode="json") for item in input_data.user_added_products
             ],
@@ -846,7 +829,7 @@ def _mock_bundle_from_model_input(model_input: str) -> RecommendationBundle:
             "category_analyses": payload["category_analyses"],
             "trust_assessments": payload["trust_assessments"],
             "deduplication_decisions": payload["deduplication_decisions"],
-            "evidence": restore_evidence(payload),
+            "evidence": [evidence for packet in payload["decision_sources"]["sources"] for evidence in packet["evidence"]],
             "user_added_products": payload["user_added_products"],
         }
     )

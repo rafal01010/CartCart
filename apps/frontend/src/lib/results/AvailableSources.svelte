@@ -9,7 +9,7 @@
 
 <section id="available-source-details" class="mt-10" aria-labelledby="sources-title">
 	<div class="flex items-end justify-between gap-4">
-		<div><h2 id="sources-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Available sources</h2><p class="mt-1 text-sm text-muted-foreground">Explore the pages, search snippets and optional videos gathered for this decision.</p></div>
+		<div><h2 id="sources-title" class="text-xl font-[510] tracking-[-0.02em] text-foreground">Available sources</h2><p class="mt-1 text-sm text-muted-foreground">Explore useful pages, search snippets and optional videos selected for this decision.</p></div>
 		<p class="font-mono text-xs text-muted-foreground">{sources.length} total</p>
 	</div>
 	<div class="mt-4 divide-y divide-border border-y border-border">
@@ -21,6 +21,10 @@
 					{#if source.video}
 						{#if source.video.creatorName}<p class="mt-1 text-xs leading-5 text-muted-foreground">By {source.video.creatorName}</p>{/if}
 						<p class="mt-1 text-xs leading-5 text-muted-foreground">{source.video.basisLabel}</p>
+					{/if}
+					{#if source.decisionContent?.excerpts.length}
+						<p class="mt-3 text-xs text-muted-foreground">{source.decisionContent.label}</p>
+						{#each source.decisionContent.excerpts as excerpt}<p class="mt-1 whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">{excerpt}</p>{/each}
 					{/if}
 					{#if source.snippet}<p class="mt-3 text-sm leading-6 text-muted-foreground">Search snippet: {source.snippet}</p>{/if}
 					{#if source.evidence.length}<div class="mt-3 max-w-[760px]"><EvidenceDetails evidence={source.evidence} sources={[]} label="Evidence from this source" /></div>{/if}

@@ -5,6 +5,7 @@ arguments, raw metadata, artifact paths, or an arbitrary-URL fetch operation.
 """
 
 import asyncio
+import re
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -128,6 +129,7 @@ class SearchSourcesResult(CartCartBaseModel):
     gap: str | None = None
     evidence_need_id: str | None = None
     selection_reasons: dict[str, str] = Field(default_factory=dict)
+    candidate_coverage: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
     def tool_json(self) -> str:
         import json
@@ -161,6 +163,7 @@ class FetchSourceResult(CartCartBaseModel):
     provider_name: str | None = None
     gap: str | None = None
     evidence_need_id: str | None = None
+    source_quality: SourceQuality | None = None
 
 
 def _unusable_page_gap(snapshot: SourceSnapshot | None) -> str:
@@ -202,6 +205,11 @@ class RecordSourceQuoteResult(CartCartBaseModel):
     end_char: int | None = None
     content_sha256: str | None = None
     gap: str | None = None
+    candidate_names: tuple[str, ...] = ()
+    buying_question: str | None = None
+    finding: str | None = None
+    perspective: str | None = None
+    source_quality: SourceQuality | None = None
 
 
 @dataclass(frozen=True)
@@ -707,12 +715,20 @@ class AgentResearchTools:
             raise ValueError("Agent is not approved to record page quotes.")
 
         @function_tool
-        async def record_source_quote(source_id: str, quote: str) -> str:
+        async def record_source_quote(
+            source_id: str, quote: str, candidate_names: list[str] | None = None,
+            buying_question: str | None = None, finding: str | None = None,
+            perspective: str | None = None,
+        ) -> str:
             """Persist a bounded source note from a fetched page in this run.
 
             Args:
                 source_id: ID returned by search_sources, then fetched.
                 quote: Exact page text, at most 400 characters; never a snippet.
+                candidate_names: Exact candidate identities substantively covered by the passage, not incidental mentions.
+                buying_question: Buyer-relevant comparison question answered by the inspected passage.
+                finding: Concise decision fact, reuse the same wording for the same fact across sources.
+                perspective: Distinct test or perspective when this adds useful independent confirmation.
             """
             try:
                 parsed_id = SourceId(source_id)
@@ -721,7 +737,8 @@ class AgentResearchTools:
                     status=ResearchToolStatus.INVALID_REQUEST,
                     gap="Source ID failed validation.",
                 ).model_dump_json()
-            return (await self.record_quote(parsed_id, quote)).model_dump_json()
+            return (await self.record_quote(parsed_id, quote, candidate_names=tuple(candidate_names or ()),
+                buying_question=buying_question, finding=finding, perspective=perspective)).model_dump_json()
 
         from app.agents.research_history import tracked_tools
 
@@ -731,7 +748,9 @@ class AgentResearchTools:
         )
 
     async def record_quote(
-        self, source_id: SourceId, quote: str
+        self, source_id: SourceId, quote: str, *, candidate_names: tuple[str, ...] = (),
+        buying_question: str | None = None, finding: str | None = None,
+        perspective: str | None = None,
     ) -> RecordSourceQuoteResult:
         bounded = quote.strip()
         if not bounded or len(bounded) > 400:
@@ -769,6 +788,13 @@ class AgentResearchTools:
                     self._record("record_source_quote", result.status)
                     return result
                 quality = snapshot.quality
+                observed = any(bounded in snapshot.extracted_content.text[start:end]
+                    and digest == source_span(snapshot.extracted_content.text).content_sha256
+                    for start, end, digest in self._observed_spans.get(source_id, ()))
+                if candidate_names and (not observed or not buying_question or not finding
+                    or any(not name.strip() or not re.search(r"(?<!\w)" + re.escape(name.strip()) + r"(?!\w)", bounded, re.IGNORECASE) for name in candidate_names)):
+                    return RecordSourceQuoteResult(status=ResearchToolStatus.INVALID_REQUEST,
+                        gap="Candidate coverage requires exact inspected page support, candidate identity, a buying question and a finding.")
                 if quality.level == SourceQualityLevel.UNKNOWN:
                     quality = score_source_quality(
                         str(source.url),
@@ -797,6 +823,12 @@ class AgentResearchTools:
                     source_quality=quality,
                 )
                 await repository.add_source_evidence(self._run_id, evidence)
+                if candidate_names:
+                    annotation = {"candidate_names": list(dict.fromkeys(candidate_names)), "buying_question": buying_question,
+                        "finding": finding, "perspective": perspective, "quote": bounded, "evidence_id": str(evidence.evidence_id)}
+                    snapshot = snapshot.model_copy(update={"provider": snapshot.provider.model_copy(update={"raw": {
+                        **snapshot.provider.raw, "candidate_coverage": [*snapshot.provider.raw.get("candidate_coverage", []), annotation]}})})
+                    await repository.save_source_snapshot(self._run_id, snapshot, search_result_id=source_id)
                 await self._commit(session)
                 self._recorded_quote_ids.add(evidence.evidence_id)
                 self._recorded_source_ids.add(source_id)
@@ -804,6 +836,8 @@ class AgentResearchTools:
                     self._run_state.selection.record_support(
                         source, bounded, evidence.evidence_id
                     )
+                    if candidate_names:
+                        self._run_state.selection.record_candidate_support(candidate_names, buying_question or "", finding or "")
                 quote_start = snapshot.extracted_content.text.find(bounded)
                 result = RecordSourceQuoteResult(
                     status=ResearchToolStatus.SUCCEEDED,
@@ -811,6 +845,9 @@ class AgentResearchTools:
                     snapshot_id=snapshot.source_id,
                     evidence_id=evidence.evidence_id,
                     quote=bounded if quote_start >= 0 else None,
+                    candidate_names=candidate_names, buying_question=buying_question,
+                    finding=finding, perspective=perspective,
+                    source_quality=quality,
                     source_note=bounded,
                     start_char=quote_start if quote_start >= 0 else None,
                     end_char=quote_start + len(bounded) if quote_start >= 0 else None,
@@ -1049,6 +1086,7 @@ class AgentResearchTools:
                         for item in selected
                         if item.source_id in selection.decisions
                     },
+                    "candidate_coverage": selection.coverage_summary(),
                 }
             )
         self._search_results.extend(
@@ -1463,6 +1501,7 @@ class AgentResearchTools:
                 else None
             ),
             extraction_status=snapshot.extraction_status,
+            source_quality=snapshot.quality,
             text=bounded_text,
             start_char=span.start if span else 0,
             total_characters=span.total_characters if span else 0,

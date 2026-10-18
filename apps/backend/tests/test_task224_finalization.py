@@ -249,6 +249,12 @@ async def persist_groups_and_read_api(factory, shopping_session, run, brief, own
         from app.db.repositories.products import ProductRepository
         from app.db.repositories.search_sources import SearchSourceRepository
         hooks = RepositoryShoppingRunPersistenceHooks(run_repository=RunRepository(session), result_repository=ResultRepository(session), search_source_repository=SearchSourceRepository(session), product_repository=ProductRepository(session))
+        await hooks.record_stage_trace(
+            run_id=run.run_id, stage=RunStage.GENERAL_OWNER, agent_name=draft.owner_agent_name,
+            status=RunStatus.SUCCEEDED, trace_id="offline-retained-owner",
+            started_at="2026-10-18T00:00:00Z", ended_at="2026-10-18T00:00:01Z",
+            tool_activity=owner.workbench_activity,
+        )
         await hooks.persist_live_output(context)
         await RunRepository(session).append_event(run.run_id, stage=RunStage.COMPLETE, status=RunStatus.SUCCEEDED, message="Offline local Task 224 completion.")
         await session.commit()
@@ -275,6 +281,7 @@ async def persist_groups_and_read_api(factory, shopping_session, run, brief, own
     assert [products[item] for item in api.recommendation_bundle.primary_product_ids] == primary_names
     assert [products[item] for item in api.recommendation_bundle.runner_up_product_ids] == runner_names
     assert historical.json()["recommendation_bundle"]["final_rationale"] == "Previous immutable advice."
+    return api
 
 
 @pytest.mark.asyncio
@@ -488,8 +495,8 @@ async def test_actual_handoffs_keep_terminal_owner_and_one_completion_bound(succ
     final = complete_output()
     final["category"] = "smartphone"
     provider = LocalResponsesProvider(
-        transfer("TechnologyDomainAnalystAgent", {"technology_category": "smartphone", "reason": "Compare the useful camera and battery tradeoffs."}),
-        transfer("SmartphoneSpecialistAgent", {"product_category": "phone", "reason": "Compare the useful camera and battery tradeoffs."}),
+        transfer("TechnologyDomainAnalystAgent", {"reason": "Compare the useful camera and battery tradeoffs."}),
+        transfer("SmartphoneSpecialistAgent", {"reason": "Compare the useful camera and battery tradeoffs."}),
         response_payload(captured_output(1)),
         response_payload(json.dumps(final) if success else captured_output(2)),
     )

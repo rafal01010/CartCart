@@ -1,0 +1,33 @@
+{
+  "task": 227,
+  "purpose": "Focused offline SDK and persistence regression references. Synthetic descriptive reasons and product findings are controls, not captured rejected category text or live research quality.",
+  "cases": [
+    {
+      "name": "buyer-validated-reason-only-transfers",
+      "control": "test_task227_handoff_recovery.py::test_actual_sdk_reason_only_handoffs_keep_buyer_category_and_choices",
+      "expected": "A fixed correct target accepts a descriptive reason, preserves application-derived category context and exact authored choices through installed SDK and saved API. No second model category can veto the transfer."
+    },
+    {
+      "name": "retained-recovery-and-charged-failure",
+      "control": "test_task227_handoff_recovery.py::test_actual_sdk_recovery_closes_tools_and_retains_research_in_saved_api",
+      "expected": "Actual recovery request closes tools and handoffs, retains source quotations and material cautions, uses the existing 2400 output cap and shared main/owner ledger, saves literal groups and sources on success, and preserves consumed usage on failure."
+    },
+    {
+      "name": "nonvideo-retained-consultation",
+      "control": "test_task227_handoff_recovery.py::test_actual_sdk_recovery_closes_tools_and_retains_research_in_saved_api",
+      "expected": "Retain interpreted community findings, qualitative qualifications, original evidence and supporting-source IDs, warning and selected packet membership exactly in recovery and saved API without replaying raw bundles."
+    },
+    {
+      "name": "distinct-source-notes",
+      "control": "test_task227_handoff_recovery.py::test_source_selection_keeps_distinct_notes_with_repeated_page_excerpts",
+      "expected": "Retain different saved source notes despite equal page excerpts; equal notes still deduplicate."
+    }
+  ],
+  "provider_fixtures": [
+    "tests/fixtures/providers/task227_handoff_recovery.json"
+  ],
+  "original_failure_artifact": "data/artifacts/user-phone-failure-20261018/saved-failure.json",
+  "raw_rejected_category_known": false,
+  "live_validation": "Manual owner test only; not performed during this repair",
+  "models_or_limits_changed": false
+}

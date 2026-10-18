@@ -120,8 +120,7 @@ from app.agents.live_general_shopping import (
     LiveGeneralShoppingAgent,
     MockGeneralShoppingModelRunner,
     OpenAIAgentsSDKGeneralShoppingModelRunner,
-    ProductSpecialistHandoffContext,
-    TechnologyHandoffContext,
+    OwnerHandoffContext,
 )
 from app.agents.live_extraction import LiveExtractionAgent, MockExtractionModelRunner
 from app.agents.extraction_tools import SnapshotInterpretationTools
@@ -1484,8 +1483,7 @@ class _WorkbenchOwnerModel(Model):
         )
         if self.role == "general":
             selected_handoff = handoffs[0]
-            arguments = TechnologyHandoffContext(
-                technology_category=self.category,
+            arguments = OwnerHandoffContext(
                 reason="Technology ownership is useful for this product request.",
             ).model_dump_json()
         elif self.role == "technology" and self.category == "smartphone":
@@ -1494,8 +1492,7 @@ class _WorkbenchOwnerModel(Model):
                 for item in handoffs
                 if item.agent_name == "SmartphoneSpecialistAgent"
             )
-            arguments = ProductSpecialistHandoffContext(
-                product_category="smartphone",
+            arguments = OwnerHandoffContext(
                 reason="Phone-specific camera and support analysis would help.",
             ).model_dump_json()
         else:

@@ -68,3 +68,5 @@ CARTCART_RECORD_PROVIDER_FIXTURES=1 uv run python \
 The command reads `CARTCART_TAVILY_API_KEY` from the shell or the ignored
 `apps/backend/.env` file. Do not run it as part of routine tests or section
 gates because it makes a live provider call and spends quota.
+
+`task227_handoff_recovery.json` contains an original shopper query from the preserved failed run and explicitly synthetic routing and source-fidelity controls. It contains no reconstructed historical handoff label. Its SDK tests use an HTTP MockTransport and temporary SQLite only.

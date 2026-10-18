@@ -1401,3 +1401,15 @@ The shared video checkpoint keeps consumed provider operations across candidate 
 Run `bash scripts/local/verify-task226.sh` from the repository root. Backend commands run from `apps/backend` with locked offline resolution. Controls use local SDK responses, copied captured research, temporary SQLite and intercepted local browser GETs. No production service restart, paid call, provider retry or transcript retrieval is part of this gate. Existing accepted caption speech, consumed operations and historical usage remain read-only.
 
 Task 226 offline acceptance establishes request/context and authored-output preservation. It does not establish future live selection quality. Task 221 remains unchecked until a separately authorized remaining-criteria run. Reuse accepted caption, headphones, ownership and reload/restart proof. Do not automatically resume live work, repeat completed Task 222/223/224 gates or begin P1.
+
+### Diagnose rejected ownership transfers
+
+The Task 227 repair removes model-authored category labels from SDK transfer inputs. Inspect the buyer route, fixed destination, application-derived category context, actual completed SDK edges and recovery activity. A reason may describe a value tier or use case without becoming a second category classification. Wrong-target and hierarchy checks remain active. Earlier records may contain a rejected label's length and a redacted null value; that null does not mean the model omitted its category. The captured October 18 label cannot be reconstructed from those diagnostics.
+
+Eligible automatic Technology recovery closes research and handoff tools and finishes from retained packets on the same ledger. It uses the remaining timeout and unchanged normal cap/two-turn bound. Failed and unknown transport usage remains charged under the existing policy. Do not reset consumed work, enlarge caps, repeat captions or silently invoke an explicit saved retry to repair a handoff. The owner requested offline verification only for this repair and will perform the manual live question test.
+
+Ordinary future execution batches contain at most two main tasks. Concrete necessary prerequisites keep their existing exception. See TASK_EXECUTION_PROMPTS.md for the updated reusable prompt.
+
+### Standing authorization for ordinary task batches
+
+Owner revision, 2026-10-18. Necessary live model, research and provider calls, including bounded retries, are authorized for ordinary task batches within existing configuration and spending limits. Reuse saved research and retain consumed usage/provenance. End-to-end app journeys in a browser are separate tasks requested by the owner. Do not start those journeys or create their tasks automatically. The active reusable prompt is at the top of TASK_EXECUTION_PROMPTS.md; older per-invocation authorization holds describe historical work.

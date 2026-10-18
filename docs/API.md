@@ -743,3 +743,9 @@ These measurements describe local serialized context size. They do not establish
 No endpoint or field shape changes. Explicit model-authored primary and runner groups retain their membership and order. A preferred winner is optional and belongs to the primary group when supplied. Omitting it retains a null `final_product_id` for new explicitly grouped owner results. Legacy ungrouped result materialization keeps its compatibility behavior. Each choice retains its authored benefit, comparative tradeoff and real source associations.
 
 The frozen `decision_sources` projection records the evidence actually transported after selection and cleanup. The complete source archive remains available separately. Source selection is evidence preparation, not deterministic recommendation or group assignment.
+
+### Internal transfer and recovery contract
+
+Normal shopping HTTP request/result schemas are unchanged by the handoff repair. Internal SDK transfer inputs contain a reason; their tool destination is validated against the buyer route and hierarchy. A model-generated category label cannot veto an otherwise authorized transfer. Saved activity retains application-derived category context and actual SDK edges.
+
+An eligible failed specialist may complete through the existing Technology owner using retained research, without further tools or handoffs. This automatic recovery shares the current attempt's funding, usage and remaining timeout. It keeps the normal Technology output cap and existing recovery-turn bound. It does not create an explicit saved retry, a new run or a new allowance. A failed recovery still returns the existing failed-run contract and preserves usage. Result GET/reload remains read-only.

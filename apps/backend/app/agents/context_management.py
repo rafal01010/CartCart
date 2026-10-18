@@ -1333,7 +1333,7 @@ class BoundedRunner:
             needs_lookup = not agent.tools or bool(
                 history and plan_compaction(model_input, history).fields
             )
-            if needs_lookup and not any(
+            if agent.model_settings.tool_choice != "none" and needs_lookup and not any(
                 tool.name == "read_research_result" for tool in agent.tools
             ):
                 agent = agent.clone(tools=[*agent.tools, history_tools()[1]])

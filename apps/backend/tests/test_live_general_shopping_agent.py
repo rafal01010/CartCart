@@ -30,8 +30,7 @@ from app.agents.live_general_shopping import (
     GeneralCandidateSelection,
     LiveGeneralShoppingAgent,
     MockGeneralShoppingModelRunner,
-    ProductSpecialistHandoffContext,
-    TechnologyHandoffContext,
+    OwnerHandoffContext,
 )
 from app.agents.live_source_intelligence_manager import (
     SourceIntelligenceManagerAgent,
@@ -91,9 +90,9 @@ def _settings(**values: Any) -> Settings:
 
 def test_technology_handoff_requires_meaningful_context() -> None:
     with pytest.raises(ValueError):
-        TechnologyHandoffContext(technology_category="keyboard", reason="            ")
+        OwnerHandoffContext(reason="            ")
     with pytest.raises(ValueError):
-        ProductSpecialistHandoffContext(product_category="phone", reason=" ")
+        OwnerHandoffContext(reason=" ")
 
 
 def test_owner_helpers_keep_implausible_listing_price_blocked() -> None:
@@ -177,16 +176,9 @@ class _ScriptedOwnerModel(Model):
                 type="function_call",
                 call_id="transfer-1",
                 name=handoffs[0].tool_name,
-                arguments=TechnologyHandoffContext(
-                    technology_category=self.handoff_category
-                    or (
-                        "smartphone"
-                        if self.transfer_to_specialist
-                        else "keyboard"
-                        if not self.invalid
-                        else "smartphone"
-                    ),
-                    reason="A deeper technology fit check would help this buyer.",
+                arguments=OwnerHandoffContext(
+                    reason="A deeper technology fit check would help this buyer. "
+                    + (self.handoff_category or ""),
                 ).model_dump_json(),
             )
         elif self.target and self.transfer_to_specialist:
@@ -194,16 +186,18 @@ class _ScriptedOwnerModel(Model):
             phone_handoff = next(
                 item
                 for item in handoffs
-                if item.agent_name == "SmartphoneSpecialistAgent"
+                if item.agent_name == (
+                    "LaptopSpecialistAgent" if self.invalid_specialist
+                    else "SmartphoneSpecialistAgent"
+                )
             )
             output = ResponseFunctionToolCall(
                 type="function_call",
                 call_id="transfer-2",
                 name=phone_handoff.tool_name,
-                arguments=ProductSpecialistHandoffContext(
-                    product_category=self.handoff_category
-                    or ("keyboard" if self.invalid_specialist else "phone"),
-                    reason="A phone-specific camera and software support check is needed.",
+                arguments=OwnerHandoffContext(
+                    reason="A product-specific fit check is needed. "
+                    + (self.handoff_category or ""),
                 ).model_dump_json(),
             )
         else:
@@ -741,87 +735,18 @@ async def test_sdk_phone_aliases_transfer_at_each_boundary(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    (
-        "brief_category",
-        "requested_category",
-        "safe_category",
-        "requested_route",
-        "buyer_route",
-    ),
-    (
-        (
-            "phone",
-            "walking cane",
-            None,
-            ["GenericProductAnalystAgent"],
-            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
-        ),
-        (
-            "walking cane",
-            " SMARTPHONES ",
-            "smartphones",
-            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
-            ["GenericProductAnalystAgent"],
-        ),
-        (
-            "phone",
-            "credential-secret=https://private.example/token",
-            None,
-            ["GenericProductAnalystAgent"],
-            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
-        ),
-        (
-            "phone",
-            "x" * 120,
-            None,
-            ["GenericProductAnalystAgent"],
-            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
-        ),
-        (
-            "phone",
-            "private\n\tcredential",
-            None,
-            ["GenericProductAnalystAgent"],
-            ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"],
-        ),
-    ),
-)
-async def test_sdk_rejected_technology_category_has_bounded_diagnostic(
-    brief_category: str,
-    requested_category: str,
-    safe_category: str | None,
-    requested_route: list[str],
-    buyer_route: list[str],
-) -> None:
-    runner = _SDKOwnerRunner(transfer=True, technology_category=requested_category)
+@pytest.mark.parametrize("reason_category", ["walking cane", "credential-secret=private-token", "x" * 120])
+async def test_sdk_technology_handoff_uses_buyer_route_despite_reason_category(reason_category):
+    runner = _SDKOwnerRunner(transfer=True, technology_category=reason_category)
     owner, input_data, _, engine = await _isolated_agent(runner)
-    input_data = input_data.model_copy(
-        update={"brief": ShoppingBrief(original_query=f"Find a {brief_category}")}
-    )
+    input_data = input_data.model_copy(update={"brief": ShoppingBrief(original_query="Find a phone", category="phone", category_source=FieldSource.USER_PROVIDED)})
     try:
         draft = await owner.run(input_data)
-        assert draft.owner_agent_name == "GeneralShoppingAgent"
-        assert draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
-        activity = next(
-            item
-            for item in owner.workbench_activity
-            if item["tool_name"] == "general_owner"
-        )
-        assert activity["output"]["failure_code"] == "technology_category_mismatch"
-        assert activity["output"]["rejected_handoff"] == {
-            "source_agent": "GeneralShoppingAgent",
-            "target_agent": "TechnologyDomainAnalystAgent",
-            "requested_category": safe_category,
-            "requested_category_length": len(requested_category.strip()),
-            "requested_route": requested_route,
-            "buyer_route": buyer_route,
-        }
-        assert not any(
-            item["tool_name"] == "sdk_handoff" and item["status"] == "completed"
-            for item in owner.workbench_activity
-        )
-        assert runner.technology.calls == 0
+        assert draft.owner_agent_name == "TechnologyDomainAnalystAgent"
+        edge = next(item for item in owner.workbench_activity if item["tool_name"] == "sdk_handoff")
+        assert edge["status"] == "completed"
+        assert edge["input"]["technology_category"] == "phone"
+        assert runner.technology.calls == 1
     finally:
         await engine.dispose()
 
@@ -1355,59 +1280,23 @@ async def test_phone_hosted_citation_is_persisted_under_receiving_owner() -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("requested_category", "safe_category", "requested_route"),
-    (
-        ("keyboard", "keyboard", ["TechnologyDomainAnalystAgent"]),
-        ("credential-secret=private-token", None, ["GenericProductAnalystAgent"]),
-    ),
-)
-async def test_invalid_specialist_transfer_stays_at_technology_with_gap(
-    requested_category: str, safe_category: str | None, requested_route: list[str]
-) -> None:
-    runner = _SDKOwnerRunner(
-        transfer=True,
-        specialist_transfer=True,
-        invalid_specialist=True,
-        specialist_category=requested_category,
-    )
+async def test_invalid_specialist_transfer_stays_at_technology_with_gap() -> None:
+    runner = _SDKOwnerRunner(transfer=True, specialist_transfer=True, invalid_specialist=True)
     owner, input_data, _, engine = await _isolated_agent(runner)
-    input_data = input_data.model_copy(
-        update={"brief": ShoppingBrief(original_query="Find a smartphone")}
-    )
+    input_data = input_data.model_copy(update={"brief": ShoppingBrief(original_query="Find a smartphone", category="phone", category_source=FieldSource.USER_PROVIDED)})
     try:
         draft = await owner.run(input_data)
         assert draft.owner_agent_name == "TechnologyDomainAnalystAgent"
         assert draft.outcome == GeneralShoppingOutcome.INSUFFICIENT_EVIDENCE
         assert runner.specialist.calls == 0
-        handoffs = [
-            item
-            for item in owner.workbench_activity
-            if item["tool_name"] == "sdk_handoff"
-        ]
-        assert [item["status"] for item in handoffs] == ["completed", "failed"]
-        assert handoffs[1]["input"]["target_agent"] == "SmartphoneSpecialistAgent"
-        activity = next(
-            item
-            for item in owner.workbench_activity
-            if item["tool_name"] == "general_owner"
-        )
+        edges = [item for item in owner.workbench_activity if item["tool_name"] == "sdk_handoff"]
+        assert [item["status"] for item in edges] == ["completed", "failed"]
+        assert edges[1]["input"]["target_agent"] == "LaptopSpecialistAgent"
+        activity = next(item for item in owner.workbench_activity if item["tool_name"] == "general_owner")
         assert activity["output"]["failure_code"] == "specialist_category_mismatch"
-        assert activity["output"]["rejected_handoff"] == {
-            "source_agent": "TechnologyDomainAnalystAgent",
-            "target_agent": "SmartphoneSpecialistAgent",
-            "requested_category": safe_category,
-            "requested_category_length": len(requested_category),
-            "requested_route": requested_route,
-            "buyer_route": [
-                "TechnologyDomainAnalystAgent",
-                "SmartphoneSpecialistAgent",
-            ],
-        }
-        assert any(
-            item["tool_name"] == "owner_recovery" and item["status"] == "completed"
-            for item in owner.workbench_activity
-        )
+        assert activity["output"]["rejected_handoff"]["requested_route"] == ["TechnologyDomainAnalystAgent", "LaptopSpecialistAgent"]
+        assert activity["output"]["rejected_handoff"]["buyer_route"] == ["TechnologyDomainAnalystAgent", "SmartphoneSpecialistAgent"]
+        assert any(item["tool_name"] == "owner_recovery" and item["status"] == "completed" for item in owner.workbench_activity)
     finally:
         await engine.dispose()
 

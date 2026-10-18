@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Protocol
@@ -22,14 +22,15 @@ from agents import (
 from agents.exceptions import UserError
 from agents.items import HandoffOutputItem
 from agents.tool_context import ToolContext
-from pydantic import Field, ValidationInfo, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agents.token_policy import OWNER_START_TOKENS, scaled_tokens
-from app.agents.decision_sources import select_decision_sources, source_packets
+from app.agents.token_policy import CompletionPurpose, OWNER_START_TOKENS, scaled_tokens
+from app.agents.decision_sources import consultation_source_packets, merge_source_packets, select_decision_sources, source_packets
 from app.agents.context_management import (
     BoundedRunner,
     ContextBudgetExceeded,
+    completion_instructions,
     FinalOutputFailure,
     context_budget_failure,
     context_events,
@@ -172,29 +173,15 @@ class GeneralModelOutput(CartCartBaseModel):
         return self
 
 
-class TechnologyHandoffContext(CartCartBaseModel):
-    technology_category: str = Field(min_length=2, max_length=120)
+class OwnerHandoffContext(CartCartBaseModel):
     reason: str = Field(min_length=10, max_length=300)
 
-    @field_validator("technology_category", "reason")
+    @field_validator("reason")
     @classmethod
-    def _nonblank_handoff_context(cls, value: str, info: ValidationInfo) -> str:
+    def _nonblank_reason(cls, value: str) -> str:
         stripped = value.strip()
-        if len(stripped) < (10 if info.field_name == "reason" else 2):
-            raise ValueError("Handoff context must not be blank.")
-        return stripped
-
-
-class ProductSpecialistHandoffContext(CartCartBaseModel):
-    product_category: str = Field(min_length=2, max_length=120)
-    reason: str = Field(min_length=10, max_length=300)
-
-    @field_validator("product_category", "reason")
-    @classmethod
-    def _nonblank_context(cls, value: str, info: ValidationInfo) -> str:
-        stripped = value.strip()
-        if len(stripped) < (10 if info.field_name == "reason" else 2):
-            raise ValueError("Specialist handoff context must not be blank.")
+        if len(stripped) < 10:
+            raise ValueError("Handoff reason must not be blank.")
         return stripped
 
 
@@ -205,14 +192,10 @@ def _rejected_handoff_diagnostic(
     requested_route: tuple[str, ...],
     buyer_route: tuple[str, ...],
 ) -> dict[str, Any]:
-    normalized = " ".join(category.lower().replace("/", " ").split())
-    known_categories = set(DEFAULT_AGENT_CATALOG.product_category_routes) | set(
-        DEFAULT_AGENT_CATALOG.technology_category_keywords
-    )
     return {
         "source_agent": source_agent,
         "target_agent": target_agent,
-        "requested_category": normalized if normalized in known_categories else None,
+        "requested_category": category,
         "requested_category_length": len(category),
         "requested_route": list(requested_route),
         "buyer_route": list(buyer_route),
@@ -488,20 +471,15 @@ class LiveGeneralShoppingAgent:
         self._activity += tuple(item for item in context_events(context_start) if item.get("tool_name") == "decision_source_selection")
         return draft.model_copy(update={"owner_agent_name": owner_agent_name})
 
-    async def _decide_recorded(
+    async def _recorded_decision_input(
         self,
         input_data: GeneralShoppingAgentInput,
-        owner_agent_name: str,
-        quotes: tuple[dict[str, Any], ...],
         *,
+        consultation_bundles: tuple[dict[str, Any], ...] = (),
+        candidate_names: dict[str, str] | None = None,
         prior_gaps: tuple[str, ...] = (),
         source_receipt: dict[str, Any] | None = None,
-    ) -> tuple[GeneralModelOutput, Any]:
-        configuration = build_openai_agent_run_configuration(
-            self.settings,
-            agent_name=owner_agent_name,
-            run_id=str(input_data.run_id),
-        )
+    ) -> str:
         async with self._validation_session() as session:
             snapshots = {
                 str(item.source_id): item
@@ -521,7 +499,10 @@ class LiveGeneralShoppingAgent:
             )
             decision_sources = select_decision_sources(
                 input_data.brief,
-                source_packets(input_data.brief, source_results, tuple(snapshots.values()), source_evidence, products),
+                merge_source_packets((
+                    *source_packets(input_data.brief, source_results, tuple(snapshots.values()), source_evidence, products),
+                    *consultation_source_packets(consultation_bundles, candidate_names or {}),
+                )),
             )
             trust = assess_run_listings(
                 products,
@@ -550,6 +531,35 @@ class LiveGeneralShoppingAgent:
             }
             for item in listings
         ]
+        return json.dumps(
+            {
+                "brief": input_data.brief.model_dump(mode="json"),
+                "user_added_products": [
+                    item.model_dump(mode="json") for item in input_data.user_added_products
+                ],
+                "current_utc_date": datetime.now(timezone.utc).date().isoformat(),
+                "decision_sources": decision_sources.model_dump(mode="json"),
+                "saved_products": [item.model_dump(mode="json") for item in products],
+                "listing_cautions": listing_cautions,
+                "prior_evidence_gaps": prior_gaps,
+                "source_consultation": source_receipt,
+            }
+        )
+
+    async def _decide_recorded(
+        self,
+        input_data: GeneralShoppingAgentInput,
+        owner_agent_name: str,
+        quotes: tuple[dict[str, Any], ...],
+        *,
+        prior_gaps: tuple[str, ...] = (),
+        source_receipt: dict[str, Any] | None = None,
+    ) -> tuple[GeneralModelOutput, Any]:
+        configuration = build_openai_agent_run_configuration(
+            self.settings,
+            agent_name=owner_agent_name,
+            run_id=str(input_data.run_id),
+        )
         agent = Agent(
             name=owner_agent_name,
             model=configuration.model,
@@ -574,24 +584,8 @@ class LiveGeneralShoppingAgent:
         result = await asyncio.wait_for(
             self.model_runner.run(
                 agent,
-                json.dumps(
-                    {
-                        "brief": input_data.brief.model_dump(mode="json"),
-                        "user_added_products": [
-                            item.model_dump(mode="json")
-                            for item in input_data.user_added_products
-                        ],
-                        "current_utc_date": datetime.now(timezone.utc)
-                        .date()
-                        .isoformat(),
-                        "decision_sources": decision_sources.model_dump(mode="json"),
-                        "saved_products": [
-                            item.model_dump(mode="json") for item in products
-                        ],
-                        "listing_cautions": listing_cautions,
-                        "prior_evidence_gaps": prior_gaps,
-                        "source_consultation": source_receipt,
-                    }
+                await self._recorded_decision_input(
+                    input_data, prior_gaps=prior_gaps, source_receipt=source_receipt
                 ),
                 run_config=RunConfig(
                     tracing_disabled=not configuration.tracing_enabled,
@@ -679,6 +673,18 @@ class LiveGeneralShoppingAgent:
             tools.share_run_state(technology_tools)
         if technology_tools is not None:
             technology_tools.set_brief(input_data.brief)
+        brief_text = " ".join(
+            (input_data.brief.original_query, input_data.brief.category or "")
+        )
+        buyer_route = DEFAULT_AGENT_CATALOG.route_product_analysis(brief_text).agent_path
+        known_categories = set(DEFAULT_AGENT_CATALOG.product_category_routes) | set(
+            DEFAULT_AGENT_CATALOG.technology_category_keywords
+        )
+        brief_category = " ".join((input_data.brief.category or "").lower().split())
+        trace_category = (
+            brief_category if brief_category in known_categories
+            else DEFAULT_AGENT_CATALOG.require(buyer_route[-1]).routing_categories[0]
+        )
         owner_research_state = OwnerResearchState()
         owner_research = (
             {
@@ -736,7 +742,7 @@ class LiveGeneralShoppingAgent:
         specialist_agents = {}
         specialist_tools: dict[str, AgentResearchTools] = {}
         owner_hosted_tools = {"GeneralShoppingAgent": hosted_tool}
-        specialist_requests: list[tuple[str, ProductSpecialistHandoffContext]] = []
+        specialist_requests: list[tuple[str, OwnerHandoffContext]] = []
         observed_handoffs: list[tuple[str, str]] = []
         rejected_specialist: str | None = None
         rejected_handoff: dict[str, Any] | None = None
@@ -829,30 +835,19 @@ class LiveGeneralShoppingAgent:
             )
 
         def on_specialist_handoff(
-            specialist_name: str, request: ProductSpecialistHandoffContext
+            specialist_name: str, request: OwnerHandoffContext
         ) -> None:
             nonlocal rejected_specialist, rejected_handoff
             if specialist_requests or not handoff_requests:
                 rejected_specialist = specialist_name
                 raise UserError("Specialist handoff exceeds the declared hierarchy.")
-            brief_text = " ".join(
-                (input_data.brief.original_query, input_data.brief.category or "")
-            )
-            requested_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
-                request.product_category
-            ).agent_path
-            buyer_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
-                brief_text
-            ).agent_path
-            if (
-                requested_route != ("TechnologyDomainAnalystAgent", specialist_name)
-                or buyer_route != requested_route
-            ):
+            requested_route = (technology_agent.name, specialist_name)
+            if buyer_route != requested_route:
                 rejected_specialist = specialist_name
                 rejected_handoff = _rejected_handoff_diagnostic(
                     technology_agent.name,
                     specialist_name,
-                    request.product_category,
+                    trace_category,
                     requested_route,
                     buyer_route,
                 )
@@ -863,9 +858,9 @@ class LiveGeneralShoppingAgent:
 
         def specialist_callback(
             name: str,
-        ) -> Callable[[Any, ProductSpecialistHandoffContext], None]:
+        ) -> Callable[[Any, OwnerHandoffContext], None]:
             def callback(
-                _context: Any, request: ProductSpecialistHandoffContext
+                _context: Any, request: OwnerHandoffContext
             ) -> None:
                 on_specialist_handoff(name, request)
 
@@ -879,7 +874,7 @@ class LiveGeneralShoppingAgent:
                     "shopping request to its product specialist for final ownership. "
                     "Do not use for broad or other technology requests."
                 ),
-                input_type=ProductSpecialistHandoffContext,
+                input_type=OwnerHandoffContext,
                 on_handoff=specialist_callback(name),
             )
             for name in approved_specialists
@@ -926,10 +921,10 @@ class LiveGeneralShoppingAgent:
         owner_hosted_tools[technology_agent.name] = technology_hosted
         if technology_hosted is not None:
             technology_agent.tools.append(technology_hosted)
-        handoff_requests: list[TechnologyHandoffContext] = []
+        handoff_requests: list[OwnerHandoffContext] = []
 
         def on_technology_handoff(
-            _context: Any, request: TechnologyHandoffContext
+            _context: Any, request: OwnerHandoffContext
         ) -> None:
             nonlocal rejected_handoff
             permitted = DEFAULT_AGENT_CATALOG.require(
@@ -939,23 +934,12 @@ class LiveGeneralShoppingAgent:
                 raise UserError(
                     "Technology handoff is not allowed or exceeds depth one."
                 )
-            brief_text = " ".join(
-                (input_data.brief.original_query, input_data.brief.category or "")
-            )
-            requested_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
-                request.technology_category
-            ).agent_path
-            buyer_route = DEFAULT_AGENT_CATALOG.route_product_analysis(
-                brief_text
-            ).agent_path
-            if (
-                requested_route[0] != technology_agent.name
-                or buyer_route[0] != technology_agent.name
-            ):
+            requested_route = (technology_agent.name,)
+            if buyer_route[0] != technology_agent.name:
                 rejected_handoff = _rejected_handoff_diagnostic(
                     agent.name,
                     technology_agent.name,
-                    request.technology_category,
+                    trace_category,
                     requested_route,
                     buyer_route,
                 )
@@ -987,7 +971,7 @@ class LiveGeneralShoppingAgent:
                         "Transfer a technology shopping request for deeper technology "
                         "fit analysis and final ownership. Do not use for other categories."
                     ),
-                    input_type=TechnologyHandoffContext,
+                    input_type=OwnerHandoffContext,
                     on_handoff=on_technology_handoff,
                 )
             ]
@@ -1039,7 +1023,7 @@ class LiveGeneralShoppingAgent:
             )
             requested: list[
                 tuple[
-                    str, str, TechnologyHandoffContext | ProductSpecialistHandoffContext
+                    str, str, OwnerHandoffContext
                 ]
             ] = (
                 [(agent.name, technology_agent.name, handoff_requests[0])]
@@ -1082,13 +1066,7 @@ class LiveGeneralShoppingAgent:
                                 if depth == 1
                                 else technology_configuration.model
                             ),
-                            "technology_category"
-                            if depth == 1
-                            else "product_category": (
-                                request.technology_category
-                                if isinstance(request, TechnologyHandoffContext)
-                                else request.product_category
-                            ),
+                            "technology_category" if depth == 1 else "product_category": trace_category,
                             "reason": request.reason,
                         },
                         "output": {
@@ -1328,7 +1306,7 @@ class LiveGeneralShoppingAgent:
                     owner_name = recorded_edges[-1][1]
                     handoff_confirmed = True
                     contexts: list[
-                        TechnologyHandoffContext | ProductSpecialistHandoffContext
+                        OwnerHandoffContext
                     ] = [
                         handoff_requests[0],
                         *(r for _, r in specialist_requests),
@@ -1344,6 +1322,7 @@ class LiveGeneralShoppingAgent:
                                     if index == 0
                                     else technology_configuration.model
                                 ),
+                                "technology_category" if index == 0 else "product_category": trace_category,
                                 "reason": contexts[index].reason,
                             },
                             "output": {
@@ -1380,6 +1359,7 @@ class LiveGeneralShoppingAgent:
                         "input": {
                             "source_agent": failed_source,
                             "target_agent": failed_target,
+                            "technology_category" if failed_source == agent.name else "product_category": trace_category,
                         },
                         "output": {
                             "last_agent": owner_name,
@@ -1395,6 +1375,7 @@ class LiveGeneralShoppingAgent:
                         "input": {
                             "source_agent": technology_agent.name,
                             "target_agent": rejected_specialist,
+                            "product_category": trace_category,
                         },
                         "output": {
                             "last_agent": owner_name,
@@ -1427,24 +1408,40 @@ class LiveGeneralShoppingAgent:
                 and not isinstance(exc, FinalOutputFailure)
             ):
                 recovery_agent = technology_agent.clone(
+                    tools=[],
                     handoffs=[],
+                    model_settings=replace(
+                        technology_agent.model_settings, tool_choice="none"
+                    ),
                     hooks=None,
-                    instructions=(
-                        str(technology_agent.instructions)
-                        + " The product specialist failed. Finish this request yourself "
-                        "from available information. Keep any precise evidence gap in internal fields."
+                    instructions=completion_instructions(
+                        str(technology_agent.instructions), CompletionPurpose.OWNER
                     ),
                 )
                 try:
-                    recovery_result = await asyncio.wait_for(
-                        self.model_runner.run(
+                    async with asyncio.timeout(remaining_seconds):
+                        recovery_input = await self._recorded_decision_input(
+                            input_data,
+                            prior_gaps=(gap,),
+                            consultation_bundles=tuple(payload for _, _, payload in owner_research_state.bundles.values()),
+                            candidate_names=owner_research_state.candidate_names_by_product_id,
+                            source_receipt={
+                                "outcomes": [
+                                    {
+                                        key: receipt[key]
+                                        for key in ("status", "outcome", "capability", "consultation_id")
+                                        if key in receipt
+                                    }
+                                    for receipt in owner_research_state.completed_consultations.values()
+                                ],
+                            },
+                        )
+                        recovery_result = await self.model_runner.run(
                             recovery_agent,
-                            model_input,
+                            recovery_input,
                             run_config=run_config,
                             max_turns=2,
-                        ),
-                        timeout=remaining_seconds,
-                    )
+                        )
                     if getattr(
                         getattr(recovery_result, "last_agent", None), "name", None
                     ) != technology_agent.name or any(

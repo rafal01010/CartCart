@@ -603,7 +603,6 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             return _call(
                 handoffs[0].tool_name,
                 {
-                    "technology_category": "smartphone",
                     "reason": "Compare phone warranty and PH variants.",
                 },
             )
@@ -617,7 +616,6 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             return _call(
                 target.tool_name,
                 {
-                    "product_category": "phone",
                     "reason": "Compare phone warranty and PH variants.",
                 },
             )

@@ -390,7 +390,6 @@ async def run_automatic_continuation(
                         lambda input, handoffs: _call(
                             handoffs[0].tool_name,
                             {
-                                "technology_category": "smartphone",
                                 "reason": "Compare phone warranty and PH variants.",
                             },
                         )
@@ -405,7 +404,6 @@ async def run_automatic_continuation(
                                 if item.agent_name == "SmartphoneSpecialistAgent"
                             ),
                             {
-                                "product_category": "phone",
                                 "reason": "Compare phone warranty and PH variants.",
                             },
                         )

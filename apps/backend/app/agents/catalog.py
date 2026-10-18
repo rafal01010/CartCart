@@ -386,6 +386,8 @@ def _entry(
             *planned_tool_boundaries,
             *(("BoundedEvidenceContext", "ValidatedFinalOutput") if agent_name in _BOUNDED_SDK_AGENTS else ()),
             *(("SourceDecisionProjection", "BuyerComparativeOptionSet") if target_can_finish_shopper_request or agent_name == "ComparisonDecisionAgent" else ()),
+            *(("BuyerValidatedOwnerTransfer",) if target_handoff_agent_names else ()),
+            *(("RetainedOwnerRecovery",) if agent_name == "TechnologyDomainAnalystAgent" else ()),
             *(("SharedRunVideoWork",) if durable_video_progress else ()),
         ),
         approved_sdk_tools=approved_sdk_tools,

@@ -1,0 +1,87 @@
+{
+  "provenance": "Synthetic offline regression control. The original shopper query is copied from the preserved saved failure. The descriptive reason and product facts are synthetic; the historical rejected 63-character label is unavailable.",
+  "original_query": "I need to buy a phone. Can you give me phones with great value? I dont have a specific budget but it cant be too expensive",
+  "synthetic_descriptive_reason": "Synthetic regression reason describing affordable handsets with strong everyday value for this buyer.",
+  "retained_quotes": [
+    "Aster Pro 512GB PH has a two year local warranty. Next generation timing is unconfirmed.",
+    "Aster Pro 512GB PH lasts a full day. Low-light photos are weaker than its competitor.",
+    "Aster Pro imported 256GB has no local warranty and is not the PH 512GB variant."
+  ],
+  "synthetic_authored_decision": {
+    "category": "phone",
+    "rationale": "Aster Pro lasts a full day, but low-light photos are weaker. The imported variant has no local warranty.",
+    "candidates": [
+      {
+        "name": "Aster Pro 512GB PH",
+        "choice_group": "primary",
+        "rationale": "A full day of battery suits everyday use.",
+        "tradeoff": "Low-light photos are weaker."
+      },
+      {
+        "name": "Birch Value Phone",
+        "choice_group": "primary",
+        "rationale": "An alternative for a smaller spending target.",
+        "tradeoff": "Current local price is unknown."
+      },
+      {
+        "name": "Cedar Compact Phone",
+        "choice_group": "runner_up",
+        "rationale": "A compact alternative.",
+        "tradeoff": "Its battery has not been checked."
+      }
+    ],
+    "selected_candidate_name": "Aster Pro 512GB PH"
+  },
+  "synthetic_community_bundle": {
+    "source_references": [
+      {
+        "source_id": "1ab22700-0000-4000-8000-000000000001",
+        "url": "https://www.reddit.com/r/phones/comments/task227/value",
+        "title": "Synthetic phone discussion"
+      }
+    ],
+    "discussions": [
+      {
+        "source_id": "1ab22700-0000-4000-8000-000000000001",
+        "url": "https://www.reddit.com/r/phones/comments/task227/value",
+        "extracted_public_summary": "Several Aster Pro owners report charging-port wear during travel.",
+        "community_name": "phones",
+        "thread_id": "task227",
+        "posted_at": "2026-10-01T00:00:00Z",
+        "engagement_score": 2,
+        "comment_count": 3
+      }
+    ],
+    "evidence": [
+      {
+        "evidence_id": "1ab22700-0000-4000-8000-000000000002",
+        "source_id": "1ab22700-0000-4000-8000-000000000001",
+        "target": {
+          "target_type": "source_metadata",
+          "source_id": "1ab22700-0000-4000-8000-000000000001"
+        },
+        "claim": "Aster Pro community accounts report charging-port wear during travel.",
+        "confidence": {
+          "score": 0.5,
+          "level": "medium"
+        },
+        "source_quality": {
+          "level": "mixed"
+        },
+        "context_source_ids": [
+          "1ab22700-0000-4000-8000-000000000001"
+        ],
+        "evidence_quality_warnings": [
+          "Community reports are anecdotal and do not establish a hardware defect."
+        ],
+        "supporting_quotes": [
+          {
+            "source_id": "1ab22700-0000-4000-8000-000000000001",
+            "quote": "Several Aster Pro owners report charging-port wear during travel."
+          }
+        ]
+      }
+    ],
+    "evidence_gaps": []
+  }
+}

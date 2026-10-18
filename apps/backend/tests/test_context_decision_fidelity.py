@@ -338,7 +338,6 @@ def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = 
             return _call(
                 handoffs[0].tool_name,
                 {
-                    "technology_category": "smartphone",
                     "reason": "Check phone camera and software support.",
                 },
             )
@@ -352,7 +351,6 @@ def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = 
             return _call(
                 target.tool_name,
                 {
-                    "product_category": "phone",
                     "reason": "Compare phone cameras and local variants.",
                 },
             )

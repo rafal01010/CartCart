@@ -152,6 +152,137 @@ def source_packets(
     return tuple(packets)
 
 
+def consultation_source_packets(
+    bundles: Sequence[dict[str, Any]], candidate_names: dict[str, str]
+) -> tuple[DecisionSourcePacket, ...]:
+    from app.schemas.search_sources import EvidenceType
+
+    packets = []
+    for bundle in bundles:
+        if "videos" in bundle or "evidence" not in bundle:
+            continue
+        kind = (
+            EvidenceType.COMMUNITY_CLAIM
+            if "discussions" in bundle
+            else EvidenceType.MARKETPLACE_PRODUCT_FACT
+            if "listing_contexts" in bundle
+            else EvidenceType.OFFICIAL_STORE_FACT
+        )
+        for reference in bundle["source_references"]:
+            rows = [
+                row
+                for row in bundle["evidence"]
+                if row["source_id"] == reference["source_id"]
+            ]
+            evidence = tuple(
+                SourceEvidence(
+                    **{
+                        key: row[key]
+                        for key in (
+                            "evidence_id",
+                            "source_id",
+                            "target",
+                            "claim",
+                            "confidence",
+                            "source_quality",
+                        )
+                    },
+                    evidence_type=kind,
+                )
+                for row in rows
+            )
+            contexts = [
+                context
+                for key in ("discussions", "listing_contexts", "store_contexts")
+                for context in bundle.get(key, [])
+                if context["source_id"] == reference["source_id"]
+            ]
+            context_notes = [
+                json.dumps(
+                    {key: value for key, value in context.items() if value is not None},
+                    sort_keys=True,
+                )
+                for context in contexts
+            ]
+            detail_notes = [
+                json.dumps(
+                    {
+                        key: row[key]
+                        for key in (
+                            "evidence_id",
+                            "context_source_ids",
+                            "recurring_signal",
+                            "qualitative_signal",
+                            "supporting_quotes",
+                            "fact_type",
+                            "listing_context_source_id",
+                            "store_context_source_id",
+                        )
+                        if key in row
+                    },
+                    sort_keys=True,
+                )
+                for row in rows
+            ]
+            notes = tuple(
+                dict.fromkeys(
+                    [*(row.claim for row in evidence), *context_notes, *detail_notes]
+                )
+            )
+            cautions = tuple(
+                dict.fromkeys(
+                    [
+                        *(
+                            warning
+                            for row in rows
+                            for warning in row.get("evidence_quality_warnings", [])
+                        ),
+                        *(
+                            gap["summary"]
+                            for gap in bundle.get("evidence_gaps", [])
+                            if gap.get("source_id") in {None, reference["source_id"]}
+                        ),
+                    ]
+                )
+            )
+            content = "\n".join((*notes, *cautions))
+            packets.append(
+                DecisionSourcePacket(
+                    source_id=reference["source_id"],
+                    url=equivalent_url(reference["url"]),
+                    title=reference.get("title") or reference["url"],
+                    content_kind="source_note" if notes else "metadata_only",
+                    source_notes=notes,
+                    candidate_names=tuple(
+                        dict.fromkeys(
+                            candidate_names[str(row.target.product_id)]
+                            for row in evidence
+                            if str(row.target.product_id) in candidate_names
+                        )
+                    ),
+                    evidence=evidence,
+                    evidence_ids=tuple(row.evidence_id for row in evidence),
+                    source_quality=evidence[0].source_quality if evidence else None,
+                    material_cautions=cautions,
+                    content_sha256=sha256(content.encode()).hexdigest(),
+                    original_content_size=source_size(content),
+                )
+            )
+    return tuple(packets)
+
+
+def merge_source_packets(
+    packets: Sequence[DecisionSourcePacket],
+) -> tuple[DecisionSourcePacket, ...]:
+    merged: dict[str, DecisionSourcePacket] = {}
+    for packet in packets:
+        key = packet.url or str(packet.source_id)
+        merged[key] = (
+            _merge_source_packet(merged[key], packet) if key in merged else packet
+        )
+    return tuple(merged.values())
+
+
 def coverage_pairs(packet: DecisionSourcePacket) -> set[tuple[str, str]]:
     if packet.coverage_notes:
         return {(name, note.buying_question) for note in packet.coverage_notes for name in note.candidate_names}
@@ -180,9 +311,9 @@ def select_decision_sources(
         ))
         packet = pending.pop(0)
         buyer_relevant = bool(packet.coverage_notes or packet.evidence or (terms(packet.title + " " + " ".join([*packet.excerpts, *packet.source_notes, *packet.buying_questions])) & relevance))
-        meaningful = packet.content_kind not in {"metadata_only", "search_lead"} and bool(packet.excerpts or packet.evidence) and buyer_relevant
+        meaningful = packet.content_kind not in {"metadata_only", "search_lead"} and bool(packet.excerpts or packet.source_notes or packet.evidence) and buyer_relevant
         useful_lead = packet.content_kind == "search_lead" and bool(terms(" ".join(packet.excerpts)) & relevance)
-        identity = (tuple(sorted(packet.candidate_names)), tuple(sorted(packet.buying_questions)), (" ".join(packet.excerpts).casefold() if packet.content_kind != "accepted_speech" else json.dumps([row.model_dump(mode="json") for row in packet.evidence], sort_keys=True)) + (str(packet.source_id) if not packet.url else ""))
+        identity = (tuple(sorted(packet.candidate_names)), tuple(sorted(packet.buying_questions)), (" ".join([*packet.excerpts, *packet.source_notes]).casefold() if packet.content_kind != "accepted_speech" else json.dumps([row.model_dump(mode="json") for row in packet.evidence], sort_keys=True)) + (str(packet.source_id) if not packet.url else ""))
         contribution = (tuple(sorted(packet.candidate_names)), tuple(sorted(packet.buying_questions)), tuple(sorted(packet.findings)), packet.perspective)
         repeated_finding = bool(packet.findings and packet.candidate_names and contribution in findings)
         if not (meaningful or useful_lead) or (packet.url and packet.url in seen_urls) or identity in seen or (repeated_finding and not packet.material_cautions and packet.content_kind != "accepted_speech"):
@@ -391,11 +522,7 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
         packets.append(DecisionSourcePacket.model_validate(record))
     if not packets:
         return original, None
-    merged: dict[str, DecisionSourcePacket] = {}
-    for packet in packets:
-        key = packet.url or str(packet.source_id)
-        merged[key] = _merge_source_packet(merged[key], packet) if key in merged else packet
-    packets = list(merged.values())
+    packets = merge_source_packets(packets)
     projection = select_decision_sources(brief, packets)
     if not isinstance(original, list):
         return original, projection

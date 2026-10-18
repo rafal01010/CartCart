@@ -26,7 +26,7 @@ from app.agents.openai_config import (
     apply_openai_agent_run_profile,
     build_openai_agent_run_configuration,
 )
-from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
+from app.agents.research_guidance import FINAL_OPTION_SET_GUIDANCE, SHOPPER_ADVICE_GUIDANCE
 from app.core.settings import Settings
 from app.schemas.analysis import (
     CategoryAnalysis,
@@ -260,20 +260,17 @@ def _build_comparison_decision_agent(model: str) -> Agent[Any]:
         ),
         instructions=(
             "Compare available candidates and recommend useful options by default. Return a RecommendationBundle. "
-            "Always supply primary_product_ids with one to three useful primary choices, and runner_up_product_ids with zero to two optional runners-up. "
-            "For no_strong_buy, supply empty groups. Both limits are maxima, not quotas. Keep groups unique and disjoint. "
-            "If choosing a final product, it must be a primary choice. Put each choice's rationale and tradeoffs in mode_results. "
-            "Prefer different companies or providers when useful alternatives exist. Same-company family or size variants usually belong among runners-up; other useful companies may be runners-up too. "
-            "Do not force diversity through poor matches, reject a good product solely for its company, or invent products. "
-            "Named companies are preferences unless explicitly exclusive; exclusive requests may have multiple primary choices from that company. "
-            "Explain each primary choice's distinct benefit and concise comparative tradeoff. "
-            "Give concise reasons and practical tradeoffs. Keep unknowns, warnings and confidence in internal fields. Modes and sources are optional. "
+            + FINAL_OPTION_SET_GUIDANCE
+            + "Supply the selected groups in primary_product_ids and runner_up_product_ids. "
+            "For no_strong_buy, supply empty groups. Keep groups unique and disjoint. "
+            "Put every selected choice's rationale and tradeoffs in mode_results, even without extra preference modes. "
+            "Keep unknowns, warnings and confidence in internal fields. Extra preference modes and sources are optional. "
             "Use the supplied buyer preferences, ranked advisory scores, listings and research. Scores, unknown price, "
             "unknown seller trust, missing reviews or missing citations are not eligibility rules. "
             "Weigh actual adverse findings and buyer requirements yourself. A suspicious offer may warrant a scoped caution "
             "or another seller without excluding the product. An official store is acceptable seller context without a checklist. "
             "Budget is buyer context. A slightly over-budget option is allowed when you explain its known price and extra cost. "
-            "Keep the output compact. Omit optional matrix, modes and internal metadata when unnecessary. "
+            "Keep the output compact. Omit an optional matrix, extra preference modes and internal metadata when unnecessary. "
             "Do not call an unknown or different-currency price within budget. No budget means no invented cap. "
             "Search snippets and fetched page excerpts are labeled context, not independently verified quotations. "
             "Use known product and listing IDs. Do not invent facts, prices, quotations, reviews or source links. "

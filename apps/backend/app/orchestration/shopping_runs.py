@@ -3309,23 +3309,20 @@ class ShoppingRunOrchestrator:
                 if item.name == draft.selected_candidate_name
                 and (legacy_groups or item.choice_group == "primary")
             ),
-            next(
-                item
-                for item in draft.candidates
-                if legacy_groups or item.choice_group == "primary"
-            ),
+            draft.candidates[0] if legacy_groups else None,
         )
-        candidates = (
-            selected,
-            *(item for item in draft.candidates if item != selected),
-        )
+        candidates = draft.candidates
         if legacy_groups:
+            candidates = (
+                selected,
+                *(item for item in draft.candidates if item != selected),
+            )
             candidates = tuple(
                 item.model_copy(update={"choice_group": "primary" if index == 0 else "runner_up"})
                 for index, item in enumerate(candidates[:3])
             )
         confidence = Confidence(score=0.6, level=ConfidenceLevel.MEDIUM)
-        products = []
+        selected_product = None
         primary_product_ids = []
         runner_up_product_ids = []
         modes = []
@@ -3364,7 +3361,8 @@ class ShoppingRunOrchestrator:
                     ),
                 )
                 context.owner_products = (*context.owner_products, product)
-            products.append(product)
+            if selected is not None and candidate.name.casefold() == selected.name.casefold():
+                selected_product = product
             if candidate.choice_group == "primary":
                 primary_product_ids.append(product.product_id)
             else:
@@ -3422,13 +3420,13 @@ class ShoppingRunOrchestrator:
             all_evidence_ids.extend(associations)
             all_source_ids.extend(associated_sources)
         selected_mode = next(
-            (item for item in modes if item.product_id == products[0].product_id), None
+            (item for item in modes if selected_product is not None and item.product_id == selected_product.product_id), None
         )
         return RecommendationBundle(
             **provenance,
-            final_product_id=products[0].product_id,
+            final_product_id=selected_product.product_id if selected_product else None,
             final_listing_id=selected_mode.listing_id if selected_mode else None,
-            final_rationale=draft.rationale or selected.rationale,
+            final_rationale=(draft.rationale or selected.rationale) if legacy_groups else draft.rationale,
             primary_product_ids=tuple(primary_product_ids),
             mode_results=tuple(modes),
             runner_up_product_ids=tuple(runner_up_product_ids),

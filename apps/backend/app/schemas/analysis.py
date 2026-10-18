@@ -200,15 +200,15 @@ class RecommendationBundle(VersionedSchema):
     handoff_chain: tuple[str, ...] = Field(default_factory=tuple)
     verification_action: str | None = None
     verification_changes: tuple[str, ...] = Field(default_factory=tuple)
-    final_product_id: ProductId | None = None
+    final_product_id: ProductId | None = Field(default=None, description="Optional preferred winner among primary_product_ids. Null is valid, and other useful primaries remain selected in their authored order.")
     final_listing_id: ListingId | None = None
     no_strong_buy: bool = False
     no_strong_buy_reason: str | None = Field(
         default=None, min_length=1, max_length=1500
     )
     final_rationale: str | None = Field(default=None, min_length=1, max_length=1500)
-    primary_product_ids: tuple[ProductId, ...] | None = Field(default=None, max_length=3)
-    runner_up_product_ids: tuple[ProductId, ...] = Field(default_factory=tuple)
+    primary_product_ids: tuple[ProductId, ...] | None = Field(default=None, max_length=3, description="The selected strong suitable options in authored order. Choose the useful set before an optional preferred winner.")
+    runner_up_product_ids: tuple[ProductId, ...] = Field(default_factory=tuple, description="Worthwhile secondary alternatives considered after strong primaries, up to two. Do not demote equally strong primaries to fill this group.")
     mode_results: tuple[RecommendationModeResult, ...] = Field(default_factory=tuple)
     comparison_matrix: ComparisonMatrix = Field(default_factory=ComparisonMatrix)
     rejected_items: tuple[RejectedItem, ...] = Field(default_factory=tuple)

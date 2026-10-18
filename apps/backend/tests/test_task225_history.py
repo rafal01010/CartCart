@@ -87,7 +87,7 @@ def test_targeted_source_bundle_read_preserves_complete_evidence_or_partial_span
         assert projected[4] == items[4]
 
 
-def test_compacted_candidate_measurement_matches_retained_coverage():
+def test_compaction_does_not_erase_a_candidates_only_useful_support():
     brief = ShoppingBrief(original_query="phone battery")
     packets = tuple(DecisionSourcePacket(
         source_id=new_id(), url=f"https://example.org/{name}", title=f"{name} phone battery",
@@ -97,8 +97,8 @@ def test_compacted_candidate_measurement_matches_retained_coverage():
     projection = select_decision_sources(brief, packets)
     original = json.dumps({"decision_sources": projection.model_dump(mode="json")})
     fitted = input_projection(fit_owner_projection(original, measure(original)["estimated_tokens"] - 1))
-    assert fitted.measurements["meaningful_candidate_count"] == 1
-    assert len({row.candidate_name for row in fitted.candidate_coverage}) == 1
+    assert fitted.measurements["meaningful_candidate_count"] == 2
+    assert {row.candidate_name for row in fitted.candidate_coverage} == {"Aster", "Birch"}
 
 
 @pytest.mark.parametrize("shared_video", [False, True])

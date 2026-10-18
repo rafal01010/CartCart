@@ -1,0 +1,771 @@
+{
+  "task": 226,
+  "purpose": "Scripted offline transport and persistence controls. All synthetic product claims are test data, not research truth or future model-quality evidence.",
+  "cases": [
+    {
+      "case_id": "two-primary",
+      "brief": {
+        "original_query": "Compare phones for photographs and long travel days.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        },
+        "category": "phone",
+        "category_source": "inferred",
+        "preferences": [
+          {
+            "text": "I like Aster but other companies are welcome.",
+            "mode": "soft",
+            "source": "user_provided"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-0000000372d0",
+          "snapshot_id": "00000000-0000-0000-0000-0000000372d1",
+          "evidence_id": "00000000-0000-0000-0000-0000000372d2",
+          "url": "https://example.org/task226/two-primary/0",
+          "title": "Aster Camera Pro independent comparison",
+          "text": "Aster Camera Pro. Aster Camera Pro captures clearer night photographs than Birch Travel Ultra. Its shorter endurance suits shorter travel days.",
+          "candidate_names": [
+            "Aster Camera Pro"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Aster Camera Pro captures clearer night photographs than Birch Travel Ultra.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-0000000372d3",
+          "snapshot_id": "00000000-0000-0000-0000-0000000372d4",
+          "evidence_id": "00000000-0000-0000-0000-0000000372d5",
+          "url": "https://example.org/task226/two-primary/1",
+          "title": "Birch Travel Ultra independent comparison",
+          "text": "Birch Travel Ultra. Birch Travel Ultra lasts longer during navigation than Aster Camera Pro. Its night photographs show less detail than Aster Camera Pro.",
+          "candidate_names": [
+            "Birch Travel Ultra"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Birch Travel Ultra lasts longer during navigation than Aster Camera Pro.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-0000000372d6",
+          "snapshot_id": "00000000-0000-0000-0000-0000000372d7",
+          "evidence_id": "00000000-0000-0000-0000-0000000372d8",
+          "url": "https://example.org/task226/two-primary/2",
+          "title": "Aster Camera Compact independent comparison",
+          "text": "Aster Camera Compact. Aster Camera Compact is easier to carry than either large primary. Its smaller battery provides less navigation time.",
+          "candidate_names": [
+            "Aster Camera Compact"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Aster Camera Compact is easier to carry than either large primary.",
+          "perspective": "scripted comparison control"
+        }
+      ],
+      "authored": {
+        "category": "phone",
+        "rationale": "Choose Birch Travel Ultra for long navigation days, or Aster Camera Pro for clearer night photographs. Aster Camera Compact is useful when easy carrying matters more than endurance.",
+        "candidates": [
+          {
+            "name": "Aster Camera Pro",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d0"
+            ],
+            "rationale": "Aster Camera Pro captures clearer night photographs than Birch Travel Ultra.",
+            "tradeoff": "Its shorter endurance suits shorter travel days."
+          },
+          {
+            "name": "Birch Travel Ultra",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d3"
+            ],
+            "rationale": "Birch Travel Ultra lasts longer during navigation than Aster Camera Pro.",
+            "tradeoff": "Its night photographs show less detail than Aster Camera Pro."
+          },
+          {
+            "name": "Aster Camera Compact",
+            "choice_group": "runner_up",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d6"
+            ],
+            "rationale": "Aster Camera Compact is easier to carry than either large primary.",
+            "tradeoff": "Its smaller battery provides less navigation time."
+          }
+        ],
+        "selected_candidate_name": "Birch Travel Ultra"
+      },
+      "expected": {
+        "primary_names": [
+          "Aster Camera Pro",
+          "Birch Travel Ultra"
+        ],
+        "runner_names": [
+          "Aster Camera Compact"
+        ],
+        "winner_name": "Birch Travel Ultra",
+        "rationale": "Choose Birch Travel Ultra for long navigation days, or Aster Camera Pro for clearer night photographs. Aster Camera Compact is useful when easy carrying matters more than endurance.",
+        "advice": [
+          {
+            "name": "Aster Camera Pro",
+            "rationale": "Aster Camera Pro captures clearer night photographs than Birch Travel Ultra.",
+            "tradeoff": "Its shorter endurance suits shorter travel days.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d0",
+              "00000000-0000-0000-0000-0000000372d1"
+            ]
+          },
+          {
+            "name": "Birch Travel Ultra",
+            "rationale": "Birch Travel Ultra lasts longer during navigation than Aster Camera Pro.",
+            "tradeoff": "Its night photographs show less detail than Aster Camera Pro.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d3",
+              "00000000-0000-0000-0000-0000000372d4"
+            ]
+          },
+          {
+            "name": "Aster Camera Compact",
+            "rationale": "Aster Camera Compact is easier to carry than either large primary.",
+            "tradeoff": "Its smaller battery provides less navigation time.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000372d6",
+              "00000000-0000-0000-0000-0000000372d7"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "three-primary-two-runners",
+      "brief": {
+        "original_query": "Compare reading lamps for books, detailed crafts and narrow desks.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        },
+        "category": "reading lamp",
+        "category_source": "inferred"
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-000000037334",
+          "snapshot_id": "00000000-0000-0000-0000-000000037335",
+          "evidence_id": "00000000-0000-0000-0000-000000037336",
+          "url": "https://example.org/task226/three-primary-two-runners/0",
+          "title": "Amber Reading Lamp independent comparison",
+          "text": "Amber Reading Lamp. Amber Reading Lamp gives more even book lighting than Cobalt Task Lamp. Its large shade takes more desk space than Cedar Slim Lamp.",
+          "candidate_names": [
+            "Amber Reading Lamp"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Amber Reading Lamp gives more even book lighting than Cobalt Task Lamp.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-000000037337",
+          "snapshot_id": "00000000-0000-0000-0000-000000037338",
+          "evidence_id": "00000000-0000-0000-0000-000000037339",
+          "url": "https://example.org/task226/three-primary-two-runners/1",
+          "title": "Cobalt Task Lamp independent comparison",
+          "text": "Cobalt Task Lamp. Cobalt Task Lamp directs brighter light at detailed crafts than Amber Reading Lamp. Its concentrated beam covers less of a book spread.",
+          "candidate_names": [
+            "Cobalt Task Lamp"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cobalt Task Lamp directs brighter light at detailed crafts than Amber Reading Lamp.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-00000003733a",
+          "snapshot_id": "00000000-0000-0000-0000-00000003733b",
+          "evidence_id": "00000000-0000-0000-0000-00000003733c",
+          "url": "https://example.org/task226/three-primary-two-runners/2",
+          "title": "Cedar Slim Lamp independent comparison",
+          "text": "Cedar Slim Lamp. Cedar Slim Lamp fits a narrower desk than Amber Reading Lamp. Its lower brightness is less useful for detailed crafts.",
+          "candidate_names": [
+            "Cedar Slim Lamp"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cedar Slim Lamp fits a narrower desk than Amber Reading Lamp.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-00000003733d",
+          "snapshot_id": "00000000-0000-0000-0000-00000003733e",
+          "evidence_id": "00000000-0000-0000-0000-00000003733f",
+          "url": "https://example.org/task226/three-primary-two-runners/3",
+          "title": "Amber Compact Lamp independent comparison",
+          "text": "Amber Compact Lamp. Amber Compact Lamp offers the Amber controls in a smaller shade. Its narrower beam is less even across large books.",
+          "candidate_names": [
+            "Amber Compact Lamp"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Amber Compact Lamp offers the Amber controls in a smaller shade.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-000000037340",
+          "snapshot_id": "00000000-0000-0000-0000-000000037341",
+          "evidence_id": "00000000-0000-0000-0000-000000037342",
+          "url": "https://example.org/task226/three-primary-two-runners/4",
+          "title": "Cedar Clip Light independent comparison",
+          "text": "Cedar Clip Light. Cedar Clip Light frees desk space by attaching to an edge. Its clamp needs a compatible exposed edge.",
+          "candidate_names": [
+            "Cedar Clip Light"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cedar Clip Light frees desk space by attaching to an edge.",
+          "perspective": "scripted comparison control"
+        }
+      ],
+      "authored": {
+        "category": "reading lamp",
+        "rationale": "Amber Reading Lamp suits books, Cobalt Task Lamp suits detailed crafts, and Cedar Slim Lamp suits narrow desks. Amber Compact Lamp and Cedar Clip Light offer useful space-saving alternatives.",
+        "candidates": [
+          {
+            "name": "Amber Reading Lamp",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037334"
+            ],
+            "rationale": "Amber Reading Lamp gives more even book lighting than Cobalt Task Lamp.",
+            "tradeoff": "Its large shade takes more desk space than Cedar Slim Lamp."
+          },
+          {
+            "name": "Cobalt Task Lamp",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037337"
+            ],
+            "rationale": "Cobalt Task Lamp directs brighter light at detailed crafts than Amber Reading Lamp.",
+            "tradeoff": "Its concentrated beam covers less of a book spread."
+          },
+          {
+            "name": "Cedar Slim Lamp",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003733a"
+            ],
+            "rationale": "Cedar Slim Lamp fits a narrower desk than Amber Reading Lamp.",
+            "tradeoff": "Its lower brightness is less useful for detailed crafts."
+          },
+          {
+            "name": "Amber Compact Lamp",
+            "choice_group": "runner_up",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003733d"
+            ],
+            "rationale": "Amber Compact Lamp offers the Amber controls in a smaller shade.",
+            "tradeoff": "Its narrower beam is less even across large books."
+          },
+          {
+            "name": "Cedar Clip Light",
+            "choice_group": "runner_up",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037340"
+            ],
+            "rationale": "Cedar Clip Light frees desk space by attaching to an edge.",
+            "tradeoff": "Its clamp needs a compatible exposed edge."
+          }
+        ],
+        "selected_candidate_name": null
+      },
+      "expected": {
+        "primary_names": [
+          "Amber Reading Lamp",
+          "Cobalt Task Lamp",
+          "Cedar Slim Lamp"
+        ],
+        "runner_names": [
+          "Amber Compact Lamp",
+          "Cedar Clip Light"
+        ],
+        "winner_name": null,
+        "rationale": "Amber Reading Lamp suits books, Cobalt Task Lamp suits detailed crafts, and Cedar Slim Lamp suits narrow desks. Amber Compact Lamp and Cedar Clip Light offer useful space-saving alternatives.",
+        "advice": [
+          {
+            "name": "Amber Reading Lamp",
+            "rationale": "Amber Reading Lamp gives more even book lighting than Cobalt Task Lamp.",
+            "tradeoff": "Its large shade takes more desk space than Cedar Slim Lamp.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037334",
+              "00000000-0000-0000-0000-000000037335"
+            ]
+          },
+          {
+            "name": "Cobalt Task Lamp",
+            "rationale": "Cobalt Task Lamp directs brighter light at detailed crafts than Amber Reading Lamp.",
+            "tradeoff": "Its concentrated beam covers less of a book spread.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037337",
+              "00000000-0000-0000-0000-000000037338"
+            ]
+          },
+          {
+            "name": "Cedar Slim Lamp",
+            "rationale": "Cedar Slim Lamp fits a narrower desk than Amber Reading Lamp.",
+            "tradeoff": "Its lower brightness is less useful for detailed crafts.",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003733a",
+              "00000000-0000-0000-0000-00000003733b"
+            ]
+          },
+          {
+            "name": "Amber Compact Lamp",
+            "rationale": "Amber Compact Lamp offers the Amber controls in a smaller shade.",
+            "tradeoff": "Its narrower beam is less even across large books.",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003733d",
+              "00000000-0000-0000-0000-00000003733e"
+            ]
+          },
+          {
+            "name": "Cedar Clip Light",
+            "rationale": "Cedar Clip Light frees desk space by attaching to an edge.",
+            "tradeoff": "Its clamp needs a compatible exposed edge.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037340",
+              "00000000-0000-0000-0000-000000037341"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "exclusive",
+      "brief": {
+        "original_query": "Compare Aster phones only. I will buy only Aster.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        },
+        "category": "phone",
+        "category_source": "inferred"
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-000000037398",
+          "snapshot_id": "00000000-0000-0000-0000-000000037399",
+          "evidence_id": "00000000-0000-0000-0000-00000003739a",
+          "url": "https://example.org/task226/exclusive/0",
+          "title": "Aster Camera Pro independent comparison",
+          "text": "Aster Camera Pro. Aster Camera Pro gives more camera control than Aster Camera Compact. Its larger body is harder to carry.",
+          "candidate_names": [
+            "Aster Camera Pro"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Aster Camera Pro gives more camera control than Aster Camera Compact.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-00000003739b",
+          "snapshot_id": "00000000-0000-0000-0000-00000003739c",
+          "evidence_id": "00000000-0000-0000-0000-00000003739d",
+          "url": "https://example.org/task226/exclusive/1",
+          "title": "Aster Camera Compact independent comparison",
+          "text": "Aster Camera Compact. Aster Camera Compact fits a smaller pocket than Aster Camera Pro. Its battery lasts less time during navigation.",
+          "candidate_names": [
+            "Aster Camera Compact"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Aster Camera Compact fits a smaller pocket than Aster Camera Pro.",
+          "perspective": "scripted comparison control"
+        }
+      ],
+      "authored": {
+        "category": "phone",
+        "rationale": "Aster Camera Pro offers more camera control, while Aster Camera Compact is easier to carry.",
+        "candidates": [
+          {
+            "name": "Aster Camera Pro",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037398"
+            ],
+            "rationale": "Aster Camera Pro gives more camera control than Aster Camera Compact.",
+            "tradeoff": "Its larger body is harder to carry."
+          },
+          {
+            "name": "Aster Camera Compact",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003739b"
+            ],
+            "rationale": "Aster Camera Compact fits a smaller pocket than Aster Camera Pro.",
+            "tradeoff": "Its battery lasts less time during navigation."
+          }
+        ],
+        "selected_candidate_name": null
+      },
+      "expected": {
+        "primary_names": [
+          "Aster Camera Pro",
+          "Aster Camera Compact"
+        ],
+        "runner_names": [],
+        "winner_name": null,
+        "rationale": "Aster Camera Pro offers more camera control, while Aster Camera Compact is easier to carry.",
+        "advice": [
+          {
+            "name": "Aster Camera Pro",
+            "rationale": "Aster Camera Pro gives more camera control than Aster Camera Compact.",
+            "tradeoff": "Its larger body is harder to carry.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037398",
+              "00000000-0000-0000-0000-000000037399"
+            ]
+          },
+          {
+            "name": "Aster Camera Compact",
+            "rationale": "Aster Camera Compact fits a smaller pocket than Aster Camera Pro.",
+            "tradeoff": "Its battery lasts less time during navigation.",
+            "source_ids": [
+              "00000000-0000-0000-0000-00000003739b",
+              "00000000-0000-0000-0000-00000003739c"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "constrained-one",
+      "brief": {
+        "original_query": "Find a reading lamp shorter than 25 cm for a closed shelf.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        },
+        "category": "reading lamp",
+        "category_source": "inferred"
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-0000000373fc",
+          "snapshot_id": "00000000-0000-0000-0000-0000000373fd",
+          "evidence_id": "00000000-0000-0000-0000-0000000373fe",
+          "url": "https://example.org/task226/constrained-one/0",
+          "title": "Cedar Shelf Light independent comparison",
+          "text": "Cedar Shelf Light. Cedar Shelf Light fits the 25 cm shelf opening. Its fixed head offers less aiming freedom than the taller alternatives.",
+          "candidate_names": [
+            "Cedar Shelf Light"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cedar Shelf Light fits the 25 cm shelf opening.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-000000037438",
+          "snapshot_id": "00000000-0000-0000-0000-000000037439",
+          "evidence_id": "00000000-0000-0000-0000-00000003743a",
+          "url": "https://example.org/task226/constrained-one/20",
+          "title": "Tall alternatives",
+          "text": "Amber Tall Lamp is 40 cm high and does not fit the 25 cm shelf opening.",
+          "candidate_names": [
+            "Amber Tall Lamp"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "40 cm height",
+          "perspective": "measured dimensions control"
+        }
+      ],
+      "authored": {
+        "category": "reading lamp",
+        "rationale": "Choose Cedar Shelf Light for the low shelf opening. Its fixed head limits how far you can aim the light.",
+        "candidates": [
+          {
+            "name": "Cedar Shelf Light",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000373fc"
+            ],
+            "rationale": "Cedar Shelf Light fits the 25 cm shelf opening.",
+            "tradeoff": "Its fixed head offers less aiming freedom than the taller alternatives."
+          }
+        ],
+        "selected_candidate_name": null
+      },
+      "expected": {
+        "primary_names": [
+          "Cedar Shelf Light"
+        ],
+        "runner_names": [],
+        "winner_name": null,
+        "rationale": "Choose Cedar Shelf Light for the low shelf opening. Its fixed head limits how far you can aim the light.",
+        "advice": [
+          {
+            "name": "Cedar Shelf Light",
+            "rationale": "Cedar Shelf Light fits the 25 cm shelf opening.",
+            "tradeoff": "Its fixed head offers less aiming freedom than the taller alternatives.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000373fc",
+              "00000000-0000-0000-0000-0000000373fd"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "adverse-and-ranked",
+      "brief": {
+        "original_query": "Find a travel phone with reliable navigation in hot weather.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        },
+        "category": "phone",
+        "category_source": "inferred"
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-000000037460",
+          "snapshot_id": "00000000-0000-0000-0000-000000037461",
+          "evidence_id": "00000000-0000-0000-0000-000000037462",
+          "url": "https://example.org/task226/adverse-and-ranked/0",
+          "title": "Birch Travel Ultra independent comparison",
+          "text": "Birch Travel Ultra. Birch Travel Ultra sustains navigation longer in the hot-weather test than Atlas Ranked Pro. Its photographs show less fine detail than Atlas Ranked Pro.",
+          "candidate_names": [
+            "Birch Travel Ultra"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Birch Travel Ultra sustains navigation longer in the hot-weather test than Atlas Ranked Pro.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-000000037463",
+          "snapshot_id": "00000000-0000-0000-0000-000000037464",
+          "evidence_id": "00000000-0000-0000-0000-000000037465",
+          "url": "https://example.org/task226/adverse-and-ranked/1",
+          "title": "Cedar Outdoor Phone independent comparison",
+          "text": "Cedar Outdoor Phone. Cedar Outdoor Phone has a grippier body than Birch Travel Ultra. Its display is dimmer in strong sunlight.",
+          "candidate_names": [
+            "Cedar Outdoor Phone"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cedar Outdoor Phone has a grippier body than Birch Travel Ultra.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-00000003749c",
+          "snapshot_id": "00000000-0000-0000-0000-00000003749d",
+          "evidence_id": "00000000-0000-0000-0000-00000003749e",
+          "url": "https://example.org/task226/adverse-and-ranked/20",
+          "title": "Popularity ranking",
+          "text": "Atlas Ranked Pro is the article winner for benchmark speed and photo detail. The ranking does not measure sustained navigation in heat.",
+          "candidate_names": [
+            "Atlas Ranked Pro"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "article winner for benchmark speed",
+          "perspective": "ranked article control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-00000003749f",
+          "snapshot_id": "00000000-0000-0000-0000-0000000374a0",
+          "evidence_id": "00000000-0000-0000-0000-0000000374a1",
+          "url": "https://example.org/task226/adverse-and-ranked/21",
+          "title": "Additional Atlas speed test",
+          "text": "Atlas Ranked Pro finishes the benchmark faster than Birch Travel Ultra.",
+          "candidate_names": [
+            "Atlas Ranked Pro"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "benchmark speed",
+          "perspective": "independent speed test control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-0000000374a2",
+          "snapshot_id": "00000000-0000-0000-0000-0000000374a3",
+          "evidence_id": "00000000-0000-0000-0000-0000000374a4",
+          "url": "https://example.org/task226/adverse-and-ranked/22",
+          "title": "Hot-weather test",
+          "text": "Atlas Ranked Pro overheats and stops navigation after 30 minutes; Birch Travel Ultra continues navigation for three hours.",
+          "candidate_names": [
+            "Atlas Ranked Pro",
+            "Birch Travel Ultra"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "navigation shutdown in heat",
+          "perspective": "hot-weather test control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-0000000374a5",
+          "snapshot_id": "00000000-0000-0000-0000-0000000374a6",
+          "evidence_id": "00000000-0000-0000-0000-0000000374a7",
+          "url": "https://example.org/task226/adverse-and-ranked/23",
+          "title": "Contrary indoor test",
+          "text": "Atlas Ranked Pro runs navigation for four hours indoors without overheating.",
+          "candidate_names": [
+            "Atlas Ranked Pro"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "no shutdown indoors",
+          "perspective": "credible indoor test control"
+        }
+      ],
+      "authored": {
+        "category": "phone",
+        "rationale": "Birch Travel Ultra is the better choice for prolonged hot-weather navigation. Cedar Outdoor Phone trades display brightness for a grippier body.",
+        "candidates": [
+          {
+            "name": "Birch Travel Ultra",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037460"
+            ],
+            "rationale": "Birch Travel Ultra sustains navigation longer in the hot-weather test than Atlas Ranked Pro.",
+            "tradeoff": "Its photographs show less fine detail than Atlas Ranked Pro."
+          },
+          {
+            "name": "Cedar Outdoor Phone",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037463"
+            ],
+            "rationale": "Cedar Outdoor Phone has a grippier body than Birch Travel Ultra.",
+            "tradeoff": "Its display is dimmer in strong sunlight."
+          }
+        ],
+        "selected_candidate_name": "Birch Travel Ultra"
+      },
+      "expected": {
+        "primary_names": [
+          "Birch Travel Ultra",
+          "Cedar Outdoor Phone"
+        ],
+        "runner_names": [],
+        "winner_name": "Birch Travel Ultra",
+        "rationale": "Birch Travel Ultra is the better choice for prolonged hot-weather navigation. Cedar Outdoor Phone trades display brightness for a grippier body.",
+        "advice": [
+          {
+            "name": "Birch Travel Ultra",
+            "rationale": "Birch Travel Ultra sustains navigation longer in the hot-weather test than Atlas Ranked Pro.",
+            "tradeoff": "Its photographs show less fine detail than Atlas Ranked Pro.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037460",
+              "00000000-0000-0000-0000-000000037461"
+            ]
+          },
+          {
+            "name": "Cedar Outdoor Phone",
+            "rationale": "Cedar Outdoor Phone has a grippier body than Birch Travel Ultra.",
+            "tradeoff": "Its display is dimmer in strong sunlight.",
+            "source_ids": [
+              "00000000-0000-0000-0000-000000037463",
+              "00000000-0000-0000-0000-000000037464"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "no-category",
+      "brief": {
+        "original_query": "I need something comfortable for a long train ride, and I do not know what kind of product to choose.",
+        "region": {
+          "region": {
+            "country_code": "PH"
+          },
+          "source": "user_provided"
+        }
+      },
+      "sources": [
+        {
+          "source_id": "00000000-0000-0000-0000-0000000374c4",
+          "snapshot_id": "00000000-0000-0000-0000-0000000374c5",
+          "evidence_id": "00000000-0000-0000-0000-0000000374c6",
+          "url": "https://example.org/task226/no-category/0",
+          "title": "Cedar Travel Cushion independent comparison",
+          "text": "Cedar Travel Cushion. Cedar Travel Cushion supports sitting more than Amber Neck Wrap. Its larger volume takes more bag space.",
+          "candidate_names": [
+            "Cedar Travel Cushion"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Cedar Travel Cushion supports sitting more than Amber Neck Wrap.",
+          "perspective": "scripted comparison control"
+        },
+        {
+          "source_id": "00000000-0000-0000-0000-0000000374c7",
+          "snapshot_id": "00000000-0000-0000-0000-0000000374c8",
+          "evidence_id": "00000000-0000-0000-0000-0000000374c9",
+          "url": "https://example.org/task226/no-category/1",
+          "title": "Amber Neck Wrap independent comparison",
+          "text": "Amber Neck Wrap. Amber Neck Wrap supports the neck more than Cedar Travel Cushion. It provides no extra support under the seat.",
+          "candidate_names": [
+            "Amber Neck Wrap"
+          ],
+          "buying_question": "buyer-specific fit and tradeoffs",
+          "finding": "Amber Neck Wrap supports the neck more than Cedar Travel Cushion.",
+          "perspective": "scripted comparison control"
+        }
+      ],
+      "authored": {
+        "category": "personal comfort goods",
+        "rationale": "Cedar Travel Cushion helps with sitting support, while Amber Neck Wrap helps with neck support. Choose according to which discomfort matters more.",
+        "candidates": [
+          {
+            "name": "Cedar Travel Cushion",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000374c4"
+            ],
+            "rationale": "Cedar Travel Cushion supports sitting more than Amber Neck Wrap.",
+            "tradeoff": "Its larger volume takes more bag space."
+          },
+          {
+            "name": "Amber Neck Wrap",
+            "choice_group": "primary",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000374c7"
+            ],
+            "rationale": "Amber Neck Wrap supports the neck more than Cedar Travel Cushion.",
+            "tradeoff": "It provides no extra support under the seat."
+          }
+        ],
+        "selected_candidate_name": null
+      },
+      "expected": {
+        "primary_names": [
+          "Cedar Travel Cushion",
+          "Amber Neck Wrap"
+        ],
+        "runner_names": [],
+        "winner_name": null,
+        "rationale": "Cedar Travel Cushion helps with sitting support, while Amber Neck Wrap helps with neck support. Choose according to which discomfort matters more.",
+        "advice": [
+          {
+            "name": "Cedar Travel Cushion",
+            "rationale": "Cedar Travel Cushion supports sitting more than Amber Neck Wrap.",
+            "tradeoff": "Its larger volume takes more bag space.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000374c4",
+              "00000000-0000-0000-0000-0000000374c5"
+            ]
+          },
+          {
+            "name": "Amber Neck Wrap",
+            "rationale": "Amber Neck Wrap supports the neck more than Cedar Travel Cushion.",
+            "tradeoff": "It provides no extra support under the seat.",
+            "source_ids": [
+              "00000000-0000-0000-0000-0000000374c7",
+              "00000000-0000-0000-0000-0000000374c8"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

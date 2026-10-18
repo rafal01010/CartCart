@@ -1388,10 +1388,16 @@ Final Task 221 was explicitly resumed on 2026-10-14. Use the configured managed 
 Internal owner records now preserve the actual SDK failure message and available failed hosted-call summaries even when a parent recovery succeeds. Treat older truncation or hosted-token attribution as inference when its original exception/raw activity was discarded. No configuration, model, reasoning, provider, output/context/spending limit or verifier timeout was changed by these repairs. Approved yt-dlp caption preparation from Task 217 remains effective. No fixture fallback is permitted as live evidence.
 
 
-During the 2026-10-17 Task 221 resumption, the YouTube specialist input now reports saved caption status/counts, metadata-read IDs and consumed search/caption/span operations. Saved status is not interpreted speech; use existing bounded transcript reads and validation. This makes restored work visible without retrieval, counter reset or policy changes. Task 225 separately owns the source-breadth and multi-product consultation repair and is not implemented. See the latest Task 221 handoff for the stopped live state.
+During the 2026-10-17 Task 221 resumption, the YouTube specialist input now reports saved caption status/counts, metadata-read IDs and consumed search/caption/span operations. Saved status is not interpreted speech; use existing bounded transcript reads and validation. This makes restored work visible without retrieval, counter reset or policy changes. Tasks 225 and 226 are offline-complete. Remaining live source/result acceptance stays in Task 221. See the latest Task 221 handoff for the stopped live state.
 
 ### Task 225 offline verification
 
 Run `bash scripts/local/verify-task225.sh` from the repository root. Backend commands use `uv` from `apps/backend`, locked offline resolution and a temporary writable cache. The gate uses copied saved Task 221 records, temporary SQLite, rejecting providers, offline SDK controls and intercepted local browser requests. It does not run Tasks 222, 223 or 224 gates or call research/model providers.
 
 The shared video checkpoint keeps consumed provider operations across candidate requests. Importing older compatible progress does not overwrite the original checkpoint. A default saved decision remains retrieval-free. Explicit focused retries retain their prior operation/usage history. No new source-count, per-product or token cap is introduced. Production records and current configuration are compared with the captured baseline.
+
+### Task 226 offline verification and stop boundary
+
+Run `bash scripts/local/verify-task226.sh` from the repository root. Backend commands run from `apps/backend` with locked offline resolution. Controls use local SDK responses, copied captured research, temporary SQLite and intercepted local browser GETs. No production service restart, paid call, provider retry or transcript retrieval is part of this gate. Existing accepted caption speech, consumed operations and historical usage remain read-only.
+
+Task 226 offline acceptance establishes request/context and authored-output preservation. It does not establish future live selection quality. Task 221 remains unchecked until a separately authorized remaining-criteria run. Reuse accepted caption, headphones, ownership and reload/restart proof. Do not automatically resume live work, repeat completed Task 222/223/224 gates or begin P1.

@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from hashlib import sha256
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -266,6 +267,8 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
             except ValueError:
                 return
         elif isinstance(value, dict):
+            if existing is not None and value.get("decision_projection_id") and value.get("archive_view_id"):
+                return
             decoded.append(value)
             view_id = value.get("archive_view_id")
             if history is not None and isinstance(view_id, str) and view_id not in restored_views:
@@ -274,7 +277,7 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
                     restored_views.add(view_id)
                     collect(view.payload)
             for key, child in value.items():
-                if key not in {"_research_view", "_context_projection"}:
+                if key not in {"_research_view", "_context_projection", "decision_sources"}:
                     collect(child, decode_string=key in {"output", "content"} or (bundle_span and key == "text") or (
                         key == "text" and value.get("type") in {"input_text", "output_text"}
                     ), bundle_span=key == "output" and names.get(str(value.get("call_id"))) == "read_source_bundle")
@@ -324,11 +327,14 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
         identifiers = record.setdefault("equivalent_source_ids", [])
         identifiers.extend(identifier for identifier in (row.get("source_id"), row.get("snapshot_id"))
             if identifier and identifier != record["source_id"] and identifier not in identifiers)
-        text = row.get("text") or row.get("page_text") or row.get("source_note") or row.get("quote")
+        text = row.get("text") or row.get("page_text") or row.get("source_note") or row.get("quote") or row.get("snippet")
         if isinstance(text, str) and text.strip():
             record["excerpts"].extend(_passages(text, brief))
             if record["content_kind"] != "metadata_only":
-                record["content_kind"] = "page" if row.get("text") or row.get("page_text") else "source_note"
+                if row.get("text") or row.get("page_text"):
+                    record["content_kind"] = "page"
+                elif row.get("source_note") or row.get("quote"):
+                    record["content_kind"] = "source_note"
         support = row.get("transcript_support", [])
         for segment_id in row.get("transcript_segment_ids", []):
             segment = segments.get(str(segment_id))
@@ -385,7 +391,11 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
         packets.append(DecisionSourcePacket.model_validate(record))
     if not packets:
         return original, None
-    packets = list({packet.url or str(packet.source_id): packet for packet in packets}.values())
+    merged: dict[str, DecisionSourcePacket] = {}
+    for packet in packets:
+        key = packet.url or str(packet.source_id)
+        merged[key] = _merge_source_packet(merged[key], packet) if key in merged else packet
+    packets = list(merged.values())
     projection = select_decision_sources(brief, packets)
     if not isinstance(original, list):
         return original, projection
@@ -420,15 +430,99 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
     return projected, projection
 
 
+def _merge_source_packet(previous: DecisionSourcePacket, incoming: DecisionSourcePacket) -> DecisionSourcePacket:
+    fields = (
+        "excerpts", "source_notes", "candidate_names", "buying_questions", "coverage_notes", "findings",
+        "evidence_ids", "transcript_support", "evidence", "material_cautions", "equivalent_source_ids",
+    )
+    values = {}
+    for field in fields:
+        combined = (*getattr(previous, field), *getattr(incoming, field))
+        values[field] = tuple({
+            json.dumps(item.model_dump(mode="json") if hasattr(item, "model_dump") else str(item), sort_keys=True): item
+            for item in combined
+        }.values())
+    values["equivalent_source_ids"] = tuple(dict.fromkeys(
+        identifier for identifier in (*values["equivalent_source_ids"], incoming.source_id)
+        if identifier != previous.source_id
+    ))
+    kinds = ("metadata_only", "search_lead", "source_note", "page", "accepted_speech")
+    values["content_kind"] = max((previous.content_kind, incoming.content_kind), key=kinds.index)
+    values["perspective"] = incoming.perspective or previous.perspective
+    values["source_quality"] = incoming.source_quality or previous.source_quality
+    content = "\n".join((*values["excerpts"], *values["source_notes"], *(segment.text for segment in values["transcript_support"])))
+    values["content_sha256"] = sha256(content.encode()).hexdigest()
+    values["original_content_size"] = source_size(content)
+    values["unreviewed_content"] = previous.unreviewed_content or incoming.unreviewed_content
+    return previous.model_copy(update=values)
+
+
+@dataclass(frozen=True)
+class _PacketSupport:
+    candidates: frozenset[str]
+    relations: frozenset[tuple[str, str]]
+    findings: frozenset[tuple[tuple[str, ...], tuple[str, ...], str]]
+    perspectives: frozenset[tuple[tuple[str, ...], tuple[str, ...], str]]
+    cautions: frozenset[tuple[tuple[str, ...], str]]
+    speech: frozenset[str]
+
+
+def _packet_support(packet: DecisionSourcePacket) -> _PacketSupport:
+    notes = packet.coverage_notes
+    scopes = [
+        (tuple(sorted(note.candidate_names)), (note.buying_question,), note.finding, note.perspective)
+        for note in notes
+    ] if notes else [
+        (tuple(sorted(packet.candidate_names)), tuple(sorted(packet.buying_questions)), finding, packet.perspective)
+        for finding in (packet.findings or ("",))
+    ]
+    if not packet.candidate_names and not notes:
+        scopes.extend(((), (), text, packet.perspective) for text in (*packet.excerpts, *packet.source_notes))
+    caution_scope = tuple(sorted(packet.candidate_names)) or tuple(sorted(
+        json.dumps(evidence.target.model_dump(mode="json"), sort_keys=True)
+        for evidence in packet.evidence
+    )) or (str(packet.source_id),)
+    return _PacketSupport(
+        candidates=frozenset((*packet.candidate_names, *(name for note in notes for name in note.candidate_names))),
+        relations=frozenset(coverage_pairs(packet)),
+        findings=frozenset((names, questions, finding) for names, questions, finding, _ in scopes if finding),
+        perspectives=frozenset((names, questions, perspective) for names, questions, _, perspective in scopes if perspective),
+        cautions=frozenset((caution_scope, caution) for caution in packet.material_cautions),
+        speech=frozenset([
+            *(str(segment.segment_id) for segment in packet.transcript_support),
+            *(json.dumps(evidence.model_dump(mode="json", include={"target", "claim", "transcript_segment_ids"}), sort_keys=True)
+              for evidence in packet.evidence if packet.content_kind == "accepted_speech"),
+        ]),
+    )
+
+
 def fit_owner_projection(value: Any, tokens: int) -> Any:
     projection = input_projection(value)
     if projection is None or measure(value)["estimated_tokens"] <= tokens:
         return value
     packets = list(projection.sources)
     deferred = list(projection.deferred_source_ids)
+    support = {packet.source_id: _packet_support(packet) for packet in packets}
 
     while packets:
-        removed = packets.pop()
+        removable = []
+        for index, packet in enumerate(packets):
+            own = support[packet.source_id]
+            others = [support[other.source_id] for other in packets if other.source_id != packet.source_id]
+            lost = {
+                field: getattr(own, field).difference(*(getattr(other, field) for other in others))
+                for field in ("candidates", "relations", "findings", "perspectives", "cautions", "speech")
+            }
+            if any(lost[field] for field in ("candidates", "cautions", "findings", "perspectives", "speech")):
+                continue
+            removable.append((
+                (len(lost["relations"]), -measure(packet.model_dump(mode="json"))["estimated_tokens"], index),
+                index,
+            ))
+        if not removable:
+            return value
+        _, removal_index = min(removable)
+        removed = packets.pop(removal_index)
         deferred.append(removed.source_id)
         retained = {packet.source_id for packet in packets}
         coverage = [row.model_copy(update={"source_ids": tuple(identifier for identifier in row.source_ids if identifier in retained)})

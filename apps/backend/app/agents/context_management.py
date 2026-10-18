@@ -42,7 +42,7 @@ from app.agents.token_policy import (
     completion_purpose,
     scaled_tokens,
 )
-from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
+from app.agents.research_guidance import FINAL_OPTION_SET_GUIDANCE, SHOPPER_ADVICE_GUIDANCE
 from app.agents.research_history import (
     active_history,
     history_scope,
@@ -541,6 +541,8 @@ def _schema_payload(
 def completion_instructions(
     instructions: str | None, purpose: CompletionPurpose
 ) -> str:
+    if instructions is not None and "\nFurther research is closed. " in instructions:
+        return instructions
     guidance = (
         "Finish the source evidence output from retrieved metadata, relevant speech and interpreted notes. "
         "Preserve video/source/segment identifiers, timestamps, provenance and material cautions. "
@@ -553,9 +555,9 @@ def completion_instructions(
         else "Finish the requested structured output from retained reviewed information. Preserve constraints, "
         "facts, uncertainties and provenance. Do not change the responsibility of this stage."
         if purpose == CompletionPurpose.STRUCTURED
-        else "Finish from saved facts, snippets, source notes and buyer preferences. Recommend by default "
-        "with concise reasons and tradeoffs. Sources and reviews are optional. Missing quotations, seller "
-        "details or prices alone do not exclude a product. " + SHOPPER_ADVICE_GUIDANCE
+        else "Finish from saved facts, snippets, source notes and the complete buyer brief. "
+        + (FINAL_OPTION_SET_GUIDANCE if FINAL_OPTION_SET_GUIDANCE not in (instructions or "") else "")
+        + (SHOPPER_ADVICE_GUIDANCE if SHOPPER_ADVICE_GUIDANCE not in (instructions or "") else "")
     )
     return (
         (instructions or "")
@@ -1235,7 +1237,7 @@ class BudgetedModel(Model):
             recovery_input = [{"role": "user", "content": prepared}] if isinstance(prepared, str) else list(prepared)
             recovery_input.append({
                 "role": "user",
-                "content": "The previous final response was incomplete or invalid and was rejected. Return the complete requested final JSON contract. Research is closed. Reuse the retained research and preferences. Keep all useful primary choices and optional runners based on your judgment. Use compact advice and empty optional fields when appropriate. Do not emit tool arguments or invent missing facts.",
+                "content": "The previous final response was incomplete or invalid and was rejected. Return the complete requested final JSON contract. Research is closed. Reuse the retained research and complete buyer brief. Preserve the useful selected option set and its benefits and tradeoffs. Do not emit tool arguments or invent missing facts.",
             })
             recovery_token = _recovering_final_output.set(True)
             try:

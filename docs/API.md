@@ -737,3 +737,9 @@ New result projections can include `decision_sources`. It records the exact sele
 `source_results`, `source_snapshots` and `source_evidence` remain the complete saved archive. The optional source list below advice uses the frozen selection when present. Older immutable versions omit `decision_sources` and retain their original projection and display behavior. API reads never rerank a saved selection. Neutral source links and exact caption timestamps, segment IDs, text and hashes remain available.
 
 These measurements describe local serialized context size. They do not establish billed provider tokens or model quality. Existing transport usage remains the source of actual input/output usage when reported. No new source-count or token ceiling applies.
+
+### Task 226 authored option sets
+
+No endpoint or field shape changes. Explicit model-authored primary and runner groups retain their membership and order. A preferred winner is optional and belongs to the primary group when supplied. Omitting it retains a null `final_product_id` for new explicitly grouped owner results. Legacy ungrouped result materialization keeps its compatibility behavior. Each choice retains its authored benefit, comparative tradeoff and real source associations.
+
+The frozen `decision_sources` projection records the evidence actually transported after selection and cleanup. The complete source archive remains available separately. Source selection is evidence preparation, not deterministic recommendation or group assignment.

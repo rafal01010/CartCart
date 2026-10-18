@@ -1,0 +1,34 @@
+{
+  "task": 226,
+  "purpose": "Focused offline option-set contract references. Scripted outputs and synthetic product findings prove transport and persistence, not live selection quality or Task 221 acceptance.",
+  "cases": [
+    {
+      "name": "captured-normal-saved-funded-recovery",
+      "expected": "unchanged_complete_brief_exact_original_speech_and_useful_samsung_comparative_facts_survive_actual_transport_under_existing_input_bound",
+      "control": "test_task226_options.py::test_captured_regression_keeps_alternative_facts_exact_speech_and_brief_in_actual_http"
+    },
+    {
+      "name": "authored-option-set-and-tradeoffs",
+      "expected": "literal_two_and_three_primary_sets_useful_runners_optional_non_first_or_absent_winner_exact_advice_and_source_associations_survive_sqlite_api_and_later_immutable_versions",
+      "control": "test_task226_options.py::test_scripted_option_sets_survive_sdk_validation_sqlite_api_and_later_versions"
+    },
+    {
+      "name": "exclusive-constrained-adverse-nontech-and-unclear",
+      "expected": "supported_smaller_sets_and_category_breadth_without_forced_diversity_or_source_volume_ranking",
+      "control": "test_task226_options.py::test_scripted_option_sets_survive_sdk_validation_sqlite_api_and_later_versions"
+    },
+    {
+      "name": "overlap-aware-existing-bound",
+      "expected": "last_useful_alternative_fact_survives_before_additional_shared_candidate_coverage_is_retained",
+      "control": "test_task226_options.py::test_existing_bound_keeps_only_useful_alternative_before_additional_shared_coverage"
+    }
+  ],
+  "provider_fixtures": ["tests/fixtures/providers/task226_options.json"],
+  "original_regression_artifacts": [
+    "data/artifacts/task221/resume-20261017/phone-attempt3-result-api.json",
+    "data/artifacts/task221/resume-20261017/phone-attempt4-result-api.json"
+  ],
+  "browser_cases": "data/artifacts/task226/browser-cases.json",
+  "new_source_or_token_limits": false,
+  "live_model_quality_proved": false
+}

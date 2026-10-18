@@ -5,6 +5,31 @@ from datetime import datetime, timezone
 from app.agents.catalog import ApprovedSDKTool, DEFAULT_AGENT_CATALOG
 
 
+FINAL_OPTION_SET_GUIDANCE = (
+    "Select the useful option set before naming an optional preferred winner. "
+    "For a broad buying question with several strong suitable candidates, retain useful primary options "
+    "with distinct buyer-relevant benefits and comparative tradeoffs. Consider useful discovered alternatives, "
+    "including relevant companies and family or size variants. Do not restrict open-ended advice to familiar "
+    "companies or previously saved recommendations. "
+    "Choose up to three strong useful primary choices first. Equally strong suitable alternatives belong "
+    "among primaries, including options from the same company when their tradeoffs help this buyer. "
+    "Then actively consider up to two worthwhile runners-up with useful secondary benefits or variants. "
+    "Do not demote an equally strong primary to fill a runner slot or add a weak match for variety. "
+    "A preferred winner is optional and must be a primary. Preferring one does not discard other good primaries. "
+    "Respect explicit exclusivity and genuine constraints. Named companies are preferences unless explicitly exclusive. "
+    "Fewer choices or no runners are appropriate when the alternatives offer no worthwhile benefit. "
+    "The group limits are maxima, not quotas. "
+    "Make a buyer-specific comparative judgment from attributed facts, credible disagreements and practical tradeoffs. "
+    "A source's winner, popularity ranking, majority opinion, advisory score or larger number of retrieved pages "
+    "does not determine suitability. More sources or accepted review speech for one product do not erase "
+    "other strong alternatives. Sources provide findings and viewpoints to weigh against the complete buyer brief. "
+    "Missing optional reviews, transcripts, quotations, citations, prices or stock alone never require exclusion. "
+    "Weigh material adverse findings by credibility and product or offer scope. "
+    "Give every primary and runner a distinct benefit and a useful relative tradeoff. "
+    "Do not invent facts, unseen testing, certainty or unsupported reasons for omitting alternatives. "
+)
+
+
 SHOPPER_ADVICE_GUIDANCE = (
     "Write direct, concise advice about what to buy for an ordinary shopper. "
     "Start with the useful recommendation, without restating the question or narrating intake, preferences or hidden inputs. "
@@ -12,17 +37,14 @@ SHOPPER_ADVICE_GUIDANCE = (
     "Do not write buying steps, where-to-buy advice, checkout disclaimers or price, availability, warranty and seller-check rituals. "
     "Do not narrate missing stock, unknown prices, unavailable pages, missing reviews, absent launches or supplied-context limitations. "
     "Keep confidence levels and percentages, evidence gaps, diagnostic warnings and process notes in internal fields only. "
-    "The overall advice should be two or three short sentences naming the choice and useful alternatives. "
+    "The overall advice should be two or three short sentences naming the strongest choices and useful secondary alternatives. "
     "Give each candidate one short benefit sentence and one comparative tradeoff sentence. "
     "Do not write 'fits your preference', 'your stated preference' or a budget-status opening. "
     "Write plain prose without Markdown links, bare URLs or citation markers in advice fields; keep sources in their separate fields. "
     "Do not copy internal cautions into shopper advice or create a generic warning section. "
     "Keep genuinely important product limitations and known age, support or launch differences when they change the choice. "
     "Weigh strong adverse findings when selecting products and offer suitable alternatives where available. "
-    "Before finalizing, consider meaningful alternatives already discovered, including other companies and size variants of a preferred family. "
-    "Choose up to three strongest useful options as primary choices before considering optional runners-up. Two strong useful choices from different companies normally both belong among primary choices. "
-    "Prefer useful company diversity. A weaker same-company family or size variant may be a runner-up when a comparably strong useful option from another company takes a primary slot. Without such an alternative, same-company options may remain primary choices. "
-    "A product's appearance in a source alone does not justify recommending it. Primary choices and runners-up are maxima, not quotas; do not fill unused places or explain routine omissions. "
+    "A product's appearance in a source alone does not justify recommending it. Do not explain routine omissions. "
     "Do not replace missing information with invented positive certainty. "
 )
 

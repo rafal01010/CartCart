@@ -63,7 +63,7 @@ from app.agents.owner_research import (
     OwnerResearchState,
     assess_run_listings,
 )
-from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
+from app.agents.research_guidance import FINAL_OPTION_SET_GUIDANCE, SHOPPER_ADVICE_GUIDANCE
 from app.agents.research_tools import (
     AgentResearchTools,
     PersistedHostedCitation,
@@ -83,13 +83,8 @@ from app.services.shopping_intent import RESEARCH_QUERY_GUIDANCE, research_conte
 
 OWNER_DECISION_GUIDANCE = (
     "Recommend by default from available research and buyer preferences. "
-    "Author one to three useful primary choices and zero to two optional runners-up, marking each candidate's choice_group as primary or runner_up. "
-    "These are maxima, not quotas. One or two primary choices and no runners-up are valid. "
-    "Choose up to three strongest useful options as primary choices before considering optional runners-up. Two strong useful choices from different companies normally both belong among primary choices. "
-    "Prefer useful diversity across companies or providers. A weaker same-company family or size variant may be a runner-up when a comparably strong useful option from another company takes a primary slot. Without such an alternative, same-company options may remain primary choices. "
-    "Do not force diversity through poor matches, reject a useful product solely for its company, or invent products. "
-    "Named companies are preferences unless the buyer explicitly requests exclusivity; an exclusive request may have multiple primary choices from that company. "
-    "Explain each primary choice's distinct benefit and concise comparative tradeoff. If selecting a winner, select only a primary choice. "
+    + FINAL_OPTION_SET_GUIDANCE
+    + "Mark each candidate's choice_group as primary or runner_up. "
     "Use candidate rationale and tradeoff fields for shopper advice. Unknowns and warnings retain internal diagnostics only. A decisive winner and mode selections are optional. "
     "Use the overall rationale for the recommendation. Where product age matters, explain known released generation, age or support differences from available dates. A confirmed upcoming launch may inform a useful tradeoff. "
     "Keep this JSON compact. Omit unnecessary mode selections, warnings, unknowns and evidence-gap narratives; use empty optional collections when they add no useful decision information. "
@@ -131,7 +126,7 @@ def _transport_owner_usage(
 
 class GeneralCandidateSelection(CartCartBaseModel):
     name: str = Field(min_length=1, max_length=200)
-    choice_group: RecommendationChoiceGroup
+    choice_group: RecommendationChoiceGroup = Field(description="Select strong suitable options as primary first, then worthwhile secondary alternatives as runner_up. A preferred winner does not remove other primaries.")
     evidence_ids: tuple[SourceId, ...] = Field(default_factory=tuple, max_length=8)
     source_ids: tuple[SourceId, ...] = Field(default_factory=tuple, max_length=8)
     rationale: str | None = Field(default=None, max_length=1500, description="One concise benefit sentence in plain prose. No input narration, links or citation markers.")
@@ -140,14 +135,14 @@ class GeneralCandidateSelection(CartCartBaseModel):
 
 
 class GeneralModelOutput(CartCartBaseModel):
-    rationale: str = Field(min_length=1, max_length=1500, description="Direct what-to-buy advice in two or three short plain sentences. Name choices and tradeoffs, without input echoes, links or citation markers.")
+    rationale: str = Field(min_length=1, max_length=1500, description="Direct what-to-buy advice in two or three short plain sentences. Name the strongest useful choices and worthwhile secondary alternatives with their tradeoffs, without input echoes, links or citation markers.")
     category: str = Field(min_length=1, max_length=200)
     specialist_helpful: bool = False
-    candidates: tuple[GeneralCandidateSelection, ...] = Field(default_factory=tuple, max_length=5)
+    candidates: tuple[GeneralCandidateSelection, ...] = Field(default_factory=tuple, max_length=5, description="The useful selected option set with up to three strong primaries and two worthwhile runners. Select groups before an optional preferred winner. Do not fill places with weak matches.")
     mode_selections: tuple[GeneralShoppingModeSelection, ...] = Field(
         default_factory=tuple, max_length=4
     )
-    selected_candidate_name: str | None = None
+    selected_candidate_name: str | None = Field(default=None, description="Optional preferred winner among the selected primary choices. Null is valid. This preference does not discard other useful primaries or change their order.")
     evidence_gap: str | None = Field(default=None, max_length=500)
     warnings: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
     hosted_lead_urls: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
@@ -1728,8 +1723,6 @@ class LiveGeneralShoppingAgent:
             )
         names = {candidate.name.casefold(): candidate for candidate in candidates}
         selected = names.get((model.selected_candidate_name or "").casefold())
-        if selected is None:
-            selected = next((candidate for candidate in candidates if candidate.choice_group == "primary"), None)
         modes = []
         for mode in model.mode_selections:
             candidate = names.get(mode.candidate_name.casefold())

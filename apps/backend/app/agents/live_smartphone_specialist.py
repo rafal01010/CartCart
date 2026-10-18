@@ -254,7 +254,7 @@ def _model_input(
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            **evidence_model_fields(input_data.evidence),
+            **evidence_model_fields(input_data.evidence, input_data.evidence_gaps),
             "declared_route": route.model_dump(mode="json"),
             "required_smartphone_coverage": (
                 "camera",

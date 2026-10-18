@@ -718,7 +718,7 @@ contract checks and do not measure live-model judgment.
 
 ## Discovery, Extraction And Dedupe Evals
 
-`app/evals/fixtures/discovery_extraction.json` contains 21 independently specified
+`app/evals/fixtures/discovery_extraction.json` contains 25 independently specified
 synthetic cases, loaded by `app.evals.discovery_extraction`. Run the scoped lane
 at the Section Q gate with:
 
@@ -745,6 +745,10 @@ existing policy, not seller-trust decisions or reusable source specialists.
 
 | Case | Fixture and expected behavior |
 | --- | --- |
+| `extraction/query-identified-offer` | Preserve the inspected `sku=A55` offer and its source identity. |
+| `extraction/reject-stripped-query-identity` | Reject replacing the inspected query-defined product with its base URL. |
+| `extraction/reject-changed-query-identity` | Reject substituting another SKU on the inspected product path. |
+| `extraction/withhold-unsupported-query-identity` | Retain an explicit gap when a destination contains unsupported query data. |
 | `discovery/generic-shortlist` | Office-chair buying and review sources; exclude proxy/unrelated results and preserve review treatment. |
 | `discovery/no-usable-sources` | Unknown, unrelated and excluded results yield explicit insufficient candidates. |
 | `discovery/review-slot-and-page-order` | Buying pages lead inspection; a review retains a slot within the eight-page budget. |
@@ -1698,3 +1702,13 @@ Task 227 uses installed Agents/OpenAI SDK execution with local HTTP responses, r
 The user will perform the live question test. Do not run a paid question, retry or completed Task 222-226 gate as part of this offline repair. The captured failed user run and accepted prior results/captions remain protected. Relevant case references are in app/evals/fixtures/task227_handoff_recovery.json; focused controls are in tests/test_task227_handoff_recovery.py and the directly affected existing owner-routing tests.
 
 Focused recovery controls also cover annotated and unannotated saved page claims, exact accepted speech IDs/text/timestamps, nonpersisted community consultation findings and qualifications, shared-URL merging, and distinct-note versus equal-note selection. Saved API source packets must equal the actual final transported receipt. These cases retain synthetic response labels and use no live source retrieval.
+
+### Tasks 179, 188 and 193 focused acceptance
+
+`tests/test_task179_source_consumers.py` captures actual analyst, trust and comparison model inputs plus the optional public verifier boundary. It checks all four source capabilities, ordinary evidence, exact original records, warnings, caption timestamps/support, scoped unavailable-source gaps and same-ID conflicts. Temporary SQLite saves and a fresh session verify result citations against canonical support. Public extraction controls reject model-authored backend context and retain valid ordinary evidence.
+
+`tests/fixtures/task188_source_attribution.json` supplies named, unnamed, comparative and ambiguous Alpha/Beta statements. `tests/test_task188_source_attribution.py` exercises all three public source producers and the named `youtube/alpha-beta-statement-attribution` workbench scenario in fixture and mock modes with reversed product order.
+
+`tests/test_task193_query_identity.py` exercises SDK search/fetch/read tools, public extraction and fresh-session source/listing persistence. Controls preserve `sku=A55`, reject stripped or changed identity, retain observed collection links and cover tracking, credentials, unsupported destinations and same-run restrictions. The discovery/extraction corpus adds the four query-identity cases listed above.
+
+The final task acceptance passed 59 checks. Broader historical gates are not claimed green. The unchanged-HEAD comparison reproduced 43 of 46 old pytest failures and both dataset failures. Repairing the source eval's invalid verifier-input adapter allowed its eight downstream cases to execute. Four cited controls pass; four unsupported-claim controls still require the optional verifier to reject advice under historical expectations. Normal shopping policy remains unchanged. The discovery lane retains six baseline discovery/source-policy failures; its four new identity cases pass. Exact reports and limits are in [the batch handoff](TASK_179_193_IMPLEMENTATION_HANDOFF.md).

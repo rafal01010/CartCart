@@ -3,7 +3,6 @@ import json
 from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Any, Protocol
-from urllib.parse import urlsplit, urlunsplit
 
 from agents import Agent, ModelSettings, RunConfig, WebSearchTool, Tool
 from pydantic import Field, ValidationError
@@ -30,6 +29,7 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
 )
 from app.core.settings import Settings
+from app.providers.outbound_urls import neutral_outbound_url
 from app.schemas.base import CartCartBaseModel
 from app.schemas.ids import SourceId
 from app.schemas.search_sources import SearchResult
@@ -467,6 +467,11 @@ def _search_result_summary(result: SearchResult) -> dict[str, Any]:
         "source_id": str(result.source_id),
         "query": result.query.model_dump(mode="json"),
         "url": _neutral_url(str(result.url)),
+        "url_gap": (
+            "Source destination contains unsupported or unsafe URL data."
+            if _neutral_url(str(result.url)) is None
+            else None
+        ),
         "title": result.title,
         "snippet": result.snippet[:400] if result.snippet else None,
         "snippet_truncated": bool(result.snippet and len(result.snippet) > 400),
@@ -492,9 +497,8 @@ def _safe_provider_raw(raw: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in raw.items() if key in allowed_keys}
 
 
-def _neutral_url(url: str) -> str:
-    parsed = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+def _neutral_url(url: str) -> str | None:
+    return neutral_outbound_url(url)
 
 
 def _coerce_discovery_result(

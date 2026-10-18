@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from ipaddress import ip_address
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from agents import FunctionTool, function_tool
 from pydantic import AnyHttpUrl, Field, ValidationError, field_validator
@@ -36,6 +36,7 @@ from app.providers.source_quality import (
     SourceQualityMetadata,
     score_source_quality,
 )
+from app.providers.outbound_urls import neutral_outbound_url
 from app.schemas.base import CartCartBaseModel
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.ids import RunId, SourceId, new_id
@@ -302,7 +303,7 @@ async def save_hosted_citations(
         try:
             normalized = _neutral_url(citation.url)
         except ValueError:
-            decisions.append((citation.url, "source_rejected"))
+            decisions.append(("withheld-url", "source_rejected"))
             continue
         if normalized in seen:
             decisions.append((normalized, "duplicate_rejected"))
@@ -933,13 +934,14 @@ class AgentResearchTools:
 
         selected: list[SearchResult] = []
         for candidate in candidates[: options.max_results]:
-            if selection is not None or (
+            if (
                 _safe_public_result_url(str(candidate.url))
                 and _domain_policy_allows(str(candidate.url), self._source_policy)
             ):
                 selected.append(
                     candidate.model_copy(
                         update={
+                            "url": AnyHttpUrl(_neutral_url(str(candidate.url))),
                             "query": query,
                             "provider": _safe_search_metadata(
                                 candidate.provider,
@@ -1374,7 +1376,7 @@ class AgentResearchTools:
 
             try:
                 snapshot = await self._extraction_provider.extract(
-                    source.url,
+                    AnyHttpUrl(_neutral_url(str(source.url))),
                     ExtractionProviderOptions(
                         source_type=source.source_type,
                         source_policy=self._source_policy,
@@ -1391,7 +1393,8 @@ class AgentResearchTools:
                 )
                 return result
 
-            if not _safe_public_result_url(
+            snapshot_url = neutral_outbound_url(str(snapshot.url))
+            if snapshot_url is None or not _safe_public_result_url(
                 str(snapshot.url)
             ) or not _domain_policy_allows(str(snapshot.url), self._source_policy):
                 result = FetchSourceResult(
@@ -1406,6 +1409,7 @@ class AgentResearchTools:
 
             snapshot = snapshot.model_copy(
                 update={
+                    "url": AnyHttpUrl(snapshot_url),
                     "title": snapshot.title or source.title,
                     "quality": source.quality,
                     "provider": _safe_snapshot_metadata(
@@ -1651,19 +1655,15 @@ def _safe_snapshot_metadata(
 
 
 def _neutral_url(url: str) -> str:
-    parsed = urlsplit(url)
-    query = ""
-    if (parsed.hostname or "").lower() in {
-        "youtube.com",
-        "www.youtube.com",
-    } and parsed.path == "/watch":
-        video_ids = parse_qs(parsed.query).get("v", ())
-        if video_ids:
-            query = urlencode({"v": video_ids[0]})
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
+    neutral = neutral_outbound_url(url)
+    if neutral is None:
+        raise ValueError("Source URL has unsupported or unsafe destination data.")
+    return neutral
 
 
 def _safe_public_result_url(url: str) -> bool:
+    if neutral_outbound_url(url) is None:
+        return False
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return False

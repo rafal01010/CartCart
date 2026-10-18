@@ -113,11 +113,11 @@ def test_corpus_loads_without_execution_and_has_documented_coverage(monkeypatch)
     monkeypatch.setattr(Runner, "run", reject)
     dataset = discovery_extraction_dataset()
     cases = discovery_extraction_cases()
-    assert len(cases) == 21
+    assert len(cases) == 25
     assert Counter(c.inputs.stage for c in cases) == {
         "discovery": 3,
         "quality": 5,
-        "extraction": 7,
+        "extraction": 11,
         "dedupe": 6,
     }
     assert len(dataset.evaluators) == 1
@@ -446,6 +446,37 @@ async def test_offline_adapter_branches_use_production_contracts_without_network
         )
     else:
         assert len(output.groups) == 1 and len(output.groups[0].listings) == 2
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "extraction/query-identified-offer",
+        "extraction/reject-stripped-query-identity",
+        "extraction/reject-changed-query-identity",
+        "extraction/withhold-unsupported-query-identity",
+    ],
+)
+@pytest.mark.asyncio
+async def test_task193_query_identity_eval_uses_public_extraction(monkeypatch, name):
+    def reject(*args, **kwargs):
+        pytest.fail("Task 193 controls cannot call a network or live model.")
+
+    monkeypatch.setattr(Runner, "run", reject)
+    monkeypatch.setattr("socket.socket.connect", reject)
+    case = named(name)
+    output = await offline_discovery_extraction_task()(case.inputs)
+    assert failures(case, output) == {}
+    if name == "extraction/query-identified-offer":
+        assert (
+            str(output.extraction.listings[0].url)
+            == "https://store.example/product?sku=A55"
+        )
+    else:
+        assert (
+            output.extraction.evidence_gaps[0].summary
+            == "Agent extraction was invalid or timed out."
+        )
 
 
 @pytest.mark.asyncio

@@ -73,10 +73,8 @@ from app.schemas.analysis import CategoryAnalysis, RecommendationBundle
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.search_sources import (
     AmazonProductEvidenceBundle,
-    AmazonProductEvidence,
     EvidenceTargetType,
     CommunityDiscussionEvidenceBundle,
-    EvidenceType,
     IKEAStoreEvidenceBundle,
     SourceEvidence,
     SourceEvidenceGap,
@@ -90,6 +88,7 @@ from app.services.ikea_evidence_creation import (
     IKEAStoreEvidenceCreator,
     IKEAStoreEvidenceInput,
 )
+from app.services.reusable_source_evidence import project_reusable_source_bundle
 from app.services.listing_trust import ListingTrustRuleContext, assess_listing_trust
 from app.schemas.timestamps import Timestamp
 
@@ -534,69 +533,43 @@ class _PagedTranscriptRunner:
 
 
 def _analysis_evidence(bundle: Bundle) -> tuple[SourceEvidence, ...]:
-    """Eval-only bridge: preserve identities/targets/claims; metadata stays metadata.
-
-    Production owners consume typed bundles directly. This bridge probes the
-    separate analyst/decision/verifier contracts, not workflow persistence.
-    """
-    videos = (
-        {v.video_id: v for v in bundle.videos}
-        if isinstance(bundle, VideoReviewEvidenceBundle)
-        else {}
-    )
+    projection = project_reusable_source_bundle(bundle)
+    if not isinstance(bundle, AmazonProductEvidenceBundle):
+        return projection.evidence
     context_listing_ids = {}
-    if isinstance(bundle, AmazonProductEvidenceBundle):
-        for context in bundle.listing_contexts:
-            listing_ids = {
-                item.target.listing_id
-                for item in bundle.evidence
-                if item.listing_context_source_id == context.source_id
-                and item.target.listing_id is not None
-            }
-            if len(listing_ids) == 1:
-                context_listing_ids[context.source_id] = next(iter(listing_ids))
+    for context in bundle.listing_contexts:
+        listing_ids = {
+            item.target.listing_id
+            for item in bundle.evidence
+            if item.listing_context_source_id == context.source_id
+            and item.target.listing_id is not None
+        }
+        if len(listing_ids) == 1:
+            context_listing_ids[context.source_id] = next(iter(listing_ids))
+    records = {item.evidence_id: item for item in bundle.evidence}
     return tuple(
-        SourceEvidence(
-            evidence_id=e.evidence_id,
-            source_id=e.source_id,
-            target=e.target.model_copy(
-                update={"listing_id": context_listing_ids[e.listing_context_source_id]}
-            )
-            if isinstance(e, AmazonProductEvidence)
-            and e.target.target_type
-            in {EvidenceTargetType.REVIEW, EvidenceTargetType.REGION}
-            and not (
-                e.target.product_id or e.target.listing_id or e.target.candidate_id
-            )
-            and e.listing_context_source_id is not None
-            and e.listing_context_source_id in context_listing_ids
-            else e.target,
-            evidence_type=EvidenceType.OTHER
-            if getattr(e, "metadata_only", False)
-            else EvidenceType.VIDEO_CLAIM
-            if videos
-            else EvidenceType.COMMUNITY_CLAIM
-            if isinstance(bundle, CommunityDiscussionEvidenceBundle)
-            else {
-                "product_page_fact": EvidenceType.MARKETPLACE_PRODUCT_FACT,
-                "official_product_fact": EvidenceType.OFFICIAL_STORE_FACT,
-                "listing_identity": EvidenceType.LISTING_IDENTITY,
-                "seller_fulfillment": EvidenceType.SELLER_TRUST,
-                "review_summary": EvidenceType.REVIEW_SUMMARY,
-                "review_quality_warning": EvidenceType.WARNING,
-                "marketplace_warning": EvidenceType.WARNING,
-                "regional_availability": EvidenceType.REGION_AVAILABILITY,
-                "price": EvidenceType.PRICE,
-                "regional_price": EvidenceType.PRICE,
-                "store_delivery_context": EvidenceType.REGION_AVAILABILITY,
-            }.get(getattr(e, "fact_type", None), EvidenceType.OTHER),
-            claim=e.claim,
-            confidence=e.confidence,
-            source_quality=e.source_quality,
-            timestamp_references=getattr(e, "timestamp_references", ()),
-            video=videos.get(getattr(e, "video_id", None)),
+        item.model_copy(
+            update={
+                "target": item.target.model_copy(
+                    update={
+                        "listing_id": context_listing_ids[
+                            record.listing_context_source_id
+                        ]
+                    }
+                ),
+                "reusable_source_context": None,
+            }
         )
-        for e in bundle.evidence
+        if (record := records[item.evidence_id]).target.target_type
+        in {EvidenceTargetType.REVIEW, EvidenceTargetType.REGION}
+        and not (
+            record.target.product_id
+            or record.target.listing_id
+            or record.target.candidate_id
+        )
+        and record.listing_context_source_id in context_listing_ids
+        else item
+        for item in projection.evidence
     )
 
 
@@ -623,7 +596,8 @@ class OfflineSourceIntelligenceTask:
                     video_search_provider=providers,
                     transcript_provider=providers,
                     model_runner=_FaultRunner(
-                        _PagedTranscriptRunner(MockYouTubeReviewModelRunner()), f.model_fault
+                        _PagedTranscriptRunner(MockYouTubeReviewModelRunner()),
+                        f.model_fault,
                     ),
                 ).run(f.youtube)
                 calls += 1
@@ -640,7 +614,8 @@ class OfflineSourceIntelligenceTask:
                     settings=self.settings,
                     community_provider=providers,
                     model_runner=_FaultRunner(
-                        _FocusedRunner(MockRedditCommunityModelRunner(), f.read_focus), f.model_fault
+                        _FocusedRunner(MockRedditCommunityModelRunner(), f.read_focus),
+                        f.model_fault,
                     ),
                 ).run(f.reddit)
                 calls += 1
@@ -677,6 +652,7 @@ class OfflineSourceIntelligenceTask:
         result = SourceOutput(**{f.stage: bundle}, model_calls=calls)
         if f.recommendation_claim:
             evidence = (*_analysis_evidence(bundle), *f.offer_evidence)
+            gaps = project_reusable_source_bundle(bundle).gaps
             r = f.request
             analysis = await LiveGenericProductAnalystAgent(
                 settings=self.settings,
@@ -688,6 +664,7 @@ class OfflineSourceIntelligenceTask:
                     product=r.products[0],
                     listings=r.listings,
                     evidence=evidence,
+                    evidence_gaps=gaps,
                 )
             )
             request = ComparisonDecisionAgentInput(
@@ -696,6 +673,7 @@ class OfflineSourceIntelligenceTask:
                 products=r.products,
                 listings=r.listings,
                 evidence=evidence,
+                evidence_gaps=gaps,
                 category_analyses=(analysis,),
                 trust_assessments=tuple(
                     assess_listing_trust(
@@ -791,7 +769,7 @@ class OfflineSourceIntelligenceTask:
             ).run(
                 VerificationAgentInput(
                     **request.model_dump(
-                        exclude={"schema_version", "requested_result_mode"}
+                        exclude={"schema_version", "requested_result_mode", "source_results", "source_snapshots"}
                     ),
                     recommendation_bundle=draft,
                 )

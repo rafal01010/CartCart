@@ -1,8 +1,9 @@
 from enum import StrEnum
 from hashlib import sha256
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, Field, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.confidence import Confidence, ConfidenceScore
@@ -599,6 +600,52 @@ class VideoTranscriptSupport(CartCartBaseModel):
         return self
 
 
+class VideoEvidenceContext(CartCartBaseModel):
+    capability: Literal[SourceIntelligenceCapability.VIDEO_REVIEW] = (
+        SourceIntelligenceCapability.VIDEO_REVIEW
+    )
+    record: VideoReviewEvidence
+    source_reference: SourceReference
+
+
+class CommunityEvidenceContext(CartCartBaseModel):
+    capability: Literal[SourceIntelligenceCapability.COMMUNITY_DISCUSSION] = (
+        SourceIntelligenceCapability.COMMUNITY_DISCUSSION
+    )
+    record: CommunityDiscussionEvidence
+    source_reference: SourceReference
+    discussions: tuple[CommunityDiscussionContext, ...] = ()
+
+
+class AmazonEvidenceContext(CartCartBaseModel):
+    capability: Literal[SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW] = (
+        SourceIntelligenceCapability.AMAZON_PRODUCT_LISTING_REVIEW
+    )
+    record: AmazonProductEvidence
+    source_reference: SourceReference
+    listing_contexts: tuple[AmazonListingContext, ...] = ()
+    related_targets: tuple[EvidenceTarget, ...] = ()
+
+
+class IKEAEvidenceContext(CartCartBaseModel):
+    capability: Literal[SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE] = (
+        SourceIntelligenceCapability.IKEA_REGIONAL_OFFICIAL_STORE
+    )
+    record: IKEAStoreEvidence
+    source_reference: SourceReference
+    store_contexts: tuple[IKEAStoreContext, ...] = ()
+    related_targets: tuple[EvidenceTarget, ...] = ()
+
+
+ReusableSourceEvidenceContext = Annotated[
+    VideoEvidenceContext
+    | CommunityEvidenceContext
+    | AmazonEvidenceContext
+    | IKEAEvidenceContext,
+    Field(discriminator="capability"),
+]
+
+
 class SourceEvidence(CartCartBaseModel):
     evidence_id: SourceId = Field(default_factory=new_id)
     source_id: SourceId
@@ -611,10 +658,31 @@ class SourceEvidence(CartCartBaseModel):
     video: VideoSource | None = None
     metadata_only: bool = False
     transcript_segment_ids: tuple[SourceId, ...] = Field(default_factory=tuple)
-    transcript_support: tuple[VideoTranscriptSupport, ...] = Field(default_factory=tuple)
+    transcript_support: tuple[VideoTranscriptSupport, ...] = Field(
+        default_factory=tuple
+    )
+    reusable_source_context: SkipJsonSchema[ReusableSourceEvidenceContext | None] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _video_evidence_requires_video_context(self) -> "SourceEvidence":
+        if self.reusable_source_context is not None:
+            context = self.reusable_source_context
+            if context.source_reference.source_id != self.source_id or any(
+                getattr(context.record, field) != getattr(self, field)
+                for field in (
+                    "evidence_id",
+                    "source_id",
+                    "target",
+                    "claim",
+                    "confidence",
+                    "source_quality",
+                )
+            ):
+                raise ValueError(
+                    "reusable source context must describe the exact evidence record."
+                )
         if (
             self.target.target_type == EvidenceTargetType.SOURCE_METADATA
             and self.target.source_id != self.source_id

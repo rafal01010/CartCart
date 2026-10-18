@@ -292,6 +292,9 @@ def _model_input(input_data: ComparisonDecisionAgentInput) -> str:
                 input_data.brief, input_data.source_results, input_data.source_snapshots,
                 input_data.evidence, input_data.products,
             )).model_dump(mode="json"),
+            "evidence_gaps": [
+                gap.model_dump(mode="json") for gap in input_data.evidence_gaps
+            ],
             "advisory_score_references": _ADVISORY_SCORE_REFERENCES,
             "ranked_candidates": [
                 {

@@ -1,5 +1,13 @@
 # CartCart Supported Agents And Source Capabilities
 
+## Shared source evidence and listing identity, Tasks 179 and 193
+
+Retained source stages project validated YouTube, Reddit, Amazon and IKEA bundles into the shared analyst, listing-trust and comparison inputs. Exact evidence IDs, claims and targets remain intact. Backend-owned context carries linked sources, regional details, qualitative qualifications, disclosures and warnings. Explicit gaps remain available without inventing claims. Product reviews remain product context when supplied to listing trust; another offer's seller evidence stays scoped to that offer. The optional workbench verifier accepts the same context and remains outside normal shopping runs.
+
+Task 188 repairs the attribution prerequisite. Explicitly named review statements cannot become another candidate's evidence. Supported nearby context can identify an unnamed statement. Ambiguous retained-service statements remain source context. `youtube/alpha-beta-statement-attribution` exercises the provider-service and mock workbench paths with both candidate orders.
+
+Research and extraction preserve approved product identifiers in neutral URLs. Unsupported query destinations are withheld with a gap. An inspected query-defined item cannot become its base URL or another SKU. Query-free collections can still supply explicitly observed item links. The runtime catalog declares these boundaries without changing routes, models, providers or SDK tool permissions.
+
 ## Validated final output, Task 224
 
 All retained model paths share structured final-output validation. An incomplete response stays a technical failure. A normal or saved shopping owner may make one affordable tools-free completion from retained research within the same attempt and spent ledgers. It keeps the same owner/model/reasoning and model-authored choices. The saved-decision cap alone increases from 2,000 to the existing 6,667 ceiling. No agent, source capability, routing edge or provider fallback is added.

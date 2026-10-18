@@ -1,0 +1,22 @@
+{
+  "named_beta": {
+    "context": ["Alpha Monitor has sharp text.", "Con: Beta Monitor has poor brightness."],
+    "quote": "Con: Beta Monitor has poor brightness."
+  },
+  "comparison": {
+    "context": ["Pro: Alpha Monitor has sharper text than Beta Monitor."],
+    "quote": "Pro: Alpha Monitor has sharper text than Beta Monitor."
+  },
+  "unnamed_beta": {
+    "context": ["Beta Monitor owner notes.", "Con: it has poor brightness."],
+    "quote": "Con: it has poor brightness."
+  },
+  "ambiguous": {
+    "context": ["Alpha Monitor and Beta Monitor owner notes.", "Con: it has poor brightness."],
+    "quote": "Con: it has poor brightness."
+  },
+  "local_beta": {
+    "context": ["Alpha Monitor was mentioned in the introduction.", "Beta Monitor owner notes.", "Con: it has poor brightness."],
+    "quote": "Con: it has poor brightness."
+  }
+}

@@ -216,7 +216,7 @@ def _model_input(
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            **evidence_model_fields(input_data.evidence),
+            **evidence_model_fields(input_data.evidence, input_data.evidence_gaps),
             "trust_assessments": [
                 assessment.model_dump(mode="json")
                 for assessment in input_data.trust_assessments

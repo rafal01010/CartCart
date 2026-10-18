@@ -392,6 +392,8 @@ def test_agent_catalog_declares_agent_owned_research_and_extraction() -> None:
         "SearchProvider",
         "ExtractionProvider",
         "BoundedEvidenceContext",
+        "ValidatedFinalOutput",
+        "NeutralListingIdentity",
     )
     assert set(extraction.target_research_decisions) == {
         ResearchDecision.PAGE_SHAPE_INTERPRETATION,
@@ -406,6 +408,8 @@ def test_agent_catalog_declares_agent_owned_research_and_extraction() -> None:
         "SourceSnapshotReader",
         "MechanicalExtractionHelpers",
         "BoundedEvidenceContext",
+        "ValidatedFinalOutput",
+        "NeutralListingIdentity",
     )
     assert legacy.status == AgentStatus.TRANSITIONAL
     assert legacy.superseded_by == extraction.agent_name

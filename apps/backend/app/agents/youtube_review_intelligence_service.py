@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.agents.contracts import YouTubeReviewIntelligenceAgentInput
+from app.agents.source_statement_attribution import (
+    contextual_product_ids,
+    named_product_ids,
+)
 from app.core.settings import Settings
 from app.providers import (
     ProviderRunStatus,
@@ -528,15 +532,26 @@ def _transcript_claims(
         segments_by_video.setdefault(segment.video_id, []).append(segment)
 
     claims: list[TranscriptBackedVideoClaim] = []
-    target = _product_target(input_data.products)
     for video in bundle.videos:
+        video_segments = tuple(
+            sorted(
+                segments_by_video.get(video.video_id, ()),
+                key=lambda segment: segment.start_seconds,
+            )
+        )
         selected_segments = _selected_review_segments(
-            tuple(segments_by_video.get(video.video_id, ())),
+            video_segments,
             limit=max_claims_per_video,
         )
         for segment in selected_segments:
             assert segment.text is not None
             claim = _claim_text(segment.text)
+            position = video_segments.index(segment)
+            context = "\n".join(
+                item.text or ""
+                for item in video_segments[max(0, position - 2) : position + 1]
+            )
+            target = _product_target(claim, context, input_data.products)
             claims.append(
                 TranscriptBackedVideoClaim(
                     source_id=source_ids_by_video[video.video_id],
@@ -665,13 +680,18 @@ def _source_ids_by_video(bundle: VideoReviewEvidenceBundle) -> dict[str, SourceI
 
 
 def _product_target(
+    quote: str,
+    context: str,
     products: tuple[CanonicalProduct, ...],
 ) -> EvidenceTarget | None:
-    if not products:
+    matched = contextual_product_ids(quote, (context,), products)
+    if not matched:
+        matched = named_product_ids(context, products)
+    if len(matched) != 1:
         return None
     return EvidenceTarget(
         target_type=EvidenceTargetType.PRODUCT,
-        product_id=products[0].product_id,
+        product_id=next(iter(matched)),
     )
 
 

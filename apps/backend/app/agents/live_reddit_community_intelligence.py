@@ -27,6 +27,10 @@ from app.agents.source_hosted_search import (
     source_tool_activity,
 )
 from app.agents.reddit_community_tools import RedditCommunityTools
+from app.agents.source_statement_attribution import (
+    contextual_product_ids,
+    named_product_ids,
+)
 from app.core.settings import Settings
 from app.providers import (
     CommunityDiscussionProvider,
@@ -233,6 +237,8 @@ class RedditCommunityIntelligenceAgent:
                 "Interpret owner themes conservatively: one thread is anecdotal; recurring requires independent threads. "
                 "Distinguish older or low-context material, possible brigading/astroturfing, and deleted/inaccessible content. "
                 "Treat search snippets as limited context. Never invent a quote, source ID, product ID, subreddit, thread, comment, engagement, or defect rate. "
+                "Attach a product ID only when each quoted statement names that product or its observed nearby context identifies it unambiguously. "
+                "A product mentioned elsewhere in the discussion does not establish the quote's subject. Leave unclear statements as source context. "
                 "Do not seek private, logged-in, deleted, or otherwise forbidden content. "
                 "Community discussion cannot establish specifications, warranty, current price, availability, or seller legitimacy. "
                 "If evidence is weak, return honest gaps without a factual product claim. "
@@ -390,7 +396,6 @@ def _validated_bundle(
         source_references=refs, discussions=discussions, evidence_gaps=tuple(gaps)
     )
     product_ids = {product.product_id for product in input_data.products}
-    products = {product.product_id: product for product in input_data.products}
     claims: list[SourceBackedCommunityClaim] = []
     for signal in decision.signals:
         if (
@@ -429,21 +434,30 @@ def _validated_bundle(
                     "Community signal cites unread or inaccessible discussion text."
                 )
         for quote in signal.supporting_quotes:
-            if not any(quote.quote in text for text in tools.observed_text.get(str(quote.source_id), ())):
-                raise ValueError("Community quote was not present in an observed exact span.")
-        if signal.product_id is not None:
-            product = products[signal.product_id]
-            context = " ".join(
-                discussion_by_id[source_id].extracted_public_summary or ""
-                for source_id in cited
-            ).casefold()
             if not any(
-                identity and identity.casefold() in context
-                for identity in (product.model, product.name)
+                quote.quote in text
+                for text in tools.observed_text.get(str(quote.source_id), ())
             ):
                 raise ValueError(
-                    "Product identity is not visible in cited community material."
+                    "Community quote was not present in an observed exact span."
                 )
+        if signal.product_id is not None:
+            for quote in signal.supporting_quotes:
+                named = named_product_ids(quote.quote, input_data.products)
+                contextual = contextual_product_ids(
+                    quote.quote,
+                    tuple(tools.observed_text.get(str(quote.source_id), ())),
+                    input_data.products,
+                )
+                if (
+                    named
+                    and signal.product_id not in named
+                    or not named
+                    and contextual != {signal.product_id}
+                ):
+                    raise ValueError(
+                        "Community quote does not identify its claimed product unambiguously."
+                    )
         target = (
             EvidenceTarget(
                 target_type=EvidenceTargetType.PRODUCT, product_id=signal.product_id

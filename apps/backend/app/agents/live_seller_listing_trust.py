@@ -341,6 +341,9 @@ def _model_input(
             "evidence": [
                 evidence.model_dump(mode="json") for evidence in input_data.evidence
             ],
+            "evidence_gaps": [
+                gap.model_dump(mode="json") for gap in input_data.evidence_gaps
+            ],
             "rule_based_assessment": rule_based.model_dump(mode="json"),
             "advisory_concern_signal_kinds": [
                 signal.kind.value for signal in _advisory_concern_signals(rule_based)

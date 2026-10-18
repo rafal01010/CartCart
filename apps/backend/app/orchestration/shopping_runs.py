@@ -155,7 +155,15 @@ from app.schemas.runs import (
     RunStatus,
     ShoppingRunRecord,
 )
+from app.services.reusable_source_evidence import (
+    ReusableSourceProjection,
+    project_reusable_source_bundles,
+    merge_source_evidence,
+)
 from app.schemas.search_sources import (
+    AmazonEvidenceContext,
+    IKEAEvidenceContext,
+    SourceEvidenceGap,
     AmazonProductEvidenceBundle,
     CommunityDiscussionEvidenceBundle,
     EvidenceTarget,
@@ -814,6 +822,15 @@ class RepositoryShoppingRunPersistenceHooks:
                 "source intelligence persistence requires all source repositories."
             )
 
+        projection = project_reusable_source_bundles((
+            *output.video_bundles, *output.community_bundles,
+            *output.amazon_bundles, *output.ikea_bundles,
+        ))
+        merge_source_evidence(
+            await self._search_source_repository.list_source_evidence(context.run_id),
+            projection.evidence,
+        )
+
         for bundle in output.video_bundles:
             await self._persist_bundle_source_snapshots(
                 context,
@@ -862,6 +879,11 @@ class RepositoryShoppingRunPersistenceHooks:
             await self._source_intelligence_repository.add_ikea_store_bundle(
                 context.run_id,
                 ikea_bundle,
+            )
+
+        for item in projection.evidence:
+            await self._search_source_repository.save_source_evidence(
+                context.run_id, item
             )
 
     async def _persist_bundle_source_snapshots(
@@ -2932,10 +2954,20 @@ class ShoppingRunOrchestrator:
     ) -> FixtureStageOutput:
         listings = _listing_trust_targets(context)
         contexts = price_plausibility_contexts(_listing_groups_by_product(listings))
-        evidence_by_listing_id = _evidence_by_listing_id(_analysis_evidence(context))
+        all_evidence = _analysis_evidence(context)
+        products = {item.product_id: item for item in _analysis_products(context)}
         assessments: list[ListingTrustAssessment] = []
         for listing in listings:
-            evidence = evidence_by_listing_id.get(listing.listing_id, ())
+            product = products.get(listing.product_id)
+            evidence = (
+                _evidence_for_product(product, (listing,), all_evidence)
+                if product is not None
+                else tuple(
+                    item
+                    for item in all_evidence
+                    if item.target.listing_id == listing.listing_id
+                )
+            )
             rule_based_assessment = assess_listing_trust(
                 listing,
                 contexts.get(listing.listing_id),
@@ -2949,6 +2981,12 @@ class ShoppingRunOrchestrator:
                             context.active_brief, self._default_region_code
                         ),
                         evidence=evidence,
+                        evidence_gaps=_evidence_gaps_for_scope(
+                            context,
+                            listing.product_id,
+                            (listing,),
+                            evidence,
+                        ),
                         rule_based_assessment=rule_based_assessment,
                     )
                 )
@@ -3019,6 +3057,12 @@ class ShoppingRunOrchestrator:
                         product=product,
                         listings=product_listings,
                         evidence=product_evidence,
+                        evidence_gaps=_evidence_gaps_for_scope(
+                            context,
+                            product.product_id,
+                            product_listings,
+                            product_evidence,
+                        ),
                     )
                 )
             )
@@ -3139,6 +3183,7 @@ class ShoppingRunOrchestrator:
                         category_analyses=context.category_analyses,
                         trust_assessments=context.trust_assessments,
                         evidence=_analysis_evidence(context),
+                        evidence_gaps=_analysis_evidence_gaps(context),
                         source_results=context.search_results,
                         source_snapshots=context.saved_source_snapshots,
                         user_added_products=_user_added_products(context),
@@ -3172,6 +3217,7 @@ class ShoppingRunOrchestrator:
                 trust_assessments=context.trust_assessments,
                 deduplication_decisions=_deduplication_decisions(context),
                 evidence=evidence,
+                evidence_gaps=_analysis_evidence_gaps(context),
                 user_added_products=_user_added_products(context),
                 source_results=context.search_results,
                 source_snapshots=context.saved_source_snapshots
@@ -3361,7 +3407,10 @@ class ShoppingRunOrchestrator:
                     ),
                 )
                 context.owner_products = (*context.owner_products, product)
-            if selected is not None and candidate.name.casefold() == selected.name.casefold():
+            if (
+                selected is not None
+                and candidate.name.casefold() == selected.name.casefold()
+            ):
                 selected_product = product
             if candidate.choice_group == "primary":
                 primary_product_ids.append(product.product_id)
@@ -3420,7 +3469,13 @@ class ShoppingRunOrchestrator:
             all_evidence_ids.extend(associations)
             all_source_ids.extend(associated_sources)
         selected_mode = next(
-            (item for item in modes if selected_product is not None and item.product_id == selected_product.product_id), None
+            (
+                item
+                for item in modes
+                if selected_product is not None
+                and item.product_id == selected_product.product_id
+            ),
+            None,
         )
         return RecommendationBundle(
             **provenance,
@@ -3714,12 +3769,88 @@ def _analysis_listings(context: ShoppingRunContext) -> tuple[ProductListing, ...
     return _unique_listings(listings)
 
 
-def _analysis_evidence(context: ShoppingRunContext) -> tuple[SourceEvidence, ...]:
-    return (
-        *context.extraction_evidence,
-        *(context.fixture_output.source_evidence if context.fixture_output else ()),
-        *context.owner_evidence,
+def _analysis_source_projection(
+    context: ShoppingRunContext,
+) -> ReusableSourceProjection:
+    output = context.source_intelligence
+    if output is None:
+        return ReusableSourceProjection()
+    projection = project_reusable_source_bundles(
+        (
+            *output.video_bundles,
+            *output.community_bundles,
+            *output.amazon_bundles,
+            *output.ikea_bundles,
+        )
     )
+    return projection
+
+
+def _analysis_evidence(context: ShoppingRunContext) -> tuple[SourceEvidence, ...]:
+    return merge_source_evidence(
+        context.extraction_evidence,
+        tuple(
+            item for item in context.fixture_output.source_evidence
+            if item.evidence_id not in {record.evidence_id for record in context.extraction_evidence}
+        ) if context.fixture_output else (),
+        context.owner_evidence,
+        _analysis_source_projection(context).evidence,
+    )
+
+
+def _analysis_evidence_gaps(
+    context: ShoppingRunContext,
+) -> tuple[SourceEvidenceGap, ...]:
+    return _analysis_source_projection(context).gaps
+
+
+def _evidence_gaps_for_scope(
+    context: ShoppingRunContext,
+    product_id: ProductId,
+    listings: tuple[ProductListing, ...],
+    evidence: tuple[SourceEvidence, ...],
+) -> tuple[SourceEvidenceGap, ...]:
+    products = _analysis_products(context)
+    all_listings = _analysis_listings(context)
+    all_evidence = _analysis_evidence(context)
+    product = next((item for item in products if item.product_id == product_id), None)
+    listing_ids = {item.listing_id for item in listings}
+    source_ids = _scope_source_ids(product, listings, evidence)
+    known_sources = set().union(*(
+        _scope_source_ids(
+            item,
+            product_listings := tuple(row for row in all_listings if row.product_id == item.product_id),
+            _evidence_for_product(item, product_listings, all_evidence),
+        )
+        for item in products
+    ))
+    known_sources.update(_scope_source_ids(None, all_listings, ()))
+    selected = []
+    for gap in _analysis_evidence_gaps(context):
+        if gap.target is not None and (
+            gap.target.product_id not in {None, product_id}
+            or gap.target.listing_id not in {None, *listing_ids}
+        ):
+            continue
+        source_id = gap.source_id or (gap.target.source_id if gap.target is not None else None)
+        if source_id is not None and source_id in known_sources and source_id not in source_ids:
+            continue
+        selected.append(gap)
+    return tuple(selected)
+
+
+def _scope_source_ids(
+    product: CanonicalProduct | None,
+    listings: tuple[ProductListing, ...],
+    evidence: tuple[SourceEvidence, ...],
+) -> set[SourceId]:
+    return {
+        *(product.source_ids if product else ()),
+        *(item.source_id for item in evidence),
+        *(source_id for listing in listings for source_id in listing.source_ids),
+        *(source_id for listing in listings for source_id in listing.seller.source_ids),
+        *(source_id for listing in listings for region in listing.region_availability for source_id in region.source_ids),
+    }
 
 
 def _user_added_products(context: ShoppingRunContext):
@@ -3760,9 +3891,33 @@ def _evidence_for_product(
                 and item.target.listing_id in listing_ids
             )
             or item.source_id in source_ids
+            or _context_matches_product(item, product.product_id, listing_ids)
         )
     )
     return selected
+
+
+def _context_matches_product(
+    evidence: SourceEvidence, product_id: ProductId, listing_ids: set[ListingId]
+) -> bool:
+    context = evidence.reusable_source_context
+    if not isinstance(context, (AmazonEvidenceContext, IKEAEvidenceContext)):
+        return False
+    related_products = {
+        target.product_id
+        for target in context.related_targets
+        if target.product_id is not None
+    }
+    related_listings = {
+        target.listing_id
+        for target in context.related_targets
+        if target.listing_id is not None
+    }
+    return (related_products == {product_id} and not related_listings) or (
+        bool(related_listings)
+        and related_listings.issubset(listing_ids)
+        and related_products.issubset({product_id})
+    )
 
 
 def _unique_listings(
@@ -3781,17 +3936,6 @@ def _listing_groups_by_product(
     for listing in listings:
         groups.setdefault(listing.product_id, []).append(listing)
     return tuple(tuple(group) for group in groups.values())
-
-
-def _evidence_by_listing_id(
-    evidence: tuple[SourceEvidence, ...],
-) -> dict[ListingId, tuple[SourceEvidence, ...]]:
-    grouped: dict[ListingId, list[SourceEvidence]] = {}
-    for item in evidence:
-        listing_id = item.target.listing_id
-        if listing_id is not None:
-            grouped.setdefault(listing_id, []).append(item)
-    return {listing_id: tuple(items) for listing_id, items in grouped.items()}
 
 
 def _orchestrator_error(

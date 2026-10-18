@@ -130,16 +130,20 @@ def source_packets(
     orphan_claims: dict[str, list[SourceEvidence]] = {}
     for item in evidence:
         if item.source_id not in represented and not item.metadata_only:
-            key = equivalent_url(str(item.video.url)) if item.video else str(item.source_id)
+            key = (equivalent_url(str(item.video.url)) if item.video else
+                equivalent_url(str(item.reusable_source_context.source_reference.url))
+                if item.reusable_source_context is not None else str(item.source_id))
             orphan_claims.setdefault(key, []).append(item)
     for claims in orphan_claims.values():
         identifiers = tuple(dict.fromkeys(item.source_id for item in claims))
         support = {span.segment_id: span for item in claims for span in item.transcript_support}
         video = next((item.video for item in claims if item.video is not None), None)
+        reference = next((item.reusable_source_context.source_reference for item in claims if item.reusable_source_context is not None), None)
         original = "\n".join(dict.fromkeys([*(item.claim for item in claims if not item.transcript_support), *(span.text for span in support.values())]))
         packets.append(DecisionSourcePacket(
             source_id=identifiers[0], equivalent_source_ids=identifiers[1:],
-            url=equivalent_url(str(video.url)) if video else "", title=video.title or "Review speech" if video else "Saved source note",
+            url=equivalent_url(str(video.url)) if video else equivalent_url(str(reference.url)) if reference else "",
+            title=(video.title or "Review speech") if video else (reference.title or "Saved source note") if reference else "Saved source note",
             content_kind="accepted_speech" if support else "source_note", source_notes=tuple(item.claim for item in claims if not item.transcript_support),
             candidate_names=tuple(dict.fromkeys(product_names[str(item.target.product_id)] for item in claims if str(item.target.product_id) in product_names)),
             evidence_ids=tuple(item.evidence_id for item in claims),

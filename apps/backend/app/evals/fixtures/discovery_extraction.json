@@ -2685,6 +2685,640 @@
           "dedupe"
         ]
       }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/query-identified-offer",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/product?sku=A55&utm_source=fixture&tag=affiliate",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000; Sold by First Fixture Store. Available in PH. 1440p resolution. Navigation https://store.example/product Other model https://store.example/product?sku=A56",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/product?sku=A55",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.products.*.name",
+            "value": [
+              "Harbor M27 Monitor"
+            ],
+            "requirement": "One supported product.",
+            "operator": "set_equals"
+          },
+          {
+            "field": "extraction.listings.0.price.amount",
+            "value": "15000",
+            "requirement": "Keep exact price, separate from product specs.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.seller.seller_name",
+            "value": "First Fixture Store",
+            "requirement": "Correct seller identity.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.region_availability.0.status",
+            "value": "available",
+            "requirement": "Explicit PH availability preserved.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.claim",
+            "value": "1440p resolution.",
+            "requirement": "Do not embellish supported specification.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.target.product_id",
+            "value": "00000000-0000-4000-8000-0000000ef435",
+            "requirement": "Evidence targets the extracted product.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.source_evidence.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Evidence cites the actual snapshot.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps",
+            "value": [],
+            "requirement": "Valid extraction should not be swallowed into a fallback gap.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.listings.0.url",
+            "value": "https://store.example/product?sku=A55",
+            "requirement": "Retain the inspected SKU in the neutral outbound offer.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Synthetic Task 193 query-defined offer through production extraction validation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-193",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/reject-stripped-query-identity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/product?sku=A55",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000; Sold by First Fixture Store. Available in PH. 1440p resolution. Navigation https://store.example/product Other model https://store.example/product?sku=A56",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/product",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.listings",
+            "value": 0,
+            "requirement": "Do not publish an offer whose identity differs from the inspected page.",
+            "operator": "count"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Keep an explicit gap linked to the actual inspected source.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.summary",
+            "value": "Agent extraction was invalid or timed out.",
+            "requirement": "Invalid destination identity yields the public extraction gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Synthetic Task 193 query-defined offer through production extraction validation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-193",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/reject-changed-query-identity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/product?sku=A55",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000; Sold by First Fixture Store. Available in PH. 1440p resolution. Navigation https://store.example/product Other model https://store.example/product?sku=A56",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/product?sku=A56",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.listings",
+            "value": 0,
+            "requirement": "Do not publish an offer whose identity differs from the inspected page.",
+            "operator": "count"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Keep an explicit gap linked to the actual inspected source.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.summary",
+            "value": "Agent extraction was invalid or timed out.",
+            "requirement": "Invalid destination identity yields the public extraction gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Synthetic Task 193 query-defined offer through production extraction validation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-193",
+          "extraction"
+        ]
+      }
+    },
+    {
+      "schema_version": 1,
+      "name": "extraction/withhold-unsupported-query-identity",
+      "inputs": {
+        "schema_version": 1,
+        "stage": "extraction",
+        "extraction": {
+          "request": {
+            "schema_version": 1,
+            "run_id": "00000000-0000-4000-8000-0000000ef420",
+            "snapshot_ids": [
+              "00000000-0000-4000-8000-0000000ef434"
+            ],
+            "category": "monitor",
+            "workbench_snapshots": [
+              {
+                "schema_version": 1,
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "url": "https://store.example/product?configuration=A55",
+                "title": "Harbor M27 Monitor",
+                "source_type": "retailer_listing",
+                "provider": {
+                  "provider_name": "eval-synthetic"
+                },
+                "captured_at": "2026-10-03T00:00:00Z",
+                "extraction_status": "succeeded",
+                "quality": {
+                  "level": "adequate"
+                },
+                "extracted_content": {
+                  "text": "Harbor M27 monitor. PHP 15,000; Sold by First Fixture Store. Available in PH. 1440p resolution. Navigation https://store.example/product Other model https://store.example/product?sku=A56",
+                  "extractor": "synthetic",
+                  "word_count": 15
+                }
+              }
+            ],
+            "editorial_snapshot_ids": [],
+            "collection_snapshot_ids": []
+          },
+          "normalization": false,
+          "model_output": {
+            "products": [
+              {
+                "schema_version": 1,
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "name": "Harbor M27 Monitor",
+                "brand": "Harbor",
+                "model": "M27",
+                "category": "monitor",
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "listing_ids": [
+                  "00000000-0000-4000-8000-0000000ef436"
+                ]
+              }
+            ],
+            "listings": [
+              {
+                "schema_version": 1,
+                "listing_id": "00000000-0000-4000-8000-0000000ef436",
+                "product_id": "00000000-0000-4000-8000-0000000ef435",
+                "title": "Harbor M27 Monitor",
+                "url": "https://store.example/product",
+                "seller": {
+                  "seller_name": "First Fixture Store",
+                  "source_ids": [
+                    "00000000-0000-4000-8000-0000000ef434"
+                  ],
+                  "trust_signal": "unknown"
+                },
+                "price": {
+                  "amount": "15000",
+                  "currency": "PHP"
+                },
+                "region_availability": [
+                  {
+                    "region_code": "PH",
+                    "status": "available",
+                    "source_ids": [
+                      "00000000-0000-4000-8000-0000000ef434"
+                    ],
+                    "checked_at": "2026-10-03T00:00:00Z"
+                  }
+                ],
+                "source_quality": {
+                  "level": "adequate"
+                },
+                "source_ids": [
+                  "00000000-0000-4000-8000-0000000ef434"
+                ],
+                "captured_at": "2026-10-03T00:00:00Z"
+              }
+            ],
+            "source_evidence": [
+              {
+                "evidence_id": "00000000-0000-4000-8000-0000000ef437",
+                "source_id": "00000000-0000-4000-8000-0000000ef434",
+                "target": {
+                  "target_type": "product",
+                  "product_id": "00000000-0000-4000-8000-0000000ef435"
+                },
+                "evidence_type": "product_spec",
+                "claim": "1440p resolution.",
+                "confidence": {
+                  "level": "medium",
+                  "score": 0.7
+                },
+                "source_quality": {
+                  "level": "adequate"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expected_output": {
+        "fields": [
+          {
+            "field": "extraction.listings",
+            "value": 0,
+            "requirement": "Do not publish an offer whose identity differs from the inspected page.",
+            "operator": "count"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.source_id",
+            "value": "00000000-0000-4000-8000-0000000ef434",
+            "requirement": "Keep an explicit gap linked to the actual inspected source.",
+            "operator": "equals"
+          },
+          {
+            "field": "extraction.evidence_gaps.0.summary",
+            "value": "Agent extraction was invalid or timed out.",
+            "requirement": "Invalid destination identity yields the public extraction gap.",
+            "operator": "equals"
+          }
+        ],
+        "groups": []
+      },
+      "metadata": {
+        "description": "Synthetic Task 193 query-defined offer through production extraction validation.",
+        "tags": [
+          "offline",
+          "synthetic",
+          "task-193",
+          "extraction"
+        ]
+      }
     }
   ]
 }

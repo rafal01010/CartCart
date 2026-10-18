@@ -2,22 +2,22 @@
 
 Task 221 is complete. Its final [acceptance handoff](TASK_221_IMPLEMENTATION_HANDOFF.md#final-remaining-live-acceptance-2026-10-18) and checked implementation entry record the corrected phone and ordinary backpack results, exact saved/API membership and actual desktop/mobile/source checks. Those passes do not need to be rechecked before each batch. Task 227 passed offline repair acceptance separately; its optional manual live question test is not a new P1 prerequisite.
 
-This audit checks current code and retained acceptance rather than assuming historical unchecked entries still describe defects. No application implementation, browser journey, model/provider call or new live-run task was performed.
+The original audit below was read-only. A subsequent implementation batch completed Tasks 179 and 193 with attribution prerequisite 188. Its final acceptance passed 59 offline checks. [Implementation handoff](TASK_179_193_IMPLEMENTATION_HANDOFF.md) records the changes, preserved work and historical gate limits. No live calls or browser journeys ran in that batch.
 
 ## Current disposition
 
 | Task | Disposition | Current evidence and remaining scope |
 | --- | --- | --- |
-| 179 | Pending, partly covered | Normal owner conversion reloads persisted evidence and Task 227 retains consultation packets for recovery. The separate reusable-source stage still stores bundles without adding their claims to `_analysis_evidence`, which feeds shared analysis/trust/comparison inputs. The local collector probe gives three bundled speech claims and zero shared collector claims. Complete that remaining consumer wiring and its relevant attribution/gap acceptance. |
+| 179 | Complete | Validated source claims, context, warnings and gaps reach shared typed consumers. Fresh SQLite reload resolves saved recommendation citations to exact canonical support. Source attribution prerequisite 188 and prewrite collision controls pass. |
 | 181 | Closed, already fixed by later implementation | Actual normalization preserves the cited concern over a strong rule baseline. Temporary SQLite and fresh-session reload preserve the complete assessment, source/evidence IDs, scoped warning and result source projection. Persisted assessments retain precedence in owner inputs. Historical deterministic blocking requirements were superseded by Task 216. |
 | 191 | Closed as superseded by completed Task 216 | Mandatory within-budget alternatives and automatic budget rejection conflict with the owner's current policy. Normal/saved instructions preserve budget/currency and request clear stretch explanations; the retained comparison exposes known overage and preserves model-authored advice. Existing live budget acceptance and three focused local controls cover the current policy. |
-| 193 | Pending, partly covered | Lower-level URL normalization and dedup retain functional queries. Research/discovery/snapshot projections still strip `sku`, and extraction rejects query-bearing original listings while accepting the stripped destination. Complete those consumer boundaries and exact identity/persistence controls. |
+| 193 | Complete | Approved functional queries survive SDK tools, discovery, persisted sources, snapshot reads and public extraction. Stripped or changed identity fails; observed query-based collection links remain valid. |
 
-## Task 179 evidence
+## Original Task 179 audit evidence
 
-`app/orchestration/shopping_runs.py` assigns and persists `context.source_intelligence` in its source-manager/provider paths. `_analysis_evidence` returns extraction, fixture and owner evidence only. Its source bundles are absent. The normal `_owner_recommendation` path separately reloads stored evidence into `context.owner_evidence`, so this is not a claim that every normal result loses every source. Task 227's recovery packet adapter is also useful existing work to reuse, not proof that the shared typed consumers are repaired.
+Before implementation, `app/orchestration/shopping_runs.py` assigned and persisted `context.source_intelligence` without including its bundles in `_analysis_evidence`. The normal `_owner_recommendation` path separately reloads stored evidence into `context.owner_evidence`, so this is not a claim that every normal result loses every source. Task 227's recovery packet adapter is also useful existing work to reuse, not proof that the shared typed consumers are repaired.
 
-Reproduce the no-provider collector probe from `apps/backend` with `PYTHONPATH=. UV_CACHE_DIR=/private/tmp/cartcart-uv-cache uv run --offline python ../../data/artifacts/p1-readiness-20261018/check_source_collector.py`. It uses the existing frozen caption fixture and a typed in-memory context. Output is three bundled claims, zero shared collector claims. It does not fetch transcripts or modify saved runs.
+The retained no-provider collector probe at `data/artifacts/p1-readiness-20261018/check_source_collector.py` asserted the original omission with three bundled claims and zero shared claims. It is historical failing-behavior evidence, not a current acceptance command. Current consumer, persistence and provenance controls are in `apps/backend/tests/test_task179_source_consumers.py`. Saved captions were reused without fetching them again.
 
 ## Task 181 evidence
 
@@ -33,14 +33,14 @@ Two existing focused tests passed in 1.11 seconds: `test_live_seller_listing_tru
 
 Three existing local controls passed in 1.35 seconds: `test_comparison_preserves_uncited_over_budget_model_selection_without_modes`, `test_comparison_input_exposes_budget_difference_and_unknowns_as_advice`, and `test_optional_modes_sources_budget_and_copy_are_model_judgments`. They use synthetic output and prove policy/context wiring; the historical live refinement supplies the real judgment evidence. No fresh live call was needed.
 
-## Task 193 evidence
+## Original Task 193 audit evidence
 
-`app/providers/source_quality.py::normalize_source_url` and `app/services/product_deduplication.py::canonical_listing_url` retain `sku` and remove tracking. In contrast, the `_neutral_url` functions in `app/agents/research_tools.py` and `live_discovery.py`, and the snapshot reader in `extraction_tools.py`, strip functional queries. `live_extraction.py::_validate_extraction` rejects any query and then compares identity against the already stripped readable URL.
+At audit time, `normalize_source_url` and `canonical_listing_url` retained `sku` while research, discovery and snapshot projections stripped it. Extraction then rejected the original query-defined offer. The implementation now uses a shared approved outbound policy and validates the inspected item identity.
 
-The read-only local actual-function probe retained `/product?sku=A55` at the lower layers, produced `/product` in research/discovery, rejected the original query-defined listing and accepted the stripped one. This is an observed current implementation gap, not a reason to rerun paid shopping research.
+The read-only local actual-function probe retained `/product?sku=A55` at the lower layers, produced `/product` in research/discovery, rejected the original query-defined listing and accepted the stripped one. That recorded gap is now repaired and covered by offline public-tool and extraction controls.
 
 ## Execution authorization
 
 Use the lean active prompt in [TASK_EXECUTION_PROMPTS.md](../TASK_EXECUTION_PROMPTS.md#execute-a-later-batch-of-at-most-two-tasks). Necessary task-local live model, research and provider calls, including bounded retries, have standing owner authorization within existing settings and spending limits. End-to-end app journeys in a browser are separate tasks the owner will request. Do not create those tasks proactively. Completed P0 gates are reused.
 
-The current next batch is Tasks 179 and 193. Tasks 181 and 191 have been reconciled and closed; do not reimplement their historical policies. Continue to P2 after the remaining P1 acceptance passes.
+P1 is reconciled. Tasks 179, 188 and 193 passed implementation acceptance; Tasks 181 and 191 remain closed. The next recommended batch is 132 then 128. Preserve current recommendation policy and the batch handoff's distinction between passing task acceptance and historical broad-gate failures.

@@ -157,8 +157,11 @@ from app.agents.youtube_review_intelligence_service import (
     YouTubeReviewIntelligenceService,
 )
 from app.agents.live_youtube_review_intelligence import (
+    InterpretedVideoClaim,
     MockYouTubeReviewModelRunner,
+    SelectedVideo,
     YouTubeReviewIntelligenceAgent,
+    YouTubeReviewModelOutput,
 )
 from app.agents.openai_config import (
     OpenAIAgentConfigurationError,
@@ -1047,7 +1050,15 @@ def _dump_output(output: Any) -> dict[str, Any] | list[Any]:
 
 def _workbench_activity(agent: Any) -> tuple[WorkbenchToolActivity, ...]:
     raw_items = getattr(agent, "workbench_activity", ())
-    return tuple(WorkbenchToolActivity.model_validate(item) for item in raw_items)
+    return tuple(
+        WorkbenchToolActivity(
+            tool_name=item["tool_name"],
+            status=item["status"],
+            input=item.get("input"),
+            output=item.get("output"),
+        )
+        for item in raw_items
+    )
 
 
 def _build_workbench_definitions(
@@ -1296,6 +1307,7 @@ def _build_workbench_definitions(
                 _scenario_youtube_monitor_review_transcript,
                 _scenario_youtube_no_transcript_gap,
                 _scenario_youtube_transcript_provider_failure,
+                _scenario_youtube_alpha_beta_statement_attribution,
             ),
             mock_agent_factory=_mock_youtube_review_intelligence_agent,
             live_agent_factory=_live_youtube_review_intelligence_agent,
@@ -1792,7 +1804,7 @@ def _mock_youtube_review_intelligence_agent(
         settings=settings,
         video_search_provider=FakeVideoSearchProvider(),
         transcript_provider=_WorkbenchYouTubeTranscriptProvider(),
-        model_runner=MockYouTubeReviewModelRunner(),
+        model_runner=_WorkbenchYouTubeReviewModelRunner(),
     )
 
 
@@ -1906,6 +1918,27 @@ class _WorkbenchYouTubeTranscriptProvider:
         options: TranscriptProviderOptions | None = None,
     ) -> TranscriptProviderResult:
         del options
+        if video.video_id == "ccAttribution188":
+            return TranscriptProviderResult(
+                status=ProviderRunStatus.SUCCEEDED,
+                capabilities=self.capabilities,
+                video=video.model_copy(update={
+                    "transcript_availability": TranscriptAvailability.AVAILABLE,
+                }),
+                availability=TranscriptAvailability.AVAILABLE,
+                segments=tuple(
+                    VideoTranscriptSegment(
+                        video_id=video.video_id,
+                        start_seconds=float(index * 10),
+                        end_seconds=float(index * 10 + 8),
+                        text=text,
+                    )
+                    for index, text in enumerate((
+                        "Pro: Alpha Monitor has sharp text.",
+                        "Con: Beta Monitor has poor brightness.",
+                    ))
+                ),
+            )
         if video.video_id == "ccTranscriptFail01":
             raise RuntimeError("Synthetic transcript provider failure")
         if video.video_id == "ccNoTrans01":
@@ -1960,6 +1993,36 @@ class _WorkbenchYouTubeTranscriptProvider:
             ),
             availability=TranscriptAvailability.AVAILABLE,
             segments=segments,
+        )
+
+
+class _WorkbenchYouTubeReviewModelRunner(MockYouTubeReviewModelRunner):
+    async def run(
+        self, agent: Any, model_input: str, *, run_config: Any,
+        max_turns: int, tools: Any,
+    ) -> Any:
+        if not tools.bundle or not any(
+            video.video_id == "ccAttribution188" for video in tools.bundle.videos
+        ):
+            return await super().run(
+                agent, model_input, run_config=run_config,
+                max_turns=max_turns, tools=tools,
+            )
+        metadata = await tools.metadata("ccAttribution188")
+        transcript = await tools.transcript("ccAttribution188")
+        product = next(item for item in tools.input_data.products if item.name == "Beta Monitor")
+        segment = transcript["segments"][1]
+        return YouTubeReviewModelOutput(
+            selected_videos=(SelectedVideo(
+                video_id="ccAttribution188", source_id=metadata["source_id"],
+                relevance_reason="Recorded multi-product statement attribution control.",
+            ),),
+            claims=(InterpretedVideoClaim(
+                video_id="ccAttribution188", source_id=metadata["source_id"],
+                product_id=product.product_id,
+                transcript_segment_id=segment["segment_id"], quote=segment["text"],
+                signal_kind="con", interpretation="Reviewer reports poor brightness for Beta Monitor.",
+            ),),
         )
 
 
@@ -4613,6 +4676,29 @@ def _scenario_youtube_no_transcript_gap() -> AgentWorkbenchScenario:
                     video_id="ccNoTrans01",
                     title="Fixture Monitor short review without captions",
                     description="Workbench video metadata only.",
+                ),
+            ),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_youtube_alpha_beta_statement_attribution() -> AgentWorkbenchScenario:
+    return _scenario(
+        "youtube/alpha-beta-statement-attribution",
+        "Keep a Beta review statement attached to Beta when Alpha is the first candidate.",
+        YouTubeReviewIntelligenceAgentInput(
+            run_id=new_id(),
+            brief=ShoppingBrief(original_query="Compare Alpha Monitor and Beta Monitor."),
+            products=tuple(
+                CanonicalProduct(name=name, model=name, category="monitor")
+                for name in ("Alpha Monitor", "Beta Monitor")
+            ),
+            source_snapshots=(
+                _youtube_video_snapshot(
+                    video_id="ccAttribution188",
+                    title="Alpha Monitor and Beta Monitor comparison review",
+                    description="Recorded multi-product review with timestamped statements.",
                 ),
             ),
         ),

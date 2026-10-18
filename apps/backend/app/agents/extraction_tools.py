@@ -16,6 +16,7 @@ from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.source_intelligence import SourceIntelligenceRepository
 from app.db.repositories.video_sources import VideoReviewRepository
 from app.schemas.base import CartCartBaseModel
+from app.providers.outbound_urls import neutral_outbound_url
 from app.schemas.ids import RunId, SourceId
 from app.schemas.search_sources import (
     AmazonListingContext,
@@ -252,11 +253,12 @@ class SnapshotInterpretationTools:
                 if timestamp is not None:
                     timestamps.append(timestamp)
             offset += len(part_text) + 1
+        neutral_url = neutral_outbound_url(str(snapshot.url))
         result = SnapshotReadResult(
             status="succeeded" if bounded else "gap",
             snapshot_id=parsed_id,
             title=snapshot.title,
-            url=str(snapshot.url).split("?", 1)[0].split("#", 1)[0],
+            url=neutral_url,
             provider_source_type=snapshot.source_type.value,
             extraction_status=snapshot.extraction_status,
             text=bounded,
@@ -264,7 +266,13 @@ class SnapshotInterpretationTools:
             total_characters=span.total_characters if span else 0,
             content_sha256=span.content_sha256 if span else None,
             text_truncated=text is not None and len(text) > len(bounded or ""),
-            gap=None if bounded else "No extracted page text is available.",
+            gap=(
+                "Source destination contains unsupported or unsafe URL data."
+                if neutral_url is None
+                else None
+                if bounded
+                else "No extracted page text is available."
+            ),
             source_part_ids=tuple(observed_parts),
             timestamp_references=tuple(timestamps),
         )

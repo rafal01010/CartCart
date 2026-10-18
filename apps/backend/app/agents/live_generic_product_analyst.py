@@ -209,7 +209,7 @@ def _model_input(input_data: ProductAnalysisAgentInput) -> str:
             "listings": [
                 listing.model_dump(mode="json") for listing in input_data.listings
             ],
-            **evidence_model_fields(input_data.evidence),
+            **evidence_model_fields(input_data.evidence, input_data.evidence_gaps),
         },
         sort_keys=True,
     )

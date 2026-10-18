@@ -853,7 +853,28 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
         assert len(source_snapshots) == (
             len(fixture.source_snapshots) + source_intelligence_source_count
         )
-        assert len(source_evidence) == len(fixture.source_evidence)
+        expected_evidence = {
+            item.evidence_id: (item.source_id, item.target, item.claim)
+            for item in fixture.source_evidence
+        }
+        expected_evidence.update({
+            item.evidence_id: (item.source_id, item.target, item.claim)
+            for item in context.extraction_evidence
+        })
+        for bundle in (
+            *context.source_intelligence.video_bundles,
+            *context.source_intelligence.community_bundles,
+            *context.source_intelligence.amazon_bundles,
+            *context.source_intelligence.ikea_bundles,
+        ):
+            expected_evidence.update({
+                item.evidence_id: (item.source_id, item.target, item.claim)
+                for item in bundle.evidence
+            })
+        assert {
+            item.evidence_id: (item.source_id, item.target, item.claim)
+            for item in source_evidence
+        } == expected_evidence
         assert video_sources
         assert community_evidence
         assert amazon_evidence

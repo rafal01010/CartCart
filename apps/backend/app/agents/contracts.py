@@ -38,6 +38,7 @@ from app.schemas.search_sources import (
     SearchPlan,
     SearchResult,
     SourceEvidence,
+    SourceEvidenceGap,
     SourceSnapshot,
     SourceType,
     VideoReviewEvidenceBundle,
@@ -444,6 +445,7 @@ class ProductAnalysisAgentInput(VersionedSchema):
     product: CanonicalProduct
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
 
 
 class SellerListingTrustAgentInput(VersionedSchema):
@@ -451,6 +453,7 @@ class SellerListingTrustAgentInput(VersionedSchema):
     listing: ProductListing
     target_region_code: RegionCode | None = None
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
     rule_based_assessment: ListingTrustAssessment | None = None
 
 
@@ -516,6 +519,7 @@ class ComparisonDecisionAgentInput(VersionedSchema):
         default_factory=tuple
     )
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
     source_results: tuple[SearchResult, ...] = Field(default_factory=tuple)
     source_snapshots: tuple[SourceSnapshot, ...] = Field(default_factory=tuple)
     user_added_products: tuple[UserAddedProduct, ...] = Field(default_factory=tuple)
@@ -528,6 +532,7 @@ class VerificationAgentInput(VersionedSchema):
     products: tuple[CanonicalProduct, ...] = Field(default_factory=tuple)
     listings: tuple[ProductListing, ...] = Field(default_factory=tuple)
     evidence: tuple[SourceEvidence, ...] = Field(default_factory=tuple)
+    evidence_gaps: tuple[SourceEvidenceGap, ...] = Field(default_factory=tuple)
     trust_assessments: tuple[ListingTrustAssessment, ...] = Field(default_factory=tuple)
     category_analyses: tuple[CategoryAnalysis, ...] = Field(default_factory=tuple)
     deduplication_decisions: tuple[DeduplicationDecision, ...] = Field(

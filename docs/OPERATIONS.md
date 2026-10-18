@@ -1413,3 +1413,11 @@ Ordinary future execution batches contain at most two main tasks. Concrete neces
 ### Standing authorization for ordinary task batches
 
 Owner revision, 2026-10-18. Necessary live model, research and provider calls, including bounded retries, are authorized for ordinary task batches within existing configuration and spending limits. Reuse saved research and retain consumed usage/provenance. End-to-end app journeys in a browser are separate tasks requested by the owner. Do not start those journeys or create their tasks automatically. The active reusable prompt is at the top of TASK_EXECUTION_PROMPTS.md; older per-invocation authorization holds describe historical work.
+
+### Reusable evidence and listing-identity checks
+
+Tasks 179 and 193, with attribution prerequisite 188, use offline tools, explicit mock responses and disposable SQLite. The final focused acceptance passed 59 checks. Reuse completed P0 acceptance; browser journeys remain separately requested work. Models, reasoning, provider selections, limits and production source checkpoints are preserved.
+
+The workbench scenario `youtube/alpha-beta-statement-attribution` is available in fixture and mock modes. It checks that the exact Beta statement retains Beta's target and timestamp even with Alpha first. Internal timestamp telemetry is projected into the existing public workbench activity fields.
+
+The broader source and discovery eval lanes retain historical failures documented in [the batch handoff](TASK_179_193_IMPLEMENTATION_HANDOFF.md). Do not restore deterministic recommendation vetoes to satisfy those older expectations. The task-local evidence and URL controls remain the acceptance proof for this batch. `data/artifacts/task179193/` contains commands, reports, baseline comparisons, typing results and the read-only preservation check.

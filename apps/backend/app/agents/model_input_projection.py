@@ -3,7 +3,7 @@ from collections.abc import Sequence
 import json
 from typing import Any
 
-from app.schemas.search_sources import SourceEvidence
+from app.schemas.search_sources import SourceEvidence, SourceEvidenceGap
 
 
 def model_input_json(payload: dict[str, Any]) -> str:
@@ -63,7 +63,9 @@ def restore_explanations(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def evidence_model_fields(evidence: Sequence[SourceEvidence]) -> dict[str, Any]:
+def evidence_model_fields(
+    evidence: Sequence[SourceEvidence], gaps: Sequence[SourceEvidenceGap] = ()
+) -> dict[str, Any]:
     rows = [item.model_dump(mode="json", exclude_none=True) for item in evidence]
     videos = Counter(
         json.dumps(row["video"], sort_keys=True) for row in rows if "video" in row
@@ -86,7 +88,9 @@ def evidence_model_fields(evidence: Sequence[SourceEvidence]) -> dict[str, Any]:
         "evidence": rows,
         **({"video_metadata": shared} if shared else {}),
         **(
-            {"evidence_gaps": ["No evidence is assigned to this product."]}
+            {"evidence_gaps": [gap.model_dump(mode="json") for gap in gaps]}
+            if gaps
+            else {"evidence_gaps": ["No evidence is assigned to this product."]}
             if not rows
             else {}
         ),

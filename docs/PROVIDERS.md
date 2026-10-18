@@ -48,7 +48,7 @@ applies call/result/text budgets, rejects obviously private or credentialed
 provider URLs, and commits search results and snapshots before returning IDs.
 The underlying HTTP extraction provider still enforces public-network checks,
 redirect, timeout, retry, and content-size limits. Tool output includes neutral
-query-free URLs, short excerpts, a safe provider label, and stable source or
+URLs with approved product or video identifiers, short excerpts, a safe provider label, and stable source or
 snapshot IDs, not raw provider metadata, artifact paths, or secrets. Provider
 exceptions become typed gaps without disclosing their messages. The SDK traces
 invocations when these tools are attached, and the same activity summaries fit
@@ -508,3 +508,9 @@ uv run pytest -q -m "not live_provider" \
   tests/test_shopping_run_orchestrator.py \
   tests/test_provider_documentation.py
 ```
+
+### Approved query identity
+
+`neutral_outbound_url` permits `sku`, `variant`, `product_id`, `productid`, `pid` and `item_id`. YouTube watch links also permit `v`. Identifier values retain their case and repeated query values. Values use the bounded identifier syntax declared in `providers/outbound_urls.py`. Known tracking, affiliate and query credential keys are removed. Userinfo and unsupported query destinations are withheld rather than changed into another product page.
+
+The same policy applies before new research search-result persistence, provider fetches, snapshot persistence and model projections. A returned unsafe or unsupported provider destination produces a typed fetch gap. Persisted historical URLs are not rewritten. Existing public-network, redirect, same-run ID, content and call limits remain in force.

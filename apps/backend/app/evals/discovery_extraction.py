@@ -24,6 +24,7 @@ from app.providers.source_quality import (
     SourceQualityMetadata,
     score_source_quality,
 )
+from app.providers.outbound_urls import neutral_outbound_url
 from app.schemas.base import CartCartBaseModel, VersionedSchema
 from app.schemas.ids import ListingId
 from app.schemas.products import (
@@ -322,7 +323,7 @@ class FixtureSnapshotTools(SnapshotInterpretationTools):
             status="succeeded" if text else "gap",
             snapshot_id=parsed,
             title=snapshot.title,
-            url=str(snapshot.url),
+            url=neutral_outbound_url(str(snapshot.url)),
             provider_source_type=snapshot.source_type.value,
             extraction_status=snapshot.extraction_status,
             text=bounded,

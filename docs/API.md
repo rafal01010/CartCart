@@ -749,3 +749,9 @@ The frozen `decision_sources` projection records the evidence actually transport
 Normal shopping HTTP request/result schemas are unchanged by the handoff repair. Internal SDK transfer inputs contain a reason; their tool destination is validated against the buyer route and hierarchy. A model-generated category label cannot veto an otherwise authorized transfer. Saved activity retains application-derived category context and actual SDK edges.
 
 An eligible failed specialist may complete through the existing Technology owner using retained research, without further tools or handoffs. This automatic recovery shares the current attempt's funding, usage and remaining timeout. It keeps the normal Technology output cap and existing recovery-turn bound. It does not create an explicit saved retry, a new run or a new allowance. A failed recovery still returns the existing failed-run contract and preserves usage. Result GET/reload remains read-only.
+
+### Reusable evidence and query-defined offers
+
+Public shopping endpoints are unchanged. New saved source evidence can include backend-owned `reusable_source_context`, containing its exact original typed record and linked source context. It is absent when unavailable, preserving older snapshot serialization. Internal analyst, trust, comparison and optional verifier inputs accept `evidence_gaps`, defaulting to an empty tuple. Gaps do not establish facts or force a recommendation outcome.
+
+Search/fetch/read tools retain approved query-defined identity such as `?sku=A55`. Source and snapshot IDs keep their existing run-scoped relationships. Unsupported destinations return an explicit gap or a withheld URL instead of a substituted base destination. Query credentials, tracking and fragments do not enter new persisted tool URLs. Extraction rejects changed or stripped item identifiers while retaining explicitly observed links from query-free collections.

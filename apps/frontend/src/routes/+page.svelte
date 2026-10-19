@@ -3,7 +3,7 @@
 	import { replaceState } from '$app/navigation';
 	import { createApiClient, subscribeToRunEvents } from '$lib/api/index.js';
 	import { userFacingErrorMessage } from '$lib/api/user-facing-error.js';
-	import type { GuidedAnswer, GuidedIntakeState, RunId, SessionId, SessionResultsResponse, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
+	import type { GuidedAnswer, GuidedIntakeState, RunEvent, RunId, SessionId, SessionResultsResponse, SessionStateResponse, ShoppingRunRecord } from '$lib/api/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import GuidedQuestion from '$lib/guided/GuidedQuestion.svelte';
@@ -29,11 +29,9 @@
 	import { STARTER_QUESTIONS } from '$lib/guided/starter-questions.js';
 	import ProcessingState from '$lib/run-progress/ProcessingState.svelte';
 	import {
-		applyShopperProgressEvent,
-		createInitialShopperProgress,
+		shopperProgressFromEvents,
 		isTerminalRunEvent,
 		shopperProgressHeadline,
-		type ShopperProgressItem,
 	} from '$lib/run-progress/run-progress.js';
 	import RecommendationResult from '$lib/results/RecommendationResult.svelte';
 	import { buildResultView, type ResultView } from '$lib/results/result-view.js';
@@ -64,7 +62,7 @@
 	let answerCache = $state<Record<string, GuidedAnswer>>({});
 	let guideError = $state<string | null>(null);
 	let isGuidedRequestPending = $state(false);
-	let shopperProgress = $state<ShopperProgressItem[]>(createInitialShopperProgress());
+	let runEvents = $state<RunEvent[]>([]);
 	let resultView = $state<ResultView | null>(null);
 	let currentSession = $state<SessionStateResponse | null>(null);
 	let displayedVersionId = $state<string | null>(null);
@@ -87,6 +85,7 @@
 		currentGuidedQuestion ? canContinueGuidedQuestion(currentGuidedQuestion, answerDraft) : false,
 	);
 	const isAtFirstGuidedQuestion = $derived(!guidedState?.navigation.can_go_back);
+	const shopperProgress = $derived(shopperProgressFromEvents(runEvents));
 	const progressHeadline = $derived(shopperProgressHeadline(shopperProgress));
 	const regionLabel = $derived(
 		currentSession?.current_brief.region
@@ -270,7 +269,7 @@
 		answerDraft = { ...EMPTY_GUIDED_DRAFT };
 		guideError = null;
 		resultView = null;
-		shopperProgress = createInitialShopperProgress();
+		runEvents = [];
 		closeRunEventSubscription();
 		homeState = 'question';
 	}
@@ -381,7 +380,7 @@
 		guideError = null;
 		resultView = null;
 		activeAnalysisRun = null;
-		shopperProgress = createInitialShopperProgress();
+		runEvents = [];
 		closeRunEventSubscription();
 		try {
 			homeState = 'processing';
@@ -407,7 +406,7 @@
 		if (request.sessionId !== sessionId || request.generation !== flowGeneration) return;
 		isGuidedRequestPending = true;
 		guideError = null;
-		shopperProgress = createInitialShopperProgress();
+		runEvents = [];
 		closeRunEventSubscription();
 		activeAnalysisRun = request;
 		homeState = 'processing';
@@ -487,7 +486,7 @@
 				{
 					onEvent: (event) => {
 						if (!isCurrentRun(request) || completionStarted || event.run_id !== request.runId) return;
-						shopperProgress = applyShopperProgressEvent(shopperProgress, event);
+						runEvents = [...runEvents, event];
 						if (!isTerminalRunEvent(event)) return;
 						completionStarted = true;
 						closeRunEventSubscription();

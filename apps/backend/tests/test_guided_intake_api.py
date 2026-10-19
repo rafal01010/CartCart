@@ -1,9 +1,12 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
+from agents import Agent, RunConfig
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.db.models  # noqa: F401
 from app.agents.contracts import QueryPlannerAgentInput
 from app.agents.live_query_planner import _model_input
-from app.core.settings import Settings
+from app.agents.live_guardrails import (
+    LiveShoppingScopeGuardrail,
+    MockShoppingGuardrailModelRunner,
+)
+from app.core.settings import AgentWorkflowMode, Settings
 from app.db.base import Base
 from app.db.session import (
     create_database_engine,
@@ -20,6 +27,7 @@ from app.db.session import (
 )
 from app.main import create_app
 from app.schemas.ids import new_id
+from app.schemas.guided_intake import ShoppingGuardrailResult
 from app.schemas.intake import ShoppingBrief
 from app.schemas.products import UserAddedProduct
 
@@ -631,3 +639,274 @@ def test_fixture_guide_does_not_semantically_classify_request(
     assert session["guide"]["status"] == "collecting"
     assert session["guide"]["guardrail"] is None
     assert session["guide"]["current_question"] is not None
+
+
+@dataclass
+class RecordingGuidedClassifier(MockShoppingGuardrailModelRunner):
+    inputs: list[dict[str, Any]] = field(default_factory=list)
+
+    async def run(
+        self,
+        agent: Agent[Any],
+        model_input: str,
+        *,
+        run_config: RunConfig,
+        max_turns: int,
+    ) -> Any:
+        self.inputs.append(json.loads(model_input))
+        return await super().run(
+            agent, model_input, run_config=run_config, max_turns=max_turns
+        )
+
+
+@pytest.fixture
+def guided_classifier(
+    guided_api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> RecordingGuidedClassifier:
+    classifier = RecordingGuidedClassifier()
+    guided_api_client.app.state.settings.agent_workflow_mode = AgentWorkflowMode.LIVE
+    monkeypatch.setattr(
+        "app.api.routes.guided_intake.LiveShoppingScopeGuardrail",
+        lambda *, settings: LiveShoppingScopeGuardrail(
+            settings=settings, model_runner=classifier
+        ),
+    )
+    return classifier
+
+
+def _answer_guided_question(
+    client: TestClient, session_id: str, question_id: str, text: str
+):
+    return client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": question_id,
+            "answer": {"answer_type": "natural_language", "text": text},
+        },
+    )
+
+
+def _assert_blocked_guide(guide: dict) -> None:
+    assert guide["status"] == "blocked"
+    assert guide["guardrail"]["decision"] == "blocked"
+    assert guide["current_question"] is None
+    assert guide["ready_brief"] is None
+    assert guide["analysis_start"]["enough_information"] is False
+    assert guide["analysis_start"]["can_skip_all_and_start_analysis"] is False
+    assert guide["progress"]["kind"] == "blocked"
+
+
+GUIDED_GOAL_CASES = json.loads(
+    (
+        Path(__file__).parents[1]
+        / "app/evals/fixtures/task146_guided_goals.json"
+    ).read_text()
+)["cases"]
+
+
+@pytest.mark.parametrize("case", GUIDED_GOAL_CASES, ids=lambda case: case["name"])
+def test_clarified_goal_uses_mocked_sdk_decision_before_writes_and_skip_all(
+    guided_api_client: TestClient,
+    guided_classifier: RecordingGuidedClassifier,
+    case: dict,
+) -> None:
+    original_query = "https://shop.example/items/shared-item"
+    created = _create_guided_session(guided_api_client, original_query)
+    session_id = created["session_id"]
+    before = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert created["guide"]["current_question"]["question_id"] == "shopping-goal"
+    assert guided_classifier.calls == 0
+    guided_classifier.output = ShoppingGuardrailResult(
+        decision=case["decision"], reason=case["reason"], message=case["message"]
+    )
+
+    response = _answer_guided_question(
+        guided_api_client, session_id, "shopping-goal", case["goal"]
+    )
+
+    assert response.status_code == 200
+    assert guided_classifier.calls == 1
+    assert guided_classifier.inputs == [
+        {
+            "user_input": case["goal"],
+            "prior_answers": [
+                {
+                    "schema_version": 1,
+                    "question_id": "shopping-goal",
+                    "answer": {"answer_type": "natural_language", "text": case["goal"]},
+                }
+            ],
+        }
+    ]
+    skipped = guided_api_client.post(f"/api/sessions/{session_id}/guide/skip-all")
+    assert skipped.status_code == 200
+    assert guided_classifier.calls == 1
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert saved["original_input"]["query"] == original_query
+    if case["decision"] == "blocked":
+        _assert_blocked_guide(response.json())
+        _assert_blocked_guide(skipped.json())
+        assert response.json()["guardrail"]["message"] == case["message"]
+        assert saved["current_brief"] == before["current_brief"]
+        assert saved["user_added_products"] == before["user_added_products"]
+    else:
+        assert response.json()["status"] == "collecting"
+        assert response.json()["analysis_start"]["can_skip_all_and_start_analysis"] is True
+        assert skipped.json()["status"] == "ready_for_analysis"
+        assert skipped.json()["ready_brief"]["original_query"] == case["goal"]
+        assert saved["current_brief"]["original_query"] == case["goal"]
+
+
+@pytest.mark.parametrize("question_id", ("shopping-goal", "considered-products"))
+def test_reanswer_rechecks_goal_and_answers_before_candidate_or_brief_writes(
+    guided_api_client: TestClient,
+    guided_classifier: RecordingGuidedClassifier,
+    question_id: str,
+) -> None:
+    session_id = _create_guided_session(
+        guided_api_client, "https://shop.example/items/laptop"
+    )["session_id"]
+    for field_name, text in (
+        ("shopping-goal", "Help me choose a laptop for homework."),
+        ("budget", "$1200"),
+        ("considered-products", "ThinkPad X1 Carbon"),
+    ):
+        assert _answer_guided_question(
+            guided_api_client, session_id, field_name, text
+        ).status_code == 200
+    before = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    reopened = guided_api_client.post(
+        f"/api/sessions/{session_id}/guide/reanswer", json={"question_id": question_id}
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["current_question"]["question_id"] == question_id
+    calls_before = guided_classifier.calls
+    guided_classifier.output = ShoppingGuardrailResult(
+        decision="blocked",
+        reason="unsafe_product",
+        message="I can help with ordinary consumer purchases.",
+    )
+    revised_text = "Choose a firearm at https://shop.example/items/firearm"
+
+    response = _answer_guided_question(
+        guided_api_client, session_id, question_id, revised_text
+    )
+
+    assert response.status_code == 200
+    _assert_blocked_guide(response.json())
+    assert guided_classifier.calls == calls_before + 1
+    assert any(
+        answer["question_id"] == question_id and answer["answer"]["text"] == revised_text
+        for answer in guided_classifier.inputs[-1]["prior_answers"]
+    )
+    if question_id == "shopping-goal":
+        assert guided_classifier.inputs[-1]["user_input"] == revised_text
+    skipped = guided_api_client.post(f"/api/sessions/{session_id}/guide/skip-all")
+    _assert_blocked_guide(skipped.json())
+    assert guided_classifier.calls == calls_before + 1
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert saved["current_brief"] == before["current_brief"]
+    assert saved["user_added_products"] == before["user_added_products"]
+
+
+@pytest.mark.parametrize("failure", ("error", "timeout", "invalid_output"))
+def test_classifier_failure_keeps_reanswer_state_and_can_retry(
+    guided_api_client: TestClient,
+    guided_classifier: RecordingGuidedClassifier,
+    failure: str,
+) -> None:
+    session_id = _create_guided_session(
+        guided_api_client, "https://shop.example/items/laptop"
+    )["session_id"]
+    assert _answer_guided_question(
+        guided_api_client, session_id, "shopping-goal", "Help me choose a laptop."
+    ).status_code == 200
+    reopened = guided_api_client.post(
+        f"/api/sessions/{session_id}/guide/reanswer", json={"question_id": "shopping-goal"}
+    )
+    assert reopened.status_code == 200
+    before_guide = reopened.json()
+    before = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    if failure == "invalid_output":
+        guided_classifier.output = {"decision": "invalid"}
+    else:
+        guided_classifier.error = (
+            TimeoutError() if failure == "timeout" else RuntimeError("classifier failed")
+        )
+    revised_goal = "Compare laptops at https://shop.example/items/new-laptop"
+
+    failed = _answer_guided_question(
+        guided_api_client, session_id, "shopping-goal", revised_goal
+    )
+
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "shopping_guardrail_unavailable"
+    assert failed.json()["error"]["details"] == {"retryable": True}
+    assert guided_api_client.get(f"/api/sessions/{session_id}/guide").json() == before_guide
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert saved["current_brief"] == before["current_brief"]
+    assert saved["user_added_products"] == before["user_added_products"]
+    assert guided_classifier.calls == 2
+    guided_classifier.error = None
+    guided_classifier.output = None
+
+    retried = _answer_guided_question(
+        guided_api_client, session_id, "shopping-goal", revised_goal
+    )
+
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "ready_for_analysis"
+    assert retried.json()["ready_brief"]["original_query"] == revised_goal
+    assert guided_classifier.calls == 3
+    saved = guided_api_client.get(f"/api/sessions/{session_id}").json()
+    assert any(
+        item["url"] == "https://shop.example/items/new-laptop"
+        for item in saved["user_added_products"]
+    )
+
+
+def test_guardrail_cache_matches_full_typed_answer_context(
+    guided_api_client: TestClient,
+    guided_classifier: RecordingGuidedClassifier,
+) -> None:
+    session_id = _create_guided_session(
+        guided_api_client, "Help me choose a laptop."
+    )["session_id"]
+    assert guided_classifier.calls == 1
+    assert guided_api_client.get(f"/api/sessions/{session_id}/guide").status_code == 200
+    assert guided_classifier.calls == 1
+    assert _answer_guided_question(
+        guided_api_client, session_id, "budget", "$1200"
+    ).status_code == 200
+    assert guided_classifier.calls == 2
+    for budget, expected_calls in (("$1200", 2), ("$1500", 3)):
+        reopened = guided_api_client.post(
+            f"/api/sessions/{session_id}/guide/reanswer", json={"question_id": "budget"}
+        )
+        assert reopened.status_code == 200
+        revised = _answer_guided_question(guided_api_client, session_id, "budget", budget)
+        assert revised.status_code == 200
+        assert revised.json()["status"] == "ready_for_analysis"
+        assert guided_classifier.calls == expected_calls
+    assert guided_classifier.inputs[-1]["user_input"] == "Help me choose a laptop."
+    assert guided_classifier.inputs[-1]["prior_answers"][0]["answer"]["text"] == "$1500"
+
+
+def test_initial_blocked_request_does_not_capture_volunteered_candidates(
+    guided_api_client: TestClient,
+    guided_classifier: RecordingGuidedClassifier,
+) -> None:
+    guided_classifier.output = ShoppingGuardrailResult(
+        decision="blocked",
+        reason="unsafe_product",
+        message="I can help with ordinary consumer purchases.",
+    )
+    created = _create_guided_session(
+        guided_api_client, "Choose a firearm at https://shop.example/items/firearm"
+    )
+
+    _assert_blocked_guide(created["guide"])
+    saved = guided_api_client.get(f"/api/sessions/{created['session_id']}").json()
+    assert saved["user_added_products"] == []
+    assert guided_classifier.calls == 1

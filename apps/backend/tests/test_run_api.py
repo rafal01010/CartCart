@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -25,10 +26,12 @@ from app.agents.contracts import (
     GeneralShoppingAgentInput,
     GeneralShoppingDecisionDraft,
     GeneralShoppingOutcome,
+    ShoppingScopeGuardrailInput,
 )
 from app.core.settings import AgentWorkflowMode
 from app.orchestration.shopping_runs import ShoppingRunOrchestrator
 from app.services.runs import RunService
+from app.services.guided_intake import _fixture_sessions
 from app.agents.live_general_shopping import LiveGeneralShoppingAgent
 from app.agents.live_guardrails import (
     LiveShoppingScopeGuardrail,
@@ -245,8 +248,10 @@ def test_guided_live_run_enters_general_owner_before_category_routing(
         async with session_factory() as session:
             yield session
 
-    async def skip_live_scope_model(self: RunService, user_input: str) -> None:
-        del self, user_input
+    async def skip_live_scope_model(
+        self: RunService, input_data: ShoppingScopeGuardrailInput
+    ) -> None:
+        del self, input_data
 
     def owner_only_dependencies(self: RunService) -> dict[str, object]:
         del self
@@ -257,6 +262,13 @@ def test_guided_live_run_enters_general_owner_before_category_routing(
         raise AssertionError("Category routing ran before GeneralShoppingAgent.")
 
     monkeypatch.setattr(RunService, "_check_live_agent_start", skip_live_scope_model)
+    guide_scope_classifier = MockShoppingGuardrailModelRunner()
+    monkeypatch.setattr(
+        "app.api.routes.guided_intake.LiveShoppingScopeGuardrail",
+        lambda *, settings: LiveShoppingScopeGuardrail(
+            settings=settings, model_runner=guide_scope_classifier
+        ),
+    )
     monkeypatch.setattr(RunService, "_live_agent_kwargs", owner_only_dependencies)
     monkeypatch.setattr(
         ShoppingRunOrchestrator, "_category_route", reject_category_route
@@ -275,6 +287,7 @@ def test_guided_live_run_enters_general_owner_before_category_routing(
             session_id = created.json()["session_id"]
             ready = client.post(f"/api/sessions/{session_id}/guide/skip-all")
             assert ready.status_code == 200
+            assert guide_scope_classifier.calls == 1
             corrected = client.patch(
                 f"/api/sessions/{session_id}/brief",
                 json={
@@ -472,6 +485,97 @@ def test_create_run_uses_mocked_classifier_block_before_run_start(
     assert run_api_client.get(f"/api/sessions/{session_id}/results").status_code == 404
 
 
+@pytest.mark.parametrize("context", ("clarified", "blocked_reanswer", "recovered_guide"))
+def test_run_independently_checks_effective_guided_goal_before_creating_run(
+    run_api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    context: str,
+) -> None:
+    inputs: list[ShoppingScopeGuardrailInput] = []
+
+    class RecordingGuardrail(LiveShoppingScopeGuardrail):
+        async def run(
+            self, input_data: ShoppingScopeGuardrailInput
+        ) -> ShoppingGuardrailResult:
+            inputs.append(input_data)
+            return await super().run(input_data)
+
+    classifier = MockShoppingGuardrailModelRunner()
+    settings = run_api_client.app.state.settings
+    settings.agent_workflow_mode = AgentWorkflowMode.LIVE
+    guardrail = RecordingGuardrail(settings=settings, model_runner=classifier)
+    for target in (
+        "app.api.routes.guided_intake.LiveShoppingScopeGuardrail",
+        "app.services.runs.LiveShoppingScopeGuardrail",
+    ):
+        monkeypatch.setattr(target, lambda *, settings: guardrail)
+    monkeypatch.setattr(
+        "app.services.runs.require_live_openai_agent_configuration",
+        lambda *args, **kwargs: None,
+    )
+    original_query = "https://shop.example/items/laptop"
+    created = run_api_client.post(
+        "/api/sessions/guided", json={"query": original_query}
+    )
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+    clarified_goal = "Help me choose a laptop for homework."
+    clarified = run_api_client.post(
+        f"/api/sessions/{session_id}/answers",
+        json={
+            "question_id": "shopping-goal",
+            "answer": {"answer_type": "natural_language", "text": clarified_goal},
+        },
+    )
+    assert clarified.status_code == 200
+    assert classifier.calls == 1
+    blocked = ShoppingGuardrailResult(
+        decision="blocked",
+        reason="unsafe_product",
+        message="I can help with ordinary consumer purchases.",
+    )
+    classifier.output = blocked
+    expected_goal = clarified_goal
+    if context == "blocked_reanswer":
+        reopened = run_api_client.post(
+            f"/api/sessions/{session_id}/guide/reanswer",
+            json={"question_id": "shopping-goal"},
+        )
+        assert reopened.status_code == 200
+        expected_goal = "Help me buy firearms."
+        revised = run_api_client.post(
+            f"/api/sessions/{session_id}/answers",
+            json={
+                "question_id": "shopping-goal",
+                "answer": {"answer_type": "natural_language", "text": expected_goal},
+            },
+        )
+        assert revised.status_code == 200
+        assert revised.json()["status"] == "blocked"
+    elif context == "recovered_guide":
+        del _fixture_sessions[UUID(session_id)]
+        recovered = run_api_client.get(f"/api/sessions/{session_id}/guide")
+        assert recovered.status_code == 200
+        assert recovered.json()["current_question"]["question_id"] == "shopping-goal"
+    calls_before_run = classifier.calls
+
+    response = run_api_client.post(f"/api/sessions/{session_id}/runs")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "shopping_guardrail_blocked"
+    assert classifier.calls == calls_before_run + 1
+    assert inputs[-1].user_input == expected_goal
+    if context != "recovered_guide":
+        assert inputs[-1].prior_answers[0].answer.text == expected_goal
+    saved = run_api_client.get(f"/api/sessions/{session_id}").json()
+    assert saved["original_input"]["query"] == original_query
+    assert saved["current_brief"]["original_query"] == clarified_goal
+    with sqlite3.connect(settings.database_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM shopping_runs WHERE session_id = ?", (session_id,)
+        ).fetchone() == (0,)
+
+
 def test_get_run_status_returns_persisted_run(run_api_client: TestClient) -> None:
     session_id = create_session(run_api_client)
     create_response = run_api_client.post(f"/api/sessions/{session_id}/runs")
@@ -526,7 +630,7 @@ def test_stream_run_events_returns_persisted_events_in_order(
     payloads = parse_sse_payloads(body)
     event_data = [json.loads(payload["data"]) for payload in payloads]
     assert [payload["id"] for payload in payloads] == [
-        str(index) for index in range(12)
+        str(index) for index in range(11)
     ]
     assert {payload["event"] for payload in payloads} == {"run_event"}
     assert [event["stage"] for event in event_data] == [
@@ -540,7 +644,6 @@ def test_stream_run_events_returns_persisted_events_in_order(
         "listing_trust",
         "category_analysis",
         "comparison_decision",
-        "verification",
         "complete",
     ]
     assert event_data[-1]["status"] == "succeeded"
@@ -563,7 +666,7 @@ def test_create_run_streams_events_and_fetches_fixture_results(
     results_response = run_api_client.get(f"/api/sessions/{session_id}/results")
 
     assert events_response.status_code == 200
-    assert parse_sse_payloads(events_body)[-1]["id"] == "11"
+    assert parse_sse_payloads(events_body)[-1]["id"] == "10"
     assert results_response.status_code == 200
     result_body = results_response.json()
     assert result_body["result_version"]["run_id"] == run_id
@@ -572,4 +675,4 @@ def test_create_run_streams_events_and_fetches_fixture_results(
     assert bundle["no_strong_buy_reason"]
     assert bundle["final_product_id"] is None
     assert bundle["final_listing_id"] is None
-    assert len(result_body["agent_records"]) == 11
+    assert len(result_body["agent_records"]) == 10

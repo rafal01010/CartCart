@@ -1,11 +1,15 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 import re
+from typing import TypedDict
 
+from pydantic import AnyHttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.contracts import ShoppingScopeGuardrail, ShoppingScopeGuardrailInput
 from app.core.errors import ApplicationError
 from app.db.repositories.products import ProductRepository
+from app.db.repositories.runs import RunRepository
 from app.db.repositories.sessions import SessionRepository
 from app.schemas.guided_intake import (
     AnalysisStartAvailability,
@@ -34,6 +38,7 @@ from app.schemas.guided_intake import (
     RegionSetupStatus,
     RegionSetupSubmission,
     ShoppingGuardrailResult,
+    ShoppingGuardrailDecision,
     SkippableQuestionState,
     YesNoGuidedAnswer,
 )
@@ -69,6 +74,17 @@ BUDGET_QUESTION_ID = "budget"
 CONSIDERED_PRODUCTS_QUESTION_ID = "considered-products"
 
 
+class CategoryFields(TypedDict, total=False):
+    category: str
+    category_source: FieldSource
+
+
+@dataclass(frozen=True)
+class GuidedGuardrailAssessment:
+    input_data: ShoppingScopeGuardrailInput
+    result: ShoppingGuardrailResult
+
+
 @dataclass
 class FixtureGuidedSession:
     session_id: SessionId
@@ -77,17 +93,65 @@ class FixtureGuidedSession:
     answers: dict[str, GuidedAnswer] = field(default_factory=dict)
     skipped_question_ids: set[str] = field(default_factory=set)
     reanswer_question_id: str | None = None
-    started_analysis: bool = False
-    blocked_guardrail: ShoppingGuardrailResult | None = None
+    ready_for_analysis: bool = False
+    analysis_started_brief: ShoppingBrief | None = None
+    guardrail_assessment: GuidedGuardrailAssessment | None = None
+
+    @property
+    def blocked_guardrail(self) -> ShoppingGuardrailResult | None:
+        assessment = self.guardrail_assessment
+        if (
+            assessment is not None
+            and assessment.result.decision == ShoppingGuardrailDecision.BLOCKED
+        ):
+            return assessment.result
+        return None
 
 
 _fixture_sessions: dict[SessionId, FixtureGuidedSession] = {}
 
 
+def _guardrail_input(
+    fixture: FixtureGuidedSession,
+    *,
+    user_input: str | None = None,
+) -> ShoppingScopeGuardrailInput:
+    return ShoppingScopeGuardrailInput(
+        user_input=user_input or _shopping_goal(fixture),
+        prior_answers=tuple(
+            GuidedAnswerSubmission(question_id=question_id, answer=answer)
+            for question_id, answer in fixture.answers.items()
+        ),
+    )
+
+
+def guided_guardrail_input(
+    session_id: SessionId,
+    fallback_query: str,
+) -> ShoppingScopeGuardrailInput:
+    fixture = _fixture_sessions.get(session_id)
+    if fixture is None:
+        return ShoppingScopeGuardrailInput(user_input=fallback_query)
+    unresolved_link = (
+        is_link_only(fixture.query)
+        and SHOPPING_GOAL_QUESTION_ID not in fixture.answers
+    )
+    return _guardrail_input(
+        fixture, user_input=fallback_query if unresolved_link else None
+    )
+
+
 class GuidedIntakeService:
-    def __init__(self, db_session: AsyncSession) -> None:
+    def __init__(
+        self,
+        db_session: AsyncSession,
+        *,
+        guardrail: ShoppingScopeGuardrail | None = None,
+    ) -> None:
         self._sessions = SessionRepository(db_session)
         self._products = ProductRepository(db_session)
+        self._runs = RunRepository(db_session)
+        self._guardrail = guardrail
 
     async def create_guided_session(
         self,
@@ -112,18 +176,22 @@ class GuidedIntakeService:
             query=request.query,
             region_setup=request.region_setup,
         )
+        await self._check_effective_request(fixture)
+        await self._sync_volunteered_products(fixture)
         _fixture_sessions[session.session_id] = fixture
-        if fixture.blocked_guardrail is None:
-            await self._sync_volunteered_products(fixture)
         return GuidedSessionResponse(
             session_id=session.session_id,
             guide=self._state_for_fixture(fixture),
         )
 
     async def load_state(self, session_id: SessionId) -> GuidedIntakeState | None:
-        fixture = await self._fixture_for_session(session_id)
+        fixture = await self._fixture_for_session(session_id, require_editable=False)
         if fixture is None:
             return None
+        if fixture.analysis_started_brief is not None:
+            return self._state_for_fixture(fixture)
+        await self._check_effective_request(fixture)
+        _fixture_sessions[session_id] = fixture
         return self._state_for_fixture(fixture)
 
     async def submit_answer(
@@ -153,6 +221,11 @@ class GuidedIntakeService:
         fixture.answers[submission.question_id] = submission.answer
         fixture.reanswer_question_id = None
 
+        await self._check_effective_request(fixture)
+        if fixture.blocked_guardrail is not None:
+            _fixture_sessions[session_id] = fixture
+            return self._state_for_fixture(fixture)
+
         await self._sync_volunteered_products(fixture)
         if submission.question_id in {
             SHOPPING_GOAL_QUESTION_ID,
@@ -160,6 +233,8 @@ class GuidedIntakeService:
             CONSIDERED_PRODUCTS_QUESTION_ID,
         }:
             await self._persist_ready_brief(fixture)
+
+        _fixture_sessions[session_id] = fixture
 
         if self._is_ready_after_answer(
             fixture,
@@ -192,10 +267,16 @@ class GuidedIntakeService:
         fixture.skipped_question_ids.add(question.question_id)
         fixture.answers.pop(question.question_id, None)
         fixture.reanswer_question_id = None
+        await self._check_effective_request(fixture)
+        if fixture.blocked_guardrail is not None:
+            _fixture_sessions[session_id] = fixture
+            return self._state_for_fixture(fixture)
         if question.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
             await self._sync_volunteered_products(fixture)
             await self._persist_ready_brief(fixture)
+            _fixture_sessions[session_id] = fixture
             return self._ready_state_for_fixture(fixture)
+        _fixture_sessions[session_id] = fixture
         return self._state_for_fixture(fixture)
 
     async def skip_all_and_start_analysis(
@@ -205,16 +286,19 @@ class GuidedIntakeService:
         fixture = await self._fixture_for_session(session_id)
         if fixture is None:
             return None
+        await self._check_effective_request(fixture)
         if fixture.blocked_guardrail is not None:
-            raise _guide_not_collecting(session_id)
+            _fixture_sessions[session_id] = fixture
+            return self._state_for_fixture(fixture)
         if (
             is_link_only(fixture.query)
             and SHOPPING_GOAL_QUESTION_ID not in fixture.answers
         ):
             raise _guide_not_collecting(session_id)
 
-        fixture.started_analysis = True
+        fixture.ready_for_analysis = True
         await self._persist_ready_brief(fixture)
+        _fixture_sessions[session_id] = fixture
         return self._ready_state_for_fixture(fixture)
 
     async def reanswer_question(
@@ -234,6 +318,8 @@ class GuidedIntakeService:
             )
 
         fixture.reanswer_question_id = request.question_id
+        await self._check_effective_request(fixture)
+        _fixture_sessions[session_id] = fixture
         return self._state_for_fixture(fixture)
 
     async def submit_region_setup(
@@ -246,20 +332,36 @@ class GuidedIntakeService:
             return None
 
         fixture.region_setup = submission
+        await self._check_effective_request(fixture)
         await self._persist_ready_brief(fixture)
+        _fixture_sessions[session_id] = fixture
         return self._state_for_fixture(fixture)
 
     async def _fixture_for_session(
         self,
         session_id: SessionId,
+        *,
+        require_editable: bool = True,
     ) -> FixtureGuidedSession | None:
-        fixture = _fixture_sessions.get(session_id)
-        if fixture is not None:
-            return fixture
-
         session = await self._sessions.get(session_id)
         if session is None:
             return None
+        if await self._runs.has_for_session(session_id):
+            if require_editable:
+                raise _guide_not_collecting(session_id)
+            return FixtureGuidedSession(
+                session_id=session_id,
+                query=session.original_input.query,
+                analysis_started_brief=session.current_brief,
+            )
+
+        fixture = _fixture_sessions.get(session_id)
+        if fixture is not None:
+            return replace(
+                fixture,
+                answers=dict(fixture.answers),
+                skipped_question_ids=set(fixture.skipped_question_ids),
+            )
 
         region_setup: RegionSetupSubmission | None = None
         if session.current_brief.region is not None:
@@ -273,10 +375,37 @@ class GuidedIntakeService:
             query=session.original_input.query,
             region_setup=region_setup,
         )
-        _fixture_sessions[session_id] = fixture
         return fixture
 
+    async def _check_effective_request(self, fixture: FixtureGuidedSession) -> None:
+        if self._guardrail is None:
+            return
+        if (
+            is_link_only(fixture.query)
+            and SHOPPING_GOAL_QUESTION_ID not in fixture.answers
+        ):
+            return
+        input_data = _guardrail_input(fixture)
+        if (
+            fixture.guardrail_assessment is not None
+            and fixture.guardrail_assessment.input_data == input_data
+        ):
+            return
+        result = await self._guardrail.run(input_data)
+        if await self._runs.has_for_session(fixture.session_id):
+            raise _guide_not_collecting(fixture.session_id)
+        fixture.guardrail_assessment = GuidedGuardrailAssessment(input_data, result)
+
     def _state_for_fixture(self, fixture: FixtureGuidedSession) -> GuidedIntakeState:
+        if fixture.analysis_started_brief is not None:
+            return GuidedIntakeState(
+                status=GuidedIntakeStatus.ANALYSIS_STARTED,
+                region_setup=LocalRegionSetupState(
+                    status=RegionSetupStatus.NOT_NEEDED,
+                    can_refuse=False,
+                ),
+                ready_brief=fixture.analysis_started_brief,
+            )
         if fixture.blocked_guardrail is not None:
             return GuidedIntakeState(
                 status=GuidedIntakeStatus.BLOCKED,
@@ -321,6 +450,8 @@ class GuidedIntakeService:
         self,
         fixture: FixtureGuidedSession,
     ) -> GuidedIntakeState:
+        if fixture.blocked_guardrail is not None:
+            return self._state_for_fixture(fixture)
         return GuidedIntakeState(
             status=GuidedIntakeStatus.READY_FOR_ANALYSIS,
             navigation=self._navigation_state(fixture),
@@ -345,7 +476,7 @@ class GuidedIntakeService:
             return None
         if fixture.reanswer_question_id is not None:
             return _question_by_id(fixture.reanswer_question_id, fixture.query)
-        if fixture.started_analysis:
+        if fixture.ready_for_analysis:
             return None
 
         if (
@@ -446,6 +577,8 @@ class GuidedIntakeService:
         )
 
     async def _sync_volunteered_products(self, fixture: FixtureGuidedSession) -> None:
+        if fixture.blocked_guardrail is not None:
+            return
         desired: dict[tuple[str, str], set[str]] = {}
         values: dict[tuple[str, str], str] = {}
         inputs = [(FIRST_QUESTION_ID, fixture.query)] + [
@@ -482,24 +615,28 @@ class GuidedIntakeService:
                     fixture.session_id, item.candidate_id
                 )
             else:
-                sources = tuple(sorted(desired.pop(key)))
-                if item.intake_source_question_ids != sources:
+                source_question_ids = tuple(sorted(desired.pop(key)))
+                if item.intake_source_question_ids != source_question_ids:
                     await self._products.replace_user_added_product(
                         fixture.session_id,
-                        item.model_copy(update={"intake_source_question_ids": sources}),
+                        item.model_copy(
+                            update={"intake_source_question_ids": source_question_ids}
+                        ),
                     )
         for (kind, value), sources in desired.items():
             key = (kind, value)
             await self._products.add_user_added_product(
                 fixture.session_id,
                 UserAddedProduct(
-                    url=values[key] if kind == "url" else None,
+                    url=AnyHttpUrl(values[key]) if kind == "url" else None,
                     input_text=values[key] if kind == "name" else None,
                     intake_source_question_ids=tuple(sorted(sources)),
                 ),
             )
 
     async def _persist_ready_brief(self, fixture: FixtureGuidedSession) -> None:
+        if fixture.blocked_guardrail is not None:
+            return
         await self._sessions.update_current_brief(
             fixture.session_id,
             self._brief_for_fixture(fixture),
@@ -657,7 +794,7 @@ def _shopping_goal(fixture: FixtureGuidedSession) -> str:
     )
 
 
-def _category_fields(query: str) -> dict[str, str]:
+def _category_fields(query: str) -> CategoryFields:
     normalized = query.lower()
     categories = {
         "laptop": "laptop",

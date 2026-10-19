@@ -15,6 +15,17 @@ from app.agents.catalog import ApprovedSDKTool, FixtureFallback, ResearchDecisio
 from app.core.agent_run_profiles import AgentRunProfileName
 
 
+def test_scope_guardrail_declares_intake_and_independent_run_boundaries() -> None:
+    scope = DEFAULT_AGENT_CATALOG.require("ShoppingScopeGuardrail")
+    assert scope.planned_tool_boundaries == (
+        "EffectiveGuidedShoppingContext",
+        "IndependentShoppingRunPreflight",
+        "BoundedEvidenceContext",
+        "ValidatedFinalOutput",
+    )
+    assert scope.run_profile == AgentRunProfileName.FAST
+
+
 def test_phone_owner_declares_current_research_and_failure_boundaries() -> None:
     phone = DEFAULT_AGENT_CATALOG.require("SmartphoneSpecialistAgent")
     assert {

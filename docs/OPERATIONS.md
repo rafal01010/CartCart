@@ -1,5 +1,20 @@
 # CartCart Operations
 
+## Guided request checks
+
+Live workflow mode uses the configured SDK scope classifier before applying
+guided goal or answer changes. Exact unchanged context reuses its decision in
+the current process. Changed answers can incur another configured classifier
+call. Unresolved link-only starts wait for a shopping goal. Fixture mode does
+not classify request semantics.
+
+A classifier timeout or invalid response returns the retryable
+`shopping_guardrail_unavailable` error. The prior answer state, candidates and
+saved brief remain available. A policy refusal shows a blocked guide with no
+analysis action. Run creation performs its own classifier check using current
+guided context or, after cache loss, the saved current brief. No model, provider,
+timeout or spending limit changes are required for this behavior.
+
 ## Task 224 final-output diagnostics
 
 Saved-owner decisions now allow 6,667 output tokens instead of 2,000. The existing per-call ceiling remains 6,667. Main 200,000, owner starting 120,000, source starting 40,000, input 25,334, eligible decision and optional verifier 32,000 each, and hosted 10,667 remain unchanged. Other role caps, configured models, reasoning, providers, timeouts and turn limits stay unchanged.

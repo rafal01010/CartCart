@@ -67,6 +67,7 @@ from app.schemas.runs import (
     ShoppingRunRecord,
 )
 from app.schemas.timestamps import utc_now
+from app.services.guided_intake import guided_guardrail_input
 
 
 class RunService:
@@ -118,7 +119,9 @@ class RunService:
         if session is None:
             return None
 
-        await self._check_live_agent_start(session.original_input.query)
+        await self._check_live_agent_start(
+            guided_guardrail_input(session_id, session.current_brief.original_query)
+        )
 
         run = await self._run_repository.create(session_id)
         if (
@@ -381,7 +384,9 @@ class RunService:
             f"{session.original_input.query}\n{instruction}\n"
             f"{plan.target_brief.category or ''}"
         )
-        await self._check_live_agent_start(refined_request)
+        await self._check_live_agent_start(
+            ShoppingScopeGuardrailInput(user_input=refined_request)
+        )
         reused = None
         if RecomputeStage.SEARCH not in plan.stages:
             reused = await self._refinement_artifacts(session_id, plan, prior)
@@ -521,7 +526,7 @@ class RunService:
             self._settings, agent_name=agent_name
         ).model
 
-    async def _check_live_agent_start(self, user_input: str) -> None:
+    async def _check_live_agent_start(self, input_data: ShoppingScopeGuardrailInput) -> None:
         if self._settings is not None and any(
             warning.code == "fixture_agents_with_live_providers"
             for warning in self._settings.agent_readiness_warnings()
@@ -558,7 +563,7 @@ class RunService:
             ) from exc
 
         guardrail = await LiveShoppingScopeGuardrail(settings=self._settings).run(
-            ShoppingScopeGuardrailInput(user_input=user_input)
+            input_data
         )
         if guardrail.decision == ShoppingGuardrailDecision.BLOCKED:
             raise ApplicationError(

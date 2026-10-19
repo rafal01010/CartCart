@@ -121,8 +121,18 @@ models include only regular-person-safe question, control, skip/reanswer,
 region setup, blocked-state, progress, and ready-for-analysis metadata. A live
 OpenAI Agents SDK `ShoppingGuideAgent` now implements the same structured
 `GuidedIntakeState` contract for isolated mock/live workbench runs. The normal
-guided-intake API remains fixture-backed; the normal run workflow can opt into
-live guarded intake and `IntakeAgent` processing after run start.
+guided-intake questions remain deterministic. In configured live workflow mode,
+the API uses the existing SDK scope classifier on the effective shopping goal
+and current answers before candidate synchronization or analysis readiness.
+Fixture mode supplies explicit test decisions and does not classify semantics.
+
+Generated guided copy uses bounded token and phrase checks. Ordinary substrings
+such as `magenta`, `reagent` and `detergent` are valid. Standalone `agent` and
+`provider` terms, CamelCase or snake_case internal names, trace/run identifiers,
+tool-call/raw-prompt details and product-link requests remain prohibited.
+Unknown developer-only fields remain forbidden. Accepted strings are returned
+unchanged. Submitted answers, original shopping questions and literal source
+titles do not use this generated-copy policy.
 
 The existing guided endpoints supply the corrected brief and start the same
 `/runs` resource. After scope/safety preflight and scoped intake, each opt-in
@@ -246,12 +256,39 @@ Volunteered HTTP(S) links in the first question are saved as distinct
 `UserAddedProduct.url` candidates for direct listing extraction. Explicitly
 named products are saved as separate text candidates for research. A question
 containing only a link prompts for the shopper's goal before analysis can start.
+An unresolved link-only question is not sent to the scope classifier. The
+clarified goal and revised answers are checked before their candidates or brief
+are synchronized. The exact unchanged classifier input reuses its decision
+within the current process. A classifier error is a retryable technical failure
+and leaves the prior answer state, candidates, and brief intact.
+
+A blocked decision returns `blocked` with safe redirection. It cannot include
+an enabled analysis action, `enough_information`, or a `ready_brief`. A blocked
+guardrail cannot accompany collecting, ready, or started status. Skip-all cannot
+make a blocked request ready. The run endpoint independently classifies the
+effective goal and current guided context before creating a run. It does not
+reuse the guide's decision. When process-local guide state is absent, it checks
+the saved current brief rather than the original link-only input.
 
 `GET /api/sessions/{session_id}/guide`
 
 Loads the current guided-intake state for a session. If the session was created
 through the older session endpoint, the fixture guide derives its starting state
 from the persisted session query and current brief.
+
+Any persisted shopping run closes guided intake for that session, including a
+pending, running, succeeded, failed or cancelled run. Guide reload returns
+`analysis_started` with the persisted `current_brief` in `ready_brief`, no current
+question, and disabled navigation, skip, start and region-entry controls. This
+status means analysis was admitted, not that it is still running. Reload does
+not reclassify the request or rewrite cached answers, candidates or the brief.
+The boundary also applies after the process-local guide cache is lost.
+
+Well-formed answer, reanswer, skip, skip-all and region submissions after run
+admission return the shared `guided_intake_not_collecting` 409 envelope before
+applying intake changes. A run admitted while the scope classifier is awaited
+also causes rejection when classification returns. Later shopping changes use
+the existing product or refinement endpoints. Missing sessions retain 404.
 
 `POST /api/sessions/{session_id}/answers`
 
@@ -278,6 +315,13 @@ this is limited to the combined optional context prompt and returns
 Skips remaining optional intake and persists a ready brief when enough
 information exists. The frontend should use the returned `ready_for_analysis`
 state to move to user-safe progress and then call the existing run endpoint.
+Skip-all itself creates no run and does not close intake. Answered questions
+can still be revised before the run endpoint admits analysis.
+
+Full pre-analysis recovery of saved answers is not implemented. Task 144 still
+owns preserving saved details during cold pre-start answer and skip operations,
+including distinguishing a refused region from an unanswered region. The
+post-admission protection above does not depend on that recovery.
 
 `POST /api/sessions/{session_id}/guide/reanswer`
 
@@ -364,6 +408,14 @@ not turn a successful stage event into whole-run success.
 `GET /api/sessions/{session_id}/runs/{run_id}/events`
 
 Streams ordered progress events using Server-Sent Events. Events should include stable event IDs, stage names, status, timestamps, and user-safe messages.
+
+Shopper progress is a projection of observed events, not the display order of
+checks. Source review can precede seller checks without completing them.
+Separated source, category, and comparison stages contribute to the same display
+group. Only the current observed stage is active. Successful final completion
+settles performed work and marks unperformed groups skipped. Failure or
+cancellation clears stale activity without claiming unvisited checks succeeded.
+The existing synchronous execution and persisted SSE replay contract is unchanged.
 
 Current implementation streams persisted `RunEvent` records for the requested run
 in sequence order as `text/event-stream` events named `run_event`, then closes the

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "purpose": "Offline guided-state contract controls with explicit mocked SDK classifier decisions. These do not measure live semantic classification accuracy.",
+  "cases": [
+    {
+      "name": "unsafe-firearm",
+      "goal": "I want to buy guns for home defense.",
+      "decision": "blocked",
+      "reason": "unsafe_product",
+      "message": "I can help you choose ordinary consumer products."
+    },
+    {
+      "name": "off-topic-weather",
+      "goal": "What will the weather be tomorrow?",
+      "decision": "blocked",
+      "reason": "off_topic",
+      "message": "Tell me about a product you want help choosing."
+    },
+    {
+      "name": "allowed-glue-gun",
+      "goal": "Help me choose a craft glue gun.",
+      "decision": "allowed",
+      "reason": null,
+      "message": null
+    },
+    {
+      "name": "allowed-homework-laptop",
+      "goal": "I need a laptop for homework.",
+      "decision": "allowed",
+      "reason": null,
+      "message": null
+    }
+  ]
+}

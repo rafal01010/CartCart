@@ -19,11 +19,11 @@
 		onRetry: () => void;
 	} = $props();
 
-	const activeIndex = $derived(
-		Math.max(
-			0,
-			progress.findIndex((item) => item.status === 'running' || item.status === 'failed'),
-		),
+	const checks = $derived(progress.filter((item) => item.kind !== 'ready'));
+	const completedChecks = $derived(checks.filter((item) => item.status === 'succeeded').length);
+	const activeItem = $derived(
+		progress.find((item) => item.status === 'running' || item.status === 'failed') ??
+		progress.find((item) => item.kind === 'ready' && item.status === 'succeeded'),
 	);
 </script>
 
@@ -49,21 +49,21 @@
 
 	<div class="mx-auto mt-10 max-w-[720px] border-y border-border py-5 text-left" aria-live="polite" aria-atomic="true">
 		<div class="grid grid-cols-4 gap-2" aria-hidden="true">
-			{#each progress.slice(0, 4) as item, index}
+			{#each checks as item}
 				<span class={`h-px ${item.status === 'succeeded' || item.status === 'running' ? 'bg-mist' : item.status === 'failed' ? 'bg-destructive' : 'bg-iron'}`}></span>
 			{/each}
 		</div>
 		<div class="mt-5 flex items-start justify-between gap-6">
 			<div>
 				<p class="text-sm font-[510] text-foreground">
-					{progress.find((item) => item.status === 'running' || item.status === 'failed')?.label ?? progress[Math.min(activeIndex, progress.length - 1)]?.label}
+					{activeItem?.label ?? 'Waiting for the next check'}
 				</p>
 				<p class="mt-1 text-sm leading-6 text-muted-foreground">
-					{progress.find((item) => item.status === 'running' || item.status === 'failed')?.message ?? 'Preparing the next check.'}
+					{activeItem?.message ?? 'Preparing the next check.'}
 				</p>
 			</div>
 			<p class="shrink-0 font-mono text-xs text-muted-foreground">
-				{Math.min(activeIndex + 1, 4)} / 4
+				{completedChecks} of {checks.length} checks complete
 			</p>
 		</div>
 	</div>

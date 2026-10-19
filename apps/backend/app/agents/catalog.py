@@ -577,6 +577,10 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="ShoppingScopeGuardrail",
         output_schema="ShoppingGuardrailResult",
+        planned_tool_boundaries=(
+            "EffectiveGuidedShoppingContext",
+            "IndependentShoppingRunPreflight",
+        ),
         run_profile=AgentRunProfileName.FAST,
     ),
     "IntakeAgent": _entry(

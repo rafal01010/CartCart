@@ -115,15 +115,6 @@ export function createInitialRunProgress(): StageProgressItem[] {
 	}));
 }
 
-export function createInitialShopperProgress(): ShopperProgressItem[] {
-	return SHOPPER_PROGRESS_ORDER.map((kind) => ({
-		kind,
-		label: SHOPPER_PROGRESS_LABELS[kind],
-		status: 'pending',
-		message: SHOPPER_PROGRESS_MESSAGES[kind],
-	}));
-}
-
 export function applyRunEvent(
 	progress: StageProgressItem[],
 	event: RunEvent,
@@ -164,36 +155,55 @@ export function applyRunEvent(
 	});
 }
 
-export function applyShopperProgressEvent(
-	progress: ShopperProgressItem[],
-	event: RunEvent,
-): ShopperProgressItem[] {
-	const kind = SHOPPER_STAGE_MAP[event.stage];
-	const eventIndex = SHOPPER_PROGRESS_ORDER.indexOf(kind);
+export function shopperProgressFromEvents(events: readonly RunEvent[]): ShopperProgressItem[] {
+	const stages: Partial<Record<RunStage, StageProgressStatus>> = {};
+	let activeStage: RunStage | null = null;
+	let terminalStatus: 'succeeded' | 'failed' | null = null;
 
-	return progress.map((item, index) => {
+	for (const event of events) {
 		if (event.status === 'failed' || event.status === 'cancelled') {
-			if (index < eventIndex) return { ...item, status: 'succeeded' };
-			if (item.kind === kind) {
-				return {
-					...item,
-					status: 'failed',
-					message: 'CartCart could not finish this check. Try again.',
-				};
-			}
-			return item;
+			if (activeStage && activeStage !== event.stage) stages[activeStage] = 'skipped';
+			stages[event.stage] = 'failed';
+			terminalStatus = 'failed';
+			break;
 		}
+		if (event.status === 'pending') continue;
+		if (event.stage === 'complete' && event.status !== 'succeeded') continue;
 
-		if (kind === 'ready' || event.status === 'succeeded') {
-			return index <= eventIndex ? { ...item, status: 'succeeded' } : item;
+		if (activeStage && activeStage !== event.stage) stages[activeStage] = 'succeeded';
+		stages[event.stage] = event.status;
+		activeStage = event.status === 'running' ? event.stage : null;
+		if (event.stage === 'complete' && event.status === 'succeeded') {
+			terminalStatus = 'succeeded';
+			break;
 		}
+	}
 
-		if (event.status === 'running') {
-			if (index < eventIndex) return { ...item, status: 'succeeded' };
-			if (item.kind === kind) return { ...item, status: 'running' };
-		}
+	return SHOPPER_PROGRESS_ORDER.map((kind) => {
+		const contributingStages = RUN_STAGE_ORDER.filter((stage) => SHOPPER_STAGE_MAP[stage] === kind);
+		const observedStatuses = contributingStages.flatMap((stage) => {
+			const status = stages[stage];
+			return status ? [status] : [];
+		});
+		let status: StageProgressStatus = 'pending';
+		if (observedStatuses.includes('failed')) status = 'failed';
+		else if (observedStatuses.includes('running')) status = 'running';
+		else if (
+			(terminalStatus === 'succeeded' && observedStatuses.length > 0) ||
+			contributingStages.every((stage) => stages[stage] === 'succeeded')
+		) status = 'succeeded';
+		else if (terminalStatus) status = 'skipped';
 
-		return item;
+		return {
+			kind,
+			label: SHOPPER_PROGRESS_LABELS[kind],
+			status,
+			message: status === 'failed'
+				? 'CartCart could not finish this check. Try again.'
+				: status === 'skipped'
+					? 'This check was not completed.'
+					: SHOPPER_PROGRESS_MESSAGES[kind],
+		};
 	});
 }
 
@@ -206,7 +216,8 @@ export function isTerminalRunStatus(status: RunStatus | 'idle'): boolean {
 }
 
 export function isTerminalRunEvent(event: RunEvent): boolean {
-	return event.status === 'failed' || event.status === 'cancelled' || event.stage === 'complete';
+	return event.status === 'failed' || event.status === 'cancelled' ||
+		(event.stage === 'complete' && event.status === 'succeeded');
 }
 
 export function runStatusLabel(status: RunStatus | 'idle'): string {

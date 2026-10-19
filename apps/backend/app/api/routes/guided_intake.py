@@ -2,8 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
+from app.agents.live_guardrails import LiveShoppingScopeGuardrail
 from app.core.errors import ApplicationError
+from app.core.settings import AgentWorkflowMode
 from app.db.session import get_db_session
 from app.schemas.guided_intake import (
     CreateGuidedSessionRequest,
@@ -22,6 +25,19 @@ router = APIRouter(prefix="/api/sessions", tags=["guided intake"])
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 
 
+def _guided_service(db_session: DbSession, request: Request) -> GuidedIntakeService:
+    settings = request.app.state.settings
+    guardrail = (
+        LiveShoppingScopeGuardrail(settings=settings)
+        if settings.agent_workflow_mode == AgentWorkflowMode.LIVE
+        else None
+    )
+    return GuidedIntakeService(db_session, guardrail=guardrail)
+
+
+GuideService = Annotated[GuidedIntakeService, Depends(_guided_service)]
+
+
 @router.post(
     "/guided",
     response_model=GuidedSessionResponse,
@@ -30,8 +46,9 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 async def create_guided_session(
     request: CreateGuidedSessionRequest,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedSessionResponse:
-    response = await GuidedIntakeService(db_session).create_guided_session(request)
+    response = await service.create_guided_session(request)
     await db_session.commit()
     return response
 
@@ -40,8 +57,9 @@ async def create_guided_session(
 async def get_guide_state(
     session_id: SessionId,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).load_state(session_id)
+    state = await service.load_state(session_id)
     if state is None:
         raise _session_not_found(session_id)
     return state
@@ -52,8 +70,9 @@ async def submit_guided_answer(
     session_id: SessionId,
     request: GuidedAnswerSubmission,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).submit_answer(session_id, request)
+    state = await service.submit_answer(session_id, request)
     if state is None:
         raise _session_not_found(session_id)
     await db_session.commit()
@@ -64,8 +83,9 @@ async def submit_guided_answer(
 async def skip_guided_question(
     session_id: SessionId,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).skip_question(session_id)
+    state = await service.skip_question(session_id)
     if state is None:
         raise _session_not_found(session_id)
     await db_session.commit()
@@ -76,8 +96,9 @@ async def skip_guided_question(
 async def skip_all_guided_questions(
     session_id: SessionId,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).skip_all_and_start_analysis(
+    state = await service.skip_all_and_start_analysis(
         session_id,
     )
     if state is None:
@@ -91,8 +112,9 @@ async def reanswer_guided_question(
     session_id: SessionId,
     request: GuidedReanswerRequest,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).reanswer_question(
+    state = await service.reanswer_question(
         session_id,
         request,
     )
@@ -106,8 +128,9 @@ async def submit_guided_region_setup(
     session_id: SessionId,
     request: RegionSetupSubmission,
     db_session: DbSession,
+    service: GuideService,
 ) -> GuidedIntakeState:
-    state = await GuidedIntakeService(db_session).submit_region_setup(
+    state = await service.submit_region_setup(
         session_id,
         request,
     )

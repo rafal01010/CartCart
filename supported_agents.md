@@ -350,6 +350,14 @@ should return short user-safe redirection copy for off-topic, unsafe, illegal,
 or inappropriate requests and prevent source retrieval or analysis from starting
 for blocked requests.
 
+The normal guided API invokes this same SDK classifier in configured live mode
+before applying changed goal/answer context to candidates or readiness. It
+reuses exact unchanged inputs within the process. Run creation checks current
+guided context independently, falling back to the saved current brief when
+process-local guide state is absent. Fixture mode supplies explicit decisions
+without semantic classification. Classifier failures remain retryable technical
+errors. There is no deterministic intent classifier or refusal phrase list.
+
 Product/category analysts own fit analysis for a product bundle in the context of a shopping brief. They should evaluate tradeoffs, missing evidence, product-level strengths and weaknesses, and category-specific concerns. They should not decide final ranking alone.
 
 `TechnologyDomainAnalystAgent` owns shared technology-product reasoning, routing to MVP technology specialists, and technology-domain fallback when no narrower specialist applies. It should cover technology products broadly enough that adding future specific technology specialists is modular.
@@ -645,7 +653,7 @@ provider arguments or call vendor SDKs directly.
 | Agent | Current SDK tools exposed directly to agent | Allowed typed sub-runs / agents-as-tools | Allowed provider/service boundaries | Forbidden direct actions |
 | --- | --- | --- | --- | --- |
 | `ShoppingScopeGuardrail` | SDK input guardrail with structured classifier output. | None. | Semantic request classification before research. | Starting retrieval after a blocked input; converting classifier errors into shopping judgments. |
-| `ShoppingGuideAgent` | None. | `IntakeAgent` only after enough information exists. | Guided-intake state service and deterministic guardrail precheck. | Product recommendations, source retrieval, product links as normal intake, raw provider/tool controls. |
+| `ShoppingGuideAgent` | None. | `IntakeAgent` only after enough information exists. | Guided-intake state service and SDK scope guardrail in live mode. | Product recommendations, source retrieval, product links as normal intake, raw provider/tool controls. |
 | `GeneralShoppingAgent` | Live SDK `web_search`, `search_sources`, `fetch_source`, `record_source_quote`, run-evidence lookup, evidence/candidate comparison, deterministic listing-trust check, and scoped source consultation. | One SDK handoff to Technology when its validated context matches the shopper's technology request; source specialists remain nested under the source manager. | Run-scoped provider search/fetch, persisted quote evidence, and backend-validated source/trust helpers. | Treating a hosted hit as a listing or making uncited price, availability, seller, or product claims. |
 | `IntakeAgent` | None. | None. | None beyond supplied user/session input. | Search, extraction, source intelligence, recommendation generation, invented region/budget certainty. |
 | `QueryPlannerAgent` | None. | None. | None directly. The workflow calls `SearchProvider` adapters after a validated `SearchPlan` is returned and may provide user-added product hints for scoped lookup queries. | Direct web search, browsing, provider SDK calls, category blocking because no specialist exists, asking users for product links. |

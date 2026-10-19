@@ -1,3 +1,4 @@
+import re
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -13,34 +14,30 @@ QuestionId = Annotated[str, Field(min_length=1, max_length=120)]
 ChoiceId = Annotated[str, Field(min_length=1, max_length=80)]
 
 
-DEVELOPER_LANGUAGE = (
-    "agent",
-    "provider",
-    "trace id",
-    "trace_id",
-    "tool call",
-    "raw prompt",
-    "run id",
-    "run_id",
+GENERATED_COPY_PATTERNS = (
+    ("agent", r"agents?"),
+    ("provider", r"providers?"),
+    ("trace or run ID", r"(?:trace|run)[\s_-]+ids?"),
+    ("trace or run identifier", r"(?:trace|run)_[a-z0-9][a-z0-9_-]*"),
+    ("tool call", r"tool[\s_-]+calls?"),
+    ("raw prompt", r"raw[\s_-]+prompts?"),
+    ("product URL or link", r"product[\s_-]+(?:urls?|links?)"),
+    ("paste a URL or link", r"paste[\s_-]+(?:a|the)[\s_-]+(?:urls?|links?)"),
 )
-PRODUCT_LINK_REQUESTS = (
-    "product url",
-    "product link",
-    "paste a url",
-    "paste the url",
-    "paste a link",
-    "paste the link",
+GENERATED_COPY_POLICY = tuple(
+    (detail, re.compile(rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])"))
+    for detail, pattern in GENERATED_COPY_PATTERNS
 )
 
 
 def _validate_user_facing_text(value: str | None) -> str | None:
     if value is None:
         return value
-    normalized = value.lower()
-    blocked_terms = DEVELOPER_LANGUAGE + PRODUCT_LINK_REQUESTS
-    for term in blocked_terms:
-        if term in normalized:
-            raise ValueError(f"user-facing text cannot include {term!r}.")
+    normalized = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", value)
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", normalized).casefold()
+    for detail, pattern in GENERATED_COPY_POLICY:
+        if pattern.search(normalized):
+            raise ValueError(f"user-facing text cannot include {detail!r}.")
     return value
 
 
@@ -391,6 +388,12 @@ class GuidedIntakeState(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_guided_state(self) -> "GuidedIntakeState":
+        if (
+            self.guardrail is not None
+            and self.guardrail.decision == ShoppingGuardrailDecision.BLOCKED
+            and self.status != GuidedIntakeStatus.BLOCKED
+        ):
+            raise ValueError("a blocked guardrail requires blocked intake status.")
         if self.status == GuidedIntakeStatus.COLLECTING and self.current_question is None:
             raise ValueError("collecting intake state requires a current question.")
         if self.status == GuidedIntakeStatus.BLOCKED:
@@ -399,6 +402,13 @@ class GuidedIntakeState(VersionedSchema):
                 or self.guardrail.decision != ShoppingGuardrailDecision.BLOCKED
             ):
                 raise ValueError("blocked intake state requires a blocked guardrail.")
+            if (
+                self.analysis_start.enough_information
+                or self.analysis_start.can_skip_all_and_start_analysis
+                or self.ready_brief is not None
+                or self.current_question is not None
+            ):
+                raise ValueError("blocked intake cannot offer questions or analysis readiness.")
         if self.status == GuidedIntakeStatus.READY_FOR_ANALYSIS:
             if not self.analysis_start.enough_information:
                 raise ValueError(

@@ -1,5 +1,21 @@
 # CartCart Architecture
 
+## Guided intake revision boundary
+
+`GuidedIntakeService` derives edit permission from persisted run existence
+through `RunRepository.has_for_session`. It checks before reading the editable
+fixture cache, invoking the classifier or changing candidates and briefs.
+The classifier return boundary rechecks admission before accepting its result.
+Skip-all readiness remains separate from actual run admission. Once any run
+exists, the guide exposes a read-only `analysis_started` projection of the saved
+brief with no intake controls, including after cache loss. This needs no table,
+migration, provider or agent-catalog change.
+
+The process-local fixture still does not durably retain full pre-start answers
+or region-refusal metadata. Task 144 owns that separate recovery work. These
+checks do not introduce a database lock spanning run admission and every intake
+write.
+
 ## Persisted run lifecycle
 
 The run repository stores ordered stage events separately from the aggregate
@@ -352,6 +368,28 @@ fixture/local operation, but must be marked as defaulted or inferred rather than
 user-confirmed.
 
 The OpenAI Agents SDK input guardrail classifies shopping scope and unsafe or illegal requests before research. The application has no phrase-list refusal tripwires. A blocked input receives the classifier's short redirection. Classifier errors and timeouts are retryable technical failures.
+
+Configured live guided intake checks a prospective answer snapshot before
+synchronizing candidates or writing its brief. The snapshot's effective goal
+and current answers form the typed classifier input. Exact unchanged inputs
+reuse their process-local assessment. Technical errors leave the prior snapshot
+intact for retry. Policy blocks publish a blocked guide without applying the
+rejected candidate or brief changes. Unresolved link-only starts require a goal
+before classification. Fixture mode retains explicit mocked decisions.
+
+Run creation independently checks the effective guided context when available,
+or the saved current brief when the process-local guide is absent. The original
+input remains unchanged. This boundary never treats a cached guide assessment
+as its own classification. Guide persistence across cache loss remains a
+separate lifecycle concern.
+
+The frontend projects shopper progress from the finite received event history.
+It settles only observed stage transitions. Display-group position does not
+imply execution. A partially visited comparison group waits while seller checks
+are active, then resumes for later category and comparison events. Successful
+final completion resolves unperformed groups as skipped. Failed or cancelled
+events clear stale active indicators. The processing view reports completed
+checks rather than presenting display position as execution order.
 
 ## Workflow Architecture
 

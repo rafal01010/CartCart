@@ -40,6 +40,14 @@ class RunRepository:
             return None
         return record.to_schema()
 
+    async def has_for_session(self, session_id: SessionId) -> bool:
+        statement = select(
+            select(ShoppingRunRecordModel.run_id)
+            .where(ShoppingRunRecordModel.session_id == str(session_id))
+            .exists()
+        )
+        return bool(await self._session.scalar(statement))
+
     async def append_event(
         self,
         run_id: RunId,

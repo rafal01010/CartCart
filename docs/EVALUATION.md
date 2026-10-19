@@ -1,5 +1,58 @@
 # CartCart Evaluation
 
+## Tasks 130 and 143 affected offline controls
+
+The retained runner `data/artifacts/task130143/run_checks.py` uses locked offline
+`uv` from `apps/backend` and blocks network connections during backend controls.
+The combined selection and affected repair reruns passed 537 distinct backend
+controls. One live-marked control was deselected. Frontend guided-state and API
+consumer controls passed 13 tests. Affected Ruff and three-module mypy pass.
+These are schema, temporary SQLite/API and frontend unit checks.
+
+Generated-copy controls cover all ten validated text fields. They accept
+ordinary shopping substrings, reject internal tokens, names and link requests,
+retain unknown-field rejection, and preserve submitted shopping/source strings.
+Revision controls cover every persisted run status with warm and cold caches,
+all intake mutation endpoints, ready-but-not-started reanswers, saved candidate
+and result-version preservation, and unchanged SSE event replay. A deterministic
+guardrail callback admits a pending run while classification is awaited. The
+answer returned 200 before the repair and now returns 409 without saved changes.
+
+The first combined gate had 534 passes and two failures from parsing SSE as
+JSON in the new tests. Those observation errors and a fixture-import lint issue
+were repaired. Only affected lanes were rerun. The final service lane passed
+72 controls with zero network connection attempts. Passed schema and frontend
+lanes were reused. Full database-write atomicity under arbitrary concurrent
+admission is not established. Task 144 pre-start recovery remains unfinished.
+No browser journey, live model or provider result is claimed.
+
+Exact commands, logs, preservation hashes and review limits are recorded in
+[the batch handoff](TASK_130_143_IMPLEMENTATION_HANDOFF.md).
+
+## Tasks 156 and 146 affected offline controls
+
+The batch runner in `data/artifacts/task156146/run_checks.py` executes the
+affected backend and frontend lanes after both implementations are ready.
+Backend commands use locked offline `uv` from `apps/backend`. Live markers are
+excluded. Frontend progress controls replay the literal fixture stage sequence
+and render the real processing component through Svelte server rendering.
+They cover source review preceding seller checks, separated comparison
+contributors, skipped work and terminal failures without stale active groups.
+They are component checks, not browser journeys.
+
+`app/evals/fixtures/task146_guided_goals.json` supplies explicit mocked
+classifier decisions for unsafe, off-topic, glue-gun and homework-laptop goals.
+The API controls exercise the existing SDK guardrail wrapper with a local model
+runner. They verify state and write ordering, cache invalidation on changed
+answers, reanswers, blocked skip-all and an independent run preflight using
+current clarified context. These controls measure integration behavior, not live
+semantic classification accuracy. Schema cases reject contradictory blocked
+readiness while preserving valid collection, readiness and started states.
+
+No deterministic refusal phrase policy is restored. Task 216 superseded that
+historical Task 150 proposal. Browser journeys and model-quality measurements
+remain separate from this offline batch.
+
 ## Bounded final output and saved caption focus, Task 224
 
 Run `scripts/local/verify-task224.sh` for the affected offline checks only. It uses the backend locked environment, Ruff and Python syntax, the Task 224 finalization and caption controls, a retained-cap audit and nonsecret effective-configuration parity. It does not run Task 222 or Task 223 gates, broad suites, frontend builds or paid calls.

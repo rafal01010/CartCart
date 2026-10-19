@@ -101,6 +101,11 @@ class AgentRunRecord(VersionedSchema):
 
     @model_validator(mode="after")
     def _validate_agent_run_timing_and_error(self) -> "AgentRunRecord":
+        if self.status in {RunStatus.PENDING, RunStatus.RUNNING}:
+            if self.ended_at is not None:
+                raise ValueError("non-terminal agent runs cannot have ended_at.")
+        elif self.ended_at is None:
+            raise ValueError("terminal agent runs require ended_at.")
         if self.ended_at is not None and self.ended_at < self.started_at:
             raise ValueError("agent run ended_at cannot be earlier than started_at.")
         if self.status == RunStatus.FAILED and self.error is None:
@@ -207,6 +212,13 @@ class ShoppingRunRecord(VersionedSchema):
             raise ValueError("pending runs cannot have started_at.")
         if self.status == RunStatus.RUNNING and self.started_at is None:
             raise ValueError("running runs require started_at.")
+        if self.status == RunStatus.SUCCEEDED and self.started_at is None:
+            raise ValueError("succeeded runs require started_at.")
+        if (
+            self.status in {RunStatus.PENDING, RunStatus.RUNNING}
+            and self.completed_at is not None
+        ):
+            raise ValueError("non-terminal runs cannot have completed_at.")
         if (
             self.status
             in {

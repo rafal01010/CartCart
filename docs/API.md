@@ -346,6 +346,21 @@ Returns run status and human-useful stage summaries. It should not expose raw in
 Current implementation returns the persisted `ShoppingRunRecord` when the run
 belongs to the requested session.
 
+Stage outcomes and whole-run status have different meanings. A successful
+intermediate `RunEvent` leaves the run active. Only `complete/succeeded` finishes
+the run successfully, after its result has been saved. A failed or cancelled
+event ends the run at that stage. Ordinary events cannot change a terminal run;
+the explicit saved-work retry endpoint claims and reactivates it first.
+
+Pending and running shopping records have no `completed_at`. Running records
+require `started_at`; succeeded records require both timestamps. Failed and
+cancelled records require `completed_at` but may lack `started_at` when execution
+never began. Completion cannot precede creation or start. Every terminal
+`AgentRunRecord` requires `ended_at`, and pending or running agent records cannot
+have it. Agent end times cannot precede start times. Only failed records and
+events carry an error envelope, and failures require one. These record rules do
+not turn a successful stage event into whole-run success.
+
 `GET /api/sessions/{session_id}/runs/{run_id}/events`
 
 Streams ordered progress events using Server-Sent Events. Events should include stable event IDs, stage names, status, timestamps, and user-safe messages.

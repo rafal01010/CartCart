@@ -150,6 +150,7 @@ async def test_saved_phone_selection_freezes_exactly_and_legacy_api_stays_exact(
                     agent_records=(AgentRunRecord(
                         run_id=run_id, agent_name="OfflineDecisionSourceOwner", stage=RunStage.GENERAL_OWNER,
                         status=RunStatus.SUCCEEDED, started_at="2026-10-17T12:00:00Z",
+                        ended_at="2026-10-17T12:00:00Z",
                         tool_activity=(
                             {"tool_name": "decision_source_selection", "status": "transported", "output": {
                                 "projection_id": "superseded-before-transport", "selected_source_ids": [],
@@ -198,6 +199,7 @@ async def test_saved_phone_selection_freezes_exactly_and_legacy_api_stays_exact(
                     agent_records=(AgentRunRecord(
                         run_id=run_id, agent_name="LaterOfflineDecisionOwner", stage=RunStage.GENERAL_OWNER,
                         status=RunStatus.SUCCEEDED, started_at="2026-10-17T13:00:00Z",
+                        ended_at="2026-10-17T13:00:00Z",
                         tool_activity=(
                             {"tool_name": "decision_source_selection", "status": "transported", "output": later_selection.model_dump(mode="json")},
                             {"tool_name": "decision_source_selection", "status": "prepared", "output": {

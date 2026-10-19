@@ -1,5 +1,22 @@
 # CartCart Architecture
 
+## Persisted run lifecycle
+
+The run repository stores ordered stage events separately from the aggregate
+shopping run. Intermediate success keeps the aggregate running. The orchestrator
+saves its result before emitting `complete/succeeded`, the success boundary.
+A failed or cancelled event ends the current attempt at its latest stage.
+The reducer rejects ordinary events after termination before queuing a new event
+row. Explicit saved-work retry retains its existing atomic reactivation claim,
+prior event history, usage and saved research.
+
+Record schemas enforce terminal timestamps without imposing a global stage
+sequence. Failed or cancelled shopping runs can end before execution starts.
+Agent traces have their own start and end times, independent of whole-run status.
+The correction changes no tables and rewrites no historical records. Existing
+contradictory rows fail schema validation on read rather than receiving invented
+timestamps.
+
 ## Bounded final output, Task 224
 
 The shared model transport validates structured final output before returning it to the SDK. A cutoff, missing final message or invalid owner JSON cannot become a buying judgment. Owner completion recovery retains the current owner, model, reasoning and useful research. It closes research tools and handoffs, shares all current attempt ledgers and can execute at most once within the existing funding and timeout bounds. It never resets spent usage or substitutes an older success.

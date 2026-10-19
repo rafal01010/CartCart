@@ -80,21 +80,42 @@ class ShoppingRunRecordModel(Base):
         )
 
     def apply_event(self, event: RunEvent) -> None:
-        self.status = event.status.value
-        self.current_stage = event.stage.value
-        if event.status == RunStatus.RUNNING and self.started_at is None:
-            self.started_at = event.occurred_at.isoformat()
-        if event.status in {
+        current = self.to_schema()
+        if current.status in {
             RunStatus.SUCCEEDED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }:
-            if self.started_at is None:
-                self.started_at = event.occurred_at.isoformat()
-            self.completed_at = event.occurred_at.isoformat()
-        self.error = (
-            _dump_error(event.error) if event.status == RunStatus.FAILED else None
+            raise ValueError("terminal shopping runs cannot accept ordinary events.")
+
+        status = current.status
+        started_at = current.started_at
+        completed_at = None
+        if event.status in {RunStatus.RUNNING, RunStatus.SUCCEEDED}:
+            status = RunStatus.RUNNING
+            started_at = started_at or event.occurred_at
+            if event.stage == RunStage.COMPLETE and event.status == RunStatus.SUCCEEDED:
+                status = RunStatus.SUCCEEDED
+                completed_at = event.occurred_at
+        elif event.status in {RunStatus.FAILED, RunStatus.CANCELLED}:
+            status = event.status
+            completed_at = event.occurred_at
+
+        target = ShoppingRunRecord(
+            run_id=current.run_id,
+            session_id=current.session_id,
+            status=status,
+            current_stage=event.stage,
+            created_at=current.created_at,
+            started_at=started_at,
+            completed_at=completed_at,
+            error=event.error if status == RunStatus.FAILED else None,
         )
+        self.status = target.status.value
+        self.current_stage = target.current_stage.value if target.current_stage else None
+        self.started_at = target.started_at.isoformat() if target.started_at else None
+        self.completed_at = target.completed_at.isoformat() if target.completed_at else None
+        self.error = _dump_error(target.error)
 
 
 class RunEventRecord(Base):

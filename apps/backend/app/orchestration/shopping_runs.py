@@ -1238,7 +1238,6 @@ class ShoppingRunOrchestrator:
                 ),
             )
             context.events.append(complete_event)
-            await self._persistence_hooks.checkpoint()
         except Exception as exc:
             failed_stage = self._current_or_initial_stage(context)
             failed_event = await self._persistence_hooks.emit_event(
@@ -1252,6 +1251,7 @@ class ShoppingRunOrchestrator:
             await self._persistence_hooks.checkpoint()
             raise
 
+        await self._persistence_hooks.checkpoint()
         return context
 
     @managed_context
@@ -1428,7 +1428,6 @@ class ShoppingRunOrchestrator:
                     message="Saved shopping decision completed.",
                 )
             )
-            await self._persistence_hooks.checkpoint()
         except Exception as exc:
             failed_stage = self._current_or_initial_stage(context)
             context.events.append(
@@ -1442,6 +1441,7 @@ class ShoppingRunOrchestrator:
             )
             await self._persistence_hooks.checkpoint()
             raise
+        await self._persistence_hooks.checkpoint()
         return context
 
     async def _run_stage(

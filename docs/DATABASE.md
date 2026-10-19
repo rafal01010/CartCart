@@ -79,13 +79,22 @@ Stores the user-facing session, original input, and current shopping brief.
 
 ### `shopping_runs`
 
-Stores each workflow run for a session and its latest status.
+Stores each workflow run for a session and its aggregate lifecycle status.
+Successful intermediate stages keep the run active; only `complete/succeeded`
+marks success. Failure or cancellation at any stage ends the run. Terminal
+records reject further ordinary event appends before an event is queued.
+Explicit saved-work retry can atomically reactivate a compatible terminal run
+before appending new events, preserving its ordered history and retained usage.
+
+Active runs have no completion time. Success requires a start time; failure or
+cancellation before execution can retain a null start time. All terminal runs
+require a completion time. Existing rows are not rewritten by this correction.
 
 | Column | Type | Null | Purpose |
 | --- | --- | --- | --- |
 | `run_id` | `String(36)` | No | Primary key. |
 | `session_id` | `String(36)` | No | FK to `shopping_sessions.session_id`. |
-| `status` | `String(30)` | No | Latest run status. |
+| `status` | `String(30)` | No | Aggregate workflow status, distinct from the latest stage outcome. |
 | `current_stage` | `String(60)` | Yes | Current or latest workflow stage. |
 | `created_at` | `String(35)` | No | Creation timestamp. |
 | `started_at` | `String(35)` | Yes | Run start timestamp. |

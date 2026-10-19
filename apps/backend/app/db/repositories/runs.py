@@ -62,9 +62,9 @@ class RunRepository:
             occurred_at=utc_now(),
             error=error,
         )
+        run_record.apply_event(event)
         event_record = RunEventRecord.from_schema(event)
         self._session.add(event_record)
-        run_record.apply_event(event)
         await self._session.flush()
         return event_record.to_schema()
 

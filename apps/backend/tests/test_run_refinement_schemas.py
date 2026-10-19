@@ -238,6 +238,138 @@ def test_agent_run_record_links_trace_and_error_envelope() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("status", "valid_pairs"),
+    [
+        (RunStatus.PENDING, {(False, False)}),
+        (RunStatus.RUNNING, {(True, False)}),
+        (RunStatus.SUCCEEDED, {(True, True)}),
+        (RunStatus.FAILED, {(False, True), (True, True)}),
+        (RunStatus.CANCELLED, {(False, True), (True, True)}),
+    ],
+)
+@pytest.mark.parametrize(("started", "completed"), [(False, False), (False, True), (True, False), (True, True)])
+def test_shopping_run_lifecycle_timestamp_matrix(
+    status: RunStatus, valid_pairs: set[tuple[bool, bool]], started: bool, completed: bool
+) -> None:
+    instant = datetime(2026, 5, 30, tzinfo=UTC)
+    data = {
+        "session_id": new_id(), "status": status, "created_at": instant,
+        "started_at": instant if started else None,
+        "completed_at": instant if completed else None,
+        "error": make_error() if status == RunStatus.FAILED else None,
+    }
+    if (started, completed) not in valid_pairs:
+        with pytest.raises(ValidationError):
+            ShoppingRunRecord.model_validate(data)
+        return
+    record = ShoppingRunRecord.model_validate(data)
+    assert record.status == status
+    assert record.started_at == data["started_at"]
+    assert record.completed_at == data["completed_at"]
+    assert ShoppingRunRecord.model_validate_json(record.model_dump_json()) == record
+
+
+@pytest.mark.parametrize(
+    ("status", "ended", "valid"),
+    [
+        (RunStatus.PENDING, False, True), (RunStatus.PENDING, True, False),
+        (RunStatus.RUNNING, False, True), (RunStatus.RUNNING, True, False),
+        (RunStatus.SUCCEEDED, False, False), (RunStatus.SUCCEEDED, True, True),
+        (RunStatus.FAILED, False, False), (RunStatus.FAILED, True, True),
+        (RunStatus.CANCELLED, False, False), (RunStatus.CANCELLED, True, True),
+    ],
+)
+def test_agent_run_lifecycle_timestamp_matrix(
+    status: RunStatus, ended: bool, valid: bool
+) -> None:
+    instant = datetime(2026, 5, 30, tzinfo=UTC)
+    data = {
+        "run_id": new_id(), "stage": RunStage.INTAKE, "agent_name": "OfflineOwner",
+        "status": status, "started_at": instant, "ended_at": instant if ended else None,
+        "error": make_error() if status == RunStatus.FAILED else None,
+    }
+    if not valid:
+        with pytest.raises(ValidationError):
+            AgentRunRecord.model_validate(data)
+        return
+    record = AgentRunRecord.model_validate(data)
+    assert record.status == status
+    assert record.ended_at == data["ended_at"]
+    assert AgentRunRecord.model_validate_json(record.model_dump_json()) == record
+
+
+@pytest.mark.parametrize("status", list(RunStatus))
+def test_lifecycle_records_keep_error_envelope_rules(status: RunStatus) -> None:
+    instant = datetime(2026, 5, 30, tzinfo=UTC)
+    terminal = status in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}
+    wrong_error = None if status == RunStatus.FAILED else make_error()
+    with pytest.raises(ValidationError, match="error envelope"):
+        ShoppingRunRecord(
+            session_id=new_id(), status=status, created_at=instant,
+            started_at=None if status == RunStatus.PENDING else instant,
+            completed_at=instant if terminal else None, error=wrong_error,
+        )
+    with pytest.raises(ValidationError, match="error envelope"):
+        AgentRunRecord(
+            run_id=new_id(), stage=RunStage.INTAKE, agent_name="OfflineOwner",
+            status=status, started_at=instant, ended_at=instant if terminal else None,
+            error=wrong_error,
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "started_at", "completed_at"),
+    [
+        (RunStatus.RUNNING, "2026-05-29T23:59:59Z", None),
+        (RunStatus.SUCCEEDED, "2026-05-30T00:00:02Z", "2026-05-30T00:00:01Z"),
+        (RunStatus.FAILED, None, "2026-05-29T23:59:59Z"),
+        (RunStatus.CANCELLED, None, "2026-05-29T23:59:59Z"),
+    ],
+)
+def test_shopping_run_lifecycle_preserves_chronology(
+    status: RunStatus, started_at: str | None, completed_at: str | None
+) -> None:
+    with pytest.raises(ValidationError, match="earlier"):
+        ShoppingRunRecord.model_validate({
+            "session_id": new_id(), "status": status, "created_at": "2026-05-30T00:00:00Z",
+            "started_at": started_at, "completed_at": completed_at,
+            "error": make_error() if status == RunStatus.FAILED else None,
+        })
+
+
+@pytest.mark.parametrize("status", [RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED])
+def test_agent_run_lifecycle_preserves_chronology(status: RunStatus) -> None:
+    with pytest.raises(ValidationError, match="earlier"):
+        AgentRunRecord.model_validate({
+            "run_id": new_id(), "stage": RunStage.INTAKE, "agent_name": "OfflineOwner",
+            "status": status, "started_at": "2026-05-30T00:00:01Z",
+            "ended_at": "2026-05-30T00:00:00Z",
+            "error": make_error() if status == RunStatus.FAILED else None,
+        })
+
+
+def test_lifecycle_timestamps_normalize_utc_and_reject_naive_values() -> None:
+    data = {
+        "session_id": new_id(), "status": "succeeded",
+        "created_at": "2026-05-30T08:00:00+08:00",
+        "started_at": "2026-05-30T08:00:00+08:00",
+        "completed_at": "2026-05-30T08:00:00+08:00",
+    }
+    record = ShoppingRunRecord.model_validate(data)
+    assert record.completed_at == datetime(2026, 5, 30, tzinfo=UTC)
+    assert record.completed_at is not None and record.completed_at.tzinfo is UTC
+    with pytest.raises(ValidationError):
+        ShoppingRunRecord.model_validate({**data, "completed_at": "2026-05-30T00:00:00"})
+    agent = {
+        "run_id": new_id(), "stage": "intake", "agent_name": "OfflineOwner",
+        "status": "succeeded", "started_at": data["started_at"], "ended_at": data["completed_at"],
+    }
+    assert AgentRunRecord.model_validate(agent).ended_at == record.completed_at
+    with pytest.raises(ValidationError):
+        AgentRunRecord.model_validate({**agent, "ended_at": "2026-05-30T00:00:00"})
+
+
 def test_refinement_request_accepts_targeted_brief_changes() -> None:
     refinement = RefinementRequest(
         session_id=new_id(),

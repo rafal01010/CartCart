@@ -66,6 +66,7 @@ from app.schemas.runs import (
     RunStage,
     ShoppingRunRecord,
 )
+from app.schemas.timestamps import utc_now
 
 
 class RunService:
@@ -291,7 +292,12 @@ class RunService:
                 ShoppingRunRecordModel.session_id == str(session_id),
                 ShoppingRunRecordModel.status == run.status.value,
             )
-            .values(status=RunStatus.RUNNING.value, error=None, completed_at=None)
+            .values(
+                status=RunStatus.RUNNING.value,
+                started_at=(run.started_at or utc_now()).isoformat(),
+                error=None,
+                completed_at=None,
+            )
         )
         if claimed.rowcount != 1:
             raise ApplicationError(

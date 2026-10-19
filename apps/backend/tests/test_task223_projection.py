@@ -10,7 +10,7 @@ from alembic.config import Config
 import httpx
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.core.settings import Settings
 from app.db.base import Base
@@ -20,6 +20,7 @@ from app.db.repositories.runs import RunRepository
 from app.db.repositories.search_sources import SearchSourceRepository
 from app.db.repositories.sessions import SessionRepository
 from app.db.models.results import ResultSourceProjectionRecord, ResultVersionRecord
+from app.db.models.runs import ShoppingRunRecordModel
 from app.db.session import create_database_engine, create_session_factory, get_db_session
 from app.main import create_app
 from app.schemas.analysis import RecommendationBundle
@@ -159,6 +160,7 @@ async def test_local_sqlite_api_keeps_caption_proof_and_literal_authored_groups(
                     run_id=run.run_id, stage=RunStage.SOURCE_INTELLIGENCE,
                     agent_name="LocalCaptionProjectionControl", status=RunStatus.SUCCEEDED,
                     started_at="2026-10-16T00:00:00Z",
+                    ended_at="2026-10-16T00:00:00Z",
                 ))
                 later = await ResultRepository(db).save_result_bundle(
                     run.run_id, trust_assessments=(), category_analyses=(), agent_records=(),
@@ -280,6 +282,15 @@ async def test_local_legacy_reload_is_read_only_and_explicit_retry_freezes_once(
                 assert loaded.source_projection is None
                 frozen = await ResultRepository(db).freeze_legacy_projection(version_id)
                 assert frozen.source_evidence == (evidence,)
+                claimed = await db.execute(
+                    update(ShoppingRunRecordModel)
+                    .where(
+                        ShoppingRunRecordModel.run_id == str(run.run_id),
+                        ShoppingRunRecordModel.status == RunStatus.SUCCEEDED.value,
+                    )
+                    .values(status=RunStatus.RUNNING.value, error=None, completed_at=None)
+                )
+                assert claimed.rowcount == 1
                 await RunRepository(db).append_event(
                     run.run_id, stage=RunStage.SOURCE_INTELLIGENCE, status=RunStatus.RUNNING,
                     message="Local explicit retry claimed the run.",

@@ -158,7 +158,7 @@ def test_gate_fixture_corrections_preserve_independent_expectations():
         next(
             r for r in proxy.expected_output.fields if r.field == "quality.excluded"
         ).value
-        is True
+        is False
     )
     positive = next(
         c

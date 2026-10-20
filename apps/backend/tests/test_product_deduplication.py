@@ -1,3 +1,7 @@
+from itertools import permutations
+
+import pytest
+
 from app.schemas.confidence import Confidence, ConfidenceLevel
 from app.schemas.money import Money
 from app.schemas.products import (
@@ -127,6 +131,106 @@ def test_retailer_id_matching_collapses_same_retailer_product() -> None:
     assert {listing.retailer_id for listing in result.listings} == {"B012345678"}
 
 
+def test_shared_category_path_does_not_invent_an_exact_retailer_id() -> None:
+    extractions = (
+        make_extraction(
+            url="https://shop.example/products/monitors/acme-arc-27",
+        ),
+        make_extraction(
+            name="Nova Beam 32 Monitor",
+            title="Nova Beam 32 Monitor",
+            url="https://shop.example/products/monitors/nova-beam-32",
+            brand="Nova",
+            model="Beam 32",
+        ),
+    )
+
+    result = DeterministicProductDeduplicator().group(extractions)
+
+    assert result.collapsed_count == 0
+    assert [group.product.name for group in result.groups] == [
+        "Acme Arc 27 Monitor",
+        "Nova Beam 32 Monitor",
+    ]
+    assert [listing.retailer_id for listing in result.listings] == [None, None]
+    assert [listing.listing_id for listing in result.listings] == [
+        extraction.listing.listing_id for extraction in extractions
+    ]
+
+
+def test_tracking_only_duplicates_on_nested_paths_still_group_by_canonical_url() -> None:
+    result = DeterministicProductDeduplicator().group(
+        (
+            make_extraction(
+                url="https://shop.example/products/monitors/arc-27?utm_source=first",
+                brand=None,
+                model=None,
+            ),
+            make_extraction(
+                url="https://shop.example/products/monitors/arc-27?utm_source=second",
+                brand=None,
+                model=None,
+            ),
+        )
+    )
+
+    assert result.collapsed_count == 1
+    assert group_kinds(result) == (DeterministicMatchKind.CANONICAL_URL,)
+    assert [listing.retailer_id for listing in result.listings] == [None, None]
+    assert str(result.groups[0].listings[0].canonical_url) == (
+        "https://shop.example/products/monitors/arc-27"
+    )
+
+
+@pytest.mark.parametrize(
+    ("left_url", "right_url", "explicit_id", "expected_id"),
+    (
+        (
+            "https://shop.example/products/monitors/offer-one",
+            "https://shop.example/products/displays/offer-two",
+            "monitor-123",
+            "MONITOR-123",
+        ),
+        (
+            "https://shop.example/products/arc-27",
+            "https://shop.example/item/arc-27",
+            None,
+            "ARC27",
+        ),
+        (
+            "https://shop.example/search?product_id=arc-27",
+            "https://shop.example/details?pid=arc-27",
+            None,
+            "ARC27",
+        ),
+        (
+            "https://www.ikea.com/us/en/p/first-chair-12345678/",
+            "https://www.ikea.com/gb/en/p/renamed-chair-12345678/",
+            None,
+            "12345678",
+        ),
+    ),
+)
+def test_supported_retailer_product_ids_still_group(
+    left_url: str,
+    right_url: str,
+    explicit_id: str | None,
+    expected_id: str,
+) -> None:
+    result = DeterministicProductDeduplicator().group(
+        tuple(
+            make_extraction(
+                url=url, brand=None, model=None, retailer_id=explicit_id
+            )
+            for url in (left_url, right_url)
+        )
+    )
+
+    assert result.collapsed_count == 1
+    assert group_kinds(result) == (DeterministicMatchKind.RETAILER_ID,)
+    assert {listing.retailer_id for listing in result.listings} == {expected_id}
+
+
 def test_upc_ean_and_sku_matching_collapse_obvious_duplicates() -> None:
     deduplicator = DeterministicProductDeduplicator()
 
@@ -215,6 +319,212 @@ def test_exact_brand_model_collapses_but_brand_mismatch_stays_distinct() -> None
     assert group_kinds(exact_result) == (DeterministicMatchKind.BRAND_MODEL,)
     assert mismatch_result.collapsed_count == 0
     assert len(mismatch_result.groups) == 2
+
+
+@pytest.mark.parametrize(
+    ("identifier", "left_value", "right_value"),
+    (
+        ("upc", "012345678905", "012345678912"),
+        ("ean", "4006381333931", "4006381333948"),
+    ),
+)
+@pytest.mark.parametrize(
+    "matching_route", ("brand_model", "fuzzy", "url", "retailer", "sku")
+)
+def test_known_identifier_conflicts_prevent_exact_and_fuzzy_merges(
+    identifier: str,
+    left_value: str,
+    right_value: str,
+    matching_route: str,
+) -> None:
+    left_url = "https://shop.example/offers/one?utm_source=first"
+    right_url = (
+        "https://shop.example/offers/one?utm_source=second"
+        if matching_route == "url"
+        else "https://shop.example/offers/two"
+    )
+    left = make_extraction(
+        url=left_url,
+        model=None if matching_route == "fuzzy" else "Arc 27",
+        retailer_id="arc-27" if matching_route == "retailer" else None,
+        sku="arc-27" if matching_route == "sku" else None,
+        seller_name="Acme Official",
+        seller_trust_signal=SellerTrustSignal.STRONG,
+        price="349.00",
+        availability_status=ListingAvailabilityStatus.AVAILABLE,
+        source_quality_level=SourceQualityLevel.STRONG,
+        **{identifier: left_value},
+    )
+    right = make_extraction(
+        url=right_url,
+        model=None if matching_route == "fuzzy" else "Arc 27",
+        retailer_id="arc-27" if matching_route == "retailer" else None,
+        sku="arc-27" if matching_route == "sku" else None,
+        seller_name="Discount seller",
+        seller_trust_signal=SellerTrustSignal.SUSPICIOUS,
+        price="149.00",
+        availability_status=ListingAvailabilityStatus.REGION_RESTRICTED,
+        source_quality_level=SourceQualityLevel.WEAK,
+        **{identifier: right_value},
+    )
+
+    result = DeterministicProductDeduplicator().group((left, right))
+
+    assert result.collapsed_count == 0
+    assert len(result.groups) == 2
+    assert [getattr(group.product, identifier) for group in result.groups] == [
+        left_value,
+        right_value,
+    ]
+    assert [decision.outcome for decision in result.fuzzy_decisions] == [
+        FuzzyProductMatchOutcome.UNCERTAIN
+    ]
+    assert identifier.upper() in result.fuzzy_decisions[0].rationale
+    for actual, original in zip(
+        result.listings, (left.listing, right.listing), strict=True
+    ):
+        assert actual.model_dump(
+            exclude={"product_id", "canonical_url", "retailer_id"}
+        ) == original.model_dump(
+            exclude={"product_id", "canonical_url", "retailer_id"}
+        )
+        assert actual.product_id == original.product_id
+
+
+@pytest.mark.parametrize("matching_identifier", ("upc", "ean"))
+def test_matching_identifier_does_not_override_other_identifier_conflict(
+    matching_identifier: str,
+) -> None:
+    left = make_extraction(
+        url="https://store-a.example/offers/one",
+        upc="012345678905",
+        ean="4006381333931",
+    )
+    right = make_extraction(
+        url="https://store-b.example/offers/two",
+        upc="012345678905" if matching_identifier == "upc" else "012345678912",
+        ean="4006381333931" if matching_identifier == "ean" else "4006381333948",
+    )
+
+    result = DeterministicProductDeduplicator().group((left, right))
+
+    assert result.collapsed_count == 0
+    assert len(result.groups) == 2
+    assert [listing.upc for listing in result.listings] == [
+        left.listing.upc, right.listing.upc
+    ]
+    assert [listing.ean for listing in result.listings] == [
+        left.listing.ean, right.listing.ean
+    ]
+    assert result.fuzzy_decisions[0].outcome == FuzzyProductMatchOutcome.UNCERTAIN
+
+
+@pytest.mark.parametrize(
+    ("identifier", "value"),
+    (("upc", "012345678905"), ("ean", "4006381333931")),
+)
+def test_matching_and_missing_identifiers_remain_compatible(
+    identifier: str, value: str
+) -> None:
+    extractions = tuple(
+        make_extraction(
+            url=f"https://store-{index}.example/offers/arc",
+            **{identifier: value if index < 2 else None},
+        )
+        for index in range(3)
+    )
+
+    result = DeterministicProductDeduplicator().group(extractions)
+
+    assert result.collapsed_count == 2
+    assert len(result.groups) == 1
+    assert getattr(result.groups[0].product, identifier) == value
+    assert group_kinds(result) == (
+        DeterministicMatchKind(identifier),
+        DeterministicMatchKind.BRAND_MODEL,
+    )
+    assert len(result.listings) == 3
+
+
+@pytest.mark.parametrize("order", tuple(permutations(range(3))))
+@pytest.mark.parametrize("model", ("Arc 27", None))
+@pytest.mark.parametrize(
+    ("identifier", "left_value", "right_value"),
+    (
+        ("upc", "012345678905", "012345678912"),
+        ("ean", "4006381333931", "4006381333948"),
+    ),
+)
+def test_missing_identifier_cannot_bridge_conflicting_group_members(
+    order: tuple[int, ...],
+    model: str | None,
+    identifier: str,
+    left_value: str,
+    right_value: str,
+) -> None:
+    unknown = make_extraction(url="https://unknown.example/offers/arc", model=model)
+    listing_identity = make_extraction(
+        url="https://listing.example/offers/arc", model=model, **{identifier: left_value}
+    )
+    listing_identity = listing_identity.model_copy(
+        update={"product": listing_identity.product.model_copy(update={identifier: None})}
+    )
+    product_identity = make_extraction(
+        url="https://product.example/offers/arc", model=model, **{identifier: right_value}
+    )
+    product_identity = product_identity.model_copy(
+        update={"listing": product_identity.listing.model_copy(update={identifier: None})}
+    )
+    extractions = (unknown, listing_identity, product_identity)
+
+    result = DeterministicProductDeduplicator().group(
+        tuple(extractions[index] for index in order)
+    )
+
+    assert result.collapsed_count == 1
+    assert len(result.groups) == 2
+    listing_groups = {
+        listing.listing_id: group.product.product_id
+        for group in result.groups
+        for listing in group.listings
+    }
+    assert listing_groups[listing_identity.listing.listing_id] != listing_groups[
+        product_identity.listing.listing_id
+    ]
+    assert set(listing_groups) == {
+        extraction.listing.listing_id for extraction in extractions
+    }
+
+
+@pytest.mark.parametrize(
+    ("identifier", "left_value", "right_value"),
+    (
+        ("upc", "012345678905", "012345678912"),
+        ("ean", "4006381333931", "4006381333948"),
+    ),
+)
+def test_conflicting_product_and_listing_identifiers_cannot_match_on_overlap(
+    identifier: str, left_value: str, right_value: str
+) -> None:
+    first = make_extraction(
+        url="https://store-a.example/offers/arc", **{identifier: left_value}
+    )
+    conflicting = make_extraction(
+        url="https://store-b.example/offers/arc", **{identifier: left_value}
+    )
+    conflicting = conflicting.model_copy(
+        update={
+            "listing": conflicting.listing.model_copy(update={identifier: right_value})
+        }
+    )
+
+    result = DeterministicProductDeduplicator().group((first, conflicting))
+
+    assert result.collapsed_count == 0
+    assert len(result.groups) == 2
+    assert getattr(result.groups[1].product, identifier) == left_value
+    assert getattr(result.groups[1].listings[0], identifier) == right_value
+    assert result.fuzzy_decisions[0].outcome == FuzzyProductMatchOutcome.UNCERTAIN
 
 
 def test_conservative_fuzzy_matching_collapses_high_confidence_same_product() -> None:

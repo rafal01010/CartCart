@@ -181,8 +181,7 @@ class DeterministicProductDeduplicator:
                     decision = _fuzzy_product_match_decision(
                         extraction.product,
                         listing,
-                        group.product,
-                        group.listings[0],
+                        group,
                     )
                     fuzzy_decisions.append(decision)
                     if decision.outcome != FuzzyProductMatchOutcome.SAME_PRODUCT:
@@ -280,6 +279,9 @@ def _match_evidence(
     incoming_listing: ProductListing,
     group: _MutableProductGroup,
 ) -> DeterministicMatchEvidence | None:
+    if _conflicting_product_identifiers(incoming_product, incoming_listing, group):
+        return None
+
     incoming_url = _normalized_url_value(incoming_listing)
     if incoming_url is not None:
         for listing in group.listings:
@@ -350,6 +352,21 @@ def _match_evidence(
     return None
 
 
+def _conflicting_product_identifiers(
+    incoming_product: CanonicalProduct,
+    incoming_listing: ProductListing,
+    group: _MutableProductGroup,
+) -> tuple[str, ...]:
+    conflicts: list[str] = []
+    for kind in (DeterministicMatchKind.UPC, DeterministicMatchKind.EAN):
+        values = _identifier_values(kind, incoming_product, incoming_listing)
+        for listing in group.listings:
+            values.update(_identifier_values(kind, group.product, listing))
+        if len(values) > 1:
+            conflicts.append(kind.value.upper())
+    return tuple(conflicts)
+
+
 def _identifier_values(
     kind: DeterministicMatchKind,
     product: CanonicalProduct,
@@ -409,9 +426,10 @@ def _brand_model_key(product: CanonicalProduct) -> tuple[str, str] | None:
 def _fuzzy_product_match_decision(
     incoming_product: CanonicalProduct,
     incoming_listing: ProductListing,
-    group_product: CanonicalProduct,
-    group_listing: ProductListing,
+    group: _MutableProductGroup,
 ) -> FuzzyProductMatchDecision:
+    group_product = group.product
+    group_listing = group.listings[0]
     incoming_title = _normalized_match_text(incoming_product, incoming_listing)
     group_title = _normalized_match_text(group_product, group_listing)
     incoming_tokens = _title_tokens(incoming_title)
@@ -427,6 +445,22 @@ def _fuzzy_product_match_decision(
     shared_specs = tuple(sorted(set(incoming_specs) & set(group_specs)))
     conflicting_specs = _conflicting_spec_tokens(incoming_specs, group_specs)
     spec_similarity = _spec_similarity(incoming_specs, group_specs)
+
+    identifier_conflicts = _conflicting_product_identifiers(
+        incoming_product, incoming_listing, group
+    )
+    if identifier_conflicts:
+        return _fuzzy_decision(
+            incoming_product,
+            group_product,
+            FuzzyProductMatchOutcome.UNCERTAIN,
+            min(0.79, title_similarity),
+            title_similarity,
+            spec_similarity,
+            shared_specs,
+            conflicting_specs,
+            f"Known {'/'.join(identifier_conflicts)} identifiers conflict, so these candidates need review before grouping.",
+        )
 
     brand_conflict = _known_brand_conflict(incoming_product, group_product)
     same_known_brand = _same_exact_brand(incoming_product, group_product)
@@ -721,14 +755,10 @@ def _retailer_id(url: str) -> str | None:
                 return normalized
 
     path_parts = [part for part in parsed.path.split("/") if part]
-    for index, part in enumerate(path_parts[:-1]):
-        marker = part.casefold()
-        if marker in _PATH_ID_MARKERS:
-            if marker == "gp" and path_parts[index + 1].casefold() == "product":
-                continue
-            normalized = _normalize_identifier(path_parts[index + 1])
-            if normalized is not None:
-                return normalized
+    if len(path_parts) >= 2 and path_parts[-2].casefold() in _PATH_ID_MARKERS:
+        if path_parts[-2].casefold() == "gp" and path_parts[-1].casefold() == "product":
+            return None
+        return _normalize_identifier(path_parts[-1])
     return None
 
 

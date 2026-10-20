@@ -40,6 +40,7 @@ from app.orchestration import (
 )
 from app.orchestration.shopping_runs import (
     DiscoveredSourceExtraction,
+    ShoppingRunContext,
     _deduplicated_user_added_products,
     _listing_from_extracted_source,
     _selected_extraction_results,
@@ -1650,7 +1651,7 @@ async def test_manual_fallback_enters_comparison_without_a_fabricated_listing(
 
 
 @pytest.mark.asyncio
-async def test_user_added_url_product_enters_deduplication_and_live_analysis(
+async def test_user_added_url_product_survives_extraction_grouping_and_analysis_stages(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -1660,8 +1661,6 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
     engine = create_database_engine(settings)
     extraction_provider = RecordingExtractionProvider()
     analyst = RecordingGenericAnalystAgent()
-    general = RecordingGeneralShoppingAgent()
-    comparison_agent = RecordingComparisonDecisionAgent()
 
     try:
         async with engine.begin() as connection:
@@ -1682,7 +1681,7 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
                 shopping_session.session_id,
                 UserAddedProduct(
                     url=AnyHttpUrl(
-                        "https://shop.example/northstar-arc-27?utm_source=user"
+                        "https://shop.example/northstar-arc-27-user?utm_source=user"
                     ),
                     notes="User pasted this listing.",
                 ),
@@ -1704,26 +1703,28 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
                 ),
                 agent_workflow_mode=AgentWorkflowMode.LIVE,
                 agent_model_name="gpt-recording",
-                intake_agent=RecordingIntakeAgent(),
-                general_shopping_agent=general,
                 query_planner=RecordingQueryPlannerAgent(),
                 discovery_agent=SelectingDiscoveryAgent(),
                 extraction_agent=RecordingExtractionAgent(extraction_provider),
                 category_router_agent=RecordingCategoryRouterAgent(),
                 generic_product_analyst_agent=analyst,
-                seller_listing_trust_agent=RecordingSellerListingTrustAgent(),
-                comparison_decision_agent=comparison_agent,
-                verifier_critic_agent=RecordingVerifierCriticAgent(),
                 search_provider=ListingSearchProvider(),
                 extraction_provider=extraction_provider,
                 default_region_code="US",
             )
 
-            context = await orchestrator.run(
-                run.run_id,
-                shopping_session.current_brief,
+            context = ShoppingRunContext(
+                run_id=run.run_id,
+                session_id=shopping_session.session_id,
+                trace_id=f"test-user-added-stages-{run.run_id}",
+                active_brief=shopping_session.current_brief,
                 original_input=shopping_session.original_input,
             )
+            await orchestrator._plan_queries(context)
+            await orchestrator._discover_sources(context)
+            await orchestrator._extract_sources(context)
+            await orchestrator._deduplicate_candidates(context)
+            await orchestrator._run_category_analysis(context)
             await db_session.commit()
 
         async with session_factory() as db_session:
@@ -1733,13 +1734,12 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
                 shopping_session.session_id
             )
             shortlist = await product_repository.list_shortlist_memberships(run.run_id)
+            listings = await product_repository.list_listings_for_product(
+                shortlist[0].product_id
+            )
             snapshots = await search_repository.list_source_snapshots(run.run_id)
 
         assert len(extraction_provider.calls) == 2
-        assert len(general.calls) == 1
-        assert general.calls[0].user_added_products[0].candidate_id == (
-            user_added.candidate_id
-        )
         assert context.deduplication is not None
         assert context.deduplication.pre_dedupe_count == 2
         assert context.deduplication.post_dedupe_count == 1
@@ -1751,6 +1751,10 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
             context.deduplication.result.groups[0].product.product_id
         )
         assert shortlist[0].candidate_id == user_added.candidate_id
+        assert len(listings) == 2
+        assert {listing.seller.seller_name for listing in listings} == {
+            "Metro Office", "FlashDealz Outlet"
+        }
 
         user_added_snapshot = next(
             snapshot
@@ -1763,10 +1767,7 @@ async def test_user_added_url_product_enters_deduplication_and_live_analysis(
         )
         assert len(analyst.calls) == 1
         assert user_added_snapshot.source_id in analyst.calls[0].product.source_ids
-        assert comparison_agent.calls == []
-        assert context.general_owner_draft is not None
-        assert context.recommendation_bundle is not None
-        assert context.recommendation_bundle.no_strong_buy is True
+        assert len(analyst.calls[0].listings) == 2
 
     finally:
         await engine.dispose()

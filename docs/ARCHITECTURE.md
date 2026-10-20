@@ -852,9 +852,20 @@ discovery/fetch/extraction loop before shortlist construction.
 `DeterministicProductDeduplicator` is the conservative product grouping layer
 for obvious duplicates. It canonicalizes listing URLs with the source URL
 policy, extracts conservative retailer product IDs such as Amazon ASINs or
-explicit product/SKU query IDs, and collapses when canonical URL, same-retailer
-retailer ID, UPC, EAN, SKU with exact retailer/brand support, or exact
-brand/model evidence matches. After exact matching, normalized title/spec
+explicit product/SKU query IDs. Generic path inference requires a terminal
+product-marker/ID pair. A shared category segment in a deeper path is not a
+retailer product identifier. Explicit extracted retailer IDs remain supported.
+Before any exact or fuzzy merge, normalized known UPC and EAN values must be
+consistent across the incoming product/listing and every member of the group.
+Contradictions preserve separate candidates with an `uncertain` review outcome,
+even when URLs, retailer IDs, SKUs, brand/model or another barcode match. Missing
+identifiers alone do not prevent grouping. This check uses the existing digit
+normalization, without catalog lookup, check-digit validation or new UPC/EAN
+equivalence rules.
+
+Compatible products collapse when canonical URL, same-retailer retailer ID,
+UPC, EAN, SKU with exact retailer/brand support, or exact brand/model evidence
+matches. After exact matching, normalized title/spec
 similarity can produce `same_product`, `same_family`, `uncertain`, or
 `different_product` review outcomes. Only high-confidence `same_product`
 outcomes collapse candidates; `same_family` and `uncertain` outcomes preserve

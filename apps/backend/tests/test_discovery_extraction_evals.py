@@ -555,7 +555,7 @@ def test_source_quality_regressions_fail_named_fields(field, value):
     assert any(k.startswith("field.quality." + field) for k in failures(case, out))
 
 
-def test_excluded_source_and_regional_availability_regressions_fail():
+def test_automatic_source_exclusion_and_regional_availability_regressions_fail():
     from app.providers.source_quality import SourceQualityAssessment
 
     excluded = named("quality/excluded-proxy")
@@ -565,8 +565,8 @@ def test_excluded_source_and_regional_availability_regressions_fail():
             normalized_domain="zenmarket.jp",
             source_class="reseller_import_proxy",
             quality={"level": "weak"},
-            excluded=False,
-            requires_trust_assessment=True,
+            excluded=True,
+            requires_trust_assessment=False,
             region_relevance="match",
             region_relevance_score=1,
             reasons=("Independent proxy-source fixture.",),

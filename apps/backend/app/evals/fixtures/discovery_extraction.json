@@ -606,11 +606,22 @@
               "00000000-0000-4000-8000-0000000ef42d",
               "00000000-0000-4000-8000-0000000ef42e",
               "00000000-0000-4000-8000-0000000ef42f",
-              "00000000-0000-4000-8000-0000000ef430",
-              "00000000-0000-4000-8000-0000000ef431"
+              "00000000-0000-4000-8000-0000000ef430"
             ],
-            "requirement": "Retain all usable sources without duplicates.",
+            "requirement": "Select all eight supplied summaries without duplicates; the ninth source remains explicitly deferred.",
             "operator": "set_equals"
+          },
+          {
+            "field": "discovery.source_decisions.8.classification",
+            "value": "uncertain",
+            "requirement": "The omitted source must remain unreviewed rather than inventing a classification.",
+            "operator": "equals"
+          },
+          {
+            "field": "discovery.source_decisions.8.next_action",
+            "value": "ignore",
+            "requirement": "Do not select the source whose summary was not supplied.",
+            "operator": "equals"
           }
         ],
         "groups": []
@@ -696,8 +707,8 @@
           },
           {
             "field": "quality.quality.level",
-            "value": "adequate",
-            "requirement": "Testing source is useful without flattening into strongest confidence.",
+            "value": "strong",
+            "requirement": "The seeded testing-source score is strong; product confidence remains independent.",
             "operator": "equals"
           }
         ],
@@ -771,8 +782,8 @@
         "fields": [
           {
             "field": "quality.excluded",
-            "value": true,
-            "requirement": "Proxy imports are excluded from normal purchase evidence.",
+            "value": false,
+            "requirement": "Proxy caution remains advisory under Task 216; domain alone cannot exclude evidence.",
             "operator": "equals"
           },
           {
@@ -784,14 +795,14 @@
           {
             "field": "quality.quality.level",
             "value": "weak",
-            "requirement": "Excluded source stays weak.",
+            "requirement": "Retain weak source quality and seller-specific caution without automatic exclusion.",
             "operator": "equals"
           }
         ],
         "groups": []
       },
       "metadata": {
-        "description": "Policy-excluded reseller/proxy never becomes high-quality buying evidence.",
+        "description": "Historical proxy case retains weak seller-specific caution without automatic exclusion under Task 216.",
         "tags": [
           "offline",
           "synthetic",
@@ -825,8 +836,8 @@
           },
           {
             "field": "quality.requires_trust_assessment",
-            "value": true,
-            "requirement": "Mixed retailer still requires listing-level checks.",
+            "value": false,
+            "requirement": "Task 216 keeps listing checks advisory; region mismatch still cannot establish local availability.",
             "operator": "equals"
           }
         ],

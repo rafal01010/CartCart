@@ -826,12 +826,12 @@ existing policy, not seller-trust decisions or reusable source specialists.
 | `extraction/withhold-unsupported-query-identity` | Retain an explicit gap when a destination contains unsupported query data. |
 | `discovery/generic-shortlist` | Office-chair buying and review sources; exclude proxy/unrelated results and preserve review treatment. |
 | `discovery/no-usable-sources` | Unknown, unrelated and excluded results yield explicit insufficient candidates. |
-| `discovery/review-slot-and-page-order` | Buying pages lead inspection; a review retains a slot within the eight-page budget. |
+| `discovery/review-slot-and-page-order` | Buying pages lead inspection; a review retains a slot among the eight supplied summaries. The ninth source remains explicitly unreviewed. |
 | `quality/official-manufacturer` | Strong own-product official source; strip tracking URL parameters. |
-| `quality/independent-testing` | Testing-source class and adequate evidence quality remain distinct from offers. |
+| `quality/independent-testing` | Testing-source class and strong seeded source quality remain distinct from product confidence and offers. |
 | `quality/misleading-domain` | A lookalike domain suffix remains unknown. |
-| `quality/excluded-proxy` | Excluded reseller/import proxy remains weak and excluded. |
-| `quality/retailer-region-mismatch` | US retailer does not establish PH availability; listing assessment remains required. |
+| `quality/excluded-proxy` | Historical case name retained. Reseller/import-proxy caution stays weak and advisory, without domain-only exclusion. |
+| `quality/retailer-region-mismatch` | US retailer does not establish PH availability; listing assessment is advisory under Task 216. |
 | `extraction/normalized-offer` | Actual normalization preserves title, brand, seller, PHP amount, source and region without inventing stock. |
 | `extraction/missing-price-and-region` | Missing price/currency and region stay unknown; weak quality persists. |
 | `extraction/cited-product-and-offer` | Product, seller, offer, price, PH stock and spec citation retain entity/source links. |
@@ -858,6 +858,16 @@ Malformed output produces schema failures; missing paths fail rather than skip.
 The existing report policy makes failed assertions or task/evaluator errors exit
 nonzero. Fixed fixture IDs/times, schema versions, stage-specific criteria,
 source assignment and expected group coverage are validated on load.
+
+Task 177/178 regression controls in `tests/test_product_deduplication.py` use
+public grouping calls. They retain distinct products under shared category paths,
+exercise supported direct retailer IDs, and preserve conflicting UPC/EAN candidates
+through exact and fuzzy matching. Matching identifiers and missing identifiers
+remain positive controls. Group-member conflicts cannot disappear behind a
+representative with missing identifiers. Listing identity, seller, price,
+availability, source quality and source attribution remain attached to each offer.
+The existing offline discovery/extraction/dedupe corpus supplies the shared
+regression lane without model or provider calls.
 
 Focused tests in `tests/test_discovery_extraction_evals.py` check corpus integrity,
 independent expectations, deliberate shortlist/fidelity/grouping mutations, offline

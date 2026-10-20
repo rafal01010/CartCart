@@ -136,7 +136,7 @@ def test_unknown_source_defaults_to_unknown_without_exclusion() -> None:
     assert assessment.quality.score == 0.25
 
 
-def test_price_comparison_source_requires_actual_shop_assessment() -> None:
+def test_price_comparison_source_is_advisory() -> None:
     assessment = score_source_quality(
         "https://kakaku.com/item/example",
         SourceQualityMetadata(target_region_code="JP"),
@@ -144,7 +144,8 @@ def test_price_comparison_source_requires_actual_shop_assessment() -> None:
 
     assert assessment.source_class == SourceClass.PRICE_COMPARISON
     assert assessment.requires_trust_assessment is False
-    assert assessment.quality.level == SourceQualityLevel.WEAK
+    assert assessment.quality.level == SourceQualityLevel.MIXED
+    assert assessment.quality.score == 0.29
 
 
 def test_facebook_marketplace_caution_is_advisory() -> None:
@@ -200,7 +201,7 @@ def test_amazon_listing_and_review_context_remain_marketplace_specific() -> None
     assert listing.requires_trust_assessment is False
     assert listing.quality.score > review.quality.score
     assert any("listing, seller" in reason for reason in listing.reasons)
-    assert any("variant-mixing" in reason for reason in review.reasons)
+    assert any("variant mixing" in reason for reason in review.reasons)
 
 
 def test_ikea_quality_is_region_specific() -> None:
@@ -290,4 +291,5 @@ def test_xiaomi_user_community_is_not_first_party_product_support() -> None:
     assessment = score_source_quality("https://c.mi.com/global/post/123")
 
     assert assessment.source_class == SourceClass.COMMUNITY
-    assert assessment.quality.level == SourceQualityLevel.WEAK
+    assert assessment.quality.level == SourceQualityLevel.MIXED
+    assert assessment.quality.score == 0.3

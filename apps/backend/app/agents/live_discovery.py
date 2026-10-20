@@ -518,22 +518,26 @@ def _coerce_discovery_result(
         model_hosted_decisions
     ):
         raise ValueError("Hosted source decisions contain duplicate URLs.")
-    if any(
-        _neutral_url(item.url) not in hosted_by_url for item in model_hosted_decisions
-    ):
-        raise ValueError("Hosted source decision lacks a persisted SDK citation.")
-    mapped_decisions = tuple(
-        DiscoverySourceDecision(
-            source_id=hosted_by_url[_neutral_url(item.url)].source_id,
-            classification=item.classification,
-            confidence=item.confidence,
-            reasons=item.reasons,
-            intended_treatment=item.intended_treatment,
-            candidate_model_hints=item.candidate_model_hints,
-            next_action=item.next_action,
+    mapped: list[DiscoverySourceDecision] = []
+    for item in model_hosted_decisions:
+        normalized_url = _neutral_url(item.url)
+        citation = (
+            hosted_by_url.get(normalized_url) if normalized_url is not None else None
         )
-        for item in model_hosted_decisions
-    )
+        if citation is None:
+            raise ValueError("Hosted source decision lacks a persisted SDK citation.")
+        mapped.append(
+            DiscoverySourceDecision(
+                source_id=citation.source_id,
+                classification=item.classification,
+                confidence=item.confidence,
+                reasons=item.reasons,
+                intended_treatment=item.intended_treatment,
+                candidate_model_hints=item.candidate_model_hints,
+                next_action=item.next_action,
+            )
+        )
+    mapped_decisions = tuple(mapped)
     decided_hosted_ids = {item.source_id for item in mapped_decisions}
     mapped_decisions += tuple(
         DiscoverySourceDecision(
@@ -644,18 +648,10 @@ def _fallback_discovery_output(
 
 def _mock_discovery_from_model_input(model_input: str) -> DiscoveryAgentOutput:
     payload = json.loads(model_input)
-    input_data = DiscoveryAgentInput.model_validate(
-        {
-            "run_id": payload["run_id"],
-            "brief": payload["brief"],
-            "search_plan": payload["search_plan"],
-            "seed_results": payload["search_results"],
-        }
-    )
     # Fixture-only model response; live decisions come from the OpenAI model.
     decisions: list[DiscoverySourceDecision] = []
-    for result in input_data.seed_results:
-        text = f"{result.title} {result.snippet or ''}".casefold()
+    for result in payload["search_results"]:
+        text = f"{result['title']} {result['snippet'] or ''}".casefold()
         if "unrelated" in text:
             kind, action = DiscoverySourceKind.IRRELEVANT, DiscoveryNextAction.IGNORE
         elif "review" in text or "best tvs" in text:
@@ -677,7 +673,7 @@ def _mock_discovery_from_model_input(model_input: str) -> DiscoveryAgentOutput:
             kind, action = DiscoverySourceKind.UNCERTAIN, DiscoveryNextAction.IGNORE
         decisions.append(
             DiscoverySourceDecision(
-                source_id=result.source_id,
+                source_id=result["source_id"],
                 classification=kind,
                 confidence=0.8 if kind != DiscoverySourceKind.UNCERTAIN else 0.3,
                 reasons=("Fixture-scripted mock classification from title/snippet.",),
@@ -685,7 +681,7 @@ def _mock_discovery_from_model_input(model_input: str) -> DiscoveryAgentOutput:
                 if action != DiscoveryNextAction.IGNORE
                 else "Ignore",
                 candidate_model_hints=("Aurora A55", "Northstar N65")
-                if "Aurora A55 and Northstar N65" in result.title
+                if "Aurora A55 and Northstar N65" in result["title"]
                 else (),
                 next_action=action,
             )

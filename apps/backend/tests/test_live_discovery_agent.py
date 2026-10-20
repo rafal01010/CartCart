@@ -358,7 +358,7 @@ async def test_live_discovery_falls_back_when_model_selects_ineligible_source() 
 
 
 @pytest.mark.asyncio
-async def test_live_discovery_rejects_missing_or_fabricated_source_decisions() -> None:
+async def test_live_discovery_defers_missing_decisions_and_rejects_fabricated_ids() -> None:
     input_data = _input()
     partial = DiscoveryAgentOutput(
         source_decisions=_decisions(input_data)[:1],
@@ -369,8 +369,21 @@ async def test_live_discovery_rejects_missing_or_fabricated_source_decisions() -
         settings=_settings(), model_runner=RecordingDiscoveryRunner(output=partial)
     )
     result = await agent.run(input_data)
-    assert result.outcome == DiscoveryAgentOutcome.INSUFFICIENT_CANDIDATES
-    assert agent.workbench_activity[0]["status"] == "schema_invalid_fallback"
+    assert result.outcome == DiscoveryAgentOutcome.SELECTED
+    assert result.selected_source_ids == (input_data.seed_results[0].source_id,)
+    assert result.source_decisions[0] == partial.source_decisions[0]
+    assert [decision.source_id for decision in result.source_decisions[1:]] == [
+        source.source_id for source in input_data.seed_results[1:]
+    ]
+    assert [decision.classification for decision in result.source_decisions[1:]] == [
+        DiscoverySourceKind.UNCERTAIN,
+        DiscoverySourceKind.UNCERTAIN,
+    ]
+    assert [decision.next_action for decision in result.source_decisions[1:]] == [
+        DiscoveryNextAction.IGNORE,
+        DiscoveryNextAction.IGNORE,
+    ]
+    assert agent.workbench_activity[0]["status"] == "model_discovery_completed"
 
     forged = DiscoveryAgentOutput(
         source_decisions=(

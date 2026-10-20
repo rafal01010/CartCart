@@ -556,7 +556,10 @@ def test_run_independently_checks_effective_guided_goal_before_creating_run(
         del _fixture_sessions[UUID(session_id)]
         recovered = run_api_client.get(f"/api/sessions/{session_id}/guide")
         assert recovered.status_code == 200
-        assert recovered.json()["current_question"]["question_id"] == "shopping-goal"
+        assert recovered.json()["status"] == "blocked"
+        assert recovered.json()["current_question"] is None
+        assert inputs[-1].user_input == clarified_goal
+        assert inputs[-1].prior_answers[0].answer.text == clarified_goal
     calls_before_run = classifier.calls
 
     response = run_api_client.post(f"/api/sessions/{session_id}/runs")
@@ -565,8 +568,7 @@ def test_run_independently_checks_effective_guided_goal_before_creating_run(
     assert response.json()["error"]["code"] == "shopping_guardrail_blocked"
     assert classifier.calls == calls_before_run + 1
     assert inputs[-1].user_input == expected_goal
-    if context != "recovered_guide":
-        assert inputs[-1].prior_answers[0].answer.text == expected_goal
+    assert inputs[-1].prior_answers[0].answer.text == expected_goal
     saved = run_api_client.get(f"/api/sessions/{session_id}").json()
     assert saved["original_input"]["query"] == original_query
     assert saved["current_brief"]["original_query"] == clarified_goal

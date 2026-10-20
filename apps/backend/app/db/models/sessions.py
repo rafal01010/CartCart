@@ -20,6 +20,8 @@ class ShoppingSessionRecord(Base):
     original_query: Mapped[str] = mapped_column(String(4000), nullable=False)
     original_input: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     current_brief: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    guided_region_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    guided_answers: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[str] = mapped_column(String(35), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(35), nullable=False)
 

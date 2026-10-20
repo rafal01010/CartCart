@@ -295,8 +295,16 @@ the existing product or refinement endpoints. Missing sessions retain 404.
 Submits the answer for the active guided question. The request accepts
 `GuidedAnswerSubmission`, including natural-language textbox answers, yes/no
 answers, two-option choices, and justified two-option-plus-type-answer choices.
-The fixture implementation updates the in-memory guide state and persists a
-ready `ShoppingBrief` to the session once intake has enough information. Natural
+The fixture implementation validates each answer against the active question
+before changing guide state, candidates, or the shopping brief. Textboxes accept
+natural-language answers. Yes/no controls accept boolean answers or an offered
+choice ID. Two-option controls accept offered choice IDs. Controls with a custom
+text option also accept natural-language or `choice_with_text` answers, including
+the existing `something-else` custom choice convention and a null choice ID.
+Unsupported forms or unoffered IDs return the shared
+`guided_answer_not_supported` 422 error envelope. A question-ID mismatch retains
+its existing 409 response. Accepted answers persist the typed latest-answer map
+and the current brief in the same database transaction. Natural
 language known-product mentions are preserved as user-added product text without
 asking the shopper to provide links.
 Volunteered HTTP(S) links in guided answers are also saved as URL candidates.
@@ -318,10 +326,15 @@ state to move to user-safe progress and then call the existing run endpoint.
 Skip-all itself creates no run and does not close intake. Answered questions
 can still be revised before the run endpoint admits analysis.
 
-Full pre-analysis recovery of saved answers is not implemented. Task 144 still
-owns preserving saved details during cold pre-start answer and skip operations,
-including distinguishing a refused region from an unanswered region. The
-post-admission protection above does not depend on that recovery.
+Cold pre-analysis recovery restores the latest saved answers and explicit region
+status. Reloading or skipping remaining prompts preserves saved budget,
+preferences, corrected goal, and captured candidates. Reanswering replaces the
+selected answer and its candidate contributions. The original input remains
+unchanged. Navigation position, skipped-question history, and readiness are
+process-local. Older sessions without answer metadata retain their saved brief
+and unknown candidate contributions during reconstructed prompts. Their original
+answer attribution cannot be recovered. Persisted run admission still closes
+all intake mutation after cache loss.
 
 `POST /api/sessions/{session_id}/guide/reanswer`
 
@@ -331,9 +344,15 @@ metadata indicating which prior question is being changed.
 
 `POST /api/sessions/{session_id}/guide/region`
 
-Submits one-time region setup after guided session creation. The request accepts
-`RegionSetupSubmission` with either a provided region or explicit refusal, and
-the response resumes the pending guided state.
+Submits or edits region setup before analysis admission. The request accepts
+`RegionSetupSubmission` with either a provided region or explicit refusal.
+An accepted edit updates the active brief while preserving answers, candidates,
+and any explicit budget currency. Refusal remains explicit after cache loss.
+The frontend saves its local preference only after the session update succeeds.
+A failed update retains the previous active and local region. During or after
+analysis, the header changes the preference for future questions and explains
+that scope. Saved results and history retain their own buying region. Changing
+an existing decision uses its refinement controls.
 
 `GET /api/sessions/{session_id}`
 

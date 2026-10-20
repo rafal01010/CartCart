@@ -11,6 +11,7 @@
 		pending = false,
 		error = null,
 		allowBack = false,
+		futureOnly = false,
 		onSave,
 		onRefuse,
 		onBack,
@@ -20,6 +21,7 @@
 		pending?: boolean;
 		error?: string | null;
 		allowBack?: boolean;
+		futureOnly?: boolean;
 		onSave: () => void;
 		onRefuse: () => void;
 		onBack: () => void;
@@ -35,7 +37,11 @@
 			Where will you be shopping?
 		</h1>
 		<p class="mx-auto mt-5 max-w-[620px] text-pretty text-base leading-7 text-muted-foreground sm:text-[17px]">
-			Buying region helps CartCart check realistic availability, shipping, warranty coverage, and seller risk. You only need to set it once.
+			{#if futureOnly}
+				This preference applies to your next shopping question. To change this decision's buying region, use its change options.
+			{:else}
+				Buying region helps CartCart check realistic availability, shipping, warranty coverage, and seller risk. You only need to set it once.
+			{/if}
 		</p>
 	</div>
 

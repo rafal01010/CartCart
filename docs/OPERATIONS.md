@@ -1,5 +1,14 @@
 # CartCart Operations
 
+## Guided intake recovery migration
+
+Apply migration `0006` through the normal backend migration procedure before
+launching this version. It adds nullable guided answer and region-status columns.
+Existing sessions keep their original input, saved briefs, candidates, and result
+versions. No answer history is backfilled. Legacy sessions use saved brief
+preservation when answer attribution is unavailable. Navigation and readiness
+remain process-local.
+
 ## Guided request checks
 
 Live workflow mode uses the configured SDK scope classifier before applying

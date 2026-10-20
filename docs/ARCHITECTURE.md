@@ -295,10 +295,15 @@ the normal flow.
 
 The current backend implementation provides fixture-backed guided intake
 endpoints under `/api/sessions/guided` and `/api/sessions/{session_id}/guide`.
-They keep guide state in fixture memory, update the persisted session
-`ShoppingBrief` when the guide reaches `ready_for_analysis`, and leave the
-existing `/api/sessions/{session_id}/runs` endpoint responsible for starting the
-deterministic analysis run. A live OpenAI Agents SDK `ShoppingGuideAgent` now
+They keep navigation and readiness in fixture memory. Accepted answers persist
+a typed latest-answer map and current `ShoppingBrief`; explicit region status
+persists separately. Cold recovery restores those answers, preserves saved brief
+corrections, and keeps legacy details without inventing missing attribution.
+Answer forms and option IDs validate against the active question before writes.
+The existing `/api/sessions/{session_id}/runs` endpoint starts analysis and its
+persisted admission closes intake mutation. Header region edits before admission
+update the same session before saving the local preference. Saved decisions use
+their own region; later header edits apply to future questions. A live OpenAI Agents SDK `ShoppingGuideAgent` now
 implements the same `GuidedIntakeState` contract for isolated mock/live
 workbench runs, including SDK input-guardrail checks and an `IntakeAgent`
 handoff only after enough information exists. The normal shopper API is not

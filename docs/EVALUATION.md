@@ -1,5 +1,27 @@
 # CartCart Evaluation
 
+## Guided answer and buying-region controls
+
+Combined affected acceptance passed 123 distinct backend controls across the
+initial selection and repair reruns. The final affected rerun passed 79 controls;
+44 unaffected passes were reused. The 31 frontend unit controls and scoped Svelte
+diagnostics passed, with zero Svelte errors or warnings. Affected Ruff and
+four-module mypy passed. Backend controls blocked all network connections and
+recorded zero attempts. No browser journey or paid model/provider call ran.
+
+API and SQLite assertions cover unsupported answer forms and unoffered IDs,
+unchanged rejected state, allowed custom text, cold saved-answer recovery,
+deliberate revisions, saved corrections and deletions, classifier goal context,
+legacy baseline preservation, provided/refused region, candidate retention and
+explicit currencies in both region directions. Frontend controls exercise the
+operation used by page handlers through the real API client with mocked HTTP.
+They verify delayed acceptance, failure retention, refusal, stale responses and
+saved-region labels. They do not prove rendered browser interaction or layout.
+
+Migration controls upgrade temporary legacy data. Local migration also preserved
+all prior column values across 35 tables and 2,172 rows with a backup and passing
+SQLite integrity check. Settings and source checkpoints remain unchanged.
+
 ## Tasks 130 and 143 affected offline controls
 
 The retained runner `data/artifacts/task130143/run_checks.py` uses locked offline

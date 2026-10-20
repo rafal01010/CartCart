@@ -1,12 +1,13 @@
 # CartCart Database
 
 Status: Current SQLite persistence reference
-Last updated: 2026-09-30
+Last updated: 2026-10-20
 
 This document describes the current local database schema implemented by SQLAlchemy
 ORM models and Alembic migrations `0001_initial_persistence_schema`,
-`0002_reusable_source_intelligence_persistence`, `0003_recompute_plans`, and
-`0004_user_added_product_run_snapshots`.
+`0002_reusable_source_intelligence_persistence`, `0003_recompute_plans`,
+`0004_user_added_product_run_snapshots`, `0005_result_source_projections`, and
+`0006_guided_region_status`.
 
 The database is a local SQLite database. By default it lives at
 `data/cartcart.sqlite3`; `CARTCART_DATABASE_PATH` can override it. Large raw
@@ -24,6 +25,8 @@ snapshots of typed Pydantic objects.
   `apps/backend/alembic/versions/0003_recompute_plans.py`.
 - Current considered-product snapshot migration:
   `apps/backend/alembic/versions/0004_user_added_product_run_snapshots.py`.
+- Current guided intake recovery migration:
+  `apps/backend/alembic/versions/0006_guided_region_status.py`.
 - ORM base: `apps/backend/app/db/base.py`.
 - ORM models: `apps/backend/app/db/models/`.
 - Repository classes: `apps/backend/app/db/repositories/`.
@@ -74,8 +77,17 @@ Stores the user-facing session, original input, and current shopping brief.
 | `original_query` | `String(4000)` | No | Original natural-language shopping query. |
 | `original_input` | `JSON` | No | Full create-session request payload. |
 | `current_brief` | `JSON` | No | Current `ShoppingBrief`, including corrections. |
+| `guided_region_status` | `String(16)` | Yes | Explicit guided `provided` or `refused` status. Null means no recorded answer. The region value remains in the brief. |
+| `guided_answers` | `JSON` | Yes | Latest typed guided answers by question ID. Null identifies legacy sessions with unavailable answer attribution. |
 | `created_at` | `String(35)` | No | Creation timestamp. |
 | `updated_at` | `String(35)` | No | Last update timestamp. |
+
+Guided recovery validates saved answer JSON against `GuidedAnswer` at the
+repository boundary. Accepted edits replace the selected answer. Navigation,
+skips, guardrail assessments, and readiness remain process-local. Migration
+`0006` adds nullable columns without rewriting original input, saved briefs,
+products, usage, or result versions. Legacy sessions retain their baseline brief
+and candidate provenance during reconstructed prompts.
 
 ### `shopping_runs`
 
@@ -555,4 +567,4 @@ recording/replay, extraction normalization, deduplication decisions, richer
 trust signals, live agent cost/token tracking, eval run summaries, telemetry
 privacy controls, backup/restore metadata, or a future Postgres migration path.
 New shipped schema changes should be represented as incremental Alembic
-migrations after the current `0004` revision.
+migrations after the current `0006` revision.

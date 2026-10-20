@@ -86,6 +86,13 @@ class GuidedGuardrailAssessment:
 
 
 @dataclass
+class SavedBriefRecovery:
+    saved: ShoppingBrief
+    derived: ShoppingBrief
+    answers: dict[str, GuidedAnswer]
+
+
+@dataclass
 class FixtureGuidedSession:
     session_id: SessionId
     query: str
@@ -95,6 +102,8 @@ class FixtureGuidedSession:
     reanswer_question_id: str | None = None
     ready_for_analysis: bool = False
     analysis_started_brief: ShoppingBrief | None = None
+    recovered_brief: ShoppingBrief | None = None
+    saved_brief_recovery: SavedBriefRecovery | None = None
     guardrail_assessment: GuidedGuardrailAssessment | None = None
 
     @property
@@ -178,6 +187,16 @@ class GuidedIntakeService:
         )
         await self._check_effective_request(fixture)
         await self._sync_volunteered_products(fixture)
+        await self._sessions.update_guided_region_status(
+            session.session_id,
+            request.region_setup.status if request.region_setup else None,
+        )
+        await self._sessions.update_guided_answers(session.session_id, fixture.answers)
+        if fixture.blocked_guardrail is None:
+            await self._sessions.update_current_brief(
+                session.session_id,
+                self._brief_for_fixture(fixture).model_copy(update={"original_query": request.query}),
+            )
         _fixture_sessions[session.session_id] = fixture
         return GuidedSessionResponse(
             session_id=session.session_id,
@@ -217,6 +236,7 @@ class GuidedIntakeService:
                 },
             )
 
+        _validate_answer_for_question(current_question, submission.answer)
         was_reanswering = fixture.reanswer_question_id is not None
         fixture.answers[submission.question_id] = submission.answer
         fixture.reanswer_question_id = None
@@ -227,13 +247,10 @@ class GuidedIntakeService:
             return self._state_for_fixture(fixture)
 
         await self._sync_volunteered_products(fixture)
-        if submission.question_id in {
-            SHOPPING_GOAL_QUESTION_ID,
-            BUDGET_QUESTION_ID,
-            CONSIDERED_PRODUCTS_QUESTION_ID,
-        }:
-            await self._persist_ready_brief(fixture)
+        await self._persist_ready_brief(fixture)
 
+        if fixture.recovered_brief is None:
+            await self._sessions.update_guided_answers(session_id, fixture.answers)
         _fixture_sessions[session_id] = fixture
 
         if self._is_ready_after_answer(
@@ -271,6 +288,8 @@ class GuidedIntakeService:
         if fixture.blocked_guardrail is not None:
             _fixture_sessions[session_id] = fixture
             return self._state_for_fixture(fixture)
+        if fixture.recovered_brief is None:
+            await self._sessions.update_guided_answers(session_id, fixture.answers)
         if question.question_id == CONSIDERED_PRODUCTS_QUESTION_ID:
             await self._sync_volunteered_products(fixture)
             await self._persist_ready_brief(fixture)
@@ -334,6 +353,7 @@ class GuidedIntakeService:
         fixture.region_setup = submission
         await self._check_effective_request(fixture)
         await self._persist_ready_brief(fixture)
+        await self._sessions.update_guided_region_status(session_id, submission.status)
         _fixture_sessions[session_id] = fixture
         return self._state_for_fixture(fixture)
 
@@ -369,12 +389,27 @@ class GuidedIntakeService:
                 status=RegionSetupStatus.PROVIDED,
                 region=session.current_brief.region.region,
             )
+        elif await self._sessions.get_guided_region_status(session_id) == RegionSetupStatus.REFUSED:
+            region_setup = RegionSetupSubmission(status=RegionSetupStatus.REFUSED)
 
+        saved_answers = await self._sessions.get_guided_answers(session_id)
         fixture = FixtureGuidedSession(
             session_id=session_id,
             query=session.original_input.query,
             region_setup=region_setup,
+            answers=saved_answers or {},
+            recovered_brief=session.current_brief if saved_answers is None else None,
         )
+        if saved_answers is None and session.current_brief.original_query != session.original_input.query:
+            fixture.answers[SHOPPING_GOAL_QUESTION_ID] = NaturalLanguageGuidedAnswer(
+                text=session.current_brief.original_query
+            )
+        if saved_answers is not None:
+            fixture.saved_brief_recovery = SavedBriefRecovery(
+                saved=session.current_brief,
+                derived=self._brief_for_fixture(fixture),
+                answers=dict(saved_answers),
+            )
         return fixture
 
     async def _check_effective_request(self, fixture: FixtureGuidedSession) -> None:
@@ -487,6 +522,8 @@ class GuidedIntakeService:
 
         first_followup = _first_followup_question_id(_shopping_goal(fixture))
         budget_answered = (
+            (fixture.recovered_brief is not None and fixture.recovered_brief.budget is not None)
+            or (
             _budget_from_texts(
                 (
                     _shopping_goal(fixture),
@@ -497,8 +534,15 @@ class GuidedIntakeService:
                 ),
                 currency=(fixture.region_setup.region.currency if fixture.region_setup and fixture.region_setup.region else None),
             )
-            is not None
+            is not None)
             or has_unconstrained_budget(_shopping_goal(fixture))
+            or (
+                fixture.recovered_brief is not None
+                and any(
+                    has_unconstrained_budget(item.text)
+                    for item in fixture.recovered_brief.preferences
+                )
+            )
             or any(
                 has_unconstrained_budget(_answer_text(answer) or "")
                 for answer in fixture.answers.values()
@@ -548,8 +592,12 @@ class GuidedIntakeService:
             BUDGET_QUESTION_ID,
             CONSIDERED_PRODUCTS_QUESTION_ID,
         )
+        recovered_questions = set()
+        if fixture.recovered_brief is not None and fixture.recovered_brief.budget is not None:
+            recovered_questions.add(BUDGET_QUESTION_ID)
         return tuple(
-            question_id for question_id in ordered if question_id in fixture.answers
+            question_id for question_id in ordered
+            if question_id in fixture.answers or question_id in recovered_questions
         )
 
     def _region_setup_state(
@@ -610,6 +658,14 @@ class GuidedIntakeService:
             if item.intake_source_question_ids
         }
         for key, item in auto.items():
+            retained_sources = (
+                set(item.intake_source_question_ids)
+                - {FIRST_QUESTION_ID, *fixture.answers}
+                if fixture.recovered_brief is not None
+                else set()
+            )
+            if retained_sources:
+                desired.setdefault(key, set()).update(retained_sources)
             if key not in desired:
                 await self._products.delete_user_added_product(
                     fixture.session_id, item.candidate_id
@@ -674,14 +730,89 @@ class GuidedIntakeService:
                 ),
             )
 
-        return ShoppingBrief(
+        recovered = fixture.recovered_brief
+        budget_text = _answer_text(fixture.answers.get(BUDGET_QUESTION_ID))
+        budget = _budget_from_texts(
+            (budget_text, query, *answer_texts) if budget_text else (query, *answer_texts),
+            currency=(fixture.region_setup.region.currency if fixture.region_setup and fixture.region_setup.region else None),
+        )
+        if recovered is not None and budget_text is None:
+            unlimited = any(
+                has_unconstrained_budget(item.text)
+                for item in recovered.preferences
+            )
+            budget = recovered.budget or (None if unlimited else budget)
+        elif budget_text and has_unconstrained_budget(budget_text):
+            budget = None
+        if recovered is not None:
+            saved_constraints = tuple(
+                item for item in recovered.constraints
+                if not (budget_text and _standalone_budget_preference(item.text))
+            )
+            constraints = saved_constraints + tuple(
+                item for item in constraints if item not in saved_constraints
+            )
+            saved_preferences = tuple(
+                item for item in recovered.preferences
+                if not (budget_text and _standalone_budget_preference(item.text))
+            )
+            preferences = saved_preferences + tuple(
+                item for item in preferences if item not in saved_preferences
+            )
+
+        brief = ShoppingBrief(
             original_query=query,
             region=_region_preference_from_setup(fixture.region_setup),
-            budget=_budget_from_texts((query, *answer_texts), currency=(fixture.region_setup.region.currency if fixture.region_setup and fixture.region_setup.region else None)),
+            budget=budget,
             constraints=constraints,
             preferences=preferences,
-            **_category_fields(query),
+            **(
+                {"category": recovered.category, "category_source": recovered.category_source}
+                if recovered is not None and query == recovered.original_query
+                else _category_fields(query)
+            ),
         )
+        recovery = fixture.saved_brief_recovery
+        if recovery is None:
+            return brief
+        goal_unchanged = fixture.answers.get(SHOPPING_GOAL_QUESTION_ID) == recovery.answers.get(SHOPPING_GOAL_QUESTION_ID)
+        budget_unchanged = fixture.answers.get(BUDGET_QUESTION_ID) == recovery.answers.get(BUDGET_QUESTION_ID)
+        if goal_unchanged:
+            if recovery.saved.original_query != recovery.derived.original_query:
+                brief.original_query = recovery.saved.original_query
+            if recovery.saved.category != recovery.derived.category or recovery.saved.category_source != recovery.derived.category_source:
+                brief = brief.model_copy(update={
+                    "category": recovery.saved.category,
+                    "category_source": recovery.saved.category_source,
+                })
+        if budget_unchanged and recovery.saved.budget != recovery.derived.budget:
+            brief.budget = recovery.saved.budget
+        changed_answer_texts = {
+            _answer_text(answer)
+            for question_id, answer in fixture.answers.items()
+            if answer != recovery.answers.get(question_id)
+        }
+        brief.constraints = tuple(
+            item for item in brief.constraints
+            if item not in recovery.derived.constraints
+            or item in recovery.saved.constraints
+            or item.text in changed_answer_texts
+        )
+        brief.preferences = tuple(
+            item for item in brief.preferences
+            if item not in recovery.derived.preferences
+            or item in recovery.saved.preferences
+            or item.text in changed_answer_texts
+        )
+        brief.constraints += tuple(
+            item for item in recovery.saved.constraints
+            if item not in recovery.derived.constraints and item not in brief.constraints
+        )
+        brief.preferences += tuple(
+            item for item in recovery.saved.preferences
+            if item not in recovery.derived.preferences and item not in brief.preferences
+        )
+        return brief
 
     def _is_ready_after_answer(
         self,
@@ -702,6 +833,36 @@ def _guide_not_collecting(session_id: SessionId) -> ApplicationError:
         status_code=409,
         details={"session_id": str(session_id)},
     )
+
+
+def _validate_answer_for_question(
+    question: CurrentGuidedQuestion, answer: GuidedAnswer
+) -> None:
+    control = question.inline_choice
+    if question.answer_surface == GuidedAnswerSurface.TEXTBOX:
+        valid = isinstance(answer, NaturalLanguageGuidedAnswer)
+    elif control is not None:
+        offered = {option.choice_id for option in control.options}
+        if isinstance(answer, YesNoGuidedAnswer):
+            valid = control.control_type == InlineChoiceControlType.YES_NO
+        elif isinstance(answer, ChoiceGuidedAnswer):
+            valid = answer.choice_id in offered
+        elif isinstance(answer, ChoiceWithTextGuidedAnswer):
+            valid = (
+                control.control_type == InlineChoiceControlType.TWO_OPTION_PLUS_TYPE_ANSWER
+                and answer.choice_id in {None, "something-else", *offered}
+            )
+        else:
+            valid = control.control_type == InlineChoiceControlType.TWO_OPTION_PLUS_TYPE_ANSWER
+    else:
+        valid = False
+    if not valid:
+        raise ApplicationError(
+            "guided_answer_not_supported",
+            "Choose one of the available answers for this question.",
+            status_code=422,
+            details={"question_id": question.question_id},
+        )
 
 
 def _question_by_id(question_id: str, query: str) -> CurrentGuidedQuestion:
@@ -787,8 +948,17 @@ def _first_followup_question_id(query: str) -> str:
 
 
 def _shopping_goal(fixture: FixtureGuidedSession) -> str:
+    recovery = fixture.saved_brief_recovery
+    if (
+        recovery is not None
+        and fixture.answers.get(SHOPPING_GOAL_QUESTION_ID)
+        == recovery.answers.get(SHOPPING_GOAL_QUESTION_ID)
+        and recovery.saved.original_query != recovery.derived.original_query
+    ):
+        return recovery.saved.original_query
     return (
         _answer_text(fixture.answers.get(SHOPPING_GOAL_QUESTION_ID))
+        or (fixture.recovered_brief.original_query if fixture.recovered_brief else None)
         or text_without_urls(fixture.query)
         or fixture.query
     )
@@ -842,7 +1012,12 @@ def _answer_text(answer: GuidedAnswer | None) -> str | None:
 
 
 def _budget_from_texts(texts: tuple[str, ...], *, currency: str | None = None) -> BudgetConstraint | None:
-    codes = "|".join(re.escape(code) for code in sorted({"USD", *([currency] if currency else [])}))
+    codes = "|".join(sorted({
+        "USD", "CAD", "GBP", "AUD", "PHP", "JPY", "EUR", "SEK", "NOK", "DKK",
+        "CHF", "NZD", "SGD", "HKD", "KRW", "CNY", "TWD", "INR", "MYR", "THB",
+        "IDR", "VND", "BRL", "MXN", "ARS", "CLP", "COP", "PEN", "ZAR", "AED", "SAR",
+        *([currency] if currency else []),
+    }))
     for text in texts:
         match = re.search(
             rf"(?:\$|\b(?P<currency>{codes})\s*)\s*(?P<amount>[0-9][0-9,]*(?:\.[0-9]{{1,2}})?)",
@@ -862,6 +1037,15 @@ def _budget_from_texts(texts: tuple[str, ...], *, currency: str | None = None) -
 def _looks_like_constraint(text: str) -> bool:
     normalized = text.lower()
     return any(term in normalized for term in ("must", "need", "needs", "cannot"))
+
+
+def _standalone_budget_preference(text: str) -> bool:
+    return has_unconstrained_budget(text) or re.fullmatch(
+        r"\s*(?:(?:budget(?: is)?|under|up to|around|at most|must be under)\s+)?"
+        r"(?:\$|[A-Z]{3}\s*)[0-9][0-9,]*(?:\.[0-9]{1,2})?[.!]?\s*",
+        text,
+        re.I,
+    ) is not None
 
 
 def _reanswer_label(question_id: str) -> str:

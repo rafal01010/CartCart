@@ -12,8 +12,6 @@
 	import {
 		defaultRegionCode,
 		readLocalRegionPreference,
-		writeProvidedRegionPreference,
-		writeRefusedRegionPreference,
 		type LocalRegionPreference,
 	} from '$lib/guided/local-region.js';
 	import {
@@ -22,10 +20,11 @@
 		buildGuidedAnswerSubmission,
 		canContinueGuidedQuestion,
 		createDraftFromCachedAnswer,
-		regionSetupSubmissionFromOption,
 		regionSetupSubmissionFromPreference,
 		type GuidedDraft,
 	} from '$lib/guided/guided-state.js';
+	import { applyRegionEdit } from '$lib/guided/region-edit.js';
+	import { regionContextLabel } from '$lib/guided/region-context.js';
 	import { STARTER_QUESTIONS } from '$lib/guided/starter-questions.js';
 	import ProcessingState from '$lib/run-progress/ProcessingState.svelte';
 	import {
@@ -65,6 +64,7 @@
 	let runEvents = $state<RunEvent[]>([]);
 	let resultView = $state<ResultView | null>(null);
 	let currentSession = $state<SessionStateResponse | null>(null);
+	let savedDecisionRegion = $state<SessionResultsResponse['shopping_brief']>(undefined);
 	let displayedVersionId = $state<string | null>(null);
 	let flowGeneration = 0;
 	let activeAnalysisRun: RequestedRun | null = null;
@@ -87,15 +87,14 @@
 	const isAtFirstGuidedQuestion = $derived(!guidedState?.navigation.can_go_back);
 	const shopperProgress = $derived(shopperProgressFromEvents(runEvents));
 	const progressHeadline = $derived(shopperProgressHeadline(shopperProgress));
-	const regionLabel = $derived(
-		currentSession?.current_brief.region
-			? regionByCode(currentSession.current_brief.region.region.country_code).label
-			: regionPreference?.status === 'provided'
-			? regionPreference.region.label
-			: regionPreference?.status === 'refused'
-				? 'Region not set'
-				: 'Set buying region',
-	);
+	const regionLabel = $derived(regionContextLabel({
+		decisionBrief: savedDecisionRegion,
+		sessionBrief: currentSession?.current_brief,
+		guide: guidedState,
+		preference: regionPreference,
+	}));
+	const canEditGuidedRegion = $derived(Boolean(sessionId && guidedState
+		&& guidedState.status !== 'analysis_started' && !currentSession && !activeAnalysisRun));
 
 	onMount(() => {
 		clientReady = true;
@@ -189,33 +188,37 @@
 	}
 
 	async function saveRegionAndResume() {
-		if (isGuidedRequestPending) return;
-		const preference = writeProvidedRegionPreference(window.localStorage, selectedRegionCode);
-		regionPreference = preference;
-		if (sessionId && guidedState?.region_setup.status === 'needs_answer') {
-			await submitRegionPreference(regionSetupSubmissionFromOption(regionByCode(selectedRegionCode)));
-			return;
-		}
-		if (!sessionId && pendingQuestion) {
-			await startGuidedFlow(preference);
-			return;
-		}
-		homeState = regionReturnState;
+		await saveRegionPreference({ status: 'provided', region: regionByCode(selectedRegionCode) });
 	}
 
 	async function refuseRegionAndResume() {
+		await saveRegionPreference({ status: 'refused' });
+	}
+
+	async function saveRegionPreference(preference: LocalRegionPreference) {
 		if (isGuidedRequestPending) return;
-		const preference = writeRefusedRegionPreference(window.localStorage);
-		regionPreference = preference;
-		if (sessionId && guidedState?.region_setup.status === 'needs_answer') {
-			await submitRegionPreference(regionSetupSubmissionFromPreference(preference));
-			return;
-		}
-		if (!sessionId && pendingQuestion) {
+		const owner = sessionId
+			? { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner
+			: { kind: 'creating', generation: flowGeneration } satisfies GuidedRequestOwner;
+		const context = canEditGuidedRegion && sessionId
+			? { kind: 'guided', sessionId, api } as const
+			: { kind: 'future' } as const;
+		await runGuidedRequest({
+			owner,
+			send: () => applyRegionEdit({
+				preference, context, storage: window.localStorage,
+				isCurrent: () => isCurrentGuidedRequest(owner),
+			}),
+			accept: (result) => {
+				if (!result) return;
+				regionPreference = result.preference;
+				if (result.guide && owner.kind === 'session') applyGuideState(result.guide, owner);
+				else homeState = regionReturnState;
+			},
+		});
+		if (!sessionId && pendingQuestion && isCurrentGuidedRequest(owner) && !guideError) {
 			await startGuidedFlow(preference);
-			return;
 		}
-		homeState = regionReturnState;
 	}
 
 	function isCurrentGuidedRequest(owner: GuidedRequestOwner): boolean {
@@ -240,17 +243,6 @@
 		}
 	}
 
-	async function submitRegionPreference(
-		regionSetup: ReturnType<typeof regionSetupSubmissionFromPreference>,
-	) {
-		if (!sessionId || !regionSetup || isGuidedRequestPending) return;
-		const owner = { kind: 'session', generation: flowGeneration, sessionId } satisfies GuidedRequestOwner;
-		await runGuidedRequest({
-			owner,
-			send: () => api.submitGuidedRegionSetup(owner.sessionId, regionSetup),
-			accept: (guide) => applyGuideState(guide, owner),
-		});
-	}
 
 	function resetFlow({ preserveQuestion = false }: { preserveQuestion?: boolean } = {}) {
 		flowGeneration += 1;
@@ -260,6 +252,7 @@
 		retryableAnalysisRun = null;
 		recommendationRetryRunId = null;
 		currentSession = null;
+		savedDecisionRegion = undefined;
 		displayedVersionId = null;
 		question = preserveQuestion ? submittedQuestion : '';
 		pendingQuestion = preserveQuestion ? submittedQuestion : '';
@@ -514,6 +507,7 @@
 			if (!isCurrentRun(request)) return false;
 			if (results.result_version.run_id !== request.runId) throw new Error('The new result is not available yet.');
 			const nextResultView = buildResultView(results);
+			savedDecisionRegion = results.shopping_brief ?? null;
 			currentSession = loadedSession;
 			displayedVersionId = results.result_version.result_version_id;
 			resultView = nextResultView;
@@ -549,7 +543,7 @@
 		{#if homeState === 'question'}
 			<PromptSurface bind:question starter={activeStarter} pending={isGuidedRequestPending} error={guideError} onSubmit={handleSubmit} onChooseStarter={chooseStarter} />
 		{:else if homeState === 'region_setup'}
-			<RegionSetup bind:selectedCode={selectedRegionCode} regions={REGION_OPTIONS} pending={isGuidedRequestPending} error={guideError} allowBack={Boolean(regionPreference) || !sessionId} onSave={saveRegionAndResume} onRefuse={refuseRegionAndResume} onBack={leaveRegionSetup} />
+			<RegionSetup futureOnly={Boolean(sessionId) && !canEditGuidedRegion} bind:selectedCode={selectedRegionCode} regions={REGION_OPTIONS} pending={isGuidedRequestPending} error={guideError} allowBack={Boolean(regionPreference) || !sessionId} onSave={saveRegionAndResume} onRefuse={refuseRegionAndResume} onBack={leaveRegionSetup} />
 		{:else if homeState === 'guiding' && currentGuidedQuestion && guidedState}
 			<GuidedQuestion question={currentGuidedQuestion} guide={guidedState} bind:draft={answerDraft} surface={currentAnswerSurface} canContinue={canContinueGuide} pending={isGuidedRequestPending} error={guideError} onContinue={continueGuidedFlow} onBack={goBack} onSkip={skipQuestion} onSkipAll={skipAll} onSelectChoice={selectChoice} onSelectCustom={selectCustomAnswer} />
 		{:else if homeState === 'blocked'}

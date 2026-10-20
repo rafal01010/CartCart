@@ -894,7 +894,11 @@ failure. Optional editorial timeout or invalid output preserves original advice.
 
 Structural checks retain known product/listing relationships, actual optional
 source IDs, fixed fixture identity and valid schema shape. Price plausibility
-and contradictory listing context remain advisory. The model may improve or
+and contradictory listing context remain advisory. Focused public price controls
+keep USD 100/105/110 same-product offers safe when unrelated expensive groups
+are added, retain genuine same-product outliers, and use category fallback only
+without adequate same-currency positive-price peers. Returned trust levels are
+checked alongside findings. The model may improve or
 worsen rule-derived trust. It may recommend an explained over-budget option.
 The old keyword/factual-token checks, per-claim citation targeting, automatic
 trust rejection, hard-cap checks and blocking editorial verdicts are removed.
@@ -1087,8 +1091,16 @@ Fixture-backed routing eval cases live in
 - non-specialist technology routing to `TechnologyDomainAnalystAgent`
 - every MVP specialist route through `TechnologyDomainAnalystAgent`
 - plural phone aliases through the existing Smartphone specialist route
+- paper notebooks, gaming chairs and ambiguous bare labels staying generic
+- qualified notebook computer aliases through the existing Laptop specialist
+- gaming monitors and keyboards retaining their specialist/domain routes
+- qualified gaming PC/console and plural smart watches retaining existing routes
 - fallback availability from each MVP specialist to technology-domain analysis
   and then generic analysis
+
+Public router controls also supply valid generic model decisions for stationery
+and furniture, exercise timeout/schema/error fallbacks, and reject unregistered
+agent names. Named workbench scenarios use the same shared catalog boundary.
 
 These are cheap mocked/local regression checks. Live model routing evals remain
 opt-in and are deferred to the Section N live-agents gate.

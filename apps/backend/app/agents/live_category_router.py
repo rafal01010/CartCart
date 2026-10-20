@@ -186,7 +186,11 @@ def _build_category_router_agent(model: str) -> Agent[Any]:
             "before any narrower MVP technology specialist. Ordinary consumer "
             "product categories without a specialist must route to "
             "GenericProductAnalystAgent rather than an unsupported-category "
-            "error. Do not analyze products, recommend products, browse, call "
+            "error. Notebook alone does not establish a computer, and gaming "
+            "alone does not establish technology. Paper notebooks and gaming "
+            "chairs use generic analysis. Notebook computers use the laptop "
+            "specialist; gaming monitors and keyboards retain their technology "
+            "routes. Do not analyze products, recommend products, browse, call "
             "tools, or expose agents, providers, prompts, traces, policies, or "
             "schemas to shoppers."
         ),

@@ -416,11 +416,7 @@ def _normalize_category(category: str | None) -> str | None:
 
 
 def _category_matches(normalized_category: str, normalized_route_category: str) -> bool:
-    if normalized_category == normalized_route_category:
-        return True
-    if " " in normalized_route_category:
-        return normalized_route_category in normalized_category
-    return normalized_route_category in set(normalized_category.split())
+    return f" {normalized_route_category} " in f" {normalized_category} "
 
 
 _DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS = (
@@ -428,14 +424,18 @@ _DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS = (
     "tech",
     "electronics",
     "computer",
-    "gaming",
+    "gaming pc",
+    "gaming pcs",
+    "gaming console",
+    "gaming consoles",
     "monitor",
     "display",
     "smartphone",
     "phone",
     "mobile phone",
     "laptop",
-    "notebook",
+    "notebook computer",
+    "notebook computers",
     "earphones",
     "headphones",
     "earbuds",
@@ -444,6 +444,7 @@ _DEFAULT_TECHNOLOGY_CATEGORY_KEYWORDS = (
     "television",
     "smartwatch",
     "smart watch",
+    "smart watches",
     "wearable",
     "mouse",
     "keyboard",
@@ -461,20 +462,22 @@ _PHONE_CATEGORY_ALIASES = (
 )
 
 
+_LAPTOP_CATEGORY_ALIASES = ("laptop", "notebook computer", "notebook computers")
+_SMARTWATCH_CATEGORY_ALIASES = ("smartwatch", "smart watch", "smart watches")
+
+
 _DEFAULT_PRODUCT_CATEGORY_ROUTES = {
     "monitor": "MonitorSpecialistAgent",
     "display": "MonitorSpecialistAgent",
     **dict.fromkeys(_PHONE_CATEGORY_ALIASES, "SmartphoneSpecialistAgent"),
-    "laptop": "LaptopSpecialistAgent",
-    "notebook": "LaptopSpecialistAgent",
+    **dict.fromkeys(_LAPTOP_CATEGORY_ALIASES, "LaptopSpecialistAgent"),
     "earphones": "EarphonesHeadphonesSpecialistAgent",
     "headphones": "EarphonesHeadphonesSpecialistAgent",
     "earbuds": "EarphonesHeadphonesSpecialistAgent",
     "headset": "EarphonesHeadphonesSpecialistAgent",
     "tv": "TVSpecialistAgent",
     "television": "TVSpecialistAgent",
-    "smartwatch": "SmartwatchSpecialistAgent",
-    "smart watch": "SmartwatchSpecialistAgent",
+    **dict.fromkeys(_SMARTWATCH_CATEGORY_ALIASES, "SmartwatchSpecialistAgent"),
 }
 
 
@@ -757,7 +760,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.SPECIALIST_TOOL_SUBRUN,
         contract_name="LaptopSpecialistAgent",
         parent_agent_name="TechnologyDomainAnalystAgent",
-        routing_categories=("laptop", "notebook"),
+        routing_categories=_LAPTOP_CATEGORY_ALIASES,
         fallback_agent_names=(
             "TechnologyDomainAnalystAgent",
             "GenericProductAnalystAgent",
@@ -811,7 +814,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.SPECIALIST_TOOL_SUBRUN,
         contract_name="SmartwatchSpecialistAgent",
         parent_agent_name="TechnologyDomainAnalystAgent",
-        routing_categories=("smartwatch", "smart watch"),
+        routing_categories=_SMARTWATCH_CATEGORY_ALIASES,
         fallback_agent_names=(
             "TechnologyDomainAnalystAgent",
             "GenericProductAnalystAgent",

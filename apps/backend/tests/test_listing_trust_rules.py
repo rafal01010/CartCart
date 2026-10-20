@@ -1,3 +1,7 @@
+from decimal import Decimal
+
+import pytest
+
 from app.schemas import (
     ListingTrustLevel,
     ListingTrustSignalKind,
@@ -25,6 +29,7 @@ def make_listing(
     seller_name: str = "Acme Store",
     seller_trust_signal: SellerTrustSignal = SellerTrustSignal.REASONABLE,
     price: str | None = "199.00",
+    currency: str = "USD",
     region: bool = True,
     source_quality_level: SourceQualityLevel = SourceQualityLevel.ADEQUATE,
     retailer_id: str | None = "SKU-123",
@@ -40,7 +45,7 @@ def make_listing(
             trust_signal=seller_trust_signal,
             source_ids=(source_id,),
         ),
-        price=Money(amount=price, currency="USD") if price is not None else None,
+        price=Money(amount=price, currency=currency) if price is not None else None,
         region_availability=(
             (
                 RegionAvailability(
@@ -85,7 +90,13 @@ def test_trust_rules_mark_strong_official_listing() -> None:
     assert ListingTrustSignalKind.RETURN_WARRANTY_CLARITY in signal_kinds(assessment)
 
 
-def test_trust_rules_mark_reasonable_marketplace_listing_with_clear_seller() -> None:
+@pytest.mark.parametrize(
+    ("policies_present", "expected_level"),
+    ((None, ListingTrustLevel.REASONABLE), (True, ListingTrustLevel.STRONG)),
+)
+def test_trust_rules_assess_marketplace_listing_from_supplied_context(
+    policies_present: bool | None, expected_level: ListingTrustLevel
+) -> None:
     listing = make_listing(
         url="https://amazon.com/dp/B012345678",
         seller_name="Acme Authorized Store",
@@ -96,12 +107,12 @@ def test_trust_rules_mark_reasonable_marketplace_listing_with_clear_seller() -> 
         listing,
         ListingTrustRuleContext(
             review_count=80,
-            return_policy_present=True,
-            warranty_present=True,
+            return_policy_present=policies_present,
+            warranty_present=policies_present,
         ),
     )
 
-    assert assessment.level == ListingTrustLevel.REASONABLE
+    assert assessment.level == expected_level
     assert assessment.positive_signals
     assert ListingTrustSignalKind.REVIEW_COUNT in signal_kinds(assessment)
 
@@ -230,6 +241,137 @@ def test_price_plausibility_does_not_penalize_ordinary_discounts() -> None:
     assert price_plausibility_contexts((listings,)) == {}
 
 
+def test_price_plausibility_keeps_adequate_same_product_evidence_authoritative() -> (
+    None
+):
+    product_id = new_id()
+    listings = tuple(
+        make_listing(
+            price=price,
+            url="https://www.bestbuy.com/site/acme-monitor/1234.p",
+            seller_name="Best Buy",
+            seller_trust_signal=SellerTrustSignal.STRONG,
+            source_quality_level=SourceQualityLevel.STRONG,
+        ).model_copy(update={"product_id": product_id})
+        for price in ("100.00", "105.00", "110.00")
+    )
+    expensive_groups = tuple(
+        (make_listing(price=price),)
+        for price in ("1000.00", "1100.00", "1200.00", "1300.00")
+    )
+
+    for groups in ((listings,), (listings, *expensive_groups)):
+        findings = compare_price_plausibility(groups)
+        contexts = price_plausibility_contexts(groups)
+        assessments = tuple(
+            assess_listing_trust(listing, contexts.get(listing.listing_id))
+            for listing in listings
+        )
+
+        assert findings == ()
+        assert contexts == {}
+        assert tuple(item.level for item in assessments) == (
+            ListingTrustLevel.STRONG,
+            ListingTrustLevel.STRONG,
+            ListingTrustLevel.STRONG,
+        )
+
+    outlier = make_listing(price="10.00").model_copy(update={"product_id": product_id})
+    groups_with_outlier = ((*listings, outlier), *expensive_groups)
+    findings = compare_price_plausibility(groups_with_outlier)
+    contexts = price_plausibility_contexts(groups_with_outlier)
+
+    assert len(findings) == 1
+    assert findings[0].listing_id == outlier.listing_id
+    assert findings[0].basis == PriceComparisonBasis.CANONICAL_GROUP
+    assert findings[0].reference_median == Decimal("105.00")
+    assert findings[0].comparable_listing_count == 3
+    assert (
+        assess_listing_trust(outlier, contexts[outlier.listing_id]).level
+        == ListingTrustLevel.SUSPICIOUS
+    )
+    assert tuple(
+        assess_listing_trust(listing, contexts.get(listing.listing_id)).level
+        for listing in listings
+    ) == (
+        ListingTrustLevel.STRONG,
+        ListingTrustLevel.STRONG,
+        ListingTrustLevel.STRONG,
+    )
+
+
+@pytest.mark.parametrize(
+    ("unusable_price", "unusable_currency"),
+    ((None, "USD"), ("0.00", "USD"), ("20000.00", "GBP")),
+)
+def test_price_plausibility_falls_back_for_insufficient_usable_canonical_peers(
+    unusable_price: str | None, unusable_currency: str
+) -> None:
+    outlier = make_listing(price="20.00")
+    product_id = outlier.product_id
+    peer = make_listing(price="200.00").model_copy(update={"product_id": product_id})
+    unusable_peer = make_listing(
+        price=unusable_price, currency=unusable_currency
+    ).model_copy(update={"product_id": product_id})
+    category_groups = (
+        (outlier, peer, unusable_peer),
+        (make_listing(price="210.00"),),
+        (make_listing(price="220.00"),),
+        (make_listing(price="230.00"),),
+    )
+
+    findings = compare_price_plausibility(category_groups)
+    contexts = price_plausibility_contexts(category_groups)
+    outlier_finding = next(
+        finding for finding in findings if finding.listing_id == outlier.listing_id
+    )
+
+    assert outlier_finding.basis == PriceComparisonBasis.CATEGORY
+    assert outlier_finding.currency == "USD"
+    assert outlier_finding.reference_median == Decimal("215.00")
+    assert outlier_finding.comparable_listing_count == 4
+    assert (
+        assess_listing_trust(outlier, contexts[outlier.listing_id]).level
+        == ListingTrustLevel.SUSPICIOUS
+    )
+    assert (
+        assess_listing_trust(peer, contexts.get(peer.listing_id)).level
+        == ListingTrustLevel.REASONABLE
+    )
+
+
+def test_price_plausibility_requires_same_currency_category_peers() -> None:
+    cheap_usd = make_listing(price="20.00")
+    foreign_peers = tuple(
+        make_listing(price=price, currency="GBP").model_copy(
+            update={"product_id": cheap_usd.product_id}
+        )
+        for price in ("200.00", "210.00")
+    )
+    groups = (
+        (cheap_usd, *foreign_peers),
+        (make_listing(price="199.00"),),
+        (make_listing(price="209.00"),),
+        (make_listing(price="219.00"),),
+    )
+    assert compare_price_plausibility(groups) == ()
+    assert assess_listing_trust(cheap_usd).level == ListingTrustLevel.REASONABLE
+
+    sufficient_groups = (*groups, (make_listing(price="229.00"),))
+    findings = compare_price_plausibility(sufficient_groups)
+    contexts = price_plausibility_contexts(sufficient_groups)
+
+    assert len(findings) == 1
+    assert findings[0].listing_id == cheap_usd.listing_id
+    assert findings[0].basis == PriceComparisonBasis.CATEGORY
+    assert findings[0].reference_median == Decimal("214.00")
+    assert findings[0].comparable_listing_count == 4
+    assert (
+        assess_listing_trust(cheap_usd, contexts[cheap_usd.listing_id]).level
+        == ListingTrustLevel.SUSPICIOUS
+    )
+
+
 def test_price_plausibility_uses_category_fallback_conservatively() -> None:
     isolated_outlier = make_listing(
         seller_name="Deal Booth",
@@ -249,6 +391,13 @@ def test_price_plausibility_uses_category_fallback_conservatively() -> None:
     assert len(findings) == 1
     assert findings[0].listing_id == isolated_outlier.listing_id
     assert findings[0].basis == PriceComparisonBasis.CATEGORY
+    contexts = price_plausibility_contexts(category_groups)
+    assert (
+        assess_listing_trust(
+            isolated_outlier, contexts[isolated_outlier.listing_id]
+        ).level
+        == ListingTrustLevel.SUSPICIOUS
+    )
 
 
 def test_price_plausibility_keeps_trusted_retailer_discount_below_suspicious_line() -> (
@@ -268,7 +417,19 @@ def test_price_plausibility_keeps_trusted_retailer_discount_below_suspicious_lin
         make_listing(price="269.00"),
     )
 
-    assert compare_price_plausibility((listings,)) == ()
+    expensive_groups = tuple(
+        (make_listing(price=price),)
+        for price in ("1000.00", "1100.00", "1200.00", "1300.00")
+    )
+    for groups in ((listings,), (listings, *expensive_groups)):
+        assert compare_price_plausibility(groups) == ()
+        contexts = price_plausibility_contexts(groups)
+        assert (
+            assess_listing_trust(
+                sale_listing, contexts.get(sale_listing.listing_id)
+            ).level
+            == ListingTrustLevel.STRONG
+        )
 
 
 def test_official_store_does_not_require_reviews_or_complete_purchase_details() -> None:

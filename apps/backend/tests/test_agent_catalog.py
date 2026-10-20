@@ -88,7 +88,23 @@ def test_fixture_research_fallbacks_are_explicit_in_catalog() -> None:
     )
 
 
-@pytest.mark.parametrize("category", ("office chair", "phonebook", "megaphones"))
+@pytest.mark.parametrize(
+    "category",
+    (
+        "office chair",
+        "phonebook",
+        "megaphones",
+        "paper notebook",
+        "paper notebooks",
+        "spiral notebook",
+        "notebook",
+        "gaming chair",
+        "gaming chairs",
+        "gaming furniture",
+        "gaming",
+        "notebook computerised stationery",
+    ),
+)
 def test_agent_catalog_routes_unknown_categories_to_generic_fallback(
     category: str,
 ) -> None:
@@ -98,8 +114,23 @@ def test_agent_catalog_routes_unknown_categories_to_generic_fallback(
     assert route.fallback_agent_names == ()
 
 
-def test_agent_catalog_routes_broad_technology_categories_to_domain_agent() -> None:
-    route = DEFAULT_AGENT_CATALOG.route_product_analysis("gaming mouse")
+@pytest.mark.parametrize(
+    "category",
+    (
+        "gaming mouse",
+        "gaming keyboard",
+        "gaming pc",
+        "gaming pcs",
+        "gaming console",
+        "gaming consoles",
+        "technology",
+        "electronics",
+    ),
+)
+def test_agent_catalog_routes_broad_technology_categories_to_domain_agent(
+    category: str,
+) -> None:
+    route = DEFAULT_AGENT_CATALOG.route_product_analysis(category)
 
     assert route.agent_path == ("TechnologyDomainAnalystAgent",)
     assert route.fallback_agent_names == ("GenericProductAnalystAgent",)
@@ -115,9 +146,13 @@ def test_agent_catalog_routes_broad_technology_categories_to_domain_agent() -> N
         ("smartphones", "SmartphoneSpecialistAgent"),
         ("mobile phones", "SmartphoneSpecialistAgent"),
         ("laptop", "LaptopSpecialistAgent"),
+        ("notebook computer", "LaptopSpecialistAgent"),
+        ("notebook computers", "LaptopSpecialistAgent"),
+        ("gaming notebook computer", "LaptopSpecialistAgent"),
         ("headphones", "EarphonesHeadphonesSpecialistAgent"),
         ("tv", "TVSpecialistAgent"),
         ("smartwatch", "SmartwatchSpecialistAgent"),
+        ("smart watches", "SmartwatchSpecialistAgent"),
     ),
 )
 def test_agent_catalog_routes_configured_mvp_technology_specialists(

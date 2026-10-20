@@ -151,6 +151,9 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "search_sources",
         "fetch_source",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
+        "read_search_results",
     ]
     assert {scenario["name"] for scenario in discovery["scenarios"]} >= {
         "discovery/select-valid-sources",
@@ -167,6 +170,10 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
     assert {scenario["name"] for scenario in router["scenarios"]} >= {
         "router/monitor-to-specialist",
         "router/office-chair-generic",
+        "router/paper-notebook-generic",
+        "router/gaming-chair-generic",
+        "router/notebook-computer-to-specialist",
+        "router/gaming-keyboard-domain",
     }
     assert router["modes"] == ["fixture", "mock", "live"]
     generic = next(
@@ -257,7 +264,10 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "trust/established-retailer",
     }
     assert trust["modes"] == ["fixture", "mock", "live"]
-    assert trust["approved_sdk_tools"] == ["hosted_web_search"]
+    assert trust["approved_sdk_tools"] == [
+        "hosted_web_search",
+        "read_research_result",
+    ]
     youtube = next(
         agent
         for agent in body["agents"]
@@ -276,6 +286,8 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "read_video_metadata",
         "read_video_transcript",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     ]
     assert youtube["resolved_model"]
     assert youtube["planned_model"] is None
@@ -295,6 +307,8 @@ def test_workbench_catalog_lists_allowlisted_fake_agent_scenarios() -> None:
         "search_community_discussions",
         "read_community_discussion",
         "hosted_web_search",
+        "complete_research_result",
+        "read_research_result",
     ]
     assert reddit["resolved_model"]
     amazon = next(
@@ -1182,6 +1196,51 @@ def test_workbench_mock_router_keeps_office_chair_generic() -> None:
     assert body["allowed_tool_activity"][0]["status"] == (
         "model_category_route_completed"
     )
+
+
+@pytest.mark.parametrize("mode", ("fixture", "mock"))
+@pytest.mark.parametrize(
+    ("scenario_name", "expected_path", "expected_fallbacks"),
+    (
+        ("router/paper-notebook-generic", ["GenericProductAnalystAgent"], []),
+        ("router/gaming-chair-generic", ["GenericProductAnalystAgent"], []),
+        (
+            "router/notebook-computer-to-specialist",
+            ["TechnologyDomainAnalystAgent", "LaptopSpecialistAgent"],
+            ["TechnologyDomainAnalystAgent", "GenericProductAnalystAgent"],
+        ),
+        (
+            "router/gaming-keyboard-domain",
+            ["TechnologyDomainAnalystAgent"],
+            ["GenericProductAnalystAgent"],
+        ),
+    ),
+)
+def test_workbench_router_distinguishes_ambiguous_category_words(
+    mode: str,
+    scenario_name: str,
+    expected_path: list[str],
+    expected_fallbacks: list[str],
+) -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": "CategoryRouterAgent",
+            "scenario_name": scenario_name,
+            "mode": mode,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output"]["agent_path"] == expected_path
+    assert body["output"]["fallback_agent_names"] == expected_fallbacks
+    if mode == "mock":
+        assert body["allowed_tool_activity"][0]["status"] == (
+            "model_category_route_completed"
+        )
 
 
 def test_workbench_mock_generic_analyzes_office_chair_with_source_ids() -> None:

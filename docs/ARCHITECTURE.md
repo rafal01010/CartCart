@@ -325,7 +325,14 @@ Current discovery selects only supplied search-result source IDs for extraction,
 through the executable catalog, sends MVP technology specialist categories
 through `TechnologyDomainAnalystAgent`, and keeps
 `GenericProductAnalystAgent` as the fallback for unknown or unsupported
-categories. Generic product analysis uses no tools, consumes only supplied
+categories. The catalog requires a product-bearing category alias. Bare
+`notebook` and `gaming` do not establish technology identity. Paper notebooks
+and gaming chairs stay generic; `notebook computer` and `notebook computers`
+use the existing Laptop specialist. Gaming monitors and keyboards route by
+`monitor` and `keyboard`. Qualified gaming PC/console aliases preserve existing
+domain routes, and `smart watches` explicitly preserves its specialist route
+with whole-phrase alias matching. Brief, unanimous candidate category, model category
+and query precedence remain unchanged. Generic product analysis uses no tools, consumes only supplied
 product/listing/evidence bundles, preserves evidence and source IDs, covers
 fit tradeoffs and gaps, and returns limitations instead of category refusal
 when evidence is weak. Technology-domain analysis uses no tools, consumes only
@@ -362,6 +369,12 @@ through smartwatch logic.
 Seller/listing trust analysis uses no tools, consumes only supplied listing
 records, evidence, and deterministic trust-rule assessments, and keeps product
 quality separate from listing trust. Actual price and listing contradictions inform the model. It may improve or worsen the rule-derived assessment and must preserve the scope of its explanation.
+Price plausibility compares each offer with usable positive-price peers in the
+same currency. Two same-product peers make that comparison authoritative,
+including a completed comparison without a concern. Category fallback requires
+four usable peers and runs only when the same-product comparison lacks enough
+peers. It cannot override a completed safe comparison or trusted-discount
+assessment. Existing conservative thresholds and advisory trust policy remain.
 
 Region setup is outside the main shopping question flow. If no region preference
 or explicit refusal is saved locally, the frontend can show a lightweight setup

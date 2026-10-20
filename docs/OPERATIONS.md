@@ -929,7 +929,11 @@ Pair these with `discovery/no-good-results` for an honest
 `router/monitor-to-specialist` checks the route path
 `TechnologyDomainAnalystAgent` to `MonitorSpecialistAgent`, while
 `router/office-chair-generic` checks direct `GenericProductAnalystAgent`
-fallback with no unsupported-category error. For `GenericProductAnalystAgent`,
+fallback with no unsupported-category error. The fixture/mock scenarios
+`router/paper-notebook-generic` and `router/gaming-chair-generic` check ambiguous
+non-technology categories. Pair them with `router/notebook-computer-to-specialist`
+and `router/gaming-keyboard-domain` to check genuine technology routes.
+For `GenericProductAnalystAgent`,
 `generic/office-chair-analysis` checks a non-tech office-chair
 `CategoryAnalysis` with fit tradeoffs, evidence gaps, and preserved
 evidence/source IDs, while `generic/weak-evidence` checks low-confidence

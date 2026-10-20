@@ -263,25 +263,19 @@ async def test_live_technology_domain_sends_non_technology_to_generic_fallback()
 
 
 @pytest.mark.asyncio
-async def test_live_technology_domain_falls_back_on_blocking_output() -> None:
+async def test_live_technology_domain_falls_back_on_unknown_product_identity() -> None:
     input_data = _technology_input("keyboard")
     runner = RecordingTechnologyDomainAnalystRunner(
-        output={
-            "product_id": str(input_data.product.product_id),
-            "listing_ids": [str(input_data.listings[0].listing_id)],
-            "category": "unsupported category no specialist",
-            "fit_summary": "No specialist exists for this technology product.",
-            "strengths": ["No specialist fit signal."],
-            "weaknesses": ["No specialist is available."],
-            "confidence": _confidence(0.4).model_dump(mode="json"),
-            "evidence_ids": [str(new_id())],
-        }
+        output=_valid_analysis(input_data).model_copy(
+            update={"product_id": new_id()},
+        ),
     )
     agent = LiveTechnologyDomainAnalystAgent(settings=_settings(), model_runner=runner)
 
     result = await agent.run(input_data)
 
     assert runner.calls == 1
+    assert result.product_id == input_data.product.product_id
     assert result.category == "keyboard"
     assert result.evidence_ids == tuple(item.evidence_id for item in input_data.evidence)
     assert agent.workbench_activity[0]["status"] == "schema_invalid_generic_fallback"

@@ -24,6 +24,11 @@ class PriceComparisonBasis(StrEnum):
     CATEGORY = "category"
 
 
+class _PriceComparisonOutcome(StrEnum):
+    INSUFFICIENT_PEERS = "insufficient_peers"
+    NOT_SUSPICIOUS = "not_suspicious"
+
+
 class PricePlausibilityFinding(CartCartBaseModel):
     listing_id: ListingId
     suspicious: bool
@@ -188,7 +193,7 @@ def compare_price_plausibility(
                 group_prices.get(listing.price.currency, ()) if listing.price else (),
                 PriceComparisonBasis.CANONICAL_GROUP,
             )
-            if finding is None:
+            if finding == _PriceComparisonOutcome.INSUFFICIENT_PEERS:
                 finding = _price_plausibility_finding(
                     listing,
                     category_prices.get(listing.price.currency, ())
@@ -196,7 +201,7 @@ def compare_price_plausibility(
                     else (),
                     PriceComparisonBasis.CATEGORY,
                 )
-            if finding is not None:
+            if isinstance(finding, PricePlausibilityFinding):
                 findings.append(finding)
     return tuple(findings)
 
@@ -241,9 +246,9 @@ def _price_plausibility_finding(
     listing: ProductListing,
     comparison_prices: Sequence[tuple[ProductListing, Decimal]],
     basis: PriceComparisonBasis,
-) -> PricePlausibilityFinding | None:
+) -> PricePlausibilityFinding | _PriceComparisonOutcome:
     if listing.price is None:
-        return None
+        return _PriceComparisonOutcome.INSUFFICIENT_PEERS
     peer_prices = tuple(
         (peer, amount)
         for peer, amount in comparison_prices
@@ -251,11 +256,11 @@ def _price_plausibility_finding(
     )
     minimum_peers = 2 if basis == PriceComparisonBasis.CANONICAL_GROUP else 4
     if len(peer_prices) < minimum_peers:
-        return None
+        return _PriceComparisonOutcome.INSUFFICIENT_PEERS
 
     median = _median(tuple(amount for _peer, amount in peer_prices))
     if median <= 0:
-        return None
+        return _PriceComparisonOutcome.INSUFFICIENT_PEERS
 
     price = listing.price.amount
     ratio = price / median
@@ -263,7 +268,7 @@ def _price_plausibility_finding(
         listing, ratio, median, median - price, basis
     )
     if not suspicious:
-        return None
+        return _PriceComparisonOutcome.NOT_SUSPICIOUS
 
     source_ids = tuple(
         dict.fromkeys(
@@ -281,7 +286,7 @@ def _price_plausibility_finding(
         reference_median=median,
         price_to_median_ratio=ratio,
         comparable_listing_count=len(peer_prices),
-        summary=_price_plausibility_summary(listing, ratio, median, basis),
+        summary=_price_plausibility_summary(listing.price.currency, ratio, median, basis),
         source_ids=source_ids,
     )
 
@@ -335,7 +340,7 @@ def _median(values: Sequence[Decimal]) -> Decimal:
 
 
 def _price_plausibility_summary(
-    listing: ProductListing,
+    currency: str,
     ratio: Decimal,
     median: Decimal,
     basis: PriceComparisonBasis,
@@ -348,7 +353,7 @@ def _price_plausibility_summary(
     )
     return (
         f"The listing price is only about {percentage}% of the comparable "
-        f"{scope} median ({listing.price.currency} {median:.2f}), which is "
+        f"{scope} median ({currency} {median:.2f}), which is "
         "too low to treat as a normal discount without stronger seller evidence."
     )
 

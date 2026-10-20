@@ -136,6 +136,112 @@ async def test_live_category_router_sends_non_specialist_tech_to_domain() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("category", ("paper notebook", "gaming chair"))
+@pytest.mark.parametrize("category_source", ("brief", "product", "model", "query"))
+async def test_live_category_router_preserves_generic_model_decisions(
+    category: str,
+    category_source: str,
+) -> None:
+    model_route = ProductAnalysisRoute(
+        category=category if category_source == "model" else None,
+        agent_path=("GenericProductAnalystAgent",),
+    )
+    input_data = _input(category)
+    if category_source == "product":
+        input_data = input_data.model_copy(update={"brief": _input(None).brief})
+    elif category_source == "model":
+        input_data = _input(None)
+    elif category_source == "query":
+        input_data = _input(None, query=f"Help me choose a {category} please.")
+    runner = RecordingCategoryRouterRunner(output=model_route)
+    agent = LiveCategoryRouterAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    assert runner.calls == 1
+    assert result.agent_path == ("GenericProductAnalystAgent",)
+    assert result.fallback_agent_names == ()
+    assert agent.workbench_activity[0]["status"] == "model_category_route_completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("category", "expected_path", "expected_fallbacks"),
+    (
+        ("paper notebook", ("GenericProductAnalystAgent",), ()),
+        ("gaming chair", ("GenericProductAnalystAgent",), ()),
+        ("notebook", ("GenericProductAnalystAgent",), ()),
+        ("gaming", ("GenericProductAnalystAgent",), ()),
+        ("unknown product", ("GenericProductAnalystAgent",), ()),
+        (
+            "notebook computers",
+            ("TechnologyDomainAnalystAgent", "LaptopSpecialistAgent"),
+            ("TechnologyDomainAnalystAgent", "GenericProductAnalystAgent"),
+        ),
+        (
+            "gaming monitor",
+            ("TechnologyDomainAnalystAgent", "MonitorSpecialistAgent"),
+            ("TechnologyDomainAnalystAgent", "GenericProductAnalystAgent"),
+        ),
+        (
+            "gaming keyboard",
+            ("TechnologyDomainAnalystAgent",),
+            ("GenericProductAnalystAgent",),
+        ),
+        (
+            "electronics",
+            ("TechnologyDomainAnalystAgent",),
+            ("GenericProductAnalystAgent",),
+        ),
+        (
+            "gaming pc",
+            ("TechnologyDomainAnalystAgent",),
+            ("GenericProductAnalystAgent",),
+        ),
+        (
+            "gaming console",
+            ("TechnologyDomainAnalystAgent",),
+            ("GenericProductAnalystAgent",),
+        ),
+        (
+            "smart watches",
+            ("TechnologyDomainAnalystAgent", "SmartwatchSpecialistAgent"),
+            ("TechnologyDomainAnalystAgent", "GenericProductAnalystAgent"),
+        ),
+    ),
+)
+@pytest.mark.parametrize("failure", ("timeout", "error", "schema", "unknown_agent"))
+async def test_live_category_router_keeps_semantic_routes_on_model_failure(
+    category: str,
+    expected_path: tuple[str, ...],
+    expected_fallbacks: tuple[str, ...],
+    failure: str,
+) -> None:
+    if failure == "timeout":
+        runner = RecordingCategoryRouterRunner(error=TimeoutError())
+        expected_status = "timeout_fallback"
+    elif failure == "error":
+        runner = RecordingCategoryRouterRunner(error=RuntimeError("mock model failed"))
+        expected_status = "error_fallback"
+    elif failure == "schema":
+        runner = RecordingCategoryRouterRunner(output={"agent_path": []})
+        expected_status = "schema_invalid_fallback"
+    else:
+        runner = RecordingCategoryRouterRunner(
+            output={"agent_path": ["UnknownCategoryAgent"]},
+        )
+        expected_status = "error_fallback"
+    agent = LiveCategoryRouterAgent(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(_input(category))
+
+    assert runner.calls == 1
+    assert result.agent_path == expected_path
+    assert result.fallback_agent_names == expected_fallbacks
+    assert agent.workbench_activity[0]["status"] == expected_status
+
+
+@pytest.mark.asyncio
 async def test_live_category_router_falls_back_on_unsupported_model_output() -> None:
     runner = RecordingCategoryRouterRunner(
         output={

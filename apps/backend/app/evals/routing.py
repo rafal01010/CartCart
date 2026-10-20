@@ -80,6 +80,37 @@ def product_analysis_routing_eval_cases() -> tuple[
             shopper_query="Help me choose an ergonomic office chair.",
             expected_agent_path=(GENERIC_FALLBACK_AGENT_NAME,),
         ),
+        *(
+            ProductAnalysisRoutingEvalCase(
+                name=f"routing/generic-{slug}",
+                description=(
+                    "Ambiguous category words do not establish technology identity."
+                ),
+                kind=ProductAnalysisRoutingEvalKind.GENERIC_FALLBACK,
+                category=category,
+                shopper_query=query,
+                expected_agent_path=(GENERIC_FALLBACK_AGENT_NAME,),
+            )
+            for slug, category, query in (
+                (
+                    "paper-notebook",
+                    "paper notebook",
+                    "Help me choose a paper notebook for class.",
+                ),
+                (
+                    "gaming-chair",
+                    "gaming chair",
+                    "Help me choose a comfortable gaming chair.",
+                ),
+                ("notebook", "notebook", "Help me choose a notebook."),
+                ("gaming", "gaming", "Help me choose something for gaming."),
+                (
+                    "unknown-product",
+                    "unknown product",
+                    "Help me compare this unfamiliar product.",
+                ),
+            )
+        ),
         ProductAnalysisRoutingEvalCase(
             name="routing/technology-keyboard-domain",
             description="Technology categories without MVP specialists use the domain layer.",
@@ -88,6 +119,30 @@ def product_analysis_routing_eval_cases() -> tuple[
             shopper_query="Help me choose a quiet gaming keyboard.",
             expected_agent_path=(TECHNOLOGY_DOMAIN_AGENT_NAME,),
             expected_fallback_agent_names=(GENERIC_FALLBACK_AGENT_NAME,),
+        ),
+        ProductAnalysisRoutingEvalCase(
+            name="routing/technology-electronics-domain",
+            description="Broad electronics categories retain the technology domain.",
+            kind=ProductAnalysisRoutingEvalKind.TECHNOLOGY_DOMAIN,
+            category="electronics",
+            shopper_query="Help me choose electronics for my home.",
+            expected_agent_path=(TECHNOLOGY_DOMAIN_AGENT_NAME,),
+            expected_fallback_agent_names=(GENERIC_FALLBACK_AGENT_NAME,),
+        ),
+        *(
+            ProductAnalysisRoutingEvalCase(
+                name=f"routing/technology-{slug}-domain",
+                description="Qualified gaming hardware retains technology analysis.",
+                kind=ProductAnalysisRoutingEvalKind.TECHNOLOGY_DOMAIN,
+                category=category,
+                shopper_query=f"Help me choose a {category}.",
+                expected_agent_path=(TECHNOLOGY_DOMAIN_AGENT_NAME,),
+                expected_fallback_agent_names=(GENERIC_FALLBACK_AGENT_NAME,),
+            )
+            for slug, category in (
+                ("gaming-pc", "gaming pc"),
+                ("gaming-console", "gaming console"),
+            )
         ),
         *_mvp_specialist_routing_cases(),
     )
@@ -242,6 +297,24 @@ def _mvp_specialist_routing_cases() -> tuple[
                 "Help me choose a portable laptop for school.",
             ),
             (
+                "notebook-computer",
+                "notebook computer",
+                "LaptopSpecialistAgent",
+                "Help me choose a notebook computer for school.",
+            ),
+            (
+                "notebook-computers",
+                "notebook computers",
+                "LaptopSpecialistAgent",
+                "Help me compare notebook computers for school.",
+            ),
+            (
+                "gaming-monitor",
+                "gaming monitor",
+                "MonitorSpecialistAgent",
+                "Help me choose a gaming monitor.",
+            ),
+            (
                 "headphones",
                 "headphones",
                 "EarphonesHeadphonesSpecialistAgent",
@@ -258,6 +331,12 @@ def _mvp_specialist_routing_cases() -> tuple[
                 "smartwatch",
                 "SmartwatchSpecialistAgent",
                 "Help me choose a smartwatch for fitness with Android.",
+            ),
+            (
+                "smart-watches",
+                "smart watches",
+                "SmartwatchSpecialistAgent",
+                "Help me compare smart watches for fitness with Android.",
             ),
         )
     )

@@ -589,6 +589,15 @@ configured. Phone routing accepts `phone`, `smartphone`, `mobile phone`,
 `phones`, `smartphones`, and `mobile phones` through the existing catalog.
 Both SDK handoff callbacks validate the requested category and buyer's brief;
 plural aliases do not change the owner graph or fallback chain.
+The shared catalog requires qualified `notebook computer` or `notebook computers`
+for the existing Laptop alias. Bare `notebook` and `gaming` stay generic without
+another recognized technology product noun. Paper notebooks and gaming chairs
+use generic analysis; gaming monitors and keyboards retain their existing
+specialist/domain routes. Qualified gaming PC/console aliases retain existing
+domain routing, and explicit `smart watches` retains the Smartwatch specialist
+under whole-phrase matching. This applies to typed routing, deterministic fallback
+and catalog-authorized SDK transfers. Agent identities, tool destinations and
+fallback chains remain unchanged.
 Category rejections retain bounded `rejected_handoff` metadata in internal
 owner activity. Unrecognized category labels become `null`.
 Local routing eval cases cover broad generic fallback,

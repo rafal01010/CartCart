@@ -1165,6 +1165,10 @@ def _build_workbench_definitions(
             (
                 _scenario_router_monitor_to_specialist,
                 _scenario_router_office_chair_generic,
+                _scenario_router_paper_notebook_generic,
+                _scenario_router_gaming_chair_generic,
+                _scenario_router_notebook_computer_to_specialist,
+                _scenario_router_gaming_keyboard_domain,
             ),
             mock_agent_factory=_mock_category_router_agent,
             live_agent_factory=LiveCategoryRouterAgent,
@@ -3092,6 +3096,58 @@ def _scenario_router_office_chair_generic() -> AgentWorkbenchScenario:
             evidence=(evidence,),
         ),
         boundary=True,
+    )
+
+
+def _router_category_scenario(
+    category: str,
+    name: str,
+    description: str,
+) -> AgentWorkbenchScenario:
+    brief, product, listing, _, evidence = _seed_objects(category)
+    return _scenario(
+        name,
+        description,
+        CategoryRouterAgentInput(
+            run_id=new_id(),
+            brief=brief,
+            products=(product,),
+            listings=(listing,),
+            evidence=(evidence,),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_router_paper_notebook_generic() -> AgentWorkbenchScenario:
+    return _router_category_scenario(
+        "paper notebook",
+        "router/paper-notebook-generic",
+        "Paper stationery retains generic analysis despite the word notebook.",
+    )
+
+
+def _scenario_router_gaming_chair_generic() -> AgentWorkbenchScenario:
+    return _router_category_scenario(
+        "gaming chair",
+        "router/gaming-chair-generic",
+        "Gaming furniture retains generic analysis despite the word gaming.",
+    )
+
+
+def _scenario_router_notebook_computer_to_specialist() -> AgentWorkbenchScenario:
+    return _router_category_scenario(
+        "notebook computer",
+        "router/notebook-computer-to-specialist",
+        "An explicit notebook computer retains the laptop specialist route.",
+    )
+
+
+def _scenario_router_gaming_keyboard_domain() -> AgentWorkbenchScenario:
+    return _router_category_scenario(
+        "gaming keyboard",
+        "router/gaming-keyboard-domain",
+        "A gaming keyboard retains technology analysis through its product identity.",
     )
 
 

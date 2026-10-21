@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from time import perf_counter
 from typing import Any
 
@@ -1234,7 +1235,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeMonitorSpecialistAgent,
-            (_scenario_monitor_analysis, _scenario_monitor_non_monitor),
+            (
+                _scenario_monitor_analysis,
+                _scenario_monitor_non_monitor,
+                partial(_scenario_specialist_candidate_scope, "monitor", True),
+                partial(_scenario_specialist_candidate_scope, "monitor", False),
+            ),
             mock_agent_factory=_mock_monitor_specialist_agent,
             live_agent_factory=LiveMonitorSpecialistAgent,
         ),
@@ -1244,7 +1250,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeSmartphoneSpecialistAgent,
-            (_scenario_smartphone_analysis, _scenario_smartphone_non_phone),
+            (
+                _scenario_smartphone_analysis,
+                _scenario_smartphone_non_phone,
+                partial(_scenario_specialist_candidate_scope, "smartphone", True),
+                partial(_scenario_specialist_candidate_scope, "smartphone", False),
+            ),
             mock_agent_factory=_mock_smartphone_specialist_agent,
             live_agent_factory=LiveSmartphoneSpecialistAgent,
         ),
@@ -1254,7 +1265,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeLaptopSpecialistAgent,
-            (_scenario_laptop_analysis, _scenario_laptop_non_laptop),
+            (
+                _scenario_laptop_analysis,
+                _scenario_laptop_non_laptop,
+                partial(_scenario_specialist_candidate_scope, "laptop", True),
+                partial(_scenario_specialist_candidate_scope, "laptop", False),
+            ),
             mock_agent_factory=_mock_laptop_specialist_agent,
             live_agent_factory=LiveLaptopSpecialistAgent,
         ),
@@ -1264,7 +1280,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeEarphonesHeadphonesSpecialistAgent,
-            (_scenario_headphones_analysis, _scenario_headphones_non_audio),
+            (
+                _scenario_headphones_analysis,
+                _scenario_headphones_non_audio,
+                partial(_scenario_specialist_candidate_scope, "headphones", True),
+                partial(_scenario_specialist_candidate_scope, "headphones", False),
+            ),
             mock_agent_factory=_mock_earphones_headphones_specialist_agent,
             live_agent_factory=LiveEarphonesHeadphonesSpecialistAgent,
         ),
@@ -1274,7 +1295,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeTVSpecialistAgent,
-            (_scenario_tv_analysis, _scenario_tv_non_tv),
+            (
+                _scenario_tv_analysis,
+                _scenario_tv_non_tv,
+                partial(_scenario_specialist_candidate_scope, "tv", True),
+                partial(_scenario_specialist_candidate_scope, "tv", False),
+            ),
             mock_agent_factory=_mock_tv_specialist_agent,
             live_agent_factory=LiveTVSpecialistAgent,
         ),
@@ -1284,7 +1310,12 @@ def _build_workbench_definitions(
             ProductAnalysisAgentInput,
             "CategoryAnalysis",
             FakeSmartwatchSpecialistAgent,
-            (_scenario_smartwatch_analysis, _scenario_smartwatch_non_watch),
+            (
+                _scenario_smartwatch_analysis,
+                _scenario_smartwatch_non_watch,
+                partial(_scenario_specialist_candidate_scope, "smartwatch", True),
+                partial(_scenario_specialist_candidate_scope, "smartwatch", False),
+            ),
             mock_agent_factory=_mock_smartwatch_specialist_agent,
             live_agent_factory=LiveSmartwatchSpecialistAgent,
         ),
@@ -1431,6 +1462,7 @@ def _mock_shopping_scope_guardrail(settings: Settings) -> LiveShoppingScopeGuard
 def _mock_shopping_guide_agent(settings: Settings) -> LiveShoppingGuideAgent:
     return LiveShoppingGuideAgent(
         settings=settings,
+        scope_guardrail=_mock_shopping_scope_guardrail(settings),
         model_runner=MockShoppingGuideModelRunner(),
         intake_agent=LiveIntakeAgent(
             settings=settings,
@@ -3463,6 +3495,33 @@ def _analysis_boundary_scenario(
         ProductAnalysisAgentInput(
             run_id=new_id(),
             brief=brief,
+            product=product,
+            listings=(listing,),
+            evidence=(evidence,),
+        ),
+        boundary=True,
+    )
+
+
+def _scenario_specialist_candidate_scope(
+    specialist_category: str,
+    unrelated_candidate: bool,
+) -> AgentWorkbenchScenario:
+    candidate_category = "office chair" if unrelated_candidate else specialist_category
+    brief_category = specialist_category if unrelated_candidate else "office chair"
+    brief, product, listing, _, evidence = _seed_objects(candidate_category)
+    direction = "unrelated-candidate" if unrelated_candidate else "unrelated-brief"
+    return _scenario(
+        f"{specialist_category}/{direction}",
+        "Candidate category controls specialist scope despite a conflicting shopper brief.",
+        ProductAnalysisAgentInput(
+            run_id=new_id(),
+            brief=brief.model_copy(
+                update={
+                    "category": brief_category,
+                    "original_query": f"Help me choose a {brief_category}.",
+                }
+            ),
             product=product,
             listings=(listing,),
             evidence=(evidence,),

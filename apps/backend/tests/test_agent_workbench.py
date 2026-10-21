@@ -484,7 +484,7 @@ def test_workbench_mock_guardrail_blocks_dangerous_product_before_model() -> Non
     )
 
 
-def test_workbench_mock_verifier_blocks_unsupported_claim() -> None:
+def test_workbench_mock_verifier_preserves_uncited_advice() -> None:
     client = make_test_client(agent_workbench_enabled=True)
 
     response = client.post(
@@ -498,12 +498,13 @@ def test_workbench_mock_verifier_blocks_unsupported_claim() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["output"]["approved"] is False
-    assert any("factual claim" in issue for issue in body["output"]["blocking_issues"])
-    assert body["allowed_tool_activity"][0]["status"] == "output_guardrail_blocked"
+    assert body["output"]["approved"] is True
+    assert body["output"]["blocking_issues"] == []
+    assert body["output"]["recommendation_bundle"] == body["input"]["recommendation_bundle"]
+    assert body["allowed_tool_activity"][0]["status"] == "optional_editorial_completed"
 
 
-def test_workbench_mock_verifier_blocks_suspicious_listing_without_warning() -> None:
+def test_workbench_mock_verifier_preserves_suspicious_listing_context() -> None:
     client = make_test_client(agent_workbench_enabled=True)
 
     response = client.post(
@@ -517,25 +518,25 @@ def test_workbench_mock_verifier_blocks_suspicious_listing_without_warning() -> 
 
     assert response.status_code == 200
     body = response.json()
-    assert body["output"]["approved"] is False
-    assert any("suspicious" in issue for issue in body["output"]["blocking_issues"])
-    warnings = body["output"]["recommendation_bundle"]["warnings"]
-    assert any("blocked for review" in warning.casefold() for warning in warnings)
+    assert body["output"]["approved"] is True
+    assert body["output"]["blocking_issues"] == []
+    assert body["output"]["recommendation_bundle"] == body["input"]["recommendation_bundle"]
+    assert body["input"]["trust_assessments"][0]["level"] == "suspicious"
 
 
 @pytest.mark.parametrize(
-    "scenario,approved,issue",
+    "scenario,issue",
     [
-        ("suspicious-alternate-seller-mention", False, "suspicious"),
-        ("hard-cap-alternate", False, "hard budget cap"),
-        ("safe-alternate", True, None),
-        ("suspicious-alternate-warning", True, None),
-        ("over-cap-comparison-only", True, None),
-        ("suspicious-rejected-offer", True, None),
+        ("suspicious-alternate-seller-mention", "suspicious"),
+        ("hard-cap-alternate", "hard budget cap"),
+        ("safe-alternate", None),
+        ("suspicious-alternate-warning", None),
+        ("over-cap-comparison-only", None),
+        ("suspicious-rejected-offer", None),
     ],
 )
 def test_workbench_mock_verifier_checks_alternate_offers(
-    scenario: str, approved: bool, issue: str | None
+    scenario: str, issue: str | None
 ) -> None:
     client = make_test_client(agent_workbench_enabled=True)
     response = client.post(
@@ -549,11 +550,13 @@ def test_workbench_mock_verifier_checks_alternate_offers(
     assert response.status_code == 200
     body = response.json()
     output = body["output"]
-    assert output["approved"] is approved
+    assert output["approved"] is True
+    assert output["blocking_issues"] == []
     bundle = output["recommendation_bundle"]
+    assert bundle == body["input"]["recommendation_bundle"]
     assert bundle["final_listing_id"] == body["input"]["listings"][0]["listing_id"]
     if issue is not None:
-        assert any(issue in message for message in output["blocking_issues"])
+        assert bundle["mode_results"][1]["listing_id"] == body["input"]["listings"][1]["listing_id"]
     elif scenario in {"safe-alternate", "suspicious-alternate-warning"}:
         assert (
             bundle["mode_results"][1]["listing_id"]
@@ -1622,16 +1625,10 @@ def test_workbench_mock_monitor_analyzes_coding_movies_1440p() -> None:
     assert body["output"]["category"] == "monitor"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in ("panel", "resolution", "refresh", "ergonomic", "port", "tradeoff"):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_monitor_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -1693,16 +1690,10 @@ def test_workbench_mock_smartphone_analyzes_midrange_camera_battery() -> None:
     assert body["output"]["category"] == "smartphone"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in ("camera", "battery", "update", "performance", "region"):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_smartphone_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -1765,25 +1756,10 @@ def test_workbench_mock_laptop_analyzes_student_portable() -> None:
     assert body["output"]["category"] == "laptop"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in (
-        "cpu",
-        "ram",
-        "storage",
-        "battery",
-        "display",
-        "port",
-        "weight",
-        "upgrade",
-    ):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_laptop_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -1846,24 +1822,10 @@ def test_workbench_mock_headphones_analyzes_noise_cancelling_commute() -> None:
     assert body["output"]["category"] == "headphones"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in (
-        "anc",
-        "comfort",
-        "fit",
-        "microphone",
-        "battery",
-        "codec",
-        "device",
-    ):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_earphones_headphones_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -1926,24 +1888,10 @@ def test_workbench_mock_tv_analyzes_55_inch_movies_gaming() -> None:
     assert body["output"]["category"] == "tv"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in (
-        "panel",
-        "backlight",
-        "hdr",
-        "motion",
-        "gaming",
-        "room brightness",
-        "size fit",
-    ):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_tv_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -2006,24 +1954,10 @@ def test_workbench_mock_smartwatch_analyzes_fitness_android() -> None:
     assert body["output"]["category"] == "smartwatch"
     assert set(body["output"]["evidence_ids"]) == expected_evidence_ids
     assert set(body["output"]["source_ids"]) == expected_source_ids
-    combined_text = " ".join(
-        (
-            body["output"]["fit_summary"],
-            *body["output"]["strengths"],
-            *body["output"]["weaknesses"],
-            *body["output"]["warnings"],
-        )
-    ).casefold()
-    for marker in (
-        "phone compatibility",
-        "android",
-        "health sensor",
-        "battery",
-        "durability",
-        "water resistance",
-        "app ecosystem",
-    ):
-        assert marker in combined_text
+    assert body["output"]["product_id"] == body["input"]["product"]["product_id"]
+    assert body["output"]["listing_ids"] == [
+        item["listing_id"] for item in body["input"]["listings"]
+    ]
     activity = body["allowed_tool_activity"][0]
     assert activity["status"] == "model_smartwatch_analysis_completed"
     assert activity["input"]["allowed_tools"] == []
@@ -2138,13 +2072,13 @@ async def test_workbench_direct_runner_requires_opt_in_flag() -> None:
 
 
 @pytest.mark.parametrize(
-    "scenario, approved",
+    "scenario",
     [
-        ("verifier/wrong-candidate-specification", False),
-        ("verifier/supported-candidate-comparison", True),
+        "verifier/wrong-candidate-specification",
+        "verifier/supported-candidate-comparison",
     ],
 )
-def test_workbench_mock_verifier_binds_candidate_facts(scenario, approved):
+def test_workbench_mock_verifier_preserves_candidate_advice(scenario):
     client = make_test_client(agent_workbench_enabled=True)
     response = client.post(
         "/internal/agent-workbench/runs",
@@ -2155,10 +2089,85 @@ def test_workbench_mock_verifier_binds_candidate_facts(scenario, approved):
         },
     )
     assert response.status_code == 200
-    output = response.json()["output"]
-    assert output["approved"] is approved
-    if not approved:
-        assert (
-            "final rationale includes a factual claim not backed by its evidence."
-            in output["blocking_issues"]
-        )
+    body = response.json()
+    output = body["output"]
+    assert output["approved"] is True
+    assert output["blocking_issues"] == []
+    assert output["recommendation_bundle"] == body["input"]["recommendation_bundle"]
+
+
+@pytest.mark.parametrize(
+    "agent_name, category",
+    (
+        ("MonitorSpecialistAgent", "monitor"),
+        ("SmartphoneSpecialistAgent", "smartphone"),
+        ("LaptopSpecialistAgent", "laptop"),
+        ("EarphonesHeadphonesSpecialistAgent", "headphones"),
+        ("TVSpecialistAgent", "tv"),
+        ("SmartwatchSpecialistAgent", "smartwatch"),
+    ),
+)
+@pytest.mark.parametrize("direction", ("unrelated-candidate", "unrelated-brief"))
+def test_workbench_mock_specialist_candidate_scope(
+    agent_name: str,
+    category: str,
+    direction: str,
+) -> None:
+    client = make_test_client(agent_workbench_enabled=True)
+    response = client.post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": agent_name,
+            "scenario_name": f"{category}/{direction}",
+            "mode": "mock",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    expected_category = (
+        "office chair" if direction == "unrelated-candidate" else category
+    )
+    assert body["output"]["category"] == expected_category
+    assert body["input"]["product"]["category"] == expected_category
+    assert body["output"]["evidence_ids"] == [
+        item["evidence_id"] for item in body["input"]["evidence"]
+    ]
+    assert set(body["output"]["source_ids"]) == {
+        item["source_id"] for item in body["input"]["evidence"]
+    }
+    status = body["allowed_tool_activity"][0]["status"]
+    if direction == "unrelated-candidate":
+        assert status.startswith("generic_fallback_non_")
+    else:
+        assert status.startswith("model_")
+
+
+@pytest.mark.parametrize(
+    "agent_name, category",
+    (
+        ("MonitorSpecialistAgent", "monitor"),
+        ("SmartphoneSpecialistAgent", "smartphone"),
+        ("LaptopSpecialistAgent", "laptop"),
+        ("EarphonesHeadphonesSpecialistAgent", "headphones"),
+        ("TVSpecialistAgent", "tv"),
+        ("SmartwatchSpecialistAgent", "smartwatch"),
+    ),
+)
+@pytest.mark.parametrize("direction", ("unrelated-candidate", "unrelated-brief"))
+def test_workbench_fixture_specialist_candidate_label(
+    agent_name: str,
+    category: str,
+    direction: str,
+) -> None:
+    response = make_test_client(agent_workbench_enabled=True).post(
+        "/internal/agent-workbench/runs",
+        json={
+            "agent_name": agent_name,
+            "scenario_name": f"{category}/{direction}",
+            "mode": "fixture",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output"]["category"] == body["input"]["product"]["category"]

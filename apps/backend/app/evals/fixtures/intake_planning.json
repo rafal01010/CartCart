@@ -1313,11 +1313,9 @@
             "field": "search_plan.queries.*.intent",
             "operator": "includes",
             "value": [
-              "discovery",
-              "review",
-              "official_source"
+              "discovery"
             ],
-            "requirement": "Cover buying, review and official evidence."
+            "requirement": "Start useful discovery without mandatory review or price-check stages."
           }
         ],
         "plan": {
@@ -1401,11 +1399,9 @@
             "field": "search_plan.queries.*.intent",
             "operator": "includes",
             "value": [
-              "discovery",
-              "price_check",
-              "review"
+              "discovery"
             ],
-            "requirement": "Include shopping, price and review searches."
+            "requirement": "Start useful discovery without mandatory review or price-check stages."
           }
         ],
         "plan": {
@@ -1482,10 +1478,9 @@
             "field": "search_plan.queries.*.intent",
             "operator": "includes",
             "value": [
-              "discovery",
-              "review"
+              "discovery"
             ],
-            "requirement": "Do not block generic category support."
+            "requirement": "Start useful discovery without mandatory review or price-check stages."
           }
         ],
         "plan": {
@@ -1549,10 +1544,9 @@
             "field": "search_plan.queries.*.intent",
             "operator": "includes",
             "value": [
-              "discovery",
-              "review"
+              "discovery"
             ],
-            "requirement": "Still create a useful broad technology search plan."
+            "requirement": "Start useful discovery without mandatory review or price-check stages."
           }
         ],
         "plan": {
@@ -1618,10 +1612,9 @@
             "field": "search_plan.queries.*.intent",
             "operator": "includes",
             "value": [
-              "discovery",
-              "review"
+              "discovery"
             ],
-            "requirement": "Support a generic description when no specialist/category exists."
+            "requirement": "Start useful discovery without mandatory review or price-check stages."
           }
         ],
         "plan": {

@@ -119,8 +119,10 @@ the fixture-backed guided intake endpoints are implemented as a small API
 surface around the existing session/run plumbing. The frontend-facing response
 models include only regular-person-safe question, control, skip/reanswer,
 region setup, blocked-state, progress, and ready-for-analysis metadata. A live
-OpenAI Agents SDK `ShoppingGuideAgent` now implements the same structured
-`GuidedIntakeState` contract for isolated mock/live workbench runs. The normal
+OpenAI Agents SDK `ShoppingGuideAgent` returns the same public
+`GuidedIntakeState` contract for isolated mock/live workbench runs. Its internal
+model returns only a question-or-ready decision. Backend code derives controls
+and current state, and Intake supplies the ready brief. The normal
 guided-intake questions remain deterministic. In configured live workflow mode,
 the API uses the existing SDK scope classifier on the effective shopping goal
 and current answers before candidate synchronization or analysis readiness.
@@ -471,7 +473,10 @@ source evidence so
 the frontend can render inspectable source links for result claims. The persisted
 considered-product outcome includes the session candidate and an explicit
 `confirmed`, `possible`, `unresolved`, `manual`, or `excluded` status. A meaningful
-rejection supplies `exclusion_reason`; manual details retain their field-level
+rejection supplies `exclusion_reason`. A rejection with `listing_id` applies only
+to that offer, even when it also names a canonical product. A rejection without
+`listing_id` applies to the named product across its offers. Other sellers retain
+their own outcomes and listing trust assessments. Manual details retain their field-level
 `user_reported` or `unknown` status. The frontend uses these IDs and the saved
 comparison matrix to show matches, gaps, and seller/listing concerns without
 matching products by name. Shortlist and considered-product data belong to the

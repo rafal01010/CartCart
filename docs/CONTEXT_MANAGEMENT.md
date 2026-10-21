@@ -1,5 +1,14 @@
 # Context management
 
+Task 212 removes backend-owned state from isolated guide output. The guide's
+model-facing schema has no shopping brief or navigation/region/start state.
+Intake still receives the effective request and independently authors the ready
+brief. Optional verifier output uses candidate-bound editorial references
+instead of a full bundle. Public state and downstream consumers retain their
+complete schemas. Measurements distinguish the current compact null approval
+introduced by Task 216 from the historical full-report baseline; unchanged
+approval was already small before Task 212.
+
 ## Final-output validation and recovery, Task 224
 
 The Responses adapter preserves the provider response status that the installed Agents SDK omits from `ModelResponse`. Transport rejects incomplete final output before SDK validation or result persistence. Schema validation still rejects truncated or malformed JSON. Reaching an output cap alone does not invalidate a completed response.
@@ -569,3 +578,18 @@ The selected projection survives existing context compaction and tools-free fund
 The existing `SourceDecisionProjection` remains the owner evidence structure. Its complete packets carry candidate/question annotations, attributed findings, perspectives, exact speech and material cautions. No second candidate index or new source-count, per-product or token ceiling is added. The original complete buyer brief remains protected.
 
 Packet cleanup evaluates marginal coverage against the remaining packets after each removal. Repeated support can yield before the only useful facts about another alternative. Distinct disagreements and adverse findings affect removal even when they address the same candidate/question. Retained evidence stays whole. An impossible faithful projection follows the existing technical-failure route rather than treating omitted evidence as proof that a product is unsuitable.
+
+
+Task 212's affected context acceptance exposed a lookup prerequisite. Compact
+owner receipts retain search-batch identity, deferred source IDs and pagination
+fields. Reprojecting a receipt preserves its verified original archive handle
+instead of archiving the receipt as a new original. These handles permit the
+existing scoped lookup tools to retrieve deferred leads. They do not establish
+reviewed evidence, replace original cautions or change budget limits. The runtime
+catalog records this boundary as `StableSourceLookupReceipts`.
+
+Ordinary nonvideo source-note receipts retain their persisted citation IDs.
+Page and snippet projection removes runs of at least three consecutive identical
+sentences before source eviction. Retained passages are exact original spans.
+Explicit quotes, source notes and transcript support bypass this deduplication.
+Full originals remain retrievable, and omitted material stays unreviewed.

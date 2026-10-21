@@ -627,6 +627,43 @@ class RecordingComparisonDecisionAgent:
         )
 
 
+async def _exercise_retained_research_stages(orchestrator, initial, db_session):
+    assert initial.general_owner_draft is not None
+    assert RunStage.QUERY_PLANNING not in initial.stage_outputs
+    assert initial.search_results == ()
+    repository = ResultRepository(db_session)
+    original = await repository.load_latest_result_bundle(initial.run_id)
+    assert original is not None
+    assert original.result_version.version == 1
+    original_payload = original.recommendation_bundle.model_dump(mode="json")
+    retained_run = await RunRepository(db_session).create(initial.session_id)
+    context = ShoppingRunContext(
+        run_id=retained_run.run_id,
+        session_id=initial.session_id,
+        trace_id=orchestrator._run_trace_id(retained_run.run_id),
+        active_brief=initial.active_brief,
+        original_input=initial.original_input,
+    )
+    for definition in orchestrator._STAGES:
+        context.active_stage = definition.stage
+        await orchestrator._run_stage(context, definition)
+    await orchestrator._persistence_hooks.persist_live_output(context)
+    await orchestrator._persistence_hooks.emit_event(
+        context.run_id,
+        stage=RunStage.COMPLETE,
+        status=RunStatus.SUCCEEDED,
+        message="Retained stage control completed.",
+    )
+    revised = await repository.load_latest_result_bundle(context.run_id)
+    assert revised is not None
+    assert revised.result_version.version == original.result_version.version + 1
+    assert revised.result_version.result_version_id != original.result_version.result_version_id
+    preserved = await repository.load_result_bundle_by_version(original.result_version.result_version_id)
+    assert preserved is not None
+    assert preserved.recommendation_bundle.model_dump(mode="json") == original_payload
+    return retained_run, context
+
+
 class RecordingVerifierCriticAgent:
     def __init__(self) -> None:
         self.calls: list[VerificationAgentInput] = []
@@ -907,12 +944,10 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
             for item in result.recommendation_bundle.rejected_items
             if item.severity.value == "blocking"
         }
-        assert fixture.listings[1].listing_id in blocked_listing_ids
+        assert blocked_listing_ids == {user_added[0].listing.listing_id}
         assert fixture.listings[0].listing_id not in blocked_listing_ids
-        assert any(
-            "product may still be worth considering" in item.reason
-            for item in result.recommendation_bundle.rejected_items
-        )
+        assert result.recommendation_bundle.rejected_items == fixture.recommendation_bundle.rejected_items
+        assert "Avoid the suspicious marketplace duplicate even though it names the same Dell model." in result.recommendation_bundle.warnings
         assert any(
             assessment.level.value == "suspicious"
             for assessment in result.trust_assessments
@@ -925,15 +960,15 @@ async def test_shopping_run_orchestrator_persists_monitor_fixture_output(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("query", "category", "expected_subject"),
+    ("query", "category"),
     [
-        ("Which TV should I buy?", None, "tv"),
-        ("Which TV should I buy?", "tv", "tv"),
-        ("Need a durable office chair", "office chair", "office chair"),
+        ("Which TV should I buy?", None),
+        ("Which TV should I buy?", "tv"),
+        ("Need a durable office chair", "office chair"),
     ],
 )
 async def test_fixture_research_never_injects_monitor_products_for_other_categories(
-    tmp_path: Path, query: str, category: str | None, expected_subject: str
+    tmp_path: Path, query: str, category: str | None
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
@@ -985,7 +1020,9 @@ async def test_fixture_research_never_injects_monitor_products_for_other_categor
         assert result is not None
         assert result.recommendation_bundle.no_strong_buy
         assert result.recommendation_bundle.final_product_id is None
-        assert expected_subject in result.recommendation_bundle.no_strong_buy_reason
+        assert result.recommendation_bundle.no_strong_buy_reason == "No suitable option to suggest yet."
+        assert context.active_brief.original_query == query
+        assert context.active_brief.category == category
         assert result.comparison_matrix.rows == ()
     finally:
         await engine.dispose()
@@ -1176,11 +1213,17 @@ async def test_query_planning_calls_provider_and_persists_scored_results_only(
         assert called_query.region_code == "US"
         assert called_options is not None
         assert called_options.region_code == "US"
-        assert len(context.search_results) == 1
-        assert len(persisted_results) == 1
+        assert len(context.search_results) == 2
+        assert len(persisted_results) == 2
+        assert {str(item.url) for item in persisted_results} == {
+            "https://rtings.com/monitor/reviews/example",
+            "https://aliexpress.com/item/fixture.html",
+        }
+        assert all(item.quality.score is not None for item in persisted_results)
+        persisted_results = tuple(sorted(persisted_results, key=lambda item: "rtings.com" not in str(item.url)))
         assert str(persisted_results[0].url).startswith("https://rtings.com/")
         assert "utm_source" not in str(persisted_results[0].url)
-        assert persisted_results[0].quality.level == SourceQualityLevel.ADEQUATE
+        assert persisted_results[0].quality.level == SourceQualityLevel.STRONG
         assert persisted_results[0].provider.raw["source_class"] == "review_testing"
         extracted_snapshot = next(
             snapshot
@@ -1557,7 +1600,7 @@ async def test_extraction_deduplicates_urls_before_candidate_grouping(
 
 
 @pytest.mark.asyncio
-async def test_manual_fallback_enters_comparison_without_a_fabricated_listing(
+async def test_retained_stages_compare_manual_fallback_without_a_fabricated_listing(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -1623,6 +1666,8 @@ async def test_manual_fallback_enters_comparison_without_a_fabricated_listing(
                 shopping_session.current_brief,
                 original_input=shopping_session.original_input,
             )
+            assert analyst.calls == []
+            run, context = await _exercise_retained_research_stages(orchestrator, context, db_session)
             await db_session.commit()
         async with session_factory() as db_session:
             repo = ProductRepository(db_session)
@@ -1638,7 +1683,10 @@ async def test_manual_fallback_enters_comparison_without_a_fabricated_listing(
         assert saved.research_attempted is True
         assert saved.manual_evidence_status["seller"] == "user_reported"
         assert saved.manual_evidence_status["source"] == "unknown"
-        assert analyst.calls == []
+        assert len(analyst.calls) == 1
+        assert analyst.calls[0].product.product_id == shortlist[0].product_id
+        assert analyst.calls[0].listings == ()
+        assert analyst.calls[0].evidence == ()
         assert comparison.calls == []  # The active owner finishes the live decision.
         assert context.recommendation_bundle is not None
         assert context.recommendation_bundle.no_strong_buy is True
@@ -1774,7 +1822,7 @@ async def test_user_added_url_product_survives_extraction_grouping_and_analysis_
 
 
 @pytest.mark.asyncio
-async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
+async def test_retained_stages_retrieve_user_added_name_and_mark_user_supplied(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -1844,6 +1892,8 @@ async def test_user_added_name_product_is_retrieved_and_marked_user_supplied(
                 shopping_session.current_brief,
                 original_input=shopping_session.original_input,
             )
+            assert analyst.calls == []
+            run, context = await _exercise_retained_research_stages(orchestrator, context, db_session)
             await db_session.commit()
 
         async with session_factory() as db_session:
@@ -2180,7 +2230,7 @@ async def test_source_intelligence_stage_does_not_inject_unrelated_fixture_produ
 
 
 @pytest.mark.asyncio
-async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
+async def test_retained_stages_record_metadata_after_offline_owner_completion(
     tmp_path: Path,
 ) -> None:
     settings = Settings(  # type: ignore[call-arg]
@@ -2250,6 +2300,8 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
                 shopping_session.current_brief,
                 original_input=shopping_session.original_input,
             )
+            assert analyst.calls == []
+            run, context = await _exercise_retained_research_stages(orchestrator, context, db_session)
             await db_session.commit()
 
         async with session_factory() as db_session:
@@ -2265,7 +2317,7 @@ async def test_live_agent_workflow_records_stage_metadata_without_live_calls(
         assert len(stored_products) == 1
         assert stored_products[0].name == "Northstar Arc 27 USB-C Monitor"
         assert context.active_brief.category == "monitor"
-        assert len(general.calls) == 1
+        assert len(general.calls) == 2
         assert general.calls[0].brief.category == "monitor"
         assert context.general_owner_draft is not None
         assert (

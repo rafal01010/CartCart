@@ -9,7 +9,7 @@ from app.tools import run_evals
 
 def test_quick_selection_is_fixed_fresh_and_preserves_scoring():
     assert sum(map(len, QUICK_CASES.values())) == 27
-    assert sum(len(lane.dataset().cases) for lane in LANES) == 117
+    assert sum(len(lane.dataset().cases) for lane in LANES) == 121
     assert tuple(QUICK_CASES) == tuple(lane.name for lane in LANES)
     stages = set()
     for lane in LANES:
@@ -79,7 +79,7 @@ def test_suite_order_manifest_and_failure_propagation(tmp_path, suite, failure_i
     assert saved["schema_version"] == 1
     assert sum(count for _, count in calls[:5]) == 27
     if suite == "full":
-        assert sum(count for _, count in calls[5:]) == 117
+        assert sum(count for _, count in calls[5:]) == 121
     assert [lane["phase"] for lane in saved["lanes"]] == (
         ["quick"] * 5 if suite == "quick" else ["quick"] * 5 + ["full"] * 5
     )
@@ -118,7 +118,7 @@ def test_quick_retains_observed_regressions_and_documented_cases():
         "intake/inferred-monitor-fields",
         "extraction/punctuated-price-fidelity",
         "recommendation/preferred-stretch",
-        "recommendation/manual-only-no-buy",
+        "recommendation/manual-product-with-unknowns",
         "recommendation/conflict-disclosure",
         "youtube/invented-quote",
     ):

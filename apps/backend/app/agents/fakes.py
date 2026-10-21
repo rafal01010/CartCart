@@ -10,6 +10,7 @@ from app.agents.catalog import (
     ProductAnalysisRoute,
     build_default_agent_catalog,
 )
+from app.agents.product_scope import candidate_analysis_category
 from app.agents.contracts import (
     CategoryRouterAgentInput,
     ComparisonDecisionAgentInput,
@@ -384,7 +385,9 @@ class FakeMonitorSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "monitor")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)
@@ -392,7 +395,9 @@ class FakeSmartphoneSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "smartphone")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)
@@ -400,7 +405,9 @@ class FakeLaptopSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "laptop")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)
@@ -408,7 +415,9 @@ class FakeEarphonesHeadphonesSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "earphones_headphones")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)
@@ -416,7 +425,9 @@ class FakeTVSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "tv")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)
@@ -424,7 +435,9 @@ class FakeSmartwatchSpecialistAgent:
     output: CategoryAnalysis | None = None
 
     async def run(self, input_data: ProductAnalysisAgentInput) -> CategoryAnalysis:
-        return self.output or _category_analysis(input_data, "smartwatch")
+        return self.output or _category_analysis(
+            input_data, candidate_analysis_category(input_data)
+        )
 
 
 @dataclass(frozen=True)

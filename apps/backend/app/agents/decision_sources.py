@@ -31,8 +31,50 @@ def _video_url(url: str) -> bool:
     return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
 
 
-def _passages(text: str, brief: ShoppingBrief) -> tuple[str, ...]:
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n|\n", text) if part.strip()]
+def _without_consecutive_sentence_repeats(paragraph: str) -> list[str]:
+    sentences = []
+    start = 0
+    for boundary in re.finditer(r"(?<=[.!?])\s+", paragraph):
+        sentences.append((start, boundary.start(), paragraph[start:boundary.start()]))
+        start = boundary.end()
+    sentences.append((start, len(paragraph), paragraph[start:]))
+    cuts = []
+    previous = None
+    cut_start = None
+    cut_end = 0
+    repeat_count = 0
+    for start, end, sentence in sentences:
+        if sentence == previous:
+            if cut_start is None:
+                cut_start = start
+            cut_end = end
+            repeat_count += 1
+        else:
+            if cut_start is not None and repeat_count >= 2:
+                cuts.append((cut_start, cut_end))
+            cut_start = None
+            repeat_count = 0
+            previous = sentence
+    if cut_start is not None and repeat_count >= 2:
+        cuts.append((cut_start, cut_end))
+    if not cuts:
+        return [paragraph]
+    spans = []
+    start = 0
+    for cut_start, cut_end in cuts:
+        span = paragraph[start:cut_start].strip()
+        if span:
+            spans.append(span)
+        start = cut_end
+    tail = paragraph[start:].strip()
+    if tail:
+        spans.append(tail)
+    return spans
+
+
+def _passages(text: str, brief: ShoppingBrief, *, collapse_repeats: bool = True) -> tuple[str, ...]:
+    paragraphs = [span for part in re.split(r"\n\s*\n|\n", text) if part.strip()
+                  for span in (_without_consecutive_sentence_repeats(part.strip()) if collapse_repeats else [part.strip()])]
     if not paragraphs:
         return ()
     relevance = terms(brief.original_query + " " + " ".join(p.text for p in brief.preferences))
@@ -464,12 +506,17 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
             if identifier and identifier != record["source_id"] and identifier not in identifiers)
         text = row.get("text") or row.get("page_text") or row.get("source_note") or row.get("quote") or row.get("snippet")
         if isinstance(text, str) and text.strip():
-            record["excerpts"].extend(_passages(text, brief))
+            passages = _passages(text, brief, collapse_repeats=bool(row.get("text") or row.get("page_text") or row.get("snippet")) and not any(row.get(key) for key in ("quote", "source_note", "transcript_support", "transcript_segment_ids")))
+            record["excerpts"].extend(passages)
+            if "\n".join(passages) != text:
+                record["unreviewed_content"] = True
             if record["content_kind"] != "metadata_only":
                 if row.get("text") or row.get("page_text"):
                     record["content_kind"] = "page"
                 elif row.get("source_note") or row.get("quote"):
                     record["content_kind"] = "source_note"
+        if row.get("evidence_id") and not row.get("metadata_only") and (row.get("source_note") or row.get("quote")):
+            record["evidence_ids"].append(row["evidence_id"])
         support = row.get("transcript_support", [])
         for segment_id in row.get("transcript_segment_ids", []):
             segment = segments.get(str(segment_id))
@@ -531,6 +578,11 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
     if not isinstance(original, list):
         return original, projection
     source_tools = {"search_sources", "read_search_results", "fetch_source", "read_source_snapshot", "read_run_evidence", "read_research_result", "read_source_bundle", "read_video_transcript", "read_community_discussion", "record_source_quote", "consult_source_intelligence"}
+    receipt_fields = (
+        "status", "source_id", "snapshot_id", "evidence_id", "gap",
+        "start_char", "next_start_char", "total_characters", "search_result_id",
+        "deferred_source_ids", "next_offset", "evidence_total", "next_evidence_offset",
+    )
     projected = []
     for item in original:
         if item.get("type") == "function_call_output" and names.get(str(item.get("call_id"))) in source_tools:
@@ -545,9 +597,20 @@ def project_owner_sources(original: Any) -> tuple[Any, SourceDecisionProjection 
                 except ValueError:
                     projected.append(item)
                     continue
-            receipt = {key: payload[key] for key in ("status", "source_id", "snapshot_id", "evidence_id", "gap", "next_start_char", "total_characters") if isinstance(payload, dict) and key in payload}
+            archive_id = None
+            if history is not None and existing is not None and isinstance(payload, dict):
+                view_id = payload.get("archive_view_id")
+                view = history.views.get(view_id) if isinstance(view_id, str) else None
+                if view is not None and view.tool == "decision_source_original" and isinstance(view.payload, dict):
+                    expected = {key: view.payload[key] for key in receipt_fields if key in view.payload}
+                    expected.update(archive_view_id=view_id, reload_tool="read_research_result",
+                                    decision_projection_id=existing.projection_id, omitted_material_unreviewed=True)
+                    if payload == expected:
+                        archive_id = view_id
+                        payload = view.payload
+            receipt = {key: payload[key] for key in receipt_fields if isinstance(payload, dict) and key in payload}
             if history is not None:
-                receipt["archive_view_id"] = history.archive("decision_source_original", payload)
+                receipt["archive_view_id"] = archive_id or history.archive("decision_source_original", payload)
                 receipt["reload_tool"] = "read_research_result"
             receipt["decision_projection_id"] = projection.projection_id
             receipt["omitted_material_unreviewed"] = True

@@ -228,6 +228,7 @@ class SourceRule(TrustRecommendationRule):
 
 
 class SourceExpectation(CartCartBaseModel):
+    claims_supported: bool = True
     fields: tuple[SourceRule, ...] = Field(min_length=1)
 
 

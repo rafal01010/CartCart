@@ -6188,10 +6188,11 @@
           {
             "field": "verification.approved",
             "operator": "equals",
-            "value": false,
-            "requirement": "Preserve verification.approved according to the independently authored source scenario."
+            "value": true,
+            "requirement": "Optional editorial approval preserves the authored advice. Unsupported claim detection is scored separately."
           }
-        ]
+        ],
+        "claims_supported": false
       },
       "metadata": {
         "description": "Actual source evidence stays cited downstream; unsupported proposed specs must block display.",
@@ -6686,10 +6687,11 @@
           {
             "field": "verification.approved",
             "operator": "equals",
-            "value": false,
-            "requirement": "Preserve verification.approved according to the independently authored source scenario."
+            "value": true,
+            "requirement": "Optional editorial approval preserves the authored advice. Unsupported claim detection is scored separately."
           }
-        ]
+        ],
+        "claims_supported": false
       },
       "metadata": {
         "description": "Actual source evidence stays cited downstream; unsupported proposed specs must block display.",
@@ -7114,10 +7116,11 @@
           {
             "field": "verification.approved",
             "operator": "equals",
-            "value": false,
-            "requirement": "Preserve verification.approved according to the independently authored source scenario."
+            "value": true,
+            "requirement": "Optional editorial approval preserves the authored advice. Unsupported claim detection is scored separately."
           }
-        ]
+        ],
+        "claims_supported": false
       },
       "metadata": {
         "description": "Actual source evidence stays cited downstream; unsupported proposed specs must block display.",
@@ -7592,10 +7595,11 @@
           {
             "field": "verification.approved",
             "operator": "equals",
-            "value": false,
-            "requirement": "Preserve verification.approved according to the independently authored source scenario."
+            "value": true,
+            "requirement": "Optional editorial approval preserves the authored advice. Unsupported claim detection is scored separately."
           }
-        ]
+        ],
+        "claims_supported": false
       },
       "metadata": {
         "description": "Actual source evidence stays cited downstream; unsupported proposed specs must block display.",

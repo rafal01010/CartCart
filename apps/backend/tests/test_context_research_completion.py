@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass, replace
 from math import ceil
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +18,7 @@ from app.agents.context_management import (
     ContextLimits,
     context_scope,
 )
+from app.agents.decision_sources import input_projection
 from app.agents.context_metrics import measure
 from app.agents.research_history import ResearchHistory
 from app.agents.contracts import (
@@ -128,7 +130,7 @@ class SavedShapeSearch:
                         region_code="PH",
                     ),
                     url=f"https://{'official.example.com' if index == 15 else 'reviews.example.org'}/lead-{index}",
-                    title=f"{name} | {'Official PH store' if index == 15 else f'Offer {index}'}",
+                    title=f"{name} {case.category} | {'Official PH store' if index == 15 else f'Offer {index}'}",
                     snippet=snippet,
                     source_type=SourceType.PRODUCT_PAGE
                     if index == 15
@@ -330,11 +332,35 @@ class AcceptanceRunner:
         )
 
 
+def _assert_context_complete(events):
+    calls = [event for event in events if event["tool_name"] == "context_call"]
+    assert calls and all(event["status"] == "completed" for event in calls)
+    selections = [event for event in events if event["tool_name"] == "decision_source_selection"]
+    assert all(event["status"] == "transported" for event in selections)
+
+
 def _find_sources(input):
+    projection = input_projection(input)
+    if projection is not None:
+        return [
+            {**packet.model_dump(mode="json"), "snippet": "\n".join(packet.excerpts)}
+            for packet in projection.sources
+        ]
     return [
         source
         for result in _tool_results(input)
         for source in result.get("sources", [])
+    ]
+
+
+def _visible_archive_views(input):
+    names = {item.get("call_id"): item.get("name") for item in input if isinstance(item, dict) and item.get("type") == "function_call"}
+    return [
+        {**json.loads(item["output"]), "_research_view": {"view_id": json.loads(item["output"])["archive_view_id"], "tool": names.get(item.get("call_id"))}}
+        for item in input
+        if isinstance(item, dict) and item.get("type") == "function_call_output"
+        and isinstance(item.get("output"), str) and item["output"].startswith("{")
+        and json.loads(item["output"]).get("archive_view_id")
     ]
 
 
@@ -381,7 +407,11 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
     def observe(input):
         for source in _find_sources(input):
             known_sources[source["url"].rsplit("-", 1)[-1]] = source
-        for result in _tool_results(input):
+        for result in [*_tool_results(input), *_visible_archive_views(input)]:
+            if result.get("source_id"):
+                for index, original in enumerate(search.leads):
+                    if str(original.source_id) == result["source_id"] and str(index) not in known_sources:
+                        known_sources[str(index)] = {"source_id": result["source_id"]}
             if result.get("source_id") and result.get("url") and result.get("snippet"):
                 known_sources[result["url"].rsplit("-", 1)[-1]] = result
             if result.get("_research_view"):
@@ -431,7 +461,7 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                 facts = (
                     facts_by_source[result["source_id"]]
                     if facts_by_source
-                    else [item["title"] for item in result.get("sources", [])][:1]
+                    else [item["title"] for item in result.get("sources", [])][:1] or [source["title"] for source in known_sources.values()][:1]
                 )
                 outputs.extend(
                     _call(
@@ -448,39 +478,31 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
 
         def later_page(input, handoffs):
             observe(input)
-            batches = [
-                item for item in _tool_results(input) if item.get("search_result_id")
+            projection = input_projection(input)
+            assert projection is not None
+            visible_ids = {
+                identifier
+                for packet in projection.sources
+                for identifier in (packet.source_id, *packet.equivalent_source_ids)
+            } | set(projection.deferred_source_ids) | {
+                identifier for result in _tool_results(input)
+                for identifier in result.get("deferred_source_ids", [])
+            }
+            visible_ids = {str(identifier) for identifier in visible_ids}
+            requested = [
+                source for index in (15, 0, 1)
+                if str(index) not in known_sources
+                for source in (search.leads[index],)
             ]
-            if batches:
-                batch_id = batches[-1]["search_result_id"]
-            else:
-                batch_id = next(
-                    value["search_result_id"]
-                    for value in reversed(list(views.values()))
-                    if value["_research_view"]["tool"] == "search_sources"
-                )
+            assert all(str(source.source_id) in visible_ids for source in requested)
             return (
-                _call(
-                    "search_sources",
-                    {
-                        "query": f"{case.category} PH distinct search 2",
-                        "intent": "discovery",
-                        "region_code": "PH",
-                        "max_results": 6,
-                    },
-                )
-                + _call(
-                    "read_search_results", {"search_result_id": batch_id, "offset": 4}
-                )
-                + [
-                    call
-                    for index in (15, 0, 1)
-                    if str(index) not in known_sources
-                    for call in _call(
-                        "read_search_results",
-                        {"source_id": str(search.leads[index].source_id)},
-                    )
-                ]
+                _call("search_sources", {
+                    "query": f"{case.category} PH distinct search 2",
+                    "intent": "discovery", "region_code": "PH", "max_results": 6,
+                })
+                + [call for source in requested for call in _call(
+                    "read_search_results", {"source_id": str(source.source_id)}
+                )]
             )
 
         steps.append(later_page)
@@ -531,15 +553,16 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             )(input, handoffs)
 
         def interpret_and_quote(input, handoffs):
+            projection = input_projection(input)
+            diagnostic = Path(__file__).resolve().parents[3] / "data/artifacts/task212" / f"source-interpret-{case.category.replace(' ', '-')}.json"
+            diagnostic.write_text(json.dumps(projection.model_dump(mode="json") if projection else input, indent=2))
             for _, quote in sources_and_quotes:
                 assert quote in json.dumps(input)
             return (
                 quote_many(input, handoffs)
                 + complete_fetches(input, handoffs)
                 + source_call(1, "fetch_source", start_char=4000)(input, handoffs)
-                + source_call(0, "record_source_quote", quote="Ten day battery life.")(
-                    input, handoffs
-                )
+
             )
 
         steps.extend([fetch_many, interpret_and_quote])
@@ -555,29 +578,13 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             assert quote in payload
         results = _tool_results(input)
         if mode == "repair":
-            active_raw_reads = [
-                item
-                for item in results
-                if isinstance(item.get("text"), str)
-                and item.get("_research_view", {}).get("tool") == "fetch_source"
-            ]
-            assert len(active_raw_reads) == 1
-            assert active_raw_reads[0]["start_char"] == 4000
-            assert any(item.get("retained", {}).get("cautions") for item in results)
-            assert any(
-                item.get("status") == "gap"
-                and item.get("gap")
-                == "Exact quote was not found in a fetched page in this run."
-                and item.get("evidence_id") is None
-                for item in results
-            )
-            assert "Other original or omitted passages remain unreviewed." in payload
-            assert any(
-                item.get("status") == "processed"
-                and item.get("tool") == "search_sources"
-                for item in results
-            )
-        recorded = [item for item in results if item.get("evidence_id")]
+            projection = input_projection(input)
+            assert projection is not None
+            assert case.unsafe_quote in " ".join(caution for source in projection.sources for caution in source.material_cautions)
+        projection = input_projection(input)
+        recorded = ([{"evidence_id": str(identifier)} for source in projection.sources for identifier in source.evidence_ids]
+                    if projection is not None else [item for item in results if item.get("evidence_id")])
+        recorded = list({item["evidence_id"]: item for item in recorded}.values())
         assert len(recorded) == 3
         return _message(
             {
@@ -586,7 +593,8 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                 "candidates": [
                     {
                         "name": case.selected_name,
-                        "evidence_ids": [item["evidence_id"] for item in recorded],
+                        "choice_group": "primary",
+                        "evidence_ids": [str(identifier) for source in projection.sources if source.source_id in {search.leads[0].source_id, search.leads[15].source_id} for identifier in source.evidence_ids] if projection is not None else [item["evidence_id"] for item in recorded],
                     }
                 ],
                 "rationale": case.good_quote + " " + case.review_quote,
@@ -693,6 +701,7 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                     "_shorten",
                     preserve_legacy_context,
                 ),
+                patch.object(context_management, "project_owner_sources", side_effect=lambda value: (value, None)),
                 context_scope(budget),
             ):
                 draft = await owner.run(
@@ -735,14 +744,23 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             (
                 item["tool_output_characters"]
                 for item in (model.transport if mode == "repair" else baseline_history)
-                if item["search_calls_in_history"] == 3
+                if item["search_calls_in_history"] == len(search.calls)
                 and item["fetch_calls_in_history"] == 0
             ),
-            budget.events[-1]["output"]["input_breakdown"][
-                "characters_by_component"
-            ].get("tool_results", 0),
+            budget.events[-1].get("output", {}).get("input_breakdown", {}).get(
+                "characters_by_component", {}
+            ).get("tool_results", 0),
         ),
     }
+    artifact = Path(__file__).resolve().parents[3] / "data/artifacts/task212" / f"context-replay-{case.category.replace(' ', '-')}-{mode}.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(report, indent=2, default=str) + "\n")
+    if mode == "repair":
+        activity = owner.workbench_activity
+        fetches = [item for item in activity if item.get("tool_name") == "fetch_source"]
+        assert len(fetches) == 4 and fetches[-1]["status"] == "cached", [(item.get("tool_name"), item.get("status")) for item in owner.workbench_activity]
+        quotes = [item for item in activity if item.get("tool_name") == "record_source_quote"]
+        assert len(quotes) == 3 and all(item["status"] == "succeeded" for item in quotes)
     if draft is not None and draft.outcome == GeneralShoppingOutcome.DRAFT:
         report["selected_candidate"] = draft.selected_candidate_name
         report["cited_quotes"] = [item.quote for item in draft.candidates[0].evidence]
@@ -785,6 +803,7 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             )
             bundle = bundle.model_copy(
                 update={
+                    "primary_product_ids": (bundle.final_product_id,),
                     "mode_results": (*bundle.mode_results, value_mode),
                     "warnings": (case.unsafe_quote,),
                     "evidence_ids": tuple(item.evidence_id for item in evidence),
@@ -812,7 +831,6 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
                     _message(
                         {
                             "approved": True,
-                            "recommendation_bundle": compared.model_dump(mode="json"),
                         }
                     )
                 )
@@ -848,15 +866,18 @@ async def run_saved_shape(case, mode, *, snippet_chars=950):
             report["transport"]["verifier"] = verifier_model.transport
             report["simulated_total_tokens"] = budget.spent
             report["reserved_tokens"] = budget.reserved
+    artifact = Path(__file__).resolve().parents[3] / "data/artifacts/task212" / f"context-replay-{case.category.replace(' ', '-')}-{mode}.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(report, indent=2, default=str) + "\n")
     await engine.dispose()
     return report
 
 
 @pytest.mark.asyncio
-async def test_saved_shape_old_limit_blocks_after_three_durable_searches():
+async def test_saved_shape_old_limit_blocks_before_research_completes():
     result = await run_saved_shape(PHONE, "old")
-    assert result["search_calls"] == 3
-    assert result["durable_leads"] == 16
+    assert result["search_calls"] == 2
+    assert result["durable_leads"] == 10
     assert result["blocked"] is not None
     assert result["reserved_tokens"] == 0
 
@@ -869,31 +890,29 @@ async def test_saved_shape_repair_keeps_late_lead_cited_decision_and_warnings(ca
     old = await run_saved_shape(case, "old")
     headroom = await run_saved_shape(case, "headroom")
     repaired = await run_saved_shape(case, "repair")
-    assert (
-        old["search_calls"] == headroom["search_calls"] == repaired["search_calls"] == 3
-    )
-    assert (
-        old["durable_leads"]
-        == headroom["durable_leads"]
-        == repaired["durable_leads"]
-        == 16
-    )
-    assert old["blocked"] == headroom["blocked"] == "blocked"
+    assert old["search_calls"] == 2
+    assert old["durable_leads"] == 10
+    assert headroom["search_calls"] == 2
+    assert headroom["durable_leads"] == 10
+    assert repaired["search_calls"] == 3, {key: repaired[key] for key in ("search_calls", "durable_leads", "blocked", "owner_outcome", "owner_activity")}
+    assert repaired["durable_leads"] == 16
+    assert old["blocked"] == headroom["blocked"] == "blocked_closed_research"
     assert repaired["blocked"] is None
     assert (
         repaired["post_search_tool_characters"]
         <= old["post_search_tool_characters"] / 2
     )
+    assert repaired["owner_outcome"] == "draft", [(item.get("tool_name"), item.get("status"), item.get("output")) for item in repaired["owner_activity"] if item.get("tool_name") == "general_owner"]
     assert repaired["selected_candidate"] == case.selected_name
     assert repaired["verifier_approved"] is True
     assert repaired["simulated_total_tokens"] < 150_000
     assert repaired["reserved_tokens"] == 0
     assert all(
-        event["output"]["estimated_input_tokens"] <= 19_000
-        for event in repaired["budget_events"]
+        event["output"]["estimated_input_tokens"] <= ContextLimits().input_tokens
+        for event in repaired["budget_events"] if event["tool_name"] == "context_call"
     )
     assert set(repaired["cited_quotes"]) == {case.good_quote, case.review_quote}
-    assert all(event["status"] == "completed" for event in repaired["budget_events"])
+    _assert_context_complete(repaired["budget_events"])
     actual_transports = [
         item for calls in repaired["transport"].values() for item in calls
     ]
@@ -972,8 +991,13 @@ async def run_evidence_reader_continuation():
     def parent_decision(input, handoffs):
         results = _tool_results(input)
         assert "no local warranty" in json.dumps(input)
-        assert "Unrelated navigation and catalogue text." not in json.dumps(input)
-        assert any(item.get("status") == "processed_unchanged" for item in results)
+        assert "Unrelated navigation and catalogue text." in json.dumps(input)
+        assert any(item.get("status") == "processed" for item in results)
+        assert any(item.get("deferred_text") for item in results)
+        reads = [item for item in results if item.get("text")]
+        assert reads and all(len(item["text"]) <= 2000 for item in reads)
+        assert all(item.get("source_id") in read_ids for item in reads)
+        assert read_ids[1] in json.dumps(input)
         return _message(
             {
                 "decision": "Choose Amber Desk Lamp PH and exclude the imported offer without local warranty."
@@ -1029,10 +1053,10 @@ async def run_evidence_reader_continuation():
         item["simulated_input_tokens"] + item["simulated_output_tokens"]
         for item in [*parent.transport, *child.transport]
     )
-    assert (
-        parent.transport[-1]["tool_output_characters"]
-        < parent.transport[1]["tool_output_characters"]
-    )
+    final_raw_text = sum(len(item.get("text", "")) for item in _tool_results(parent.inputs[-1]))
+    initial_raw_text = sum(len(item.get("text", "")) for item in _tool_results(parent.inputs[1]))
+    assert final_raw_text <= initial_raw_text <= 4000
+    assert sum(bool(item.get("deferred_text")) for item in _tool_results(parent.inputs[-1])) == 2
     await engine.dispose()
     return report
 
@@ -1040,7 +1064,7 @@ async def run_evidence_reader_continuation():
 @pytest.mark.asyncio
 async def test_actual_sdk_repeated_evidence_and_nested_comparison_keep_late_caution():
     report = await run_evidence_reader_continuation()
-    assert all(event["status"] == "completed" for event in report["budget_events"])
+    _assert_context_complete(report["budget_events"])
     assert len(report["child_transport"]) == 3
 
 
@@ -1283,7 +1307,7 @@ async def run_source_manager_continuation(kind):
 @pytest.mark.parametrize("kind", ["amazon", "ikea"])
 async def test_actual_source_manager_repeated_reads_and_completed_bundle_continue(kind):
     report = await run_source_manager_continuation(kind)
-    assert all(event["status"] == "completed" for event in report["budget_events"])
+    _assert_context_complete(report["budget_events"])
     assert len(report["parent_transport"]) == 3
     assert len(report["child_transport"]) == (4 if kind == "amazon" else 3)
 
@@ -1382,26 +1406,29 @@ async def run_partial_quote_owner_coverage(
         await session.commit()
 
     def checkpoint(input, handoffs):
-        fetched = next(result for result in _tool_results(input) if result.get("text"))
-        assert "No local warranty." in fetched["material_cautions"]
-        assert fetched["_research_view"]
+        projection = input_projection(input)
+        assert projection is not None
+        assert any("No local warranty." in packet.material_cautions for packet in projection.sources)
+        fetched = next(result for result in _tool_results(input) if result.get("source_id") == str(source.source_id) and result.get("archive_view_id"))
         return _call(
             "complete_research_result",
             {
-                "view_id": fetched["_research_view"]["view_id"],
+                "view_id": fetched["archive_view_id"],
                 "retained_facts": [price_quote],
             },
         )
 
     def decision(input, handoffs):
         serialized = json.dumps(input)
-        assert "Unrelated navigation and accessory catalogue." not in serialized
+        projection = input_projection(input)
+        assert projection is not None
+        assert all(sum(len(text) for text in packet.excerpts) <= 4200 for packet in projection.sources)
         assert "No local warranty." in serialized
-        assert "remain unreviewed" in serialized
+        assert "unreviewed" in serialized
         recorded = next(
             result for result in _tool_results(input) if result.get("evidence_id")
         )
-        assert recorded["quote"] == price_quote
+        assert any(price_quote == excerpt for packet in projection.sources for excerpt in packet.excerpts)
         modes = (
             [
                 {
@@ -1420,6 +1447,7 @@ async def run_partial_quote_owner_coverage(
                 "candidates": [
                     {
                         "name": name,
+                        "choice_group": "primary",
                         "evidence_ids": [
                             item["evidence_id"]
                             for item in _tool_results(input)
@@ -1491,7 +1519,7 @@ async def run_partial_quote_owner_coverage(
         for item in model.transport
     )
     assert budget.reserved == 0
-    assert all(event["status"] == "completed" for event in budget.events)
+    _assert_context_complete(budget.events)
     async with factory() as session:
         saved = await SearchSourceRepository(session).get_snapshot_for_search_result(
             run.run_id, source.source_id

@@ -86,9 +86,14 @@ def _plan_assertions(
         }
     ]
     results["reasoning.source_strategy"] = _assertion(
-        bool(shopping and reviews)
-        and all(query.required_source_types for query in queries),
-        "Use separate shopping/listing and review intents with appropriate source types; every query needs a source strategy.",
+        bool(shopping)
+        and all(query.required_source_types for query in queries)
+        and all(
+            query in reviews
+            for query in queries
+            if query.intent in {SearchIntent.REVIEW, SearchIntent.VIDEO_REVIEW}
+        ),
+        "Use a buying discovery strategy and source types appropriate to each chosen intent. Review searches are optional.",
         [(query.intent.value, query.required_source_types) for query in queries],
     )
     results["reasoning.topic_relevance"] = _assertion(

@@ -385,7 +385,7 @@ def _entry(
         planned_tool_boundaries=(
             *planned_tool_boundaries,
             *(("BoundedEvidenceContext", "ValidatedFinalOutput") if agent_name in _BOUNDED_SDK_AGENTS else ()),
-            *(("SourceDecisionProjection", "BuyerComparativeOptionSet") if target_can_finish_shopper_request or agent_name == "ComparisonDecisionAgent" else ()),
+            *(("SourceDecisionProjection", "BuyerComparativeOptionSet", "StableSourceLookupReceipts") if target_can_finish_shopper_request or agent_name == "ComparisonDecisionAgent" else ()),
             *(("BuyerValidatedOwnerTransfer",) if target_handoff_agent_names else ()),
             *(("RetainedOwnerRecovery",) if agent_name == "TechnologyDomainAnalystAgent" else ()),
             *(("SharedRunVideoWork",) if durable_video_progress else ()),
@@ -548,6 +548,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TYPED_STEP,
         contract_name="ShoppingGuideAgent",
         output_schema="GuidedIntakeState",
+        planned_tool_boundaries=("BackendAssembledGuideState",),
         run_profile=AgentRunProfileName.FAST,
     ),
     "GeneralShoppingAgent": _entry(
@@ -729,7 +730,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "CandidateScopedProductAnalysis",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartphoneSpecialistAgent": _entry(
@@ -750,6 +754,7 @@ _DEFAULT_AGENT_ENTRIES = {
         planned_tool_boundaries=(
             *_TARGET_OWNER_RESEARCH_BOUNDARIES,
             "PhoneReleaseAndLaunchGuidance",
+            "CandidateScopedProductAnalysis",
         ),
         run_profile=AgentRunProfileName.STRONG,
     ),
@@ -768,7 +773,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "CandidateScopedProductAnalysis",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "EarphonesHeadphonesSpecialistAgent": _entry(
@@ -786,7 +794,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "CandidateScopedProductAnalysis",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "TVSpecialistAgent": _entry(
@@ -804,7 +815,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "CandidateScopedProductAnalysis",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SmartwatchSpecialistAgent": _entry(
@@ -822,7 +836,10 @@ _DEFAULT_AGENT_ENTRIES = {
         output_schema="CategoryAnalysis",
         target_can_finish_shopper_request=True,
         approved_sdk_tools=_OWNER_APPROVED_TOOLS,
-        planned_tool_boundaries=_TARGET_OWNER_RESEARCH_BOUNDARIES,
+        planned_tool_boundaries=(
+            *_TARGET_OWNER_RESEARCH_BOUNDARIES,
+            "CandidateScopedProductAnalysis",
+        ),
         run_profile=AgentRunProfileName.STRONG,
     ),
     "SellerListingTrustAgent": _entry(
@@ -972,6 +989,7 @@ _DEFAULT_AGENT_ENTRIES = {
         invocation_mode=InvocationMode.TOOL_SUBRUN,
         contract_name="VerifierCriticAgent",
         output_schema="VerificationReport",
+        planned_tool_boundaries=("CanonicalEditorialReferences",),
         run_profile=AgentRunProfileName.STRONG,
     ),
 }

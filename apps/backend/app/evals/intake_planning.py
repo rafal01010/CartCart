@@ -1,5 +1,6 @@
 """Scoped intake/planning cases and offline adapters for production contracts."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -17,6 +18,7 @@ from app.agents.contracts import (
     ShoppingGuideAgentInput,
 )
 from app.agents.live_guide import LiveShoppingGuideAgent, MockShoppingGuideModelRunner
+from app.agents.live_guardrails import LiveShoppingScopeGuardrail, MockShoppingGuardrailModelRunner
 from app.agents.live_intake import LiveIntakeAgent, MockIntakeModelRunner
 from app.agents.live_query_planner import (
     LiveQueryPlannerAgent,
@@ -29,6 +31,8 @@ from app.schemas.guided_intake import (
     ChoiceWithTextGuidedAnswer,
     GuidedIntakeState,
     NaturalLanguageGuidedAnswer,
+    ShoppingGuardrailDecision,
+    ShoppingGuardrailResult,
 )
 from app.schemas.intake import BudgetConstraint, CreateSessionRequest, ShoppingBrief
 from app.schemas.regions import RegionCode
@@ -233,6 +237,24 @@ class IntakePlanningTask:
         )
 
 
+class ContextPreservingQueryPlannerModelRunner(MockQueryPlannerModelRunner):
+    async def run(self, agent, model_input, *, run_config, max_turns):
+        result = await super().run(
+            agent, model_input, run_config=run_config, max_turns=max_turns
+        )
+        brief = ShoppingBrief.model_validate(json.loads(model_input)["brief"])
+        context = " ".join(
+            (brief.original_query, *(item.text for item in (*brief.constraints, *brief.preferences)))
+        )
+        result.final_output = result.final_output.model_copy(
+            update={"queries": tuple(
+                query.model_copy(update={"query": f"{query.query} {context}"})
+                for query in result.final_output.queries
+            )}
+        )
+        return result
+
+
 def offline_intake_planning_task() -> IntakePlanningTask:
     # Explicit overrides ignore ambient live/model/profile selections. No .env,
     # SDK Runner, hosted tools, app startup, providers or exporters are invoked.
@@ -252,9 +274,15 @@ def offline_intake_planning_task() -> IntakePlanningTask:
             settings=settings,
             model_runner=MockShoppingGuideModelRunner(),
             intake_agent=intake,
+            scope_guardrail=LiveShoppingScopeGuardrail(
+                settings=settings,
+                model_runner=MockShoppingGuardrailModelRunner(
+                    output=ShoppingGuardrailResult(decision=ShoppingGuardrailDecision.ALLOWED)
+                ),
+            ),
         ),
         intake=intake,
         planner=LiveQueryPlannerAgent(
-            settings=settings, model_runner=MockQueryPlannerModelRunner()
+            settings=settings, model_runner=ContextPreservingQueryPlannerModelRunner()
         ),
     )

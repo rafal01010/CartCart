@@ -127,6 +127,18 @@ async def add_saved_candidate(settings: Settings, run_id: str) -> None:
             await ProductRepository(session).add_canonical_product(
                 UUID(run_id), CanonicalProduct(name="Quiet Headphones")
             )
+            results = ResultRepository(session)
+            original = await results.load_latest_result_bundle(UUID(run_id))
+            assert original is not None
+            await results.save_result_bundle(
+                UUID(run_id),
+                trust_assessments=(),
+                category_analyses=(),
+                agent_records=(),
+                recommendation_bundle=original.recommendation_bundle.model_copy(
+                    update={"bundle_id": new_id()}
+                ),
+            )
             await session.commit()
     finally:
         await engine.dispose()
@@ -543,7 +555,7 @@ def test_consecutive_refinements_follow_saved_research(
     assert '"stage":"category_analysis"' not in events
     assert '"stage":"discovery"' not in events
     current = refinement_api_client.get(f"/api/sessions/{session_id}/results").json()
-    assert current["result_version"]["version"] == 3
+    assert current["result_version"]["version"] == 4
     assert current["result_version"]["requested_result_mode"] == "best_value"
     assert current["products"]
     prior = refinement_api_client.get(
@@ -557,13 +569,10 @@ def test_earlier_result_keeps_considered_product_outcome_after_later_correction(
 ) -> None:
     session_id = create_session(refinement_api_client)
     first_run_id = create_run(refinement_api_client, session_id)
-    first_version_id = refinement_api_client.get(
-        f"/api/sessions/{session_id}/results"
-    ).json()["result_version"]["result_version_id"]
     second_run_id = create_run(refinement_api_client, session_id)
     settings = refinement_api_client.app.state.settings
 
-    async def save_candidate_outcomes() -> None:
+    async def save_candidate_outcomes() -> UUID:
         engine = create_database_engine(settings)
         try:
             async with create_session_factory(engine)() as session:
@@ -572,16 +581,36 @@ def test_earlier_result_keeps_considered_product_outcome_after_later_correction(
                 await repository.add_user_added_product(
                     UUID(session_id), first, run_id=UUID(first_run_id)
                 )
+                results = ResultRepository(session)
+                first_result = await results.save_result_bundle(
+                    UUID(first_run_id),
+                    trust_assessments=(),
+                    category_analyses=(),
+                    agent_records=(),
+                    recommendation_bundle=make_fixture_recommendation(
+                        "Model A result."
+                    ),
+                )
                 await repository.update_user_added_product_for_run(
                     UUID(session_id),
                     first.model_copy(update={"input_text": "Model B"}),
                     run_id=UUID(second_run_id),
                 )
+                await results.save_result_bundle(
+                    UUID(second_run_id),
+                    trust_assessments=(),
+                    category_analyses=(),
+                    agent_records=(),
+                    recommendation_bundle=make_fixture_recommendation(
+                        "Model B result."
+                    ),
+                )
                 await session.commit()
+                return first_result.result_version.result_version_id
         finally:
             await engine.dispose()
 
-    asyncio.run(save_candidate_outcomes())
+    first_version_id = asyncio.run(save_candidate_outcomes())
     old = refinement_api_client.get(
         f"/api/sessions/{session_id}/results/{first_version_id}"
     ).json()

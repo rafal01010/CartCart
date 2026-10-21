@@ -253,7 +253,10 @@ async def test_optional_editorial_pass_preserves_uncited_budgeted_advice() -> No
     assert result.approved is True
     assert result.recommendation_bundle == request.recommendation_bundle
     assert result.blocking_issues == ()
-    assert result.notes == ("Optional editorial suggestion.",)
+    assert result.notes == (
+        "Optional wording changes were declined. The original advice is preserved.",
+        "Optional editorial suggestion.",
+    )
     assert runner.observed_tool_count == 0
 
 

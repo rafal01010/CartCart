@@ -340,3 +340,36 @@ def _mvp_specialist_routing_cases() -> tuple[
             ),
         )
     )
+
+
+class ProductSpecialistScopeEvalCase(VersionedSchema):
+    name: str
+    specialist_agent_name: str
+    candidate_category: str | None
+    brief_category: str
+    expected_category: str
+    expected_model_calls: int
+
+
+def product_specialist_scope_eval_cases() -> tuple[ProductSpecialistScopeEvalCase, ...]:
+    return tuple(
+        ProductSpecialistScopeEvalCase(
+            name=f"scope/{case.specialist_agent_name}/{slug}",
+            specialist_agent_name=case.specialist_agent_name,
+            candidate_category=candidate,
+            brief_category=brief,
+            expected_category=candidate or "general product",
+            expected_model_calls=calls,
+        )
+        for case in product_analysis_fallback_eval_cases()
+        for slug, candidate, brief, calls in (
+            ("matching", case.own_category, case.own_category, 1),
+            ("unrelated-candidate", "office chair", case.own_category, 0),
+            ("unrelated-brief", case.own_category, "office chair", 1),
+            ("other-technology", "gaming keyboard", case.own_category, 0),
+            ("absent-category", None, case.own_category, 0),
+            ("ambiguous-notebook", "notebook", case.own_category, 0),
+            ("ambiguous-gaming", "gaming", case.own_category, 0),
+            ("unknown-category", "unknown product", case.own_category, 0),
+        )
+    )

@@ -29,7 +29,7 @@ from app.agents.extraction_tools import SnapshotInterpretationTools
 from app.agents.live_general_shopping import LiveGeneralShoppingAgent
 from app.agents.live_verifier_critic import LiveVerifierCriticAgent
 from app.agents.research_tools import AgentResearchTools
-from app.core.settings import AgentWorkflowMode, Settings
+from app.core.settings import Settings
 from app.db.base import Base
 from app.db.repositories.products import ProductRepository
 from app.db.repositories.results import ResultRepository
@@ -45,6 +45,7 @@ from app.orchestration.shopping_runs import (
     ShoppingRunOrchestrator,
 )
 from app.schemas.analysis import (
+    CategoryAnalysis,
     ComparisonCriterion,
     ComparisonMatrix,
     ComparisonRow,
@@ -280,7 +281,17 @@ async def _seed(factory, *, phone: bool):
     return shopping_session, run, brief, sources, snapshots, quotes
 
 
-def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = False, rationale: str | None = None):
+def _owner(
+    factory,
+    run,
+    brief,
+    sources,
+    quotes,
+    *,
+    phone: bool,
+    unsafe: bool = False,
+    rationale: str | None = None,
+):
     name = "Aster Pro 512GB PH" if phone else "Amber Desk Lamp PH"
     steps = []
     for source, quote in zip(sources, quotes, strict=True):
@@ -312,6 +323,7 @@ def _owner(factory, run, brief, sources, quotes, *, phone: bool, unsafe: bool = 
                 "candidates": [
                     {
                         "name": name,
+                        "choice_group": "primary",
                         "evidence_ids": [
                             item["evidence_id"]
                             for item in recorded[: 2 if unsafe else 3]
@@ -446,10 +458,7 @@ async def test_long_phone_pages_reach_production_draft_and_unknown_price_decisio
         "GeneralShoppingAgent -> TechnologyDomainAnalystAgent",
         "TechnologyDomainAnalystAgent -> SmartphoneSpecialistAgent",
     )
-    assert (
-        "A two year local warranty supports this choice."
-        in bundle.final_rationale
-    )
+    assert "A two year local warranty supports this choice." in bundle.final_rationale
     assert len(model.inputs) == 7
     async with factory() as session:
         saved = await SearchSourceRepository(session).list_source_snapshots(run.run_id)
@@ -466,9 +475,6 @@ async def test_long_phone_pages_reach_production_draft_and_unknown_price_decisio
                             _message(
                                 {
                                     "approved": True,
-                                    "recommendation_bundle": bundle.model_dump(
-                                        mode="json"
-                                    ),
                                 }
                             )
                         ]
@@ -804,23 +810,37 @@ async def test_owner_primary_explanation_survives_sdk_verification_and_saved_api
         if phone
         else "Amber Desk Lamp PH has even light for reading. Brightness is limited for detailed work."
     )
-    reviewed = bundle
-    if verification in {"revise", "unexplained-revision", "blank-revision"}:
-        reviewed = bundle.model_copy(
-            update={
-                "final_rationale": revised,
-                "mode_results": (
-                    bundle.mode_results[0].model_copy(update={"rationale": revised}),
-                ),
-            }
-        )
+    canonical_analysis = CategoryAnalysis(
+        product_id=bundle.final_product_id,
+        category=brief.category or "shopping",
+        fit_summary=revised,
+        confidence=bundle.mode_results[0].confidence,
+        source_ids=context.owner_products[0].source_ids,
+    )
     verifier_model = _ScriptModel(
         [
             _message(
                 {
                     "approved": True,
-                    "recommendation_bundle": reviewed.model_dump(mode="json"),
-                    "notes": ["Shortened the explanation to the checked source facts."]
+                    "revisions": [
+                        {
+                            "target": "final_rationale",
+                            "product_id": str(bundle.final_product_id),
+                        },
+                        {
+                            "target": "mode_rationale",
+                            "product_id": str(bundle.final_product_id),
+                            "mode": bundle.mode_results[0].mode.value,
+                        },
+                    ]
+                    if verification == "revise"
+                    else [],
+                    **(
+                        {"text": "Guaranteed lifetime warranty."}
+                        if verification == "unexplained-revision"
+                        else {}
+                    ),
+                    "notes": ["Selected the existing canonical explanation."]
                     if verification == "revise"
                     else [" \t\n"]
                     if verification == "blank-revision"
@@ -846,14 +866,27 @@ async def test_owner_primary_explanation_survives_sdk_verification_and_saved_api
                 agent_name="VerifierCriticAgent",
             ),
         )
-        orchestrator = ShoppingRunOrchestrator(
-            hooks,
-            agent_workflow_mode=AgentWorkflowMode.LIVE,
-            general_shopping_agent=owner,
-            verifier_critic_agent=verifier,
+        report = await verifier.run(
+            VerificationAgentInput(
+                run_id=run.run_id,
+                brief=brief,
+                recommendation_bundle=bundle,
+                products=context.owner_products,
+                listings=context.owner_listings,
+                evidence=context.owner_evidence,
+                category_analyses=(canonical_analysis,),
+            )
         )
-        context.recommendation_bundle = bundle
-        await orchestrator._run_verification(context)
+        assert report.approved is True
+        assert len(verifier_model.inputs) == 1
+        if verification == "unexplained-revision":
+            assert (
+                verifier.workbench_activity[0]["status"]
+                == "optional_editorial_rejected"
+            )
+            assert "rejected" in " ".join(report.notes)
+        context.recommendation_bundle = report.recommendation_bundle
+        context.verification_report = report
         await hooks.persist_live_output(context)
         await RunRepository(session).append_event(
             run.run_id,
@@ -882,39 +915,19 @@ async def test_owner_primary_explanation_survives_sdk_verification_and_saved_api
     assert result.handoff_chain == expected_chain
     assert saved.result_version.version == 1
     assert saved.result_version.run_id == run.run_id
-    if verification in {"unsupported", "unexplained-revision", "blank-revision"}:
-        assert result.verification_action == "blocked"
-        assert result.no_strong_buy is True
-        assert result.final_rationale is None
-        assert result.mode_results == ()
-        reason = (
-            "final rationale includes a factual claim not backed by its evidence."
-            if verification == "unsupported"
-            else "Verifier revision did not include an audit reason."
-        )
-        assert reason in result.verification_changes
-        if verification == "unsupported":
-            assert verifier_model.inputs == []
-    else:
-        expected = revised if verification == "revise" else authored
-        assert result.final_rationale == expected
-        assert result.mode_results[0].rationale == expected
-        assert result.verification_action == (
-            "revised" if verification == "revise" else "approved"
-        )
-        assert result.no_strong_buy is False
-        assert result.final_product_id == saved.products[0].product_id
-        assert result.evidence_ids == tuple(
-            item.evidence_id for item in draft.candidates[0].evidence
-        )
-        assert result.source_ids == tuple(
-            item.snapshot_id for item in draft.candidates[0].evidence
-        )
-        assert len(model.inputs) == 7
-        if verification == "revise":
-            assert "final_rationale" in result.verification_changes
-            assert "mode_results" in result.verification_changes
-            assert (
-                "Shortened the explanation to the checked source facts."
-                in result.verification_changes
-            )
+    expected = revised if verification == "revise" else authored
+    assert result.final_rationale == expected
+    assert result.mode_results[0].rationale == expected
+    assert result.verification_action is None
+    assert result.no_strong_buy is False
+    assert result.final_product_id == saved.products[0].product_id
+    assert result.evidence_ids == tuple(
+        item.evidence_id for item in draft.candidates[0].evidence
+    )
+    assert result.source_ids == tuple(dict.fromkeys(
+        source_id
+        for item in draft.candidates[0].evidence
+        for source_id in (item.source_id, item.snapshot_id)
+        if source_id is not None
+    ))
+    assert len(model.inputs) == 7

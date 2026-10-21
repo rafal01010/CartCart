@@ -335,14 +335,14 @@ async def test_live_tv_specialist_falls_back_on_schema_invalid_output() -> None:
     input_data = _analysis_input("tv")
     runner = RecordingTVSpecialistRunner(
         output={
-            "product_id": str(input_data.product.product_id),
+            "product_id": str(new_id()),
             "listing_ids": [str(input_data.listings[0].listing_id)],
             "category": "tv",
-            "fit_summary": "This omits required TV coverage.",
+            "fit_summary": "This analysis describes another candidate.",
             "strengths": ["It has some evidence."],
             "weaknesses": ["Some tradeoffs remain."],
             "confidence": _confidence(0.58).model_dump(mode="json"),
-            "evidence_ids": [str(new_id())],
+            "evidence_ids": [str(item.evidence_id) for item in input_data.evidence],
         }
     )
     agent = LiveTVSpecialistAgent(settings=_settings(), model_runner=runner)
@@ -350,6 +350,7 @@ async def test_live_tv_specialist_falls_back_on_schema_invalid_output() -> None:
     result = await agent.run(input_data)
 
     assert runner.calls == 1
+    assert result.product_id == input_data.product.product_id
     assert result.category == "tv"
     assert result.evidence_ids == tuple(item.evidence_id for item in input_data.evidence)
     assert agent.workbench_activity[0]["status"] == (

@@ -326,22 +326,29 @@ def test_existing_context_pressure_preserves_broad_guide_before_repeated_single_
     guide = packet("broad-guide", "Exact A offers a compact body; Exact B has longer battery; Exact C provides better video.",
         candidates=("Exact A", "Exact B", "Exact C"), question=("travel suitability",))
     speech = []
+    repeated = independent_speech(claim, new_id(), "same-recorded-speech")
     for i in range(1, 7):
         source_id = new_id()
-        evidence = independent_speech(claim, source_id, f"independent-{i}")
-        speech.append(DecisionSourcePacket(source_id=source_id, url=str(evidence.video.url), title=f"Independent video {i}",
+        evidence = repeated.model_copy(update={"source_id": source_id, "evidence_id": new_id()})
+        speech.append(DecisionSourcePacket(source_id=source_id, url=f"{evidence.video.url}&t={i}", title=f"Repeated video view {i}",
             content_kind="accepted_speech", candidate_names=("Exact A",), buying_questions=("travel suitability",),
             evidence=(evidence,), content_sha256=sha256(evidence.transcript_support[0].text.encode()).hexdigest()))
+    independent = independent_speech(claim, new_id(), "independent-recorded-speech")
+    distinct = DecisionSourcePacket(source_id=independent.source_id, url=str(independent.video.url), title="Independent video",
+        content_kind="accepted_speech", candidate_names=("Exact A",), buying_questions=("travel suitability",),
+        evidence=(independent,), content_sha256=sha256(independent.transcript_support[0].text.encode()).hexdigest())
+    speech.append(distinct)
     brief = ShoppingBrief(original_query="A phone for travel battery camera and video")
     selected = select_decision_sources(brief, [*speech, guide])
     assert selected.selected_source_ids[0] == guide.source_id
     original = json.dumps({"brief": brief.model_dump(mode="json"), "decision_sources": selected.model_dump(mode="json")})
-    minimum = select_decision_sources(brief, [speech[0], guide])
+    minimum = select_decision_sources(brief, [speech[0], distinct, guide])
     tokens = measure(json.dumps({"brief": brief.model_dump(mode="json"), "decision_sources": minimum.model_dump(mode="json")}))["estimated_tokens"] + 250
     fitted = fit_owner_projection(original, tokens)
     actual = input_projection(fitted)
     assert guide.source_id in actual.selected_source_ids
-    assert any(item.content_kind == "accepted_speech" for item in actual.sources)
+    assert distinct.source_id in actual.selected_source_ids
+    assert {segment_id for item in actual.sources for evidence in item.evidence for segment_id in evidence.transcript_segment_ids} == set((*repeated.transcript_segment_ids, *independent.transcript_segment_ids))
     assert len(actual.sources) < len(selected.sources)
     assert measure(fitted)["estimated_tokens"] <= tokens
 

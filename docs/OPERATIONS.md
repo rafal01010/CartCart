@@ -1055,6 +1055,16 @@ assistance. Historical scenario names include `unsupported-claim-block` and
 preserves owner choices, returns notes and does not require citations or recheck
 budgets. Comparison receives all candidates with advisory scores and budget
 context; missing sources, prices or trust do not force an empty answer.
+Internal guide model responses now contain only a question-or-ready decision;
+workbench output still contains the complete `GuidedIntakeState`. Ready output
+gets its brief from Intake, while backend helpers assemble navigation, region
+and start controls. The normal guided endpoints retain their existing routing.
+Verifier model responses contain no recommendation bundle. Unchanged approval
+preserves the original bundle exactly. Optional revisions select existing
+candidate-bound analysis explanations for a final rationale, mode rationale or
+comparison row. Invalid requests preserve the original advice and report an
+editorial rejection; this does not block the shopping run. Warnings, seller
+safety context, choices and provenance remain intact.
 Use `--mode mock` for these offline contract checks. They do not require live
 research or credentials. `--mode live` still requires
 `CARTCART_LIVE_AGENTS_ENABLED=true`, `OPENAI_API_KEY`, and a live runner

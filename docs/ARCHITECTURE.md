@@ -1,5 +1,15 @@
 # CartCart Architecture
 
+Task 212 narrows internal model outputs while retaining public agent contracts.
+The isolated live guide emits a question-or-ready decision with internal
+reasoning. Backend helpers derive navigation, region, skip/start controls and
+progress, then obtain a ready brief from Intake once. It does not ask the guide
+to generate a discarded brief. Normal guided endpoint routing remains unchanged.
+The optional verifier emits unchanged approval or candidate-bound references to
+existing analysis explanations. Backend assembly preserves owner choices,
+warnings and provenance, validates revision targets and the final bundle, and
+reports rejected edits explicitly. It does not reinstate a mandatory buying veto.
+
 ## Guided intake revision boundary
 
 `GuidedIntakeService` derives edit permission from persisted run existence
@@ -344,6 +354,15 @@ analysis uses no tools, runs only for monitor-scoped products, covers
 monitor-specific panel, resolution, refresh-rate, ergonomics, port, and tradeoff
 checks from supplied evidence, and falls back to technology-domain or generic
 analysis instead of forcing non-monitor input through monitor logic.
+All six typed per-product specialists resolve scope from `product.category`.
+The brief stays available as shopper context, including when its category
+conflicts with the candidate. Missing candidate categories use generic analysis
+under `general product`; ambiguous labels retain the catalog's generic or domain
+route. Specialist output must resolve to the same specialist as the candidate.
+Accepted aliases normalize to the actual candidate category. Both non-specialist
+and model-failure fallback preserve that category and supplied citations. This
+boundary does not alter conversational SDK ownership or recommendation policy.
+
 Smartphone specialist analysis uses no tools, runs only for smartphone-scoped
 products, covers camera, battery, update-support, performance, and region/model
 caveats from supplied evidence, and falls back to technology-domain or generic

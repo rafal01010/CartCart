@@ -559,7 +559,7 @@ than repeat full. The default command still selects the scaffolding smoke.
 | Scaffolding (1) | `scaffolding/fixture-search`: strict fixture lookup and report wiring. |
 | Intake/planning (4) | `guide/monitor-sequence`, `guide/comparison-control`, `intake/inferred-monitor-fields`, `planning/unknown-category-fallback`: questions/controls, capture and broad-category planning. |
 | Discovery/extraction (5) | `discovery/generic-shortlist`, `quality/misleading-domain`, `extraction/punctuated-price-fidelity`, `dedupe/same-model-distinct-offers`, `dedupe/uncertain-missing-specs`: source selection, domain quality, faithful prices, distinct sellers and uncertain groups. |
-| Trust/recommendation (8) | `guardrail/off-topic`, `guardrail/unsafe-firearm`, `trust/implausibly-cheap-offer`, `recommendation/hard-cap`, `recommendation/preferred-stretch`, `recommendation/manual-only-no-buy`, `recommendation/conflict-disclosure`, `verification/unsupported-specification`: shopping safety, seller risk, budget, uncertainty, conflicts and supported copy. |
+| Trust/recommendation (8) | `guardrail/off-topic`, `guardrail/unsafe-firearm`, `trust/implausibly-cheap-offer`, `recommendation/hard-cap`, `recommendation/preferred-stretch`, `recommendation/manual-product-with-unknowns`, `recommendation/conflict-disclosure`, `verification/unsupported-specification`: shopping safety, seller risk, budget, uncertainty, conflicts and supported copy. |
 | Source intelligence (9) | `youtube/transcript-bias`, `youtube/invented-quote`, `reddit/quoted-recurrence`, `reddit/inaccessible`, `amazon/marketplace-seller-region`, `amazon/retained-hard-risk`, `ikea/official-ph-read`, `ikea/invented-price`, `downstream/amazon-unsupported`: all four sources, provenance, unavailable content, bias, listing/region context and downstream unsupported claims. |
 
 `app/evals/suites.py` declares case names explicitly and retains each lane's
@@ -616,7 +616,7 @@ quick and full lane reports with named assertions and actual outputs.
 | `planning/coffee-grinder-us` | The canned planner uses the production fallback, which omitted original-query context. Bounded video queries now include that context and structured preferences. This verifies fallback behavior, not live-model reasoning. |
 | `extraction/punctuated-price-fidelity` | Production price corroboration treated a sentence period as a numeric continuation. It now accepts punctuation while rejecting different amounts, malformed grouping, and truncated longer decimals. |
 | `recommendation/preferred-stretch` | The deterministic fallback supplied generic stretch copy. It now states the currency and price increment against the preferred budget. |
-| `recommendation/manual-only-no-buy` | The fallback substituted source IDs or generated UUIDs for absent evidence. It now uses only supplied evidence IDs. Unsupported rejections remain comparison uncertainty, and a source reference alone does not verify a manual product. |
+| `recommendation/manual-product-with-unknowns` | The fallback substituted source IDs or generated UUIDs for absent evidence. It now uses only supplied evidence IDs. Unsupported rejections remain comparison uncertainty, and a source reference alone does not verify a manual product. |
 | `recommendation/conflict-disclosure` | The fallback omitted supplied analysis warnings and cited warning evidence. Both now appear in recommendation warnings. |
 | `verification/invented-citation` | Relationship validation threw away an already-specific blocking issue. Output guardrails now retain the named unknown-evidence issue and block display. Empty known-ID sets also reject invented citations. |
 | `youtube/invented-quote`, `youtube/wrong-source`, `youtube/timeout` | The SDK fallback skipped the service's bias annotation. It now retains approved metadata or already-read transcript disclosures, source references, stronger recorded bias cautions, and explicit gaps while discarding product claims. |
@@ -1081,6 +1081,29 @@ full suites, type checks, builds and E2E are deferred to the Tasks 95–100 Sect
 gate. No live provider/model calls are authorized by this task.
 
 
+## Internal guide and editorial output controls
+
+Task 212 exercises the production Agents SDK with local scripted model providers.
+Guide controls cover question shapes, skip/start/reanswer, region completion,
+premature readiness, classifier blocks and accepted readiness. Public state is
+assembled by backend helpers; the guide schema contains no brief. Actual Intake
+output is checked independently and saved/reloaded through SQLite. The normal
+guided API retains its existing deterministic question routing.
+
+Verifier controls cover exact unchanged advice, canonical explanation revisions
+and rejected unknown, duplicate, cross-candidate or cross-seller targets.
+Rejected edits preserve the owner bundle atomically and record explicit notes.
+Valid revisions retain distinct neighboring explanations, source warnings and
+citation/provenance links. They do not restore a mandatory buying veto.
+
+Before/after receipts measure schema, scripted output and downstream input on
+identical controls. Reconstructed legacy output contracts are labeled, and
+scripted usage is not live token savings. The pre-change verifier already
+supported null unchanged approval; only its full bundle schema remained large.
+Full offline evals run their quick lanes first. Guide evals explicitly inject
+fixture scope decisions, and source claim-support expectations stay separate
+from optional editorial approval.
+
 ## Product Analysis Routing Eval Cases
 
 Fixture-backed routing eval cases live in
@@ -1101,6 +1124,20 @@ Fixture-backed routing eval cases live in
 Public router controls also supply valid generic model decisions for stationery
 and furniture, exercise timeout/schema/error fallbacks, and reject unregistered
 agent names. Named workbench scenarios use the same shared catalog boundary.
+
+Typed per-product specialist controls also exercise conflicting brief and
+candidate categories for Monitor, Smartphone, Laptop, Earphones/Headphones, TV
+and Smartwatch. Candidate category governs eligibility and fallback labels.
+Missing candidate categories remain generic rather than inheriting shopper
+context. Matching source-backed outputs retain their supplied evidence IDs.
+Model output category validation prevents a mismatched specialist response from
+being accepted. These controls do not change SDK owner handoffs.
+
+Saved result controls distinguish a rejected listing from another seller's offer
+for the same canonical product. A rejection with no listing ID remains
+product-wide. API snapshots, frontend projection and component rendering cover
+the retained result presentation without reinstating the removed considered
+products section. Browser journeys remain separately requested acceptance work.
 
 These are cheap mocked/local regression checks. Live model routing evals remain
 opt-in and are deferred to the Section N live-agents gate.

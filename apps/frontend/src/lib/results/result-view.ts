@@ -624,11 +624,12 @@ function toRejectedView(
 	sourceViewById: Map<EntityId, SourceView>,
 ): RejectedView {
 	const evidence = mapEvidence(item.evidence_ids, evidenceById, sourceById);
+	const listing = item.listing_id ? listingById.get(item.listing_id) : null;
 	return {
 		key: resultKey(item.product_id ?? null, item.listing_id ?? null),
 		label:
+			(listing ? `${listing.title} (${listing.seller.seller_name})` : null) ??
 			(item.product_id ? productById.get(item.product_id)?.name : null) ??
-			(item.listing_id ? listingById.get(item.listing_id)?.title : null) ??
 			'Candidate',
 		reasonCode: item.reason_code,
 		reasonLabel: rejectionReasonLabel(item.reason_code),

@@ -458,21 +458,32 @@ async def test_fake_shopping_guide_supports_reanswer_without_restart() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fake_shopping_guardrail_blocks_unsuitable_requests_before_discovery() -> None:
-    off_topic = await FakeShoppingScopeGuardrail().run(
-        ShoppingScopeGuardrailInput(user_input="Write a poem about a laptop")
-    )
-    unsafe = await FakeShoppingScopeGuardrail().run(
-        ShoppingScopeGuardrailInput(user_input="Which gun should I buy?")
-    )
-    blocked_guide = await FakeShoppingGuideAgent().run(
-        ShoppingGuideAgentInput(user_input="Write a poem about a laptop")
-    )
+async def test_fake_shopping_guardrail_uses_explicit_fixture_decisions() -> None:
+    for request, reason in (
+        ("Write a poem about a laptop", ShoppingGuardrailReason.OFF_TOPIC),
+        ("Which gun should I buy?", ShoppingGuardrailReason.UNSAFE_PRODUCT),
+    ):
+        input_data = ShoppingScopeGuardrailInput(user_input=request)
+        default_result = await FakeShoppingScopeGuardrail().run(input_data)
+        explicit_result = await FakeShoppingScopeGuardrail(
+            output=ShoppingGuardrailResult(
+                decision=ShoppingGuardrailDecision.BLOCKED,
+                reason=reason,
+                message="This fixture request cannot proceed.",
+            ),
+        ).run(input_data)
 
-    assert off_topic.decision == ShoppingGuardrailDecision.BLOCKED
-    assert off_topic.reason == ShoppingGuardrailReason.OFF_TOPIC
-    assert unsafe.decision == ShoppingGuardrailDecision.BLOCKED
-    assert unsafe.reason == ShoppingGuardrailReason.UNSAFE_PRODUCT
-    assert blocked_guide.status == GuidedIntakeStatus.BLOCKED
-    assert blocked_guide.guardrail is not None
-    assert "shopping decisions" in blocked_guide.guardrail.message
+        assert default_result.decision == ShoppingGuardrailDecision.ALLOWED
+        assert default_result.reason is None
+        assert default_result.message is None
+        assert explicit_result.decision == ShoppingGuardrailDecision.BLOCKED
+        assert explicit_result.reason == reason
+        assert explicit_result.message == "This fixture request cannot proceed."
+
+    guide = await FakeShoppingGuideAgent().run(
+        ShoppingGuideAgentInput(user_input="Write a poem about a laptop"),
+    )
+    assert guide.status == GuidedIntakeStatus.COLLECTING
+    assert guide.guardrail is None
+    assert guide.current_question is not None
+    assert guide.current_question.question_id == "budget"

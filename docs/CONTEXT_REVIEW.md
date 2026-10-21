@@ -149,3 +149,19 @@ and `data/artifacts/task211-downstream/measurements.json`; rerunnable tools
 sit beside them. The complete deduplicated offline gate is recorded in
 `data/artifacts/task211/gate-deduplicated.log`. Task 212's model-output findings
 and Task 100A's real guided acceptance remain open.
+
+## Task 212 output contracts
+
+Task 212 replaces guide public-state generation with typed question/readiness
+decisions and backend assembly. Intake owns the ready brief. The optional
+verifier emits unchanged approval or references to supported canonical analysis
+explanations. Task 216 remains authoritative, so declined editorial edits never
+veto buying advice. Public return models remain unchanged.
+
+Actual offline SDK controls measure guide schema size at 4,551 characters and
+verifier schema size at 2,190. Reconstructed previous contracts measure 12,197
+and 7,605 respectively. Same-control inputs do not grow, and saved guide state
+retains the independently expected Intake brief. These are synthetic character
+measurements, not live token savings. The historical census above remains a
+record of its earlier contracts. The [Task 212 handoff](TASK_212_IMPLEMENTATION_HANDOFF.md)
+records current measurements, prerequisite source lookup repairs and acceptance.

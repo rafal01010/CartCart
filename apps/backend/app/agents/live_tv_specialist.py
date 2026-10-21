@@ -21,6 +21,7 @@ from app.agents.openai_config import (
     build_openai_agent_run_configuration,
 )
 from app.agents.research_guidance import SHOPPER_ADVICE_GUIDANCE
+from app.agents.product_scope import candidate_analysis_category as _analysis_category
 from app.core.settings import Settings
 from app.schemas.analysis import CategoryAnalysis
 from app.schemas.confidence import Confidence, ConfidenceLevel
@@ -218,6 +219,7 @@ def _build_tv_specialist_agent(model: str) -> Agent[Any]:
             include_usage=True,
         ),
         instructions=(
+            "The product category defines scope. The brief is shopper context only. "
             "Analyze exactly one TV or television candidate for fit against "
             "the shopper's brief and return only a structured CategoryAnalysis. "
             "This specialist is only for TV-scoped products routed through the "
@@ -233,8 +235,7 @@ def _build_tv_specialist_agent(model: str) -> Agent[Any]:
             "Do not invent certainty. Do not analyze non-TV "
             "products as TVs, rank final recommendations, browse, call tools, "
             "or expose agents, providers, prompts, traces, policies, or schemas "
-            "to shoppers. "
-            + SHOPPER_ADVICE_GUIDANCE
+            "to shoppers. " + SHOPPER_ADVICE_GUIDANCE
         ),
         tools=[],
         output_type=CategoryAnalysis,
@@ -280,6 +281,10 @@ def _coerce_category_analysis_result(
         if isinstance(value, CategoryAnalysis)
         else CategoryAnalysis.model_validate(value)
     )
+    if not _is_tv_route(_route_for_input(input_data, catalog), catalog):
+        raise ValueError("Specialist output does not match the candidate category.")
+    if not _is_tv_text(analysis.category, catalog):
+        raise ValueError("Specialist output used an unrelated category.")
     analysis = _normalize_category_analysis(analysis, input_data)
     return analysis
 
@@ -309,6 +314,7 @@ def _normalize_category_analysis(
     )
     return analysis.model_copy(
         update={
+            "category": _analysis_category(input_data),
             "listing_ids": listing_ids,
             "evidence_ids": evidence_ids,
             "source_ids": source_ids,
@@ -516,22 +522,6 @@ def _dedupe_source_ids(source_ids: Iterable[SourceId]) -> tuple[SourceId, ...]:
         deduped.append(source_id)
         seen.add(source_id)
     return tuple(deduped)
-
-
-def _analysis_category(input_data: ProductAnalysisAgentInput) -> str:
-    for candidate in (
-        input_data.brief.category,
-        input_data.product.category,
-        _category_from_query(input_data.brief.original_query),
-    ):
-        if candidate:
-            return " ".join(candidate.strip().split())
-    return "general product"
-
-
-def _category_from_query(query: str) -> str:
-    cleaned = " ".join(query.strip().split())
-    return cleaned[:80] if cleaned else "general product"
 
 
 def _has_weak_or_sparse_evidence(input_data: ProductAnalysisAgentInput) -> bool:

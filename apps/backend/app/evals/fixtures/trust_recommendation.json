@@ -1360,7 +1360,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
             "final_rationale": "Consider this option for your shopping needs. Price, stock and warranty details may need checking.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160015"
+            "bundle_id": "00000000-0000-4000-8000-000002160015",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -1655,7 +1658,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
             "final_rationale": "This option costs more than your stated budget. Consider the extra cost only if its benefits matter to you.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160016"
+            "bundle_id": "00000000-0000-4000-8000-000002160016",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -1950,7 +1956,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
             "final_rationale": "This option costs more than your stated budget. Consider the extra cost only if its benefits matter to you.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160017"
+            "bundle_id": "00000000-0000-4000-8000-000002160017",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -2144,7 +2153,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
             "final_rationale": "This option costs more than your stated budget. Consider the extra cost only if its benefits matter to you.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160018"
+            "bundle_id": "00000000-0000-4000-8000-000002160018",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -2340,7 +2352,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b95",
             "final_rationale": "Consider this option for your shopping needs. Price, stock and warranty details may need checking.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160019"
+            "bundle_id": "00000000-0000-4000-8000-000002160019",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -2455,7 +2470,10 @@
             "final_listing_id": null,
             "final_rationale": "Consider this option for your shopping needs. Price, stock and warranty details may need checking.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160020"
+            "bundle_id": "00000000-0000-4000-8000-000002160020",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -2719,7 +2737,10 @@
             "final_listing_id": "00000000-0000-4000-8000-0000000f1b96",
             "final_rationale": "Consider this option for your shopping needs. Price, stock and warranty details may need checking.",
             "warnings": [],
-            "bundle_id": "00000000-0000-4000-8000-000002160021"
+            "bundle_id": "00000000-0000-4000-8000-000002160021",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -2917,7 +2938,10 @@
             "warnings": [
               "This offer has concerning seller details. Consider another seller for this product."
             ],
-            "bundle_id": "00000000-0000-4000-8000-000002160022"
+            "bundle_id": "00000000-0000-4000-8000-000002160022",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },
@@ -3134,7 +3158,10 @@
             "warnings": [
               "Professional reviews conflict about stand comfort."
             ],
-            "bundle_id": "00000000-0000-4000-8000-000002160023"
+            "bundle_id": "00000000-0000-4000-8000-000002160023",
+            "primary_product_ids": [
+              "00000000-0000-4000-8000-0000000f1b31"
+            ]
           }
         }
       },

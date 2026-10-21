@@ -550,7 +550,6 @@ async def run_automatic_continuation(
                 return _message(
                     {
                         "approved": True,
-                        "recommendation_bundle": compared.model_dump(mode="json"),
                         "notes": [
                             "Checked the independent support gap and retained warranty and seller cautions."
                         ],

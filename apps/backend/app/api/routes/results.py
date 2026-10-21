@@ -329,7 +329,11 @@ def _considered_outcome(
             item.reason
             for item in bundle.rejected_items
             if (listing_id is not None and item.listing_id == listing_id)
-            or (product_id is not None and item.product_id == product_id)
+            or (
+                item.listing_id is None
+                and product_id is not None
+                and item.product_id == product_id
+            )
             if item.severity.value in {"medium", "high", "blocking"}
         ),
         None,

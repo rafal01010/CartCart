@@ -142,6 +142,7 @@ def test_get_session_results_returns_latest_persisted_fixture_bundle(
 ) -> None:
     session_id = create_session(result_api_client)
     run_id = create_run(result_api_client, session_id)
+    original = result_api_client.get(f"/api/sessions/{session_id}/results").json()
     first = make_fixture_recommendation("First fixture result is stale.")
     latest = make_fixture_recommendation("Latest fixture result is still too weak.")
     asyncio.run(
@@ -169,7 +170,7 @@ def test_get_session_results_returns_latest_persisted_fixture_bundle(
         body["comparison_matrix"] == body["recommendation_bundle"]["comparison_matrix"]
     )
     assert body["source_snapshots"]
-    assert body["source_evidence"] == []
+    assert body["source_evidence"] == original["source_evidence"]
     assert all(snapshot["url"] for snapshot in body["source_snapshots"])
     assert all(item["product_id"] in {product["product_id"] for product in body["products"]} for item in body["shortlist"])
     assert body["considered_products"] == []

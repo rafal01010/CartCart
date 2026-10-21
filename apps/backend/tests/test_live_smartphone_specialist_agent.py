@@ -344,14 +344,14 @@ async def test_live_smartphone_specialist_falls_back_on_schema_invalid_output() 
     input_data = _analysis_input("smartphone")
     runner = RecordingSmartphoneSpecialistRunner(
         output={
-            "product_id": str(input_data.product.product_id),
+            "product_id": str(new_id()),
             "listing_ids": [str(input_data.listings[0].listing_id)],
             "category": "smartphone",
-            "fit_summary": "This omits required smartphone coverage.",
+            "fit_summary": "This analysis describes another candidate.",
             "strengths": ["It has some evidence."],
             "weaknesses": ["Some tradeoffs remain."],
             "confidence": _confidence(0.58).model_dump(mode="json"),
-            "evidence_ids": [str(new_id())],
+            "evidence_ids": [str(item.evidence_id) for item in input_data.evidence],
         }
     )
     agent = LiveSmartphoneSpecialistAgent(settings=_settings(), model_runner=runner)
@@ -359,6 +359,7 @@ async def test_live_smartphone_specialist_falls_back_on_schema_invalid_output() 
     result = await agent.run(input_data)
 
     assert runner.calls == 1
+    assert result.product_id == input_data.product.product_id
     assert result.category == "smartphone"
     assert result.evidence_ids == tuple(item.evidence_id for item in input_data.evidence)
     assert agent.workbench_activity[0]["status"] == (

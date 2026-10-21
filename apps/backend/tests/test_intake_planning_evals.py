@@ -392,6 +392,8 @@ async def test_offline_adapters_invoke_production_contracts_without_sdk_or_netwo
         assert output.brief.category == "monitor"
         assert "Harbor M27" in output.considered_products
         assert task.guide.model_runner.calls == 4
+        assert task.guide.scope_guardrail.model_runner.calls == 4
+        assert all(state.guardrail is None for state in output.guide_states)
         assert task.intake.model_runner.calls == 1
     elif case.inputs.stage == "intake":
         assert output.brief.category == "monitor"

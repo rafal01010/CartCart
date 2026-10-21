@@ -53,7 +53,7 @@ QUICK_CASES: dict[str, tuple[str, ...]] = {
         "trust/implausibly-cheap-offer",
         "recommendation/hard-cap",
         "recommendation/preferred-stretch",
-        "recommendation/manual-only-no-buy",
+        "recommendation/manual-product-with-unknowns",
         "recommendation/conflict-disclosure",
         "verification/unsupported-specification",
     ),

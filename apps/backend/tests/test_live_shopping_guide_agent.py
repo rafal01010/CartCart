@@ -12,24 +12,24 @@ from app.agents import (
     LiveShoppingGuideAgent,
     ShoppingGuideAgentInput,
 )
-from app.agents.live_guide import MockShoppingGuideModelRunner
+from app.agents.live_guide import (
+    GuideQuestionDecision,
+    GuideReadyDecision,
+    ShoppingGuideDecision,
+    MockShoppingGuideModelRunner,
+)
 from app.agents.live_guardrails import (
     LiveShoppingScopeGuardrail,
     MockShoppingGuardrailModelRunner,
 )
 from app.core.settings import Settings
 from app.schemas.guided_intake import (
-    AnalysisStartAvailability,
     CurrentGuidedQuestion,
-    GuidedAnswerSurface,
     GuidedAnswerSubmission,
     GuidedCaptureTarget,
-    GuidedIntakeState,
     GuidedIntakeStatus,
     GuidedQuestionPurpose,
     NaturalLanguageGuidedAnswer,
-    ProgressDisplayKind,
-    ProgressDisplayStatus,
     RegionSetupStatus,
     RegionSetupSubmission,
     ShoppingGuardrailDecision,
@@ -51,7 +51,7 @@ from app.schemas.regions import Region
 
 @dataclass
 class RecordingGuideRunner:
-    output: GuidedIntakeState | dict[str, Any] | None = None
+    output: ShoppingGuideDecision | dict[str, Any] | None = None
     error: BaseException | None = None
     delay_seconds: float = 0
     calls: int = 0
@@ -165,41 +165,25 @@ def _monitor_brief(query: str | None = None) -> ShoppingBrief:
     )
 
 
-def _budget_question_state() -> GuidedIntakeState:
-    return GuidedIntakeState(
-        status=GuidedIntakeStatus.COLLECTING,
-        current_question=CurrentGuidedQuestion(
-            question_id="budget",
-            text="What budget should we stay near?",
-            purpose=GuidedQuestionPurpose.BUDGET,
-            answer_surface=GuidedAnswerSurface.TEXTBOX,
-            capture_targets=(GuidedCaptureTarget.BUDGET,),
-        ),
-        skippable_question={"can_skip": True},
-        analysis_start=AnalysisStartAvailability(
-            enough_information=True,
-            can_skip_all_and_start_analysis=True,
-            message="We can start with what you have already shared.",
-        ),
-        progress=ProgressDisplayStatus(
-            kind=ProgressDisplayKind.IDLE,
-            message="Ready for your answer.",
-        ),
+def _budget_question_state() -> ShoppingGuideDecision:
+    return ShoppingGuideDecision(
+        decision=GuideQuestionDecision(
+            question=CurrentGuidedQuestion(
+                question_id="budget",
+                text="What budget should we stay near?",
+                purpose=GuidedQuestionPurpose.BUDGET,
+                capture_targets=(GuidedCaptureTarget.BUDGET,),
+            ),
+            reasoning="The shopper has not specified a budget.",
+        )
     )
 
 
-def _ready_monitor_state() -> GuidedIntakeState:
-    return GuidedIntakeState(
-        status=GuidedIntakeStatus.READY_FOR_ANALYSIS,
-        analysis_start=AnalysisStartAvailability(
-            enough_information=True,
-            message="We have enough to start checking options.",
-        ),
-        progress=ProgressDisplayStatus(
-            kind=ProgressDisplayKind.CHECKING_OPTIONS,
-            message="Ready to start checking options.",
-        ),
-        ready_brief=_monitor_brief(),
+def _ready_monitor_state() -> ShoppingGuideDecision:
+    return ShoppingGuideDecision(
+        decision=GuideReadyDecision(
+            reasoning="The monitor request includes enough detail to begin.",
+        )
     )
 
 
@@ -450,14 +434,16 @@ async def test_live_guide_falls_back_on_invalid_model_output() -> None:
 @pytest.mark.asyncio
 async def test_live_guide_keeps_valid_question_without_keyword_veto() -> None:
     runner = RecordingGuideRunner(
-        output=GuidedIntakeState(
-            status=GuidedIntakeStatus.COLLECTING,
-            current_question=CurrentGuidedQuestion(
-                question_id="budget",
-                text="I recommend Sony first. What budget should we stay near?",
-                purpose=GuidedQuestionPurpose.BUDGET,
-                capture_targets=(GuidedCaptureTarget.BUDGET,),
-            ),
+        output=ShoppingGuideDecision(
+            decision=GuideQuestionDecision(
+                reasoning="Ask a useful budget question.",
+                question=CurrentGuidedQuestion(
+                    question_id="budget",
+                    text="I recommend Sony first. What budget should we stay near?",
+                    purpose=GuidedQuestionPurpose.BUDGET,
+                    capture_targets=(GuidedCaptureTarget.BUDGET,),
+                ),
+            )
         )
     )
     agent = LiveShoppingGuideAgent(settings=_settings(), model_runner=runner)

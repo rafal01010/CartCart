@@ -26,7 +26,8 @@ from app.agents.live_source_intelligence_manager import SourceManagerDecision
 from app.agents.live_verifier_critic import _VerifierModelDecision
 from app.agents.live_youtube_review_intelligence import YouTubeReviewModelOutput
 from app.schemas.analysis import CategoryAnalysis, RecommendationBundle
-from app.schemas.guided_intake import GuidedIntakeState, ShoppingGuardrailResult
+from app.schemas.guided_intake import ShoppingGuardrailResult
+from app.agents.live_guide import ShoppingGuideDecision
 from app.schemas.intake import ShoppingBrief
 from app.schemas.search_sources import SearchPlan
 from test_task222_source_sdk import _call, _message, _save_control
@@ -38,7 +39,11 @@ _BUYER = json.dumps(
         "brief": {
             "original_query": "Compare monitors for reading. Budget is not a constraint.",
             "category": "monitor",
-            "region": "PH",
+            "category_source": "inferred",
+            "region": {
+                "region": {"country_code": "PH", "currency": "PHP"},
+                "source": "user_provided",
+            },
         },
         "ownership": "MonitorSpecialistAgent",
         "objective": "Readable text and honest seller cautions.",
@@ -48,20 +53,34 @@ _BUYER = json.dumps(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", ["object", "array", "sdk-text-block"])
-async def test_projected_assistant_json_keeps_complete_records_and_valid_sdk_shape(shape):
+async def test_projected_assistant_json_keeps_complete_records_and_valid_sdk_shape(
+    shape,
+):
     fact = {
-        "status": "succeeded", "source_id": "local-source-json",
+        "status": "succeeded",
+        "source_id": "local-source-json",
         "quote": "The monitor has clear text. The imported variant has no local warranty.",
         "claim": "Choose the local variant for its warranty.",
     }
     data = {"rationale": "Execution metadata is redundant. " * 8000, "records": [fact]}
     encoded = json.dumps([data] if shape == "array" else data)
-    content = [{"type": "output_text", "text": encoded, "annotations": []}] if shape == "sdk-text-block" else encoded
+    content = (
+        [{"type": "output_text", "text": encoded, "annotations": []}]
+        if shape == "sdk-text-block"
+        else encoded
+    )
     root = cm.ContextBudget()
-    model = _LocalTransportModel(_Step(_message({"local_control": "valid reduced history"})))
-    items = [{"role": "user", "content": _BUYER}, {"role": "assistant", "content": content}]
+    model = _LocalTransportModel(
+        _Step(_message(_completion_literal(GeneralModelOutput)))
+    )
+    items = [
+        {"role": "user", "content": _BUYER},
+        {"role": "assistant", "content": content},
+    ]
     with _scopes(root, agent="GeneralShoppingAgent"):
-        await _request(root, model, input=items, output=2000, tools=[], contract=GeneralModelOutput)
+        await _request(
+            root, model, input=items, output=2000, tools=[], contract=GeneralModelOutput
+        )
     observed = model.calls[0]["input"]
     assert json.loads(observed[0]["content"]) == json.loads(_BUYER)
     assistant = next(item for item in observed if item.get("role") == "assistant")
@@ -74,7 +93,9 @@ async def test_projected_assistant_json_keeps_complete_records_and_valid_sdk_sha
     assert fact["quote"] in json.dumps(decoded)
     assert fact["source_id"] in json.dumps(decoded)
     assert root.events[-1]["output"]["estimated_input_tokens"] <= 25334
-    assert root.events[-1]["output"]["compaction"]["omitted_material_unreviewed"] is True
+    assert (
+        root.events[-1]["output"]["compaction"]["omitted_material_unreviewed"] is True
+    )
     assert root.spent == 100 and root.reserved == 0
     _record("assistant-json-" + shape, root)
 
@@ -152,7 +173,9 @@ def _native() -> FunctionTool:
 
 
 @contextmanager
-def _scopes(root, *children, agent="YouTubeReviewIntelligenceAgent", stage="general_owner"):
+def _scopes(
+    root, *children, agent="YouTubeReviewIntelligenceAgent", stage="general_owner"
+):
     with cm.context_scope(root):
         tokens = (
             cm._allowances.set(tuple(children)),
@@ -219,7 +242,7 @@ _TERMINALS = (
 _ROLES = [
     ("ShoppingScopeGuardrailClassifier", ShoppingGuardrailResult, 400, "structured"),
     ("IntakeAgent", ShoppingBrief, 1200, "structured"),
-    ("ShoppingGuideAgent", GuidedIntakeState, 1600, "structured"),
+    ("ShoppingGuideAgent", ShoppingGuideDecision, 1600, "structured"),
     ("GeneralShoppingAgent", GeneralModelOutput, 3334, "owner"),
     ("TechnologyDomainAnalystAgent", GeneralModelOutput, 2400, "owner"),
     *[(name, GeneralModelOutput, 2000, "owner") for name in _TERMINALS],
@@ -237,25 +260,88 @@ _ROLES = [
     ("CartCartDiscoveryAgent", DiscoveryModelOutput, 5334, "structured"),
     ("CartCartExtractionAgent", ExtractionAgentOutput, 6667, "structured"),
     ("CartCartCategoryRouterAgent", ProductAnalysisRoute, 667, "structured"),
-    ("CartCartSellerListingTrustAgent", SellerListingTrustModelOutput, 1067, "structured"),
+    (
+        "CartCartSellerListingTrustAgent",
+        SellerListingTrustModelOutput,
+        1067,
+        "structured",
+    ),
     ("GeneralShoppingAgent", GeneralModelOutput, 2000, "owner"),
 ]
+
+
+def _completion_literal(contract):
+    identity = "00000000-0000-4000-8000-000000000001"
+    confidence = {"score": 0.2, "level": "low"}
+    controls = {
+        "ShoppingGuardrailResult": {"decision": "allowed"},
+        "ShoppingBrief": {"original_query": "Compare monitors for reading."},
+        "ShoppingGuideDecision": {
+            "decision": {
+                "status": "ready_for_analysis",
+                "reasoning": "Enough shopper information is supplied.",
+            }
+        },
+        "GeneralModelOutput": {
+            "rationale": "Current research does not establish a suitable monitor choice.",
+            "category": "monitor",
+            "evidence_gap": "No supported candidate was returned.",
+        },
+        "CategoryAnalysis": {
+            "product_id": identity,
+            "category": "monitor",
+            "fit_summary": "No supported fit is established.",
+            "confidence": confidence,
+        },
+        "SourceManagerDecision": {"summary": "No reviewed source was available."},
+        "YouTubeReviewModelOutput": {"selected_videos": [], "claims": []},
+        "RedditCommunityModelOutput": {"selected_discussions": [], "signals": []},
+        "AmazonProductModelOutput": {"selected_sources": []},
+        "IKEAStoreModelOutput": {"selected_sources": []},
+        "RecommendationBundle": {
+            "bundle_id": identity,
+            "no_strong_buy": True,
+            "no_strong_buy_reason": "No supported candidate was available.",
+        },
+        "_VerifierModelDecision": {},
+        "SearchPlan": {
+            "queries": [{"query": "monitor reading", "intent": "discovery"}]
+        },
+        "DiscoveryModelOutput": {
+            "source_decisions": [],
+            "selected_source_ids": [],
+            "outcome": "insufficient_candidates",
+        },
+        "ExtractionAgentOutput": {},
+        "ProductAnalysisRoute": {"agent_path": ["GenericProductAnalystAgent"]},
+        "SellerListingTrustModelOutput": {
+            "assessment": {
+                "listing_id": identity,
+                "level": "unknown",
+                "confidence": confidence,
+                "summary": "Seller trust has not been checked.",
+                "assessed_at": "2026-10-21T00:00:00Z",
+            }
+        },
+    }
+    return contract.model_validate(controls[contract.__name__]).model_dump(mode="json")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("agent,contract,output,purpose", _ROLES)
 async def test_role_contracts_have_funded_completion(agent, contract, output, purpose):
+    literal = _completion_literal(contract)
     probe = cm.ContextBudget()
     with _scopes(probe, agent=agent):
         await _request(
             probe,
-            _LocalTransportModel(_Step(_message({"local_control": "probe"}))),
+            _LocalTransportModel(_Step(_message(literal))),
             output=output,
             contract=contract,
         )
     promised = probe.events[0]["output"]["completion_request_tokens"]
     root = cm.ContextBudget(spent=200_000 - promised - 10)
-    model = _LocalTransportModel(_Step(_message({"local_control": "funded finish"})))
+    model = _LocalTransportModel(_Step(_message(literal)))
     with _scopes(root, agent=agent):
         response = await _request(root, model, output=output, contract=contract)
     event = root.events[-1]["output"]
@@ -269,12 +355,16 @@ async def test_role_contracts_have_funded_completion(agent, contract, output, pu
     assert event["estimated_input_tokens"] <= 25_334
     assert "Further research is closed" in request["instructions"]
     if purpose == "owner":
-        assert "Recommend by default" in request["instructions"]
+        assert (
+            "Select the useful option set before naming an optional preferred winner."
+            in request["instructions"]
+        )
     else:
-        assert "Recommend by default" not in request["instructions"]
-    assert json.loads(response.output[0].content[0].text) == {
-        "local_control": "funded finish"
-    }
+        assert (
+            "Select the useful option set before naming an optional preferred winner."
+            not in request["instructions"]
+        )
+    assert json.loads(response.output[0].content[0].text) == literal
     assert root.spent == 200_000 - promised + 90
     assert root.reserved == 0
     _record(f"role-{agent}-{output}", root)
@@ -310,7 +400,11 @@ async def test_nested_transfer_funds_exact_shortfalls_without_new_main_tokens():
     assert owner.limits.total_tokens == 119_950 + request + hold + 2400
     assert source.limits.total_tokens == 39_960 + request + hold + 900
     assert root.limits.total_tokens == 200_000
-    assert [ledger.spent for ledger in (root, owner, source)] == [140_100, 120_050, 40_060]
+    assert [ledger.spent for ledger in (root, owner, source)] == [
+        140_100,
+        120_050,
+        40_060,
+    ]
     assert [ledger.reserved for ledger in (root, owner, source)] == [0, 0, 0]
     assert event["phase"] == "research"
     assert model.calls[0]["tools"] == ["read_video_transcript"]
@@ -322,7 +416,11 @@ async def test_nested_transfer_funds_exact_shortfalls_without_new_main_tokens():
     }
     assert root.events[-1]["output"]["allocation_transfers"] == []
     assert (owner.limits.total_tokens, source.limits.total_tokens) == funded
-    assert [ledger.spent for ledger in (root, owner, source)] == [140_200, 120_150, 40_160]
+    assert [ledger.spent for ledger in (root, owner, source)] == [
+        140_200,
+        120_150,
+        40_160,
+    ]
     assert [ledger.reserved for ledger in (root, owner, source)] == [0, 0, 0]
     _record("exact-nested-transfer", root, owner, source)
 
@@ -344,8 +442,16 @@ async def test_unfunded_nested_request_cannot_transfer_or_reset_spending():
     with _scopes(root, owner, source), pytest.raises(cm.ContextBudgetExceeded):
         await _request(root, model)
     assert model.calls == []
-    assert [ledger.limits.total_tokens for ledger in (root, owner, source)] == [200_000, 120_000, 40_000]
-    assert [ledger.spent for ledger in (root, owner, source)] == [199_500, 119_990, 39_990]
+    assert [ledger.limits.total_tokens for ledger in (root, owner, source)] == [
+        200_000,
+        120_000,
+        40_000,
+    ]
+    assert [ledger.spent for ledger in (root, owner, source)] == [
+        199_500,
+        119_990,
+        39_990,
+    ]
     assert [ledger.reserved for ledger in (root, owner, source)] == [0, 0, 0]
     assert root.events[-1]["output"]["allocation_transfers"] == []
     assert root.events[-1]["status"] == "blocked"
@@ -362,8 +468,12 @@ async def test_parallel_sources_keep_independent_completion_holds():
         completion_plans={"source_manager:SourceIntelligenceManagerAgent": 2500},
     )
     entered_a, entered_b, release_a, release_b = [asyncio.Event() for _ in range(4)]
-    first = _LocalTransportModel(_Step(_message({"local": "done"}), entered=entered_a, release=release_a))
-    second = _LocalTransportModel(_Step(_call("read_video_transcript", {}), entered=entered_b, release=release_b))
+    first = _LocalTransportModel(
+        _Step(_message({"local": "done"}), entered=entered_a, release=release_a)
+    )
+    second = _LocalTransportModel(
+        _Step(_call("read_video_transcript", {}), entered=entered_b, release=release_b)
+    )
 
     async def run(agent, model):
         cm._agent.set(agent)
@@ -373,7 +483,9 @@ async def test_parallel_sources_keep_independent_completion_holds():
         first_task = asyncio.create_task(run("YouTubeReviewIntelligenceAgent", first))
         await entered_a.wait()
         first_hold = source.completion_plans["source:YouTubeReviewIntelligenceAgent"]
-        second_task = asyncio.create_task(run("RedditCommunityIntelligenceAgent", second))
+        second_task = asyncio.create_task(
+            run("RedditCommunityIntelligenceAgent", second)
+        )
         await entered_b.wait()
         assert set(source.completion_plans) == {
             "source_manager:SourceIntelligenceManagerAgent",
@@ -381,7 +493,9 @@ async def test_parallel_sources_keep_independent_completion_holds():
             "source:RedditCommunityIntelligenceAgent",
         }
         second_hold = source.completion_plans["source:RedditCommunityIntelligenceAgent"]
-        assert root.reserved == sum(e["output"]["requested_reservation"] for e in root.events)
+        assert root.reserved == sum(
+            e["output"]["requested_reservation"] for e in root.events
+        )
         assert root.reserved + first_hold + second_hold + 2500 <= 200_000
         release_a.set()
         await first_task
@@ -398,16 +512,24 @@ async def test_parallel_sources_keep_independent_completion_holds():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("removed_call", [False, True])
-async def test_hosted_removal_keeps_native_tools_and_rejects_removed_calls(removed_call):
+async def test_hosted_removal_keeps_native_tools_and_rejects_removed_calls(
+    removed_call,
+):
     root = cm.ContextBudget(spent=182_000)
-    output = _call("web_search", {}) if removed_call else _call("read_video_transcript", {})
+    output = (
+        _call("web_search", {}) if removed_call else _call("read_video_transcript", {})
+    )
     model = _LocalTransportModel(_Step(output))
     with _scopes(root):
         if removed_call:
             with pytest.raises(cm.ContextBudgetExceeded, match="research"):
-                await _request(root, model, tools=[WebSearchTool(), _native()], choice="web_search")
+                await _request(
+                    root, model, tools=[WebSearchTool(), _native()], choice="web_search"
+                )
         else:
-            response = await _request(root, model, tools=[WebSearchTool(), _native()], choice="web_search")
+            response = await _request(
+                root, model, tools=[WebSearchTool(), _native()], choice="web_search"
+            )
             assert response.output[0].name == "read_video_transcript"
     assert model.calls[0]["tools"] == ["read_video_transcript"]
     assert model.calls[0]["tool_choice"] == "auto"
@@ -415,7 +537,9 @@ async def test_hosted_removal_keeps_native_tools_and_rejects_removed_calls(remov
     assert event["output"]["hosted_search_disabled"] is True
     assert event["output"]["hosted_expansion_reservation"] == 0
     assert event["output"]["phase"] == "research"
-    assert event["status"] == ("blocked_closed_research" if removed_call else "completed")
+    assert event["status"] == (
+        "blocked_closed_research" if removed_call else "completed"
+    )
     assert root.spent == 182_100 and root.reserved == 0
     _record(f"hosted-removal-{removed_call}", root)
 
@@ -437,7 +561,9 @@ async def test_removed_hosted_search_rejects_actual_sdk_hosted_output_shape():
     )
     try:
         with _scopes(root), pytest.raises(cm.ContextBudgetExceeded, match="research"):
-            await _request(root, model, tools=[WebSearchTool(), _native()], choice="web_search")
+            await _request(
+                root, model, tools=[WebSearchTool(), _native()], choice="web_search"
+            )
     finally:
         _record("actual-hosted-output-after-removal", root)
     assert model.calls[0]["tools"] == ["read_video_transcript"]
@@ -453,7 +579,9 @@ async def test_only_eligible_downstream_stages_protect_their_32000_allocation(st
     active = cm.ContextBudget(spent=160_000, eligible_stages=frozenset({stage}))
     for root in (inactive, active):
         with _scopes(root):
-            await _request(root, _LocalTransportModel(_Step(_message({"local": "finish"}))))
+            await _request(
+                root, _LocalTransportModel(_Step(_message({"local": "finish"})))
+            )
     assert inactive.events[0]["output"]["downstream_reserve_tokens"] == 0
     assert inactive.events[0]["output"]["phase"] == "research"
     assert active.events[0]["output"]["downstream_reserve_tokens"] == 32_000
@@ -465,13 +593,23 @@ async def test_only_eligible_downstream_stages_protect_their_32000_allocation(st
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("decorator,scope", [(cm.managed_decision_context, "decision"), (cm.managed_verification_context, "verification")])
-async def test_configured_decision_and_verification_scopes_do_not_transfer(decorator, scope):
+@pytest.mark.parametrize(
+    "decorator,scope",
+    [
+        (cm.managed_decision_context, "decision"),
+        (cm.managed_verification_context, "verification"),
+    ],
+)
+async def test_configured_decision_and_verification_scopes_do_not_transfer(
+    decorator, scope
+):
     root = cm.ContextBudget()
     model = _LocalTransportModel(
         _Step(
             _message({"local": "within scope"}),
-            usage=Usage(requests=1, input_tokens=31_980, output_tokens=20, total_tokens=32_000),
+            usage=Usage(
+                requests=1, input_tokens=31_980, output_tokens=20, total_tokens=32_000
+            ),
         )
     )
 
@@ -487,7 +625,12 @@ async def test_configured_decision_and_verification_scopes_do_not_transfer(decor
         assert child.limits.total_tokens == 32_000 and child.reserved == 0
         _record(f"fixed-{scope}", root, child)
 
-    with _scopes(root, agent="VerifierCriticAgent" if scope == "verification" else "ComparisonDecisionAgent"):
+    with _scopes(
+        root,
+        agent="VerifierCriticAgent"
+        if scope == "verification"
+        else "ComparisonDecisionAgent",
+    ):
         await run()
     assert len(model.calls) == 1
     assert root.spent == 32_000 and root.reserved == 0
@@ -512,8 +655,12 @@ async def test_true_main_exhaustion_never_launches_a_model_call(exhausted):
 @pytest.mark.parametrize("outcome", ["known", "unknown", "failed", "cancelled"])
 async def test_settlement_charges_every_scope_once(outcome):
     root = cm.ContextBudget()
-    owner = cm.ContextBudget(limits=replace(cm.ContextLimits(), total_tokens=120_000), scope="owner")
-    source = cm.ContextBudget(limits=replace(cm.ContextLimits(), total_tokens=40_000), scope="source")
+    owner = cm.ContextBudget(
+        limits=replace(cm.ContextLimits(), total_tokens=120_000), scope="owner"
+    )
+    source = cm.ContextBudget(
+        limits=replace(cm.ContextLimits(), total_tokens=40_000), scope="source"
+    )
     output = _message({"local": "complete"})
     usage = Usage(requests=1) if outcome == "unknown" else None
     if outcome == "failed":
@@ -523,17 +670,33 @@ async def test_settlement_charges_every_scope_once(outcome):
     model = _LocalTransportModel(_Step(output, usage=usage))
     with _scopes(root, owner, source):
         if outcome in {"failed", "cancelled"}:
-            with pytest.raises(RuntimeError if outcome == "failed" else asyncio.CancelledError):
+            with pytest.raises(
+                RuntimeError if outcome == "failed" else asyncio.CancelledError
+            ):
                 await _request(root, model)
         else:
             response = await _request(root, model)
-            assert json.loads(response.output[0].content[0].text) == {"local": "complete"}
+            assert json.loads(response.output[0].content[0].text) == {
+                "local": "complete"
+            }
     event = root.events[-1]
     charge = 100 if outcome == "known" else event["output"]["requested_reservation"]
-    assert [ledger.spent for ledger in (root, owner, source)] == [charge, charge, charge]
+    assert [ledger.spent for ledger in (root, owner, source)] == [
+        charge,
+        charge,
+        charge,
+    ]
     assert [ledger.reserved for ledger in (root, owner, source)] == [0, 0, 0]
     assert event["output"]["charged_tokens"] == charge
-    assert event["status"] == {"known": "completed", "unknown": "completed_estimated", "failed": "failed_reserved", "cancelled": "cancelled_reserved"}[outcome]
+    assert (
+        event["status"]
+        == {
+            "known": "completed",
+            "unknown": "completed_estimated",
+            "failed": "failed_reserved",
+            "cancelled": "cancelled_reserved",
+        }[outcome]
+    )
     _record(f"settlement-{outcome}", root, owner, source)
 
 
@@ -541,9 +704,16 @@ async def test_settlement_charges_every_scope_once(outcome):
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_failed_standalone_releases_hold_and_keeps_reusable_checkpoint(cancelled):
     root = cm.ContextBudget()
-    failure = asyncio.CancelledError() if cancelled else RuntimeError("Explicit local failure.")
+    failure = (
+        asyncio.CancelledError()
+        if cancelled
+        else RuntimeError("Explicit local failure.")
+    )
     model = _LocalTransportModel(_Step(failure))
-    with _scopes(root), pytest.raises(asyncio.CancelledError if cancelled else RuntimeError):
+    with (
+        _scopes(root),
+        pytest.raises(asyncio.CancelledError if cancelled else RuntimeError),
+    ):
         await _request(root, model)
     event = root.events[-1]
     assert root.completion_plans == {}
@@ -577,18 +747,37 @@ async def test_transport_clamps_an_oversized_requested_output_to_global_ceiling(
 @pytest.mark.parametrize("final", [False, True])
 async def test_actual_overage_preserves_paid_final_but_forbids_followup(final):
     root = cm.ContextBudget(spent=180_000)
-    owner = cm.ContextBudget(limits=replace(cm.ContextLimits(), total_tokens=120_000), spent=110_000, scope="owner")
-    output = _message({"recommendation": "Use the reviewed monitor for readable text."}) if final else _call("read_video_transcript", {})
-    model = _LocalTransportModel(_Step(output, usage=Usage(requests=1, input_tokens=24_980, output_tokens=20, total_tokens=25_000)))
+    owner = cm.ContextBudget(
+        limits=replace(cm.ContextLimits(), total_tokens=120_000),
+        spent=110_000,
+        scope="owner",
+    )
+    output = (
+        _message({"recommendation": "Use the reviewed monitor for readable text."})
+        if final
+        else _call("read_video_transcript", {})
+    )
+    model = _LocalTransportModel(
+        _Step(
+            output,
+            usage=Usage(
+                requests=1, input_tokens=24_980, output_tokens=20, total_tokens=25_000
+            ),
+        )
+    )
     with _scopes(root, owner, agent="MonitorSpecialistAgent"):
         if final:
             response = await _request(root, model, output=2000)
-            assert json.loads(response.output[0].content[0].text) == {"recommendation": "Use the reviewed monitor for readable text."}
+            assert json.loads(response.output[0].content[0].text) == {
+                "recommendation": "Use the reviewed monitor for readable text."
+            }
         else:
             with pytest.raises(cm.ContextBudgetExceeded):
                 await _request(root, model, output=2000)
         event = root.events[-1]
-        assert event["status"] == ("completed_actual_overage" if final else "blocked_actual_usage")
+        assert event["status"] == (
+            "completed_actual_overage" if final else "blocked_actual_usage"
+        )
         assert event["output"]["actual_input_tokens"] == 24_980
         assert event["output"]["charged_tokens"] == 25_000
         assert event["output"]["exceeded_scopes"] == ["main", "owner"]
@@ -605,7 +794,12 @@ async def test_actual_overage_preserves_paid_final_but_forbids_followup(final):
 async def test_native_actual_input_mismatch_updates_bounded_headroom():
     root = cm.ContextBudget()
     model = _LocalTransportModel(
-        _Step(_message({"local": "first"}), usage=Usage(requests=1, input_tokens=3000, output_tokens=20, total_tokens=3020)),
+        _Step(
+            _message({"local": "first"}),
+            usage=Usage(
+                requests=1, input_tokens=3000, output_tokens=20, total_tokens=3020
+            ),
+        ),
         _Step(_message({"local": "second"})),
     )
     with _scopes(root):
@@ -638,7 +832,9 @@ async def test_hosted_expansion_is_recorded_separately_from_native_headroom():
                 ),
                 *_message({"local_source": "hosted expansion accounted"}),
             ],
-            usage=Usage(requests=1, input_tokens=30_000, output_tokens=20, total_tokens=30_020),
+            usage=Usage(
+                requests=1, input_tokens=30_000, output_tokens=20, total_tokens=30_020
+            ),
         )
     )
     with _scopes(root):
@@ -672,19 +868,31 @@ async def test_large_child_return_keeps_whole_useful_speech_in_funded_completion
     user = {"role": "user", "content": _BUYER}
     initial = [user]
     root = cm.ContextBudget(spent=182_000)
-    source = cm.ContextBudget(limits=replace(cm.ContextLimits(), total_tokens=40_000), scope="source")
+    source = cm.ContextBudget(
+        limits=replace(cm.ContextLimits(), total_tokens=40_000), scope="source"
+    )
     large_result = {
         "status": "ok",
         "video_id": "localReview01",
         "segments": [segment],
         "execution_metadata": "Repeated local transport diagnostics. " * 12_000,
-        "repeated_source_views": [{"video_id": "localReview01", "text": "Unrelated repeated local prose. " * 500}] * 20,
+        "repeated_source_views": [
+            {
+                "video_id": "localReview01",
+                "text": "Unrelated repeated local prose. " * 500,
+            }
+        ]
+        * 20,
     }
     research_call = _call("read_video_transcript", {})[0]
     returned = [
         user,
         research_call.model_dump(mode="json", exclude_none=True),
-        {"type": "function_call_output", "call_id": research_call.call_id, "output": json.dumps(large_result)},
+        {
+            "type": "function_call_output",
+            "call_id": research_call.call_id,
+            "output": json.dumps(large_result),
+        },
     ]
 
     def authored_source(items):
@@ -707,17 +915,35 @@ async def test_large_child_return_keeps_whole_useful_speech_in_funded_completion
                     collect(child)
 
         collect(items)
-        retained = next(row for row in records if row.get("segment_id") == "local-segment-01")
+        retained = next(
+            row for row in records if row.get("segment_id") == "local-segment-01"
+        )
         assert {key: retained[key] for key in segment} == segment
         buyer = next(row for row in records if "brief" in row)
-        assert buyer["brief"]["original_query"] == "Compare monitors for reading. Budget is not a constraint."
+        assert (
+            buyer["brief"]["original_query"]
+            == "Compare monitors for reading. Budget is not a constraint."
+        )
         assert buyer["ownership"] == "MonitorSpecialistAgent"
         assert buyer["objective"] == "Readable text and honest seller cautions."
         assert any(row.get("omitted_material_unreviewed") is True for row in records)
-        return _message({"video_id": "localReview01", "speech": speech, "start_seconds": 15.0, "end_seconds": 26.0, "caution": "Imported seller has no local warranty."})
+        return _message(
+            {
+                "video_id": "localReview01",
+                "speech": speech,
+                "start_seconds": 15.0,
+                "end_seconds": 26.0,
+                "caution": "Imported seller has no local warranty.",
+            }
+        )
 
     model = _LocalTransportModel(
-        _Step([research_call], usage=Usage(requests=1, input_tokens=5480, output_tokens=20, total_tokens=5500)),
+        _Step(
+            [research_call],
+            usage=Usage(
+                requests=1, input_tokens=5480, output_tokens=20, total_tokens=5500
+            ),
+        ),
         _Step(authored_source),
     )
     with _scopes(root, source):

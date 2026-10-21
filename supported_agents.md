@@ -104,6 +104,26 @@ Today the guided API gathers a brief, then the live run enters
 `GeneralShoppingAgent` after intake and before query planning, discovery, or
 category routing. The last SDK owner authors the persisted result after
 operational parsing and persistence without a mandatory verifier.
+The six typed per-product specialists use the candidate's `product.category` for
+scope, result labels and fallback. A conflicting brief remains shopper context
+and cannot classify an unrelated candidate as specialist equipment. Missing
+candidate categories use generic analysis labeled `general product`. Ambiguous
+labels follow the existing catalog fallback, including bare `notebook` and
+`gaming`. Model output for an unrelated category falls back with the actual
+candidate category and supplied citations. The catalog records this boundary as
+`CandidateScopedProductAnalysis`. This rule does not change conversational SDK
+owner handoffs.
+
+The isolated live `ShoppingGuideAgent` model returns a question-or-ready
+decision. Backend code assembles the public `GuidedIntakeState`, and Intake
+supplies its ready brief. Navigation, region, skip/start controls and progress
+are backend-owned. The runtime catalog records `BackendAssembledGuideState`.
+`VerifierCriticAgent` retains public `VerificationReport` output but its model
+returns unchanged approval or candidate-bound editorial references, recorded as
+`CanonicalEditorialReferences`. Revisions select existing analysis explanations;
+invalid requests preserve advice with explicit diagnostics. It remains optional,
+tool-free and nonblocking. Normal guided routing and SDK ownership are unchanged.
+
 `CategoryRouterAgent` returns a `ProductAnalysisRoute`; domain/specialist calls
 return `CategoryAnalysis`; `ComparisonDecisionAgent` remains a separate typed
 capability, not the live result author.
@@ -818,3 +838,10 @@ General and Technology SDK transfer tools accept a nonblank reason. Each tool fi
 After an eligible specialist failure, the existing Technology owner completes from retained source packets, products, listing cautions and the full buyer brief. It has no research tools, archive-reader tool or handoffs. Explicit closed-tool settings also suppress automatic archive-tool injection. The same attempt ledger, remaining timeout, normal Technology output cap and two-turn recovery bound apply. No saved-retry output allowance, new agent or research attempt is added. Failed recovery remains a technical failure with consumed usage preserved. Runtime catalog boundaries are `BuyerValidatedOwnerTransfer` and `RetainedOwnerRecovery`.
 
 Recovery retains nonvideo consultation claims and their source-specific qualifications through selected attributed packets. It merges shared source URLs with existing packets and retains exact evidence and supporting-source identities. Video claims already persisted with accepted speech are not duplicated through raw consultation bundles.
+
+
+Owner and comparison source projections retain stable archive and pagination
+handles in compact receipts. Existing scoped lookup tools can still retrieve
+originals and deferred search leads after repeated projection. The executable
+catalog records `StableSourceLookupReceipts`; receipt metadata remains lookup
+context rather than independent product evidence.

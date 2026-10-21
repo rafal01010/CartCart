@@ -216,23 +216,39 @@ async def test_verifier_keeps_specific_unknown_evidence_issue_from_model_output(
         LiveVerifierCriticAgent,
         MockVerifierCriticModelRunner,
     )
-    from app.agents.contracts import VerificationReport
+    from app.schemas.ids import new_id
+    from test_live_verifier_critic_agent import _settings, _verification_input
 
-    case = next(
-        c
-        for c in trust_recommendation_cases()
-        if c.name == "verification/invented-citation"
-    )
-    task = offline_trust_recommendation_task()
-    request = case.inputs.verification.request
-    agent = LiveVerifierCriticAgent(
-        task.settings,
-        model_runner=MockVerifierCriticModelRunner(
-            output=VerificationReport(
-                approved=True, recommendation_bundle=request.recommendation_bundle
+    request = _verification_input()
+    request = request.model_copy(
+        update={
+            "category_analyses": (
+                request.category_analyses[0].model_copy(
+                    update={
+                        "evidence_ids": (new_id(),),
+                    }
+                ),
             ),
+        }
+    )
+    agent = LiveVerifierCriticAgent(
+        _settings(),
+        model_runner=MockVerifierCriticModelRunner(
+            output={
+                "revisions": [
+                    {
+                        "target": "final_rationale",
+                        "product_id": str(
+                            request.recommendation_bundle.final_product_id
+                        ),
+                    }
+                ],
+            }
         ),
     )
     report = await agent.run(request)
-    assert report.approved is False
-    assert "unknown evidence" in " ".join(report.blocking_issues)
+    assert report.approved is True
+    assert report.recommendation_bundle == request.recommendation_bundle
+    assert report.blocking_issues == ()
+    assert "unknown evidence" in " ".join(report.notes)
+    assert agent.workbench_activity[0]["status"] == "optional_editorial_rejected"

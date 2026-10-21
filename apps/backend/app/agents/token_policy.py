@@ -43,7 +43,7 @@ def completion_purpose(agent: str, contract: str | None = None) -> CompletionPur
     if contract in {
         "CategoryAnalysis",
         "ShoppingBrief",
-        "GuidedIntakeState",
+        "ShoppingGuideDecision",
         "ShoppingGuardrailResult",
         "SearchPlan",
         "DiscoveryModelOutput",

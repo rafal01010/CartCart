@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from app.agents import (
     MockTechnologyDomainAnalystModelRunner,
     ProductAnalysisAgentInput,
 )
+from app.evals.routing import product_specialist_scope_eval_cases
 from app.core.settings import Settings
 from app.evals import (
     ProductAnalysisRoutingEvalKind,
@@ -392,3 +394,132 @@ def _confidence(score: float) -> Confidence:
     else:
         level = ConfidenceLevel.HIGH
     return Confidence(score=score, level=level, rationale="Synthetic confidence.")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "eval_case",
+    product_specialist_scope_eval_cases(),
+    ids=_case_id,
+)
+async def test_typed_specialist_scope_uses_candidate_category(eval_case: Any) -> None:
+    input_data = _analysis_input(eval_case.candidate_category or "unknown product")
+    input_data = input_data.model_copy(
+        update={
+            "product": input_data.product.model_copy(
+                update={
+                    "category": eval_case.candidate_category,
+                }
+            ),
+            "brief": input_data.brief.model_copy(
+                update={
+                    "category": eval_case.brief_category,
+                    "original_query": f"Help me choose a {eval_case.brief_category}.",
+                }
+            ),
+        }
+    )
+    agent_class, runner_class = SPECIALIST_AGENT_FACTORIES[
+        eval_case.specialist_agent_name
+    ]
+    delegate = runner_class()
+    inputs: list[dict[str, Any]] = []
+
+    class RecordingRunner:
+        async def run(self, agent: Any, model_input: str, **kwargs: Any) -> Any:
+            inputs.append(json.loads(model_input))
+            return await delegate.run(agent, model_input, **kwargs)
+
+    agent = agent_class(settings=_settings(), model_runner=RecordingRunner())
+    result = await agent.run(input_data)
+
+    assert (
+        "CandidateScopedProductAnalysis"
+        in DEFAULT_AGENT_CATALOG.require(
+            eval_case.specialist_agent_name
+        ).planned_tool_boundaries
+    )
+    assert delegate.calls == eval_case.expected_model_calls
+    assert result.category == eval_case.expected_category
+    assert result.product_id == input_data.product.product_id
+    assert result.evidence_ids == tuple(
+        item.evidence_id for item in input_data.evidence
+    )
+    assert result.source_ids == tuple(
+        dict.fromkeys(item.source_id for item in input_data.evidence)
+    )
+    if eval_case.expected_model_calls:
+        assert inputs[0]["brief"] == input_data.brief.model_dump(mode="json")
+        assert inputs[0]["product"]["category"] == eval_case.candidate_category
+        assert agent.workbench_activity[0]["status"].startswith("model_")
+    else:
+        assert result.strengths == ()
+        assert result.weaknesses == ()
+        assert "fallback_non_" in agent.workbench_activity[0]["status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "eval_case", product_analysis_fallback_eval_cases(), ids=_case_id
+)
+async def test_typed_specialist_rejects_model_category_mismatch(eval_case: Any) -> None:
+    input_data = _analysis_input(eval_case.own_category)
+    agent_class, runner_class = SPECIALIST_AGENT_FACTORIES[
+        eval_case.specialist_agent_name
+    ]
+    runner = runner_class()
+    agent = agent_class(settings=_settings(), model_runner=runner)
+    matching = await agent.run(input_data)
+    runner.output = matching.model_copy(update={"category": "office chair"})
+
+    result = await agent.run(input_data)
+
+    assert runner.calls == 2
+    assert result.category == eval_case.own_category
+    assert result.evidence_ids == tuple(
+        item.evidence_id for item in input_data.evidence
+    )
+    assert (
+        agent.workbench_activity[0]["status"]
+        == "schema_invalid_technology_domain_fallback"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "eval_case", product_analysis_fallback_eval_cases(), ids=_case_id
+)
+@pytest.mark.parametrize("failure", ("error", "timeout", "schema_invalid"))
+async def test_typed_specialist_failure_preserves_candidate_despite_brief(
+    eval_case: Any,
+    failure: str,
+) -> None:
+    input_data = _analysis_input(eval_case.own_category)
+    input_data = input_data.model_copy(
+        update={
+            "brief": input_data.brief.model_copy(update={"category": "office chair"}),
+        }
+    )
+    agent_class, runner_class = SPECIALIST_AGENT_FACTORIES[
+        eval_case.specialist_agent_name
+    ]
+    runner = runner_class(
+        error=TimeoutError()
+        if failure == "timeout"
+        else (
+            RuntimeError("bounded offline model error") if failure == "error" else None
+        ),
+        output={"invalid": True} if failure == "schema_invalid" else None,
+    )
+    agent = agent_class(settings=_settings(), model_runner=runner)
+
+    result = await agent.run(input_data)
+
+    assert runner.calls == 1
+    assert result.category == eval_case.own_category
+    assert result.evidence_ids == tuple(
+        item.evidence_id for item in input_data.evidence
+    )
+    assert (
+        agent.workbench_activity[0]["status"] == f"{failure}_technology_domain_fallback"
+    )

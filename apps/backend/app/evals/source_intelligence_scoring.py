@@ -396,8 +396,8 @@ def score_source_intelligence(
                 re.I,
             )
             results["downstream.supported_claims"] = _check(
-                all(s.casefold() in claims for s in specs),
-                "Approved shopper specifications must exist in cited source facts.",
+                all(s.casefold() in claims for s in specs) == expected.claims_supported,
+                "Observe the authored claim-support control independently of optional editorial approval.",
                 specs,
             )
             results["downstream.approval"] = _check(

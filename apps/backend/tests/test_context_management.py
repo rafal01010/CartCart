@@ -30,7 +30,6 @@ from app.agents.source_spans import source_span
 from app.agents.contracts import (
     ComparisonDecisionAgentInput,
     VerificationAgentInput,
-    VerificationReport,
 )
 from app.agents.live_comparison_decision import LiveComparisonDecisionAgent
 from app.agents.live_verifier_critic import LiveVerifierCriticAgent
@@ -483,6 +482,7 @@ async def test_comparison_and_verifier_transport_preserve_exact_support_and_budg
         supplied.evidence[0],
     )
     draft = RecommendationBundle(
+        primary_product_ids=(product.product_id,),
         final_product_id=product.product_id,
         final_listing_id=listing.listing_id,
         final_rationale=evidence.claim,
@@ -541,26 +541,18 @@ async def test_comparison_and_verifier_transport_preserve_exact_support_and_budg
             trust_assessments=supplied.trust_assessments,
             category_analyses=supplied.category_analyses,
         )
-        model.steps.append(
-            VerificationReport(
-                approved=True, recommendation_bundle=bundle
-            ).model_dump_json()
-        )
+        model.steps.append("{}")
         report = await LiveVerifierCriticAgent(
             settings, model_runner=OfflineSDKRunner()
         ).run(verification)
-    assert not report.approved
-    assert report.blocking_issues == (
-        "best_value rationale includes a factual claim not backed by its evidence.",
-        "within_budget rationale includes a factual claim not backed by its evidence.",
-        "runner_up rationale includes a factual claim not backed by its evidence.",
-    )
+    assert report.approved
+    assert report.blocking_issues == ()
+    assert report.recommendation_bundle == bundle
     assert report.recommendation_bundle.final_product_id == product.product_id
-    assert [event["status"] for event in budget.events] == ["completed", "completed"]
-    assert (
-        comparison.workbench_activity[0]["status"]
-        == "model_comparison_decision_completed"
-    )
+    assert [event["status"] for event in budget.events if event["tool_name"] == "context_call"] == ["completed", "completed"]
+    assert all(event["status"] == "transported" for event in budget.events if event["tool_name"] == "decision_source_selection")
+    assert comparison.workbench_activity[0]["status"] == "model_comparison_decision_started"
+    assert any(item["status"] == "model_comparison_decision_completed" for item in comparison.workbench_activity)
     actual_input = json.loads(model.inputs[-1][0]["content"])
     assert (
         actual_input["evidence"][0]["claim"]
@@ -572,11 +564,7 @@ async def test_comparison_and_verifier_transport_preserve_exact_support_and_budg
     }
     assert budget.spent < 90_000
     safe = VerificationAgentInput.model_validate(_scenario_verifier_approved().input)
-    model.steps.append(
-        VerificationReport(
-            approved=True, recommendation_bundle=safe.recommendation_bundle
-        ).model_dump_json()
-    )
+    model.steps.append("{}")
     with context_scope(budget):
         approved = await LiveVerifierCriticAgent(
             settings, model_runner=OfflineSDKRunner()
